@@ -35,6 +35,7 @@ describe("Login", () => {
 
     expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/contraseña/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /registrate/i })).toHaveAttribute("href", "/register");
   });
 
   test("muestra error cuando credenciales inválidas", async () => {

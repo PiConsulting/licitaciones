@@ -1,3 +1,4 @@
+import { forwardRef } from "react";
 import type { InputHTMLAttributes } from "react";
 
 import { cn } from "../utils/cn";
@@ -7,7 +8,10 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   error?: string;
 }
 
-export function Input({ label, id, error, className, disabled, ...props }: InputProps) {
+export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
+  { label, id, error, className, disabled, ...props },
+  ref,
+) {
   const inputId = id ?? label.toLowerCase().replace(/\s+/g, "-");
   const errorId = error ? `${inputId}-error` : undefined;
 
@@ -17,6 +21,7 @@ export function Input({ label, id, error, className, disabled, ...props }: Input
         {label}
       </label>
       <input
+        ref={ref}
         id={inputId}
         aria-invalid={Boolean(error)}
         aria-describedby={errorId}
@@ -38,4 +43,4 @@ export function Input({ label, id, error, className, disabled, ...props }: Input
       ) : null}
     </div>
   );
-}
+});

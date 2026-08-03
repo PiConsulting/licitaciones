@@ -3,23 +3,23 @@ from datetime import UTC, datetime, timedelta
 import jwt
 from fastapi import HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from passlib.context import CryptContext
+from passlib.hash import bcrypt
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
 from shared.config import get_settings
 from users.models import User
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 http_bearer = HTTPBearer(auto_error=False)
 
 
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.using(rounds=12).hash(password)
 
 
 def verify_password(plain_password: str, password_hash: str) -> bool:
-    return pwd_context.verify(plain_password, password_hash)
+    return bcrypt.verify(plain_password, password_hash)
 
 
 def create_access_token(user_id: str) -> str:
@@ -76,3 +76,28 @@ def get_current_user(credentials: HTTPAuthorizationCredentials | None, db: Sessi
         )
 
     return user
+
+
+def register_user(db: Session, name: str, email: str, password: str) -> User:
+    user = User(
+        name=name.strip(),
+        email=email.strip().lower(),
+        password_hash=get_password_hash(password),
+    )
+
+    try:
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": {
+                    "code": "EMAIL_ALREADY_EXISTS",
+                    "message": "Este email ya está registrado",
+                }
+            },
+        ) from exc
