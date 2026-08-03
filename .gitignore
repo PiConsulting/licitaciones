@@ -1,0 +1,57 @@
+# Python virtual environments
+.venv/
+venv/
+
+# Python bytecode/cache
+__pycache__/
+*.py[cod]
+
+# Python tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Coverage artifacts
+.coverage
+.coverage.*
+htmlcov/
+coverage/
+
+# Local SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Local environment and secrets
+.env
+.env.*
+*.local
+
+# Local BMAD user overrides
+*.user.toml
+
+# Generated outputs
+_bmad-output/
+
+# Frontend dependencies and build artifacts
+node_modules/
+dist/
+
+# JavaScript tooling caches
+.npm/
+.pnpm-store/
+.yarn/
+.parcel-cache/
+.vite/
+
+# Logs and temp files
+*.log
+tmp/
+temp/
+.cache/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
