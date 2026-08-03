@@ -12,7 +12,7 @@ describe("Sidebar", () => {
     );
 
     expect(screen.getByText("Dashboard")).toBeInTheDocument();
-    expect(screen.getByText("Analizar Pliego")).toBeInTheDocument();
+    expect(screen.getByText("Analizar nuevo pliego")).toBeInTheDocument();
   });
 
   test("marca item activo", () => {

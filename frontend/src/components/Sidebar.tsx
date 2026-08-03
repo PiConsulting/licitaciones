@@ -15,7 +15,7 @@ export function Sidebar() {
 
   const navItems = [
     { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
-    { to: "/analyze", icon: FileText, label: "Analizar Pliego" },
+    { to: "/analyze", icon: FileText, label: "Analizar nuevo pliego" },
   ];
 
   return (

@@ -4,11 +4,8 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppLayout } from "./components/AppLayout";
 import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
+import NewAnalysisWizard from "./pages/NewAnalysis/NewAnalysisWizard";
 import Register from "./pages/Register";
-
-function AnalyzePlaceholder() {
-  return <h1 className="text-xl font-semibold">Analizar Pliego</h1>;
-}
 
 function ProtectedRoute({ children }: { children: ReactElement }) {
   const token = localStorage.getItem("access_token");
@@ -31,7 +28,7 @@ export default function App() {
         }
       >
         <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/analyze" element={<AnalyzePlaceholder />} />
+        <Route path="/analyze" element={<NewAnalysisWizard />} />
       </Route>
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
