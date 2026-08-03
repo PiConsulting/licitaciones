@@ -4,10 +4,13 @@ version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
   "alembic>=1.13.0",
+  "azure-storage-blob>=12.19.0",
   "fastapi>=0.111.0",
   "passlib[bcrypt]>=1.7.4",
+  "pypdf>=4.2.0",
   "pydantic-settings>=2.3.0",
   "pyjwt>=2.8.0",
+  "python-multipart>=0.0.9",
   "python-dotenv>=1.0.0",
   "sqlalchemy>=2.0.0",
   "structlog>=24.0.0",

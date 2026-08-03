@@ -3,9 +3,10 @@ import { DropZone } from "../../components/upload/DropZone";
 import { FileList } from "../../components/upload/FileList";
 import { ValidationAlert } from "../../components/upload/ValidationAlert";
 import { useFileUpload } from "../../hooks/useFileUpload";
+import type { UploadedFile } from "../../types/upload";
 
 interface Step1UploadFilesProps {
-  onNext: () => void;
+  onNext: (files: UploadedFile[]) => void;
 }
 
 export function Step1UploadFiles({ onNext }: Step1UploadFilesProps) {
@@ -18,7 +19,7 @@ export function Step1UploadFiles({ onNext }: Step1UploadFilesProps) {
       <FileList files={files} onRemove={removeFile} />
 
       <div className="flex justify-end">
-        <Button type="button" onClick={onNext} disabled={!canContinue}>
+        <Button type="button" onClick={() => onNext(files)} disabled={!canContinue}>
           Siguiente
         </Button>
       </div>

@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from analysis.routes import analysis_router
 from users.routes import auth_router, protected_router
 
 
@@ -31,6 +32,7 @@ def create_app() -> FastAPI:
 
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(protected_router, prefix="/api/v1")
+    app.include_router(analysis_router, prefix="/api/v1")
     return app
 
 

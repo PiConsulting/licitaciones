@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
     jwt_expiration_hours: int = Field(default=24, alias="JWT_EXPIRATION_HOURS")
     use_local_adapters: bool = Field(default=True, alias="USE_LOCAL_ADAPTERS")
+    local_blob_storage_path: str = Field(default="./local_blob_storage", alias="LOCAL_BLOB_STORAGE_PATH")
+    azure_blob_connection_string: str = Field(default="", alias="AZURE_BLOB_CONNECTION_STRING")
+    azure_blob_container_name: str = Field(default="documents", alias="AZURE_BLOB_CONTAINER_NAME")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
 

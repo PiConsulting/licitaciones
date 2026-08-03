@@ -9,6 +9,8 @@ os.environ["JWT_ALGORITHM"] = "HS256"
 os.environ["JWT_EXPIRATION_HOURS"] = "24"
 
 from main import app
+from analysis.models import Analysis
+from documents.models import Document
 from shared.database import Base, SessionLocal, engine
 from users.models import User
 from users.service import create_access_token, get_password_hash
