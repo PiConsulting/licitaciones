@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { DuplicateWarningModal } from "../../components/analysis/DuplicateWarningModal";
-import { AnalysisStatusPolling } from "../../components/analysis/AnalysisStatusPolling";
+import { AnalysisProgress } from "../../components/analysis/AnalysisProgress";
 import { Button } from "../../components/Button";
 import { useAnalysisPolling } from "../../hooks/useAnalysisPolling";
 import { useStartAnalysis } from "../../hooks/useStartAnalysis";
@@ -45,9 +45,7 @@ export function Step4StartAnalysis({ analysisId, onBack }: Step4StartAnalysisPro
 
       if (
         response.status === "queued" ||
-        response.status === "extracting_text" ||
-        response.status === "indexing" ||
-        response.status === "analyzing"
+        response.status === "processing"
       ) {
         setShowModal(false);
         setPollingEnabled(true);
@@ -71,11 +69,9 @@ export function Step4StartAnalysis({ analysisId, onBack }: Step4StartAnalysisPro
 
       <p className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">Análisis ID: {analysisId}</p>
 
-      <AnalysisStatusPolling
-        statusData={polling.data}
-        isLoading={polling.isLoading && pollingEnabled}
-        error={polling.error instanceof Error ? polling.error.message : null}
-      />
+      {polling.isLoading && pollingEnabled ? <p className="text-sm text-gray-600">Consultando estado...</p> : null}
+      {polling.error instanceof Error ? <p className="text-sm text-error">{polling.error.message}</p> : null}
+      {polling.data ? <AnalysisProgress analysisId={analysisId} status={polling.data} /> : null}
 
       {error ? <p className="text-sm text-error">{error}</p> : null}
 

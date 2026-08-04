@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 
 from analysis.extraction.graph import graph
 from analysis.extraction.state import GraphState
-from analysis.models import Analysis, AnalysisVersion
+from analysis.models import Analysis, AnalysisVersion, CurrentStage
+from analysis.progress import build_stage_progress, update_stage_and_progress
 from shared.config import get_settings
 
 logger = structlog.get_logger(__name__)
@@ -51,6 +52,15 @@ def extract_categories(db: Session, analysis: Analysis) -> GraphState:
         analysis_id=analysis.id,
         max_concurrency=max_concurrency,
     )
+    update_stage_and_progress(
+        db,
+        analysis.id,
+        CurrentStage.ANALYZING,
+        progress_increment=45,
+        stage_progress=build_stage_progress(CurrentStage.ANALYZING, done=8, total=8),
+        status="processing",
+    )
+
     result = graph.invoke(initial_state, config={"max_concurrency": max_concurrency})
 
     extracted_data = result.get("extracted_data", {})
@@ -73,10 +83,25 @@ def extract_categories(db: Session, analysis: Analysis) -> GraphState:
     db.add(new_version)
     db.flush()
 
+    update_stage_and_progress(
+        db,
+        analysis.id,
+        CurrentStage.CONSOLIDATING,
+        progress_increment=15,
+        stage_progress=build_stage_progress(CurrentStage.CONSOLIDATING),
+        status="processing",
+    )
+
     analysis.current_version_id = new_version.id
     analysis.extraction_metadata = metadata
     analysis.status = "analyzed"
-    analysis.current_stage = "Análisis completo"
+    analysis.current_stage = CurrentStage.COMPLETED.value
+    analysis.progress_percentage = 100
+    analysis.error_message = None
+    analysis.extraction_metadata = {
+        **metadata,
+        "stage_progress": build_stage_progress(CurrentStage.COMPLETED),
+    }
     analysis.updated_at = datetime.now(UTC)
     db.commit()
 

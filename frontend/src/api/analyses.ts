@@ -39,3 +39,8 @@ export async function getAnalysisStatus(analysisId: string): Promise<AnalysisSta
   const response = await apiClient.get<AnalysisStatusResponse>(`/analyses/${analysisId}/status`);
   return response.data;
 }
+
+export async function cancelAnalysis(analysisId: string): Promise<AnalysisStatusResponse> {
+  const response = await apiClient.post<AnalysisStatusResponse>(`/analyses/${analysisId}/cancel`);
+  return response.data;
+}
