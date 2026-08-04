@@ -4,7 +4,8 @@ WORKDIR /app
 
 COPY backend/pyproject.toml /app/pyproject.toml
 RUN pip install --no-cache-dir \
-    fastapi uvicorn sqlalchemy alembic pydantic-settings pyjwt passlib[bcrypt] structlog psycopg2-binary python-dotenv
+    fastapi uvicorn sqlalchemy alembic pydantic-settings pyjwt passlib[bcrypt] structlog psycopg2-binary python-dotenv \
+    azure-ai-documentintelligence azure-search-documents azure-storage-blob openai pypdf python-multipart
 
 COPY backend /app
 

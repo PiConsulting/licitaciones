@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from fastapi import BackgroundTasks
 from hashlib import sha256
 from io import BytesIO
 import logging
@@ -17,6 +18,7 @@ from analysis.models import Analysis
 from documents.models import Document
 from documents.service import calculate_content_hash
 from documents.schemas import DocumentResponse, DocumentWarning
+from extraction.runner import extract_and_index
 from shared.adapters.azure_blob_storage import AzureBlobStorageAdapter
 from shared.adapters.local_blob_storage import LocalBlobStorageAdapter
 from shared.config import get_settings
@@ -248,7 +250,7 @@ def check_duplicates(
                 Document.content_hash == content_hash,
                 Analysis.deleted_at.is_(None),
                 Document.deleted_at.is_(None),
-                Analysis.status.in_(["completed", "analyzing"]),
+                Analysis.status.in_(["completed", "analyzing", "analyzed"]),
             )
         )
     )
@@ -308,6 +310,11 @@ def find_duplicates_for_analysis(db: Session, analysis_id: str, user_id: str) ->
         )
 
     return duplicates
+
+
+def enqueue_analysis(background_tasks: BackgroundTasks, analysis_id: str) -> None:
+    """Enqueue sync extraction/indexing in FastAPI background threadpool."""
+    background_tasks.add_task(extract_and_index, analysis_id)
 
 
 def run_analysis_stub(analysis_id: str) -> None:

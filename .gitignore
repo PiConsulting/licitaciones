@@ -32,6 +32,8 @@ coverage/
 
 # Generated outputs
 _bmad-output/
+local_blob_storage/
+backend/local_blob_storage/
 
 # Frontend dependencies and build artifacts
 node_modules/

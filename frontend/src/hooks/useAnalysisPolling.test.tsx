@@ -55,7 +55,7 @@ describe("useAnalysisPolling", () => {
   test("redirige cuando se completa", async () => {
     mockGetAnalysisStatus.mockResolvedValue({
       id: "analysis-2",
-      status: "completed",
+      status: "analyzed",
       current_stage: null,
     });
 

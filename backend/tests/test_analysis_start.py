@@ -136,7 +136,7 @@ def test_start_analysis_returns_duplicate_resolution_payload(client: TestClient,
 def test_start_analysis_success_with_analyze_again_decision(client: TestClient, auth_token: str, monkeypatch) -> None:
     from analysis import routes as analysis_routes
 
-    monkeypatch.setattr(analysis_routes, "run_analysis_stub", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(analysis_routes, "enqueue_analysis", lambda *_args, **_kwargs: None)
 
     db = SessionLocal()
     user = db.query(User).filter(User.email == "test@cedia.com").first()
