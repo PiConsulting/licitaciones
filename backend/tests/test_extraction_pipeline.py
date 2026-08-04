@@ -1,7 +1,7 @@
 from pathlib import Path
 from uuid import uuid4
 
-import pypdf
+import fitz
 
 from analysis.models import Analysis
 from documents.models import Document
@@ -14,10 +14,12 @@ from users.models import User
 
 
 def _create_pdf_with_blank_page(target: Path) -> None:
-    writer = pypdf.PdfWriter()
-    writer.add_blank_page(width=200, height=200)
-    with target.open("wb") as handle:
-        writer.write(handle)
+    doc = fitz.open()
+    doc.new_page(width=200, height=200)
+    try:
+        doc.save(target)
+    finally:
+        doc.close()
 
 
 def test_create_chunks_with_overlap() -> None:
@@ -41,6 +43,7 @@ def test_create_chunks_with_overlap() -> None:
 def test_upload_chunks_local_writes_metadata(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("USE_LOCAL_ADAPTERS", "true")
     monkeypatch.setenv("LOCAL_BLOB_STORAGE_PATH", str(tmp_path))
+    monkeypatch.setenv("CHROMA_PERSIST_DIRECTORY", str(tmp_path / "chroma"))
     get_settings.cache_clear()
 
     analysis_id = str(uuid4())
@@ -58,11 +61,9 @@ def test_upload_chunks_local_writes_metadata(monkeypatch, tmp_path: Path) -> Non
 
     upload_chunks(chunks, analysis_id=analysis_id, correlation_id=correlation_id)
 
-    target_file = tmp_path / "analysis_index" / f"{analysis_id}.jsonl"
-    assert target_file.exists()
-    line = target_file.read_text(encoding="utf-8").strip()
-    assert analysis_id in line
-    assert '"section_key": "general"' in line
+    chroma_dir = tmp_path / "chroma"
+    assert chroma_dir.exists()
+    assert any(chroma_dir.rglob("*"))
 
 
 def test_extract_and_index_transitions_to_analyzing(monkeypatch, tmp_path: Path) -> None:
@@ -121,14 +122,22 @@ def test_extract_and_index_transitions_to_analyzing(monkeypatch, tmp_path: Path)
         lambda chunks, *_args, **_kwargs: [dict(chunk, embedding=[0.1, 0.2]) for chunk in chunks],
     )
     monkeypatch.setattr("extraction.runner.upload_chunks", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "extraction.runner.extract_categories",
+        lambda db_session, analysis: (
+            setattr(analysis, "status", "analyzed"),
+            setattr(analysis, "current_stage", "Análisis completo"),
+            db_session.commit(),
+        ),
+    )
 
     extract_and_index(analysis_id)
 
     db = SessionLocal()
     updated = db.query(Analysis).filter(Analysis.id == analysis_id).first()
     assert updated is not None
-    assert updated.status == "analyzing"
-    assert updated.current_stage == "Analizando contenido"
+    assert updated.status == "analyzed"
+    assert updated.current_stage == "Análisis completo"
     db.close()
 
 

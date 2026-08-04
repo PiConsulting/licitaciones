@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 import structlog
 
+from analysis.extraction.runner import extract_categories
 from analysis.models import Analysis
 from documents.models import Document
 from extraction.ai_search import upload_chunks
@@ -22,7 +23,7 @@ logger = structlog.get_logger(__name__)
 
 def _build_blob_storage() -> BlobStoragePort:
     settings = get_settings()
-    if not settings.use_local_adapters and settings.azure_blob_connection_string:
+    if settings.is_production and settings.azure_blob_connection_string:
         return AzureBlobStorageAdapter(
             connection_string=settings.azure_blob_connection_string,
             container_name=settings.azure_blob_container_name,
@@ -90,9 +91,11 @@ def extract_and_index(analysis_id: str) -> None:
         upload_chunks(chunks_with_embeddings, analysis_id, correlation_id)
 
         analysis.status = "analyzing"
-        analysis.current_stage = "Analizando contenido"
+        analysis.current_stage = "Analizando categorías (0/8 completadas)"
         analysis.updated_at = datetime.now(UTC)
         db.commit()
+
+        extract_categories(db, analysis)
 
         logger.info(
             "extract_and_index_completed",

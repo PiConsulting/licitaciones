@@ -2,15 +2,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from fastapi import BackgroundTasks
 from hashlib import sha256
-from io import BytesIO
 import logging
 from pathlib import Path
 import time
 from uuid import uuid4
 
-import pypdf
 from fastapi import HTTPException, status
-from pypdf.errors import PdfReadError
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
@@ -23,6 +20,7 @@ from shared.adapters.azure_blob_storage import AzureBlobStorageAdapter
 from shared.adapters.local_blob_storage import LocalBlobStorageAdapter
 from shared.config import get_settings
 from shared.database import SessionLocal
+from shared.pdf_utils import get_pdf_metadata
 from shared.ports.blob_storage import BlobStoragePort
 from users.models import User
 
@@ -46,7 +44,7 @@ def _sanitize_filename(filename: str) -> str:
 
 def _build_blob_storage() -> BlobStoragePort:
     settings = get_settings()
-    if not settings.use_local_adapters and settings.azure_blob_connection_string:
+    if settings.is_production and settings.azure_blob_connection_string:
         return AzureBlobStorageAdapter(
             connection_string=settings.azure_blob_connection_string,
             container_name=settings.azure_blob_container_name,
@@ -56,17 +54,7 @@ def _build_blob_storage() -> BlobStoragePort:
 
 def _validate_pdf_or_raise(filename: str, content: bytes) -> tuple[int, DocumentWarning | None]:
     try:
-        reader = pypdf.PdfReader(BytesIO(content))
-    except PdfReadError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": {
-                    "code": "PDF_CORRUPTED",
-                    "message": f"No se pudo abrir «{filename}»: el archivo está dañado. Volvé a descargarlo del portal del organismo y subilo de nuevo",
-                }
-            },
-        ) from exc
+        page_count, is_encrypted = get_pdf_metadata(content)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -78,7 +66,7 @@ def _validate_pdf_or_raise(filename: str, content: bytes) -> tuple[int, Document
             },
         ) from exc
 
-    if reader.is_encrypted:
+    if is_encrypted:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
@@ -89,7 +77,6 @@ def _validate_pdf_or_raise(filename: str, content: bytes) -> tuple[int, Document
             },
         )
 
-    page_count = len(reader.pages)
     if page_count > MAX_PAGES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

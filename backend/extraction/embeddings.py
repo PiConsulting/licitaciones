@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from time import sleep
 from uuid import UUID
 
@@ -11,9 +10,6 @@ from extraction.ports.embeddings_port import EmbeddingsPort
 from shared.config import get_settings
 
 logger = structlog.get_logger(__name__)
-
-_VECTOR_SIZE = 1536
-
 
 class AzureEmbeddingsAdapter(EmbeddingsPort):
     def __init__(self, endpoint: str, api_key: str, api_version: str, deployment: str) -> None:
@@ -35,21 +31,21 @@ class AzureEmbeddingsAdapter(EmbeddingsPort):
 
 
 class LocalEmbeddingsAdapter(EmbeddingsPort):
+    def __init__(self, model_name: str) -> None:
+        self._model_name = model_name
+
     def generate_embeddings(self, inputs: list[str]) -> list[list[float]]:
-        vectors: list[list[float]] = []
-        for text in inputs:
-            digest = hashlib.sha256(text.encode("utf-8")).digest()
-            vector = [0.0] * _VECTOR_SIZE
-            for index in range(_VECTOR_SIZE):
-                vector[index] = digest[index % len(digest)] / 255.0
-            vectors.append(vector)
-        return vectors
+        from sentence_transformers import SentenceTransformer
+
+        model = SentenceTransformer(self._model_name)
+        vectors = model.encode(inputs, normalize_embeddings=True)
+        return [vector.tolist() for vector in vectors]
 
 
 def _build_adapter() -> EmbeddingsPort:
     settings = get_settings()
-    if settings.use_local_adapters:
-        return LocalEmbeddingsAdapter()
+    if settings.is_development:
+        return LocalEmbeddingsAdapter(model_name=settings.sentence_transformers_model)
 
     return AzureEmbeddingsAdapter(
         endpoint=settings.azure_openai_endpoint,
@@ -67,7 +63,7 @@ def generate_embeddings(chunks: list[dict], correlation_id: str | UUID) -> list[
         "embedding_generation_started",
         correlation_id=str(correlation_id),
         total_chunks=len(chunks),
-        mode="local" if settings.use_local_adapters else "cloud",
+        mode="development" if settings.is_development else "production",
     )
 
     retries = settings.azure_openai_retry_attempts

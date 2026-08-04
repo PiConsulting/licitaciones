@@ -19,6 +19,7 @@ _DEFAULT_LOCAL_BLOB_STORAGE_PATH = str(_PROJECT_ROOT / "local_blob_storage")
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=_ENV_FILES, extra="ignore")
 
+    app_env: str = Field(default="", alias="APP_ENV")
     database_url: str = Field(
         default=_DEFAULT_DATABASE_URL,
         alias="DATABASE_URL",
@@ -47,6 +48,7 @@ class Settings(BaseSettings):
     azure_search_retry_attempts: int = Field(default=3, alias="AZURE_SEARCH_RETRY_ATTEMPTS")
     azure_openai_endpoint: str = Field(default="", alias="AZURE_OPENAI_ENDPOINT")
     azure_openai_api_key: str = Field(default="", alias="AZURE_OPENAI_API_KEY")
+    azure_openai_chat_deployment: str = Field(default="gpt-4o-mini", alias="AZURE_OPENAI_DEPLOYMENT")
     azure_openai_embedding_deployment: str = Field(
         default="text-embedding-ada-002",
         alias="AZURE_OPENAI_EMBEDDING_DEPLOYMENT",
@@ -54,7 +56,32 @@ class Settings(BaseSettings):
     azure_openai_api_version: str = Field(default="2023-05-15", alias="AZURE_OPENAI_API_VERSION")
     azure_openai_embeddings_batch_size: int = Field(default=16, alias="AZURE_OPENAI_EMBEDDINGS_BATCH_SIZE")
     azure_openai_retry_attempts: int = Field(default=3, alias="AZURE_OPENAI_RETRY_ATTEMPTS")
+
+    cohere_api_key: str = Field(default="", alias="COHERE_API_KEY")
+    cohere_model: str = Field(default="command-r-plus", alias="COHERE_MODEL")
+
+    sentence_transformers_model: str = Field(default="BAAI/bge-m3", alias="SENTENCE_TRANSFORMERS_MODEL")
+    chroma_persist_directory: str = Field(
+        default=str(_PROJECT_ROOT / "local_blob_storage" / "chroma"),
+        alias="CHROMA_PERSIST_DIRECTORY",
+    )
+
+    markitdown_enabled: bool = Field(default=True, alias="MARKITDOWN_ENABLED")
+    extraction_max_concurrency: int = Field(default=4, alias="EXTRACTION_MAX_CONCURRENCY")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+
+    @property
+    def is_development(self) -> bool:
+        """Development profile: local machine execution for testing."""
+        if self.app_env.strip().lower() in {"development", "dev"}:
+            return True
+        if self.app_env.strip().lower() == "production":
+            return False
+        return self.use_local_adapters
+
+    @property
+    def is_production(self) -> bool:
+        return not self.is_development
 
 
 @lru_cache
