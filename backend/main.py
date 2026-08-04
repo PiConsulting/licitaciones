@@ -43,20 +43,11 @@ def _local_storage_health(local_path: str) -> tuple[str, str]:
 
 def _azure_config_health() -> tuple[str, str, list[str]]:
     settings = get_settings()
-    required = {
-        "AZURE_BLOB_CONNECTION_STRING": settings.azure_blob_connection_string,
-        "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT": settings.azure_document_intelligence_endpoint,
-        "AZURE_DOCUMENT_INTELLIGENCE_KEY": settings.azure_document_intelligence_key,
-        "AZURE_SEARCH_ENDPOINT": settings.azure_search_endpoint,
-        "AZURE_SEARCH_KEY": settings.azure_search_key,
-        "AZURE_SEARCH_INDEX_NAME": settings.azure_search_index_name,
-        "AZURE_OPENAI_ENDPOINT": settings.azure_openai_endpoint,
-        "AZURE_OPENAI_API_KEY": settings.azure_openai_api_key,
-        "AZURE_OPENAI_DEPLOYMENT": settings.azure_openai_chat_deployment,
-        "AZURE_OPENAI_EMBEDDING_DEPLOYMENT": settings.azure_openai_embedding_deployment,
-        "AZURE_OPENAI_API_VERSION": settings.azure_openai_api_version,
-    }
-    missing = [name for name, value in required.items() if not str(value).strip()]
+    mode = settings.persistence_mode_normalized()
+    if mode not in {"sql", "cosmos", "dual_write"}:
+        return "error", "Modo de persistencia inválido", ["PERSISTENCE_MODE"]
+
+    missing = settings.missing_cloud_required_variables()
     if missing:
         return "error", "Falta configuración para Azure", missing
     return "ok", "Configuración de Azure presente", []
@@ -103,6 +94,12 @@ def _run_health_checks() -> tuple[int, dict[str, Any]]:
 def create_app() -> FastAPI:
     configure_logging()
     app = FastAPI(title="licitaciones-pi API", version="0.1.0")
+
+    @app.on_event("startup")
+    def validate_cloud_startup_configuration() -> None:
+        settings = get_settings()
+        if settings.is_production:
+            settings.validate_cloud_configuration()
 
     app.add_middleware(
         CORSMiddleware,

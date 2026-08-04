@@ -1,10 +1,26 @@
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from sqlalchemy.orm import Session
 
-from analysis.schemas import AnalysisCreateResponse, AnalysisStatusResponse, StartAnalysisRequest, StartAnalysisResponse
+from analysis.metadata_persistence import persist_analysis_metadata
+from analysis.models import CurrentStage
+from analysis.schemas import (
+    AnalysisCreateResponse,
+    AnalysisStatusResponse,
+    StartAnalysisRequest,
+    StartAnalysisResponse,
+)
 from analysis.service import (
     IncomingUploadFile,
     create_analysis_with_documents,
@@ -14,8 +30,9 @@ from analysis.service import (
     to_document_response,
     validate_analysis_ownership,
 )
-from analysis.models import CurrentStage
 from documents.models import Document
+from extraction.ai_search import validate_index_contract
+from shared.config import get_settings
 from shared.database import get_db
 from users.service import get_current_user, http_bearer
 
@@ -63,6 +80,11 @@ async def start_analysis(
     credentials=Depends(http_bearer),
     db: Session = Depends(get_db),
 ) -> StartAnalysisResponse:
+    settings = get_settings()
+    if settings.is_production:
+        settings.validate_cloud_configuration()
+        validate_index_contract()
+
     current_user = get_current_user(credentials, db)
     analysis = validate_analysis_ownership(db, analysis_id, current_user.id)
 
@@ -144,6 +166,15 @@ async def start_analysis(
     }
     analysis.updated_at = datetime.now(UTC)
     db.commit()
+
+    db.refresh(analysis)
+    docs = db.query(Document).filter(Document.analysis_id == analysis.id).all()
+    persist_analysis_metadata(
+        analysis=analysis,
+        documents=docs,
+        versions=[],
+        event="analysis_queued",
+    )
 
     enqueue_analysis(background_tasks, analysis_id)
 

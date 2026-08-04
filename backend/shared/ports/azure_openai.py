@@ -20,6 +20,18 @@ def get_azure_openai_client() -> Any:
             max_tokens=4000,
         )
 
+    missing: list[str] = []
+    if not settings.azure_openai_endpoint.strip():
+        missing.append("AZURE_OPENAI_ENDPOINT")
+    if not settings.azure_openai_api_key.strip():
+        missing.append("AZURE_OPENAI_API_KEY")
+    if not settings.azure_openai_api_version.strip():
+        missing.append("AZURE_OPENAI_API_VERSION")
+    if not settings.azure_openai_chat_deployment.strip():
+        missing.append("AZURE_OPENAI_DEPLOYMENT")
+    if missing:
+        raise RuntimeError("Configuración de chat cloud incompleta: " + ", ".join(missing))
+
     return AzureChatOpenAI(
         azure_endpoint=settings.azure_openai_endpoint,
         api_key=settings.azure_openai_api_key,

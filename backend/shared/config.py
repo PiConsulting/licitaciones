@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlparse
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -36,24 +37,25 @@ class Settings(BaseSettings):
         alias="LOCAL_BLOB_STORAGE_PATH",
     )
     azure_blob_connection_string: str = Field(default="", alias="AZURE_BLOB_CONNECTION_STRING")
-    azure_blob_container_name: str = Field(default="documents", alias="AZURE_BLOB_CONTAINER_NAME")
+    azure_blob_container_name: str = Field(default="", alias="AZURE_BLOB_CONTAINER_NAME")
     azure_document_intelligence_endpoint: str = Field(default="", alias="AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT")
     azure_document_intelligence_key: str = Field(default="", alias="AZURE_DOCUMENT_INTELLIGENCE_KEY")
     document_intelligence_timeout_seconds: int = Field(default=60, alias="DOCUMENT_INTELLIGENCE_TIMEOUT_SECONDS")
     document_intelligence_retry_attempts: int = Field(default=3, alias="DOCUMENT_INTELLIGENCE_RETRY_ATTEMPTS")
     azure_search_endpoint: str = Field(default="", alias="AZURE_SEARCH_ENDPOINT")
     azure_search_key: str = Field(default="", alias="AZURE_SEARCH_KEY")
-    azure_search_index_name: str = Field(default="documents-index", alias="AZURE_SEARCH_INDEX_NAME")
+    azure_search_index_name: str = Field(default="", alias="AZURE_SEARCH_INDEX_NAME")
+    azure_search_embedding_dimensions: int = Field(default=3072, alias="AZURE_SEARCH_EMBEDDING_DIMENSIONS")
     azure_search_upload_batch_size: int = Field(default=1000, alias="AZURE_SEARCH_UPLOAD_BATCH_SIZE")
     azure_search_retry_attempts: int = Field(default=3, alias="AZURE_SEARCH_RETRY_ATTEMPTS")
     azure_openai_endpoint: str = Field(default="", alias="AZURE_OPENAI_ENDPOINT")
     azure_openai_api_key: str = Field(default="", alias="AZURE_OPENAI_API_KEY")
-    azure_openai_chat_deployment: str = Field(default="gpt-4o-mini", alias="AZURE_OPENAI_DEPLOYMENT")
+    azure_openai_chat_deployment: str = Field(default="", alias="AZURE_OPENAI_DEPLOYMENT")
     azure_openai_embedding_deployment: str = Field(
-        default="text-embedding-ada-002",
+        default="",
         alias="AZURE_OPENAI_EMBEDDING_DEPLOYMENT",
     )
-    azure_openai_api_version: str = Field(default="2023-05-15", alias="AZURE_OPENAI_API_VERSION")
+    azure_openai_api_version: str = Field(default="", alias="AZURE_OPENAI_API_VERSION")
     azure_openai_embeddings_batch_size: int = Field(default=16, alias="AZURE_OPENAI_EMBEDDINGS_BATCH_SIZE")
     azure_openai_retry_attempts: int = Field(default=3, alias="AZURE_OPENAI_RETRY_ATTEMPTS")
 
@@ -69,6 +71,11 @@ class Settings(BaseSettings):
     markitdown_enabled: bool = Field(default=True, alias="MARKITDOWN_ENABLED")
     extraction_max_concurrency: int = Field(default=4, alias="EXTRACTION_MAX_CONCURRENCY")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    persistence_mode: str = Field(default="sql", alias="PERSISTENCE_MODE")
+    cosmos_endpoint: str = Field(default="", alias="COSMOS_ENDPOINT")
+    cosmos_key: str = Field(default="", alias="COSMOS_KEY")
+    cosmos_database: str = Field(default="", alias="COSMOS_DATABASE")
+    cosmos_container: str = Field(default="", alias="COSMOS_CONTAINER")
 
     @property
     def is_development(self) -> bool:
@@ -82,6 +89,61 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return not self.is_development
+
+    def persistence_mode_normalized(self) -> str:
+        return (self.persistence_mode or "sql").strip().lower()
+
+    def cloud_required_variables(self) -> dict[str, str]:
+        required = {
+            "AZURE_BLOB_CONNECTION_STRING": self.azure_blob_connection_string,
+            "AZURE_BLOB_CONTAINER_NAME": self.azure_blob_container_name,
+            "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT": self.azure_document_intelligence_endpoint,
+            "AZURE_DOCUMENT_INTELLIGENCE_KEY": self.azure_document_intelligence_key,
+            "AZURE_SEARCH_ENDPOINT": self.azure_search_endpoint,
+            "AZURE_SEARCH_KEY": self.azure_search_key,
+            "AZURE_SEARCH_INDEX_NAME": self.azure_search_index_name,
+            "AZURE_OPENAI_ENDPOINT": self.azure_openai_endpoint,
+            "AZURE_OPENAI_API_KEY": self.azure_openai_api_key,
+            "AZURE_OPENAI_DEPLOYMENT": self.azure_openai_chat_deployment,
+            "AZURE_OPENAI_EMBEDDING_DEPLOYMENT": self.azure_openai_embedding_deployment,
+            "AZURE_OPENAI_API_VERSION": self.azure_openai_api_version,
+            "PERSISTENCE_MODE": self.persistence_mode,
+        }
+
+        mode = self.persistence_mode_normalized()
+        if mode in {"cosmos", "dual_write"}:
+            required.update(
+                {
+                    "COSMOS_ENDPOINT": self.cosmos_endpoint,
+                    "COSMOS_KEY": self.cosmos_key,
+                    "COSMOS_DATABASE": self.cosmos_database,
+                    "COSMOS_CONTAINER": self.cosmos_container,
+                }
+            )
+        return required
+
+    def missing_cloud_required_variables(self) -> list[str]:
+        required = self.cloud_required_variables()
+        return [name for name, value in required.items() if not str(value).strip()]
+
+    def validate_cloud_configuration(self) -> None:
+        mode = self.persistence_mode_normalized()
+        if mode not in {"sql", "cosmos", "dual_write"}:
+            raise RuntimeError("PERSISTENCE_MODE debe ser uno de: sql, cosmos, dual_write")
+
+        parsed = urlparse(self.database_url)
+        host = (parsed.hostname or "").strip().lower()
+        if host in {"localhost", "127.0.0.1", "::1"}:
+            raise RuntimeError(
+                "DATABASE_URL no puede apuntar a localhost en production. "
+                "Configura una base de datos remota."
+            )
+
+        missing = self.missing_cloud_required_variables()
+        if missing:
+            raise RuntimeError(
+                "Configuración cloud incompleta. Variables faltantes: " + ", ".join(sorted(missing))
+            )
 
 
 @lru_cache

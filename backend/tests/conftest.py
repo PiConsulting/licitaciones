@@ -7,10 +7,11 @@ os.environ["DATABASE_URL"] = "sqlite:///./test_backend.db"
 os.environ["SECRET_KEY"] = "this-is-a-long-test-secret-key-32bytes"
 os.environ["JWT_ALGORITHM"] = "HS256"
 os.environ["JWT_EXPIRATION_HOURS"] = "24"
+os.environ["APP_ENV"] = "development"
+os.environ["USE_LOCAL_ADAPTERS"] = "true"
 
 from main import app
-from analysis.models import Analysis
-from documents.models import Document
+from shared.config import get_settings
 from shared.database import Base, SessionLocal, engine
 from users.models import User
 from users.service import create_access_token, get_password_hash
@@ -18,6 +19,7 @@ from users.service import create_access_token, get_password_hash
 
 @pytest.fixture(autouse=True)
 def setup_db():
+    get_settings.cache_clear()
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
@@ -32,6 +34,7 @@ def setup_db():
     db.close()
     yield
     Base.metadata.drop_all(bind=engine)
+    get_settings.cache_clear()
 
 
 @pytest.fixture

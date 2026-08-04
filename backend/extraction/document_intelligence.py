@@ -8,8 +8,9 @@ import structlog
 
 from extraction.errors import DocumentTextExtractionError, TransientExtractionError
 from extraction.ports.document_intelligence_port import DocumentIntelligencePort
-from shared.pdf_utils import extract_text_with_markitdown
 from shared.config import get_settings
+from shared.pdf_utils import extract_text_with_markitdown
+from shared.security import sanitize_error_message, sanitize_url_for_logs
 
 logger = structlog.get_logger(__name__)
 
@@ -92,7 +93,7 @@ def extract_text(blob_url: str, document_id: str | UUID, correlation_id: str | U
         "text_extraction_started",
         correlation_id=str(correlation_id),
         document_id=str(document_id),
-        blob_url=blob_url,
+        blob_url=sanitize_url_for_logs(blob_url),
         mode="development" if settings.is_development else "production",
     )
 
@@ -120,7 +121,7 @@ def extract_text(blob_url: str, document_id: str | UUID, correlation_id: str | U
                 document_id=str(document_id),
                 attempt=attempt,
                 retries=retries,
-                error=str(exc),
+                error=sanitize_error_message(str(exc)),
             )
             if is_last_attempt:
                 raise TransientExtractionError(str(exc)) from exc

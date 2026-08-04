@@ -8,6 +8,7 @@ import structlog
 from extraction.errors import TransientExtractionError
 from extraction.ports.embeddings_port import EmbeddingsPort
 from shared.config import get_settings
+from shared.security import sanitize_error_message
 
 logger = structlog.get_logger(__name__)
 
@@ -46,6 +47,18 @@ def _build_adapter() -> EmbeddingsPort:
     settings = get_settings()
     if settings.is_development:
         return LocalEmbeddingsAdapter(model_name=settings.sentence_transformers_model)
+
+    missing: list[str] = []
+    if not settings.azure_openai_endpoint.strip():
+        missing.append("AZURE_OPENAI_ENDPOINT")
+    if not settings.azure_openai_api_key.strip():
+        missing.append("AZURE_OPENAI_API_KEY")
+    if not settings.azure_openai_api_version.strip():
+        missing.append("AZURE_OPENAI_API_VERSION")
+    if not settings.azure_openai_embedding_deployment.strip():
+        missing.append("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
+    if missing:
+        raise RuntimeError("Configuración de embeddings cloud incompleta: " + ", ".join(missing))
 
     return AzureEmbeddingsAdapter(
         endpoint=settings.azure_openai_endpoint,
@@ -90,7 +103,7 @@ def generate_embeddings(chunks: list[dict], correlation_id: str | UUID) -> list[
                     batch_start=batch_start,
                     attempt=attempt,
                     retries=retries,
-                    error=str(exc),
+                    error=sanitize_error_message(str(exc)),
                 )
                 if attempt >= retries:
                     raise TransientExtractionError(str(exc)) from exc
