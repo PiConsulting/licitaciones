@@ -229,8 +229,9 @@ def test_start_status_endpoint(client: TestClient, auth_token: str) -> None:
 
     analysis = Analysis(
         created_by=user.id,
-        status="analyzing",
-        current_stage="stub_processing",
+        status="processing",
+        current_stage="analyzing",
+        progress_percentage=45,
         correlation_id=str(uuid4()),
         updated_at=datetime.now(UTC),
     )
@@ -244,7 +245,8 @@ def test_start_status_endpoint(client: TestClient, auth_token: str) -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["status"] == "analyzing"
-    assert payload["current_stage"] == "stub_processing"
+    assert payload["status"] == "processing"
+    assert payload["current_stage"] == "analyzing"
+    assert payload["progress_percentage"] == 45
 
     db.close()

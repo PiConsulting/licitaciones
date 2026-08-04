@@ -11,7 +11,8 @@ from fastapi import HTTPException, status
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
-from analysis.models import Analysis
+from analysis.models import Analysis, CurrentStage
+from analysis.progress import calculate_timeout_minutes, set_timeout_timestamps, update_stage_and_progress
 from documents.models import Document
 from documents.service import calculate_content_hash
 from documents.schemas import DocumentResponse, DocumentWarning
@@ -302,6 +303,27 @@ def find_duplicates_for_analysis(db: Session, analysis_id: str, user_id: str) ->
 def enqueue_analysis(background_tasks: BackgroundTasks, analysis_id: str) -> None:
     """Enqueue sync extraction/indexing in FastAPI background threadpool."""
     background_tasks.add_task(extract_and_index, analysis_id)
+
+
+def request_cancellation(db: Session, analysis_id: str, user_id: str) -> Analysis:
+    analysis = db.query(Analysis).filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None)).first()
+    if analysis is None:
+        raise ValueError("Analysis not found")
+
+    if analysis.created_by != user_id:
+        raise PermissionError("Only the owner can cancel this analysis")
+
+    analysis.cancellation_requested = True
+    if analysis.status not in {"analyzed", "error", "cancelled"}:
+        analysis.status = "cancelled"
+        analysis.current_stage = CurrentStage.COMPLETED.value
+        analysis.progress_percentage = max(analysis.progress_percentage or 0, 95)
+        analysis.error_message = "El analisis fue cancelado por el usuario"
+        analysis.updated_at = datetime.now(UTC)
+
+    db.commit()
+    db.refresh(analysis)
+    return analysis
 
 
 def run_analysis_stub(analysis_id: str) -> None:

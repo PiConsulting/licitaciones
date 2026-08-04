@@ -1,10 +1,20 @@
 from datetime import UTC, datetime
+from enum import Enum
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from shared.database import Base
+
+
+class CurrentStage(str, Enum):
+    QUEUED = "queued"
+    EXTRACTING_TEXT = "extracting_text"
+    INDEXING = "indexing"
+    ANALYZING = "analyzing"
+    CONSOLIDATING = "consolidating"
+    COMPLETED = "completed"
 
 
 class Analysis(Base):
@@ -13,6 +23,8 @@ class Analysis(Base):
         Index("idx_analyses_created_by", "created_by"),
         Index("idx_analyses_status", "status"),
         Index("idx_analyses_correlation_id", "correlation_id"),
+        Index("idx_analyses_current_stage", "current_stage"),
+        Index("idx_analyses_status_started_at", "status", "started_at"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
@@ -24,7 +36,13 @@ class Analysis(Base):
     )
     extraction_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="draft", nullable=False)
-    current_stage: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    current_stage: Mapped[str] = mapped_column(String(50), default=CurrentStage.QUEUED.value, nullable=False)
+    progress_percentage: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    timeout_warning_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    timeout_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancellation_requested: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
     correlation_id: Mapped[str] = mapped_column(String(36), nullable=False, default=lambda: str(uuid4()))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

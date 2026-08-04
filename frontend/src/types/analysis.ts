@@ -38,16 +38,14 @@ export interface AnalysisStartResponse {
 
 export interface AnalysisStatusResponse {
   id: string;
-  status:
-    | "draft"
-    | "queued"
-    | "extracting_text"
-    | "indexing"
-    | "analyzing"
-    | "analyzed"
-    | "completed"
-    | "error";
-  current_stage: string | null;
+  status: "draft" | "queued" | "processing" | "analyzed" | "error" | "cancelled";
+  current_stage: "queued" | "extracting_text" | "indexing" | "analyzing" | "consolidating" | "completed";
+  stage_progress?: string | null;
+  progress_percentage: number;
+  started_at?: string | null;
+  timeout_at?: string | null;
+  timeout_warning_at?: string | null;
+  error_message?: string | null;
   extracted_data?: Record<string, unknown> | null;
   conflicts?: Array<Record<string, unknown>> | null;
 }

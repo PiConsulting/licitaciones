@@ -9,12 +9,19 @@ interface AnalysisStatusPollingProps {
 const STATUS_LABELS: Record<AnalysisStatusResponse["status"], string> = {
   draft: "Borrador",
   queued: "En cola",
-  extracting_text: "Extrayendo texto",
-  indexing: "Indexando documentos",
-  analyzing: "Analizando contenido",
+  processing: "Procesando",
   analyzed: "Análisis finalizado",
-  completed: "Completado",
   error: "Error",
+  cancelled: "Cancelado",
+};
+
+const STAGE_LABELS: Record<AnalysisStatusResponse["current_stage"], string> = {
+  queued: "En cola",
+  extracting_text: "Extrayendo texto",
+  indexing: "Indexando",
+  analyzing: "Analizando categorias",
+  consolidating: "Consolidando",
+  completed: "Analizado",
 };
 
 export function AnalysisStatusPolling({ statusData, isLoading, error }: AnalysisStatusPollingProps) {
@@ -43,7 +50,7 @@ export function AnalysisStatusPolling({ statusData, isLoading, error }: Analysis
       <p>
         Estado actual: <strong>{STATUS_LABELS[statusData.status]}</strong>
       </p>
-      {statusData.current_stage ? <p>Etapa: {statusData.current_stage}</p> : null}
+      <p>Etapa: {statusData.stage_progress || STAGE_LABELS[statusData.current_stage]}</p>
       {hasFailedCategory ? (
         <>
           <p className="mt-2 font-semibold text-amber-700">Análisis completo con advertencias</p>

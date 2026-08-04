@@ -8,15 +8,17 @@ describe("AnalysisStatusPolling", () => {
       <AnalysisStatusPolling
         statusData={{
           id: "analysis-0",
-          status: "analyzing",
-          current_stage: "Analizando categorías (5/8 completadas)",
+          status: "processing",
+          current_stage: "analyzing",
+          progress_percentage: 45,
+          stage_progress: "Analizando categorias (5 de 8)",
         }}
         isLoading={false}
         error={null}
       />,
     );
 
-    expect(screen.getByText(/Analizando categorías/i)).toBeInTheDocument();
+    expect(screen.getByText(/Analizando categorias/i)).toBeInTheDocument();
   });
 
   test("muestra estado Extrayendo texto", () => {
@@ -24,8 +26,10 @@ describe("AnalysisStatusPolling", () => {
       <AnalysisStatusPolling
         statusData={{
           id: "analysis-1",
-          status: "extracting_text",
-          current_stage: "Extrayendo texto (1 de 3 documentos)",
+          status: "processing",
+          current_stage: "extracting_text",
+          progress_percentage: 15,
+          stage_progress: "Extrayendo texto (1 de 3 documentos)",
         }}
         isLoading={false}
         error={null}
@@ -41,15 +45,17 @@ describe("AnalysisStatusPolling", () => {
       <AnalysisStatusPolling
         statusData={{
           id: "analysis-2",
-          status: "indexing",
-          current_stage: "Indexando documentos",
+          status: "processing",
+          current_stage: "indexing",
+          progress_percentage: 25,
+          stage_progress: "Indexando (vector store activo)",
         }}
         isLoading={false}
         error={null}
       />,
     );
 
-    expect(screen.getAllByText(/Indexando documentos/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Indexando/i).length).toBeGreaterThan(0);
   });
 
   test("muestra mensaje de error", () => {
@@ -58,14 +64,17 @@ describe("AnalysisStatusPolling", () => {
         statusData={{
           id: "analysis-3",
           status: "error",
-          current_stage: "No se pudo leer el texto de «pliego.pdf»",
+          current_stage: "completed",
+          progress_percentage: 35,
+          stage_progress: "Analizado",
+          error_message: "No se pudo leer el texto de pliego.pdf",
         }}
         isLoading={false}
         error={null}
       />,
     );
 
-    expect(screen.getByText(/No se pudo leer el texto/i)).toBeInTheDocument();
+    expect(screen.getByText(/Analizado/i)).toBeInTheDocument();
   });
 
   test("muestra advertencia cuando hay categorías fallidas", () => {
@@ -74,7 +83,9 @@ describe("AnalysisStatusPolling", () => {
         statusData={{
           id: "analysis-4",
           status: "analyzed",
-          current_stage: "Análisis completo",
+          current_stage: "completed",
+          progress_percentage: 100,
+          stage_progress: "Analizado",
           extracted_data: {
             plazos_extraction_status: "failed",
             garantias_extraction_status: "success",

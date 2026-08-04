@@ -126,7 +126,7 @@ def test_extract_and_index_transitions_to_analyzing(monkeypatch, tmp_path: Path)
         "extraction.runner.extract_categories",
         lambda db_session, analysis: (
             setattr(analysis, "status", "analyzed"),
-            setattr(analysis, "current_stage", "Análisis completo"),
+            setattr(analysis, "current_stage", "completed"),
             db_session.commit(),
         ),
     )
@@ -137,7 +137,7 @@ def test_extract_and_index_transitions_to_analyzing(monkeypatch, tmp_path: Path)
     updated = db.query(Analysis).filter(Analysis.id == analysis_id).first()
     assert updated is not None
     assert updated.status == "analyzed"
-    assert updated.current_stage == "Análisis completo"
+    assert updated.current_stage == "completed"
     db.close()
 
 
@@ -183,5 +183,5 @@ def test_extract_and_index_marks_error_on_unreadable_pdf(monkeypatch, tmp_path: 
     updated = db.query(Analysis).filter(Analysis.id == analysis_id).first()
     assert updated is not None
     assert updated.status == "error"
-    assert "No se pudo leer el texto" in (updated.current_stage or "")
+    assert "No se pudo leer el texto" in (updated.error_message or "")
     db.close()

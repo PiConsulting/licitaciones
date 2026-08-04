@@ -10,9 +10,11 @@ from analysis.service import (
     create_analysis_with_documents,
     enqueue_analysis,
     find_duplicates_for_analysis,
+    request_cancellation,
     to_document_response,
     validate_analysis_ownership,
 )
+from analysis.models import CurrentStage
 from documents.models import Document
 from shared.database import get_db
 from users.service import get_current_user, http_bearer
@@ -132,7 +134,14 @@ async def start_analysis(
             )
 
     analysis.status = "queued"
-    analysis.current_stage = "queued"
+    analysis.current_stage = CurrentStage.QUEUED.value
+    analysis.progress_percentage = 0
+    analysis.cancellation_requested = False
+    analysis.error_message = None
+    analysis.extraction_metadata = {
+        **(analysis.extraction_metadata or {}),
+        "stage_progress": "En cola",
+    }
     analysis.updated_at = datetime.now(UTC)
     db.commit()
 
@@ -167,6 +176,42 @@ async def get_analysis_status(
         id=analysis.id,
         status=analysis.status,
         current_stage=analysis.current_stage,
+        stage_progress=(analysis.extraction_metadata or {}).get("stage_progress"),
+        progress_percentage=analysis.progress_percentage or 0,
+        started_at=analysis.started_at,
+        timeout_at=analysis.timeout_at,
+        timeout_warning_at=analysis.timeout_warning_at,
+        error_message=analysis.error_message,
         extracted_data=extracted_data,
         conflicts=conflicts,
+    )
+
+
+@analysis_router.post("/{analysis_id}/cancel", response_model=AnalysisStatusResponse)
+async def cancel_analysis(
+    analysis_id: str,
+    credentials=Depends(http_bearer),
+    db: Session = Depends(get_db),
+) -> AnalysisStatusResponse:
+    current_user = get_current_user(credentials, db)
+
+    try:
+        analysis = request_cancellation(db, analysis_id, current_user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+    return AnalysisStatusResponse(
+        id=analysis.id,
+        status=analysis.status,
+        current_stage=analysis.current_stage,
+        stage_progress=(analysis.extraction_metadata or {}).get("stage_progress"),
+        progress_percentage=analysis.progress_percentage or 0,
+        started_at=analysis.started_at,
+        timeout_at=analysis.timeout_at,
+        timeout_warning_at=analysis.timeout_warning_at,
+        error_message=analysis.error_message,
+        extracted_data=None,
+        conflicts=None,
     )
