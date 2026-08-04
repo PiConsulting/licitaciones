@@ -1,21 +1,20 @@
+import logging
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from fastapi import BackgroundTasks
 from hashlib import sha256
-import logging
 from pathlib import Path
-import time
 from uuid import uuid4
 
-from fastapi import HTTPException, status
+from fastapi import BackgroundTasks, HTTPException, status
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
+from analysis.metadata_persistence import persist_analysis_metadata
 from analysis.models import Analysis, CurrentStage
-from analysis.progress import calculate_timeout_minutes, set_timeout_timestamps, update_stage_and_progress
 from documents.models import Document
-from documents.service import calculate_content_hash
 from documents.schemas import DocumentResponse, DocumentWarning
+from documents.service import calculate_content_hash
 from extraction.runner import extract_and_index
 from shared.adapters.azure_blob_storage import AzureBlobStorageAdapter
 from shared.adapters.local_blob_storage import LocalBlobStorageAdapter
@@ -45,7 +44,14 @@ def _sanitize_filename(filename: str) -> str:
 
 def _build_blob_storage() -> BlobStoragePort:
     settings = get_settings()
-    if settings.is_production and settings.azure_blob_connection_string:
+    if settings.is_production:
+        missing: list[str] = []
+        if not settings.azure_blob_connection_string.strip():
+            missing.append("AZURE_BLOB_CONNECTION_STRING")
+        if not settings.azure_blob_container_name.strip():
+            missing.append("AZURE_BLOB_CONTAINER_NAME")
+        if missing:
+            raise RuntimeError("Configuración de Blob incompleta: " + ", ".join(missing))
         return AzureBlobStorageAdapter(
             connection_string=settings.azure_blob_connection_string,
             container_name=settings.azure_blob_container_name,
@@ -171,6 +177,13 @@ def create_analysis_with_documents(
         db.refresh(analysis)
         for document in documents:
             db.refresh(document)
+
+        persist_analysis_metadata(
+            analysis=analysis,
+            documents=documents,
+            versions=[],
+            event="analysis_created",
+        )
 
         return analysis, documents, warnings
     except Exception:

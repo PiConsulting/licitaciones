@@ -25,6 +25,7 @@ from shared.adapters.local_blob_storage import LocalBlobStorageAdapter
 from shared.config import get_settings
 from shared.database import SessionLocal
 from shared.ports.blob_storage import BlobStoragePort
+from shared.security import sanitize_error_message
 
 logger = structlog.get_logger(__name__)
 
@@ -40,7 +41,14 @@ def _now_for_comparison(target: datetime) -> datetime:
 
 def _build_blob_storage() -> BlobStoragePort:
     settings = get_settings()
-    if settings.is_production and settings.azure_blob_connection_string:
+    if settings.is_production:
+        missing: list[str] = []
+        if not settings.azure_blob_connection_string.strip():
+            missing.append("AZURE_BLOB_CONNECTION_STRING")
+        if not settings.azure_blob_container_name.strip():
+            missing.append("AZURE_BLOB_CONTAINER_NAME")
+        if missing:
+            raise RuntimeError("Configuración de Blob incompleta: " + ", ".join(missing))
         return AzureBlobStorageAdapter(
             connection_string=settings.azure_blob_connection_string,
             container_name=settings.azure_blob_container_name,
@@ -239,12 +247,11 @@ def extract_and_index(analysis_id: str) -> None:
             chunks=len(all_chunks),
         )
     except ExtractionError as exc:
-        logger.error(
+        logger.exception(
             "extract_and_index_failed",
             analysis_id=analysis_id,
             correlation_id=analysis.correlation_id if analysis else None,
-            error=str(exc),
-            exc_info=True,
+            error=sanitize_error_message(str(exc)),
         )
         if analysis is not None:
             analysis.status = "error"
@@ -253,12 +260,11 @@ def extract_and_index(analysis_id: str) -> None:
             analysis.updated_at = datetime.now(UTC)
             db.commit()
     except Exception as exc:
-        logger.error(
+        logger.exception(
             "extract_and_index_unhandled_failed",
             analysis_id=analysis_id,
             correlation_id=analysis.correlation_id if analysis else None,
-            error=str(exc),
-            exc_info=True,
+            error=sanitize_error_message(str(exc)),
         )
         if analysis is not None:
             analysis.status = "error"

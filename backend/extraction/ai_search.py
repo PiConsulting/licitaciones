@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import json
+from functools import lru_cache
 from pathlib import Path
 from time import sleep
 from uuid import UUID
 
 import structlog
+from azure.core.credentials import AzureKeyCredential
+from azure.search.documents.indexes import SearchIndexClient
 
 from extraction.errors import TransientExtractionError
 from extraction.ports.search_client_port import SearchClientPort
 from shared.config import get_settings
+from shared.security import sanitize_error_message
 
 logger = structlog.get_logger(__name__)
 
@@ -21,7 +25,6 @@ class AzureSearchAdapter(SearchClientPort):
         self._index_name = index_name
 
     def upload_chunks(self, documents: list[dict]) -> None:
-        from azure.core.credentials import AzureKeyCredential
         from azure.search.documents import SearchClient
 
         client = SearchClient(
@@ -87,6 +90,46 @@ class LocalChromaSearchAdapter(SearchClientPort):
         collection.upsert(ids=ids, embeddings=embeddings, metadatas=metadatas, documents=contents)
 
 
+def _assert_index_contract(index, expected_dimensions: int) -> None:
+    fields = {field.name: field for field in index.fields}
+    required_fields = {"analysis_id", "section_key", "content", "document_id", "page_number", "chunk_index", "embedding"}
+    missing_fields = sorted(name for name in required_fields if name not in fields)
+    if missing_fields:
+        raise RuntimeError("Índice de AI Search incompleto. Campos faltantes: " + ", ".join(missing_fields))
+
+    for filter_field in ("analysis_id", "section_key"):
+        if not bool(getattr(fields[filter_field], "filterable", False)):
+            raise RuntimeError(f"Campo {filter_field} debe ser filterable en AI Search")
+
+    vector_dimensions = getattr(fields["embedding"], "vector_search_dimensions", None)
+    if int(vector_dimensions or 0) != expected_dimensions:
+        raise RuntimeError(
+            "Campo embedding incompatible. "
+            f"Esperado dimensions={expected_dimensions}, recibido={vector_dimensions}"
+        )
+
+
+@lru_cache(maxsize=1)
+def _validate_index_contract_cached(index_key: str) -> bool:
+    settings = get_settings()
+    client = SearchIndexClient(
+        endpoint=settings.azure_search_endpoint,
+        credential=AzureKeyCredential(settings.azure_search_key),
+    )
+    index = client.get_index(settings.azure_search_index_name)
+    _assert_index_contract(index, expected_dimensions=settings.azure_search_embedding_dimensions)
+    return True
+
+
+def validate_index_contract() -> None:
+    settings = get_settings()
+    if settings.is_development:
+        return
+
+    index_key = f"{settings.azure_search_endpoint}:{settings.azure_search_index_name}:{settings.azure_search_embedding_dimensions}"
+    _validate_index_contract_cached(index_key)
+
+
 def _build_adapter() -> SearchClientPort:
     settings = get_settings()
     if settings.is_development:
@@ -100,6 +143,8 @@ def _build_adapter() -> SearchClientPort:
 
 def upload_chunks(chunks_with_embeddings: list[dict], analysis_id: str | UUID, correlation_id: str | UUID) -> None:
     settings = get_settings()
+    if settings.is_production:
+        validate_index_contract()
     adapter = _build_adapter()
 
     logger.info(
@@ -148,7 +193,7 @@ def upload_chunks(chunks_with_embeddings: list[dict], analysis_id: str | UUID, c
                 analysis_id=str(analysis_id),
                 attempt=attempt,
                 retries=retries,
-                error=str(exc),
+                error=sanitize_error_message(str(exc)),
             )
             if attempt >= retries:
                 raise TransientExtractionError(str(exc)) from exc
