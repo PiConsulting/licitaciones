@@ -1,9 +1,14 @@
+import logging
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import SQLAlchemyError
 
 from analysis.routes import analysis_router
 from users.routes import auth_router, protected_router
+
+logger = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
@@ -24,6 +29,45 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=exc.status_code,
             content={"error": {"code": "HTTP_ERROR", "message": str(exc.detail)}},
+        )
+
+    @app.exception_handler(SQLAlchemyError)
+    async def database_exception_handler(_, exc: Exception) -> JSONResponse:
+        logger.exception("Database connectivity error", exc_info=exc)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": {
+                    "code": "DATABASE_UNAVAILABLE",
+                    "message": "No se pudo conectar a la base de datos",
+                }
+            },
+        )
+
+    @app.exception_handler(UnicodeDecodeError)
+    async def unicode_decode_exception_handler(_, exc: UnicodeDecodeError) -> JSONResponse:
+        logger.exception("Unicode decoding error", exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": {
+                    "code": "UNICODE_DECODE_ERROR",
+                    "message": "Error de codificacion de caracteres",
+                }
+            },
+        )
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(_, exc: Exception) -> JSONResponse:
+        logger.exception("Unhandled server error", exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": {
+                    "code": "INTERNAL_SERVER_ERROR",
+                    "message": "Ocurrió un error interno",
+                }
+            },
         )
 
     @app.get("/health")

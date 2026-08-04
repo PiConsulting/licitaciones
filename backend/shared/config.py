@@ -4,15 +4,22 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Resolve .env relative to this file so it works regardless of CWD
-_ENV_FILE = Path(__file__).parent.parent / ".env"
+# Resolve .env from project root (repo/.env) regardless of CWD.
+# Keep backend/.env as a fallback for backward compatibility.
+_BACKEND_ROOT = Path(__file__).resolve().parents[1]
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_ENV_FILES = (
+    _PROJECT_ROOT / ".env",
+    _BACKEND_ROOT / ".env",
+)
+_DEFAULT_DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/licitaciones"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
+    model_config = SettingsConfigDict(env_file=_ENV_FILES, extra="ignore")
 
     database_url: str = Field(
-        default=f"sqlite:///{_DEFAULT_DB_FILE}",
+        default=_DEFAULT_DATABASE_URL,
         alias="DATABASE_URL",
     )
     secret_key: str = Field(
