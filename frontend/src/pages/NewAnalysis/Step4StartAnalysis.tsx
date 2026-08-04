@@ -43,7 +43,12 @@ export function Step4StartAnalysis({ analysisId, onBack }: Step4StartAnalysisPro
         return;
       }
 
-      if (response.status === "queued" || response.status === "analyzing") {
+      if (
+        response.status === "queued" ||
+        response.status === "extracting_text" ||
+        response.status === "indexing" ||
+        response.status === "analyzing"
+      ) {
         setShowModal(false);
         setPollingEnabled(true);
       }

@@ -38,6 +38,14 @@ export interface AnalysisStartResponse {
 
 export interface AnalysisStatusResponse {
   id: string;
-  status: "draft" | "queued" | "analyzing" | "completed" | "error";
+  status:
+    | "draft"
+    | "queued"
+    | "extracting_text"
+    | "indexing"
+    | "analyzing"
+    | "analyzed"
+    | "completed"
+    | "error";
   current_stage: string | null;
 }

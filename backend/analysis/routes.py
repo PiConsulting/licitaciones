@@ -8,8 +8,8 @@ from analysis.schemas import AnalysisCreateResponse, AnalysisStatusResponse, Sta
 from analysis.service import (
     IncomingUploadFile,
     create_analysis_with_documents,
+    enqueue_analysis,
     find_duplicates_for_analysis,
-    run_analysis_stub,
     to_document_response,
     validate_analysis_ownership,
 )
@@ -136,7 +136,7 @@ async def start_analysis(
     analysis.updated_at = datetime.now(UTC)
     db.commit()
 
-    background_tasks.add_task(run_analysis_stub, analysis_id)
+    enqueue_analysis(background_tasks, analysis_id)
 
     return StartAnalysisResponse(
         id=analysis.id,

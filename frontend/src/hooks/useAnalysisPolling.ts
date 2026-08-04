@@ -13,7 +13,7 @@ export function useAnalysisPolling(analysisId: string, enabled: boolean) {
     enabled: enabled && analysisId.length > 0,
     refetchInterval: (queryContext) => {
       const status = queryContext.state.data?.status;
-      if (status === "completed" || status === "error") {
+      if (status === "analyzed" || status === "completed" || status === "error") {
         return false;
       }
       return 3000;
@@ -22,7 +22,7 @@ export function useAnalysisPolling(analysisId: string, enabled: boolean) {
   });
 
   useEffect(() => {
-    if (query.data?.status === "completed") {
+    if (query.data?.status === "analyzed" || query.data?.status === "completed") {
       navigate(`/analysis/${analysisId}`);
     }
   }, [analysisId, navigate, query.data?.status]);

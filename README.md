@@ -30,6 +30,20 @@ Monorepo base para CedIA - Sistema de Analisis Automatico de Pliegos.
 - Backend: `c:/Users/AgostinaTorres/Desktop/Proyectos/licitaciones/licitaciones-pi/.venv/Scripts/python.exe -m pytest backend/tests`
 - Frontend: `npm run test` (en `frontend`)
 
+## Variables de entorno relevantes (Story 2.4)
+
+- `USE_LOCAL_ADAPTERS=true` para modo local (default)
+- `LOCAL_BLOB_STORAGE_PATH=./local_blob_storage` (si no se define, usa `local_blob_storage` en la raiz del repo)
+- `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=`
+- `AZURE_DOCUMENT_INTELLIGENCE_KEY=`
+- `AZURE_SEARCH_ENDPOINT=`
+- `AZURE_SEARCH_KEY=`
+- `AZURE_SEARCH_INDEX_NAME=documents-index`
+- `AZURE_OPENAI_ENDPOINT=`
+- `AZURE_OPENAI_API_KEY=`
+- `AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002`
+- `AZURE_OPENAI_API_VERSION=2023-05-15`
+
 ## Arranque rapido (Windows)
 
 - Script recomendado: `./scripts/dev-start.ps1`
@@ -43,5 +57,11 @@ Uso:
 - `powershell -ExecutionPolicy Bypass -File .\scripts\dev-start.ps1`
 - Opcional (instalar dependencias antes de arrancar):
    - `powershell -ExecutionPolicy Bypass -File .\scripts\dev-start.ps1 -InstallDeps`
+- Opcional (limpiar storage local antes de arrancar):
+   - `powershell -ExecutionPolicy Bypass -File .\scripts\dev-start.ps1 -CleanLocalStorage`
 - Modo diagnostico (no arranca procesos):
    - `powershell -ExecutionPolicy Bypass -File .\scripts\dev-start.ps1 -DryRun`
+
+Limpieza manual de storage local:
+
+- `powershell -ExecutionPolicy Bypass -File .\scripts\clean-local-storage.ps1`
