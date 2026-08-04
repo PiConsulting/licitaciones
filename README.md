@@ -29,3 +29,19 @@ Monorepo base para CedIA - Sistema de Analisis Automatico de Pliegos.
 
 - Backend: `c:/Users/AgostinaTorres/Desktop/Proyectos/licitaciones/licitaciones-pi/.venv/Scripts/python.exe -m pytest backend/tests`
 - Frontend: `npm run test` (en `frontend`)
+
+## Arranque rapido (Windows)
+
+- Script recomendado: `./scripts/dev-start.ps1`
+- Que hace:
+   - Ejecuta `alembic upgrade head` en backend
+   - Ejecuta `seed.py` para crear usuario de prueba si no existe
+   - Abre dos terminales nuevas con backend (`uvicorn`) y frontend (`npm run dev`)
+
+Uso:
+
+- `powershell -ExecutionPolicy Bypass -File .\scripts\dev-start.ps1`
+- Opcional (instalar dependencias antes de arrancar):
+   - `powershell -ExecutionPolicy Bypass -File .\scripts\dev-start.ps1 -InstallDeps`
+- Modo diagnostico (no arranca procesos):
+   - `powershell -ExecutionPolicy Bypass -File .\scripts\dev-start.ps1 -DryRun`

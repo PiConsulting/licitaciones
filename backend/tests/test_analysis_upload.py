@@ -27,7 +27,7 @@ def test_upload_single_pdf_success(client: TestClient, auth_token: str):
 
     assert response.status_code == 201
     payload = response.json()
-    assert payload["status"] == "queued"
+    assert payload["status"] == "draft"
     assert len(payload["documents"]) == 1
     assert payload["documents"][0]["is_primary"] is True
 

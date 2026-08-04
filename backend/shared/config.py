@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
     database_url: str = Field(
-        default="sqlite:///./backend.db",
+        default=f"sqlite:///{_DEFAULT_DB_FILE}",
         alias="DATABASE_URL",
     )
     secret_key: str = Field(
