@@ -11,11 +11,11 @@ interface Step3ConfirmationProps {
   files: UploadedFile[];
   primaryIndex: number;
   onBack: () => void;
+  onContinueToStart: (analysisId: string) => void;
 }
 
-export function Step3Confirmation({ files, primaryIndex, onBack }: Step3ConfirmationProps) {
+export function Step3Confirmation({ files, primaryIndex, onBack, onContinueToStart }: Step3ConfirmationProps) {
   const [error, setError] = useState<string | null>(null);
-  const [analysisId, setAnalysisId] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<DocumentWarning[]>([]);
 
   const { mutateAsync, isPending } = useDocumentUpload();
@@ -27,8 +27,8 @@ export function Step3Confirmation({ files, primaryIndex, onBack }: Step3Confirma
         files: files.map((item) => item.file),
         primaryFileIndex: primaryIndex,
       });
-      setAnalysisId(response.id);
       setWarnings(response.warnings);
+      onContinueToStart(response.id);
     } catch (uploadError) {
       if (isAxiosError(uploadError)) {
         const message = uploadError.response?.data?.error?.message;
@@ -68,16 +68,12 @@ export function Step3Confirmation({ files, primaryIndex, onBack }: Step3Confirma
       ) : null}
 
       {error ? <p className="text-sm text-error">{error}</p> : null}
-      {analysisId ? (
-        <p className="text-sm text-green-700">Análisis creado correctamente ({analysisId}) con estado queued.</p>
-      ) : null}
-
       <div className="flex justify-between">
         <Button type="button" variant="secondary" onClick={onBack} disabled={isPending}>
           Volver
         </Button>
         <Button type="button" onClick={handleStartAnalysis} loading={isPending}>
-          Iniciar análisis
+          Continuar
         </Button>
       </div>
     </section>

@@ -1,5 +1,10 @@
 import apiClient from "./client";
-import type { AnalysisCreateResponse } from "../types/analysis";
+import type {
+  AnalysisCreateResponse,
+  AnalysisStartPayload,
+  AnalysisStartResponse,
+  AnalysisStatusResponse,
+} from "../types/analysis";
 
 interface CreateAnalysisPayload {
   files: File[];
@@ -19,5 +24,18 @@ export async function createAnalysis(payload: CreateAnalysisPayload): Promise<An
     },
   });
 
+  return response.data;
+}
+
+export async function startAnalysis(
+  analysisId: string,
+  payload: AnalysisStartPayload = { decisions: [] },
+): Promise<AnalysisStartResponse> {
+  const response = await apiClient.post<AnalysisStartResponse>(`/analyses/${analysisId}/start`, payload);
+  return response.data;
+}
+
+export async function getAnalysisStatus(analysisId: string): Promise<AnalysisStatusResponse> {
+  const response = await apiClient.get<AnalysisStatusResponse>(`/analyses/${analysisId}/status`);
   return response.data;
 }

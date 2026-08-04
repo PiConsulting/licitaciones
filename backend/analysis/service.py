@@ -1,25 +1,34 @@
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from hashlib import sha256
 from io import BytesIO
+import logging
 from pathlib import Path
+import time
 from uuid import uuid4
 
 import pypdf
 from fastapi import HTTPException, status
 from pypdf.errors import PdfReadError
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from analysis.models import Analysis
 from documents.models import Document
+from documents.service import calculate_content_hash
 from documents.schemas import DocumentResponse, DocumentWarning
 from shared.adapters.azure_blob_storage import AzureBlobStorageAdapter
 from shared.adapters.local_blob_storage import LocalBlobStorageAdapter
 from shared.config import get_settings
+from shared.database import SessionLocal
 from shared.ports.blob_storage import BlobStoragePort
+from users.models import User
 
 MAX_FILES = 10
 MAX_PAGES = 300
 WARNING_PAGES_THRESHOLD = 100
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -137,7 +146,7 @@ def create_analysis_with_documents(
     uploaded_blob_names: list[str] = []
 
     try:
-        analysis = Analysis(created_by=user_id, status="queued")
+        analysis = Analysis(created_by=user_id, status="draft")
         db.add(analysis)
         db.flush()
 
@@ -162,6 +171,7 @@ def create_analysis_with_documents(
                 page_count=page_count,
                 is_primary=index == primary_file_index,
                 sha256_hash=sha256(incoming_file.content).hexdigest(),
+                content_hash=calculate_content_hash(incoming_file.content),
                 created_by=user_id,
             )
             db.add(document)
@@ -188,3 +198,147 @@ def to_document_response(document: Document) -> DocumentResponse:
         file_size_bytes=document.file_size_bytes,
         is_primary=document.is_primary,
     )
+
+
+def validate_analysis_ownership(db: Session, analysis_id: str, user_id: str) -> Analysis:
+    analysis = db.query(Analysis).filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None)).first()
+    if analysis is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": {"code": "ANALYSIS_NOT_FOUND", "message": "Análisis no encontrado"}},
+        )
+
+    if analysis.created_by != user_id:
+        logger.warning(
+            "Unauthorized access to analysis. user_id=%s analysis_id=%s owner_id=%s",
+            user_id,
+            analysis_id,
+            analysis.created_by,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": {"code": "FORBIDDEN", "message": "No tenés permisos para este análisis"}},
+        )
+
+    return analysis
+
+
+def check_duplicates(
+    db: Session,
+    content_hash: str,
+    *,
+    exclude_analysis_id: str | None = None,
+    user_id: str | None = None,
+) -> dict | None:
+    stmt = (
+        select(
+            Document.id.label("document_id"),
+            Document.filename,
+            Document.content_hash,
+            Analysis.id.label("analysis_id"),
+            Analysis.created_at,
+            Analysis.status,
+            User.email.label("created_by_email"),
+            User.name.label("created_by_name"),
+        )
+        .join(Analysis, Document.analysis_id == Analysis.id)
+        .join(User, Analysis.created_by == User.id)
+        .where(
+            and_(
+                Document.content_hash == content_hash,
+                Analysis.deleted_at.is_(None),
+                Document.deleted_at.is_(None),
+                Analysis.status.in_(["completed", "analyzing"]),
+            )
+        )
+    )
+
+    if exclude_analysis_id:
+        stmt = stmt.where(Analysis.id != exclude_analysis_id)
+
+    if user_id:
+        stmt = stmt.where(Analysis.created_by == user_id)
+
+    result = db.execute(stmt.order_by(Analysis.created_at.desc()).limit(1)).first()
+    if result is None:
+        return None
+
+    return {
+        "document_id": str(result.document_id),
+        "filename": result.filename,
+        "analysis_id": str(result.analysis_id),
+        "created_at": result.created_at.isoformat(),
+        "status": result.status,
+        "created_by_email": result.created_by_email,
+        "created_by_name": result.created_by_name,
+    }
+
+
+def find_duplicates_for_analysis(db: Session, analysis_id: str, user_id: str) -> list[dict]:
+    documents = (
+        db.query(Document)
+        .filter(
+            Document.analysis_id == analysis_id,
+            Document.deleted_at.is_(None),
+            Document.content_hash.is_not(None),
+        )
+        .all()
+    )
+
+    duplicates: list[dict] = []
+    for document in documents:
+        duplicate = check_duplicates(
+            db,
+            document.content_hash or "",
+            exclude_analysis_id=analysis_id,
+            user_id=user_id,
+        )
+        if duplicate is None:
+            continue
+
+        duplicates.append(
+            {
+                "document_id": document.id,
+                "filename": document.filename,
+                "existing_analysis_id": duplicate["analysis_id"],
+                "created_at": duplicate["created_at"],
+                "created_by": duplicate["created_by_name"] or duplicate["created_by_email"],
+                "status": duplicate["status"],
+            }
+        )
+
+    return duplicates
+
+
+def run_analysis_stub(analysis_id: str) -> None:
+    """STUB sync processor for Story 2.3 background execution."""
+    db = SessionLocal()
+    try:
+        analysis = db.query(Analysis).filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None)).first()
+        if analysis is None:
+            logger.error("[STUB] Analysis %s not found", analysis_id)
+            return
+
+        analysis.status = "analyzing"
+        analysis.current_stage = "stub_processing"
+        analysis.updated_at = datetime.now(UTC)
+        db.commit()
+
+        # Keep the delay short to avoid slowing down test suite significantly.
+        time.sleep(0.2)
+
+        analysis.status = "completed"
+        analysis.current_stage = None
+        analysis.updated_at = datetime.now(UTC)
+        db.commit()
+    except Exception:
+        db.rollback()
+        analysis = db.query(Analysis).filter(Analysis.id == analysis_id).first()
+        if analysis is not None:
+            analysis.status = "error"
+            analysis.current_stage = None
+            analysis.updated_at = datetime.now(UTC)
+            db.commit()
+        raise
+    finally:
+        db.close()

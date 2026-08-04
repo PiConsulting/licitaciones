@@ -18,7 +18,7 @@ class Analysis(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     created_by: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
     current_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-    status: Mapped[str] = mapped_column(String(50), default="queued", nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="draft", nullable=False)
     current_stage: Mapped[str | None] = mapped_column(String(100), nullable=True)
     correlation_id: Mapped[str] = mapped_column(String(36), nullable=False, default=lambda: str(uuid4()))
     created_at: Mapped[datetime] = mapped_column(
