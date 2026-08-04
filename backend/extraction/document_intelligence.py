@@ -22,6 +22,7 @@ class AzureDocumentIntelligenceAdapter(DocumentIntelligencePort):
 
     def extract_text(self, blob_url: str) -> list[dict]:
         from azure.ai.documentintelligence import DocumentIntelligenceClient
+        from azure.ai.documentintelligence.models import AnalyzeDocumentRequest
         from azure.core.credentials import AzureKeyCredential
 
         client = DocumentIntelligenceClient(
@@ -30,7 +31,7 @@ class AzureDocumentIntelligenceAdapter(DocumentIntelligencePort):
         )
         poller = client.begin_analyze_document(
             model_id="prebuilt-layout",
-            analyze_request={"url_source": blob_url},
+            body=AnalyzeDocumentRequest(url_source=blob_url),
         )
         result = poller.result(timeout=self._timeout_seconds)
 

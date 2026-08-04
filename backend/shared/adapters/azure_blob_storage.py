@@ -1,8 +1,12 @@
 from datetime import UTC, datetime, timedelta
+import logging
 
 from azure.storage.blob import BlobSasPermissions, BlobServiceClient, generate_blob_sas
+from azure.core.exceptions import HttpResponseError, ResourceExistsError
 
 from shared.ports.blob_storage import BlobStoragePort
+
+logger = logging.getLogger(__name__)
 
 
 class AzureBlobStorageAdapter(BlobStoragePort):
@@ -10,7 +14,20 @@ class AzureBlobStorageAdapter(BlobStoragePort):
         self.blob_service_client = BlobServiceClient.from_connection_string(connection_string)
         self.container_name = container_name
         self.container_client = self.blob_service_client.get_container_client(container_name)
-        self.container_client.create_container(exist_ok=True)
+        try:
+            self.container_client.create_container()
+        except ResourceExistsError:
+            pass
+        except HttpResponseError as exc:
+            # With SAS scoped to an existing container, create permissions may be absent.
+            # Continue and let upload/read operations enforce their own permissions.
+            if exc.error_code in {"AuthorizationFailure", "AuthorizationPermissionMismatch"}:
+                logger.warning(
+                    "blob_container_create_skipped_due_to_permissions",
+                    extra={"container_name": container_name, "error_code": exc.error_code},
+                )
+            else:
+                raise
 
     def upload(self, blob_name: str, content: bytes) -> str:
         blob_client = self.container_client.get_blob_client(blob_name)

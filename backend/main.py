@@ -52,7 +52,9 @@ def _azure_config_health() -> tuple[str, str, list[str]]:
         "AZURE_SEARCH_INDEX_NAME": settings.azure_search_index_name,
         "AZURE_OPENAI_ENDPOINT": settings.azure_openai_endpoint,
         "AZURE_OPENAI_API_KEY": settings.azure_openai_api_key,
+        "AZURE_OPENAI_DEPLOYMENT": settings.azure_openai_chat_deployment,
         "AZURE_OPENAI_EMBEDDING_DEPLOYMENT": settings.azure_openai_embedding_deployment,
+        "AZURE_OPENAI_API_VERSION": settings.azure_openai_api_version,
     }
     missing = [name for name, value in required.items() if not str(value).strip()]
     if missing:
