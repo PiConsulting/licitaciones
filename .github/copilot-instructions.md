@@ -28,15 +28,23 @@ Ejemplos: `feat/pipeline-ia-extraccion`, `fix/auth-token-expiry`, `chore/update-
 
 ---
 
-## Estructura de commits (Conventional Commits)
+## Estructura de commits (OBLIGATORIO — siempre usar este formato exacto)
+
+Cada `git commit` que hagas debe seguir esta estructura sin excepción:
 
 ```
-<tipo>(<scope opcional>): <descripcion imperativa en minúsculas>
+<tipo>(<scope>): <descripcion imperativa en minúsculas, máx 72 chars>
 
-[cuerpo opcional — qué y por qué, no el cómo]
+[cuerpo: qué cambió y por qué — omitir si el título es suficiente]
 
-[footer opcional — cierra issues, breaking changes]
+[footer: Closes #N  /  BREAKING CHANGE: descripción]
 ```
+
+**Reglas:**
+- La primera línea NUNCA supera 72 caracteres.
+- La descripción es imperativa y en minúsculas: `agregar`, `corregir`, `eliminar` — no `agregado`, `se agregó`.
+- El scope es obligatorio cuando el cambio es específico de un módulo.
+- Cuerpo y footer son opcionales; si los usás, dejar una línea en blanco entre secciones.
 
 ### Tipos válidos
 | Tipo | Cuándo usarlo |
@@ -50,18 +58,24 @@ Ejemplos: `feat/pipeline-ia-extraccion`, `fix/auth-token-expiry`, `chore/update-
 | `style` | Formato, whitespace, sin cambio de lógica |
 | `perf` | Mejora de rendimiento |
 
-### Scopes sugeridos
-`frontend`, `backend`, `auth`, `analysis`, `documents`, `storage`, `db`, `ci`, `agents`
+### Scopes válidos
+`frontend` · `backend` · `auth` · `analysis` · `documents` · `storage` · `db` · `ci` · `agents`
 
-### Ejemplos
+### Ejemplos correctos
 ```
 feat(analysis): agregar endpoint para listar análisis paginados
-
+```
+```
 fix(auth): corregir expiración de token cuando timezone es UTC-3
-
+```
+```
 chore(ci): agregar step de lint en GitHub Actions
-
+```
+```
 test(documents): cubrir caso de archivo duplicado por sha256
+
+El hash sha256 no se validaba cuando el mismo archivo se subía
+desde dos análisis distintos en la misma sesión.
 ```
 
 ---

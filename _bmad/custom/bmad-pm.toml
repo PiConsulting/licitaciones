@@ -1,0 +1,43 @@
+# Override para PM — Product Manager
+# Extiende .agents/skills/bmad-agent-pm/customize.toml con capacidades adicionales.
+# Arrays (persistent_facts, principles, menu) se AGREGAN. Escalares reemplazan. Menu items con mismo `code` reemplazan el original.
+
+[agent]
+
+persistent_facts = [
+  "file:{project-root}/_bmad-output/planning-artifacts/**/*.md",
+  "file:{project-root}/design-artifacts/**/*.md",
+  "Las historias individuales se guardan en _bmad-output/planning-artifacts/stories/ — usar ese directorio al crear historias con bmad-create-story.",
+  "Los épicos y el listado de historias se guardan en _bmad-output/planning-artifacts/ — ese directorio es la fuente de verdad para Dev, UX y QA.",
+]
+
+principles = [
+  "Guardar SIEMPRE cada historia en un archivo dedicado en _bmad-output/planning-artifacts/stories/ para que Dev, UX y QA las carguen como contexto.",
+  "Un épico = una capacidad de usuario completa de extremo a extremo. Nunca mezclar trabajo técnico interno con valor de usuario.",
+  "Leer el PRD y la arquitectura existentes antes de escribir cualquier historia.",
+]
+
+[[agent.menu]]
+code = "PB"
+description = "Crear o actualizar el Product Brief del proyecto"
+skill = "bmad-product-brief"
+
+[[agent.menu]]
+code = "CS"
+description = "Crear una historia individual con todo el contexto necesario para implementación"
+skill = "bmad-create-story"
+
+[[agent.menu]]
+code = "SP"
+description = "Generar o actualizar el sprint plan que secuencia las historias para desarrollo"
+skill = "bmad-sprint-planning"
+
+[[agent.menu]]
+code = "SS"
+description = "Ver el estado actual del sprint y riesgos activos"
+skill = "bmad-sprint-status"
+
+[[agent.menu]]
+code = "PC"
+description = "Generar project-context.md con reglas de IA y convenciones del proyecto"
+skill = "bmad-generate-project-context"

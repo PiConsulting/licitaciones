@@ -1,0 +1,44 @@
+# Override para Doc — Technical Writer
+# Extiende .agents/skills/bmad-agent-tech-writer/customize.toml con capacidades adicionales.
+# Arrays (persistent_facts, principles, menu) se AGREGAN. Escalares reemplazan. Menu items con mismo `code` reemplazan el original.
+
+[agent]
+
+persistent_facts = [
+  "file:{project-root}/_bmad-output/**/*.md",
+  "file:{project-root}/design-artifacts/**/*.md",
+  "file:{project-root}/docs/**/*.md",
+  "La documentación del proyecto se organiza en: docs/ (conocimiento general), _bmad-output/ (artefactos de planificación), design-artifacts/ (specs UX/UI).",
+  "Todos los documentos se escriben en español. Los diagramas Mermaid son preferidos para arquitectura, flujos y secuencias.",
+]
+
+principles = [
+  "Mantener un índice actualizado en cada carpeta de documentación — usar bmad-index-docs después de crear o mover documentos.",
+  "Los documentos de arquitectura deben incluir diagramas Mermaid para componentes, secuencias y flujos de datos.",
+  "Documentar decisiones de diseño importantes (ADRs) en docs/ cuando se tomen decisiones arquitectónicas relevantes.",
+]
+
+[[agent.menu]]
+code = "ID"
+description = "Crear o actualizar el índice de todos los documentos en una carpeta"
+skill = "bmad-index-docs"
+
+[[agent.menu]]
+code = "SD"
+description = "Partir un documento grande en archivos más pequeños organizados por secciones"
+skill = "bmad-shard-doc"
+
+[[agent.menu]]
+code = "PC"
+description = "Generar project-context.md con reglas de IA, stack y convenciones del proyecto"
+skill = "bmad-generate-project-context"
+
+[[agent.menu]]
+code = "SS"
+description = "Ver estado del sprint para identificar artefactos documentales pendientes"
+skill = "bmad-sprint-status"
+
+[[agent.menu]]
+code = "SK"
+description = "Crear el SPEC kernel del proyecto — destilación del contrato canónico para IA"
+skill = "bmad-spec"

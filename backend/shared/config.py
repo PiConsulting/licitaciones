@@ -4,8 +4,8 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Resolve .env relative to this file so it works regardless of CWD
-_ENV_FILE = Path(__file__).parent.parent / ".env"
+# Resolve .env from project root (two levels up from backend/shared/)
+_ENV_FILE = Path(__file__).parent.parent.parent / ".env"
 
 
 class Settings(BaseSettings):
