@@ -4,11 +4,11 @@ from pathlib import Path
 from time import sleep
 from uuid import UUID
 
-import pypdf
 import structlog
 
 from extraction.errors import DocumentTextExtractionError, TransientExtractionError
 from extraction.ports.document_intelligence_port import DocumentIntelligencePort
+from shared.pdf_utils import extract_text_with_markitdown
 from shared.config import get_settings
 
 logger = structlog.get_logger(__name__)
@@ -46,7 +46,7 @@ class AzureDocumentIntelligenceAdapter(DocumentIntelligencePort):
         return pages
 
 
-class LocalPdfTextAdapter(DocumentIntelligencePort):
+class MarkItDownAdapter(DocumentIntelligencePort):
     def __init__(self, storage_root: str) -> None:
         self._root = Path(storage_root)
 
@@ -59,22 +59,19 @@ class LocalPdfTextAdapter(DocumentIntelligencePort):
         if not file_path.exists():
             raise DocumentTextExtractionError(f"No existe el archivo local: {relative_path}")
 
-        reader = pypdf.PdfReader(str(file_path))
-        pages: list[dict] = []
-        for idx, page in enumerate(reader.pages, start=1):
-            content = (page.extract_text() or "").strip()
-            if content:
-                pages.append({"page_number": idx, "content": content})
+        try:
+            content = extract_text_with_markitdown(file_path)
+        except Exception as exc:
+            raise DocumentTextExtractionError(str(exc)) from exc
 
-        if not pages:
-            raise DocumentTextExtractionError("No se detectó texto útil en el documento")
-        return pages
+        # MarkItDown no conserva paginación exacta para todos los PDFs.
+        return [{"page_number": 1, "content": content}]
 
 
 def _build_adapter() -> DocumentIntelligencePort:
     settings = get_settings()
-    if settings.use_local_adapters:
-        return LocalPdfTextAdapter(settings.local_blob_storage_path)
+    if settings.is_development:
+        return MarkItDownAdapter(settings.local_blob_storage_path)
 
     if not settings.azure_document_intelligence_endpoint or not settings.azure_document_intelligence_key:
         raise DocumentTextExtractionError("Falta configuración de Azure Document Intelligence")
@@ -95,7 +92,7 @@ def extract_text(blob_url: str, document_id: str | UUID, correlation_id: str | U
         correlation_id=str(correlation_id),
         document_id=str(document_id),
         blob_url=blob_url,
-        mode="local" if settings.use_local_adapters else "cloud",
+        mode="development" if settings.is_development else "production",
     )
 
     retries = settings.document_intelligence_retry_attempts

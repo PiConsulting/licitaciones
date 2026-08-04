@@ -42,3 +42,5 @@ class AnalysisStatusResponse(BaseModel):
     id: str
     status: str
     current_stage: str | None
+    extracted_data: dict | None = None
+    conflicts: list[dict] | None = None

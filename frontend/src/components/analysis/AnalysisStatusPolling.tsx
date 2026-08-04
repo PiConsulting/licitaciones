@@ -30,12 +30,26 @@ export function AnalysisStatusPolling({ statusData, isLoading, error }: Analysis
     return null;
   }
 
+  const extractedData = statusData.extracted_data as Record<string, unknown> | undefined;
+  const hasFailedCategory =
+    statusData.status === "analyzed" &&
+    !!extractedData &&
+    Object.entries(extractedData).some(
+      ([key, value]) => key.endsWith("_extraction_status") && value === "failed",
+    );
+
   return (
     <div className="rounded-md border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
       <p>
         Estado actual: <strong>{STATUS_LABELS[statusData.status]}</strong>
       </p>
       {statusData.current_stage ? <p>Etapa: {statusData.current_stage}</p> : null}
+      {hasFailedCategory ? (
+        <>
+          <p className="mt-2 font-semibold text-amber-700">Análisis completo con advertencias</p>
+          <p className="text-amber-700">Algunas categorías no pudieron extraerse</p>
+        </>
+      ) : null}
     </div>
   );
 }

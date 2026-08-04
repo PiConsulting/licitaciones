@@ -72,18 +72,18 @@ def _run_health_checks() -> tuple[int, dict[str, Any]]:
         },
     }
 
-    if settings.use_local_adapters:
+    if settings.is_development:
         storage_status, storage_message = _local_storage_health(settings.local_blob_storage_path)
         checks["adapters"] = {
             "status": storage_status,
-            "mode": "local",
+            "mode": "development",
             "message": storage_message,
         }
     else:
         azure_status, azure_message, missing = _azure_config_health()
         checks["adapters"] = {
             "status": azure_status,
-            "mode": "azure",
+            "mode": "production",
             "message": azure_message,
             "missing": missing,
         }

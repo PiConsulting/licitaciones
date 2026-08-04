@@ -154,8 +154,19 @@ async def get_analysis_status(
     current_user = get_current_user(credentials, db)
     analysis = validate_analysis_ownership(db, analysis_id, current_user.id)
 
+    extracted_data = None
+    conflicts = None
+    if analysis.current_version_id:
+        for version in analysis.versions:
+            if version.id == analysis.current_version_id:
+                extracted_data = version.extracted_data
+                conflicts = version.conflicts
+                break
+
     return AnalysisStatusResponse(
         id=analysis.id,
         status=analysis.status,
         current_stage=analysis.current_stage,
+        extracted_data=extracted_data,
+        conflicts=conflicts,
     )

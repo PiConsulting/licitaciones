@@ -1,8 +1,7 @@
 from datetime import UTC, datetime
-from io import BytesIO
 from uuid import uuid4
 
-import pypdf
+import fitz
 from fastapi.testclient import TestClient
 
 from analysis.models import Analysis
@@ -15,11 +14,12 @@ from users.service import create_access_token, get_password_hash
 
 
 def _build_pdf() -> bytes:
-    writer = pypdf.PdfWriter()
-    writer.add_blank_page(width=200, height=200)
-    output = BytesIO()
-    writer.write(output)
-    return output.getvalue()
+    doc = fitz.open()
+    doc.new_page(width=200, height=200)
+    try:
+        return doc.tobytes()
+    finally:
+        doc.close()
 
 
 def _create_other_user() -> User:

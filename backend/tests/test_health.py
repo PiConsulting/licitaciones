@@ -8,7 +8,7 @@ def test_health_ready_returns_checks(client):
     payload = response.json()
     assert payload["status"] == "ok"
     assert payload["checks"]["database"]["status"] == "ok"
-    assert payload["checks"]["adapters"]["mode"] == "local"
+    assert payload["checks"]["adapters"]["mode"] == "development"
 
 
 def test_health_degraded_when_database_unavailable(client, monkeypatch):

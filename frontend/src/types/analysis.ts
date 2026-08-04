@@ -48,4 +48,6 @@ export interface AnalysisStatusResponse {
     | "completed"
     | "error";
   current_stage: string | null;
+  extracted_data?: Record<string, unknown> | null;
+  conflicts?: Array<Record<string, unknown>> | null;
 }

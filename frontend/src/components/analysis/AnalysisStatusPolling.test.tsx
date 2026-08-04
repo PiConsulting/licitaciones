@@ -3,6 +3,22 @@ import { render, screen } from "@testing-library/react";
 import { AnalysisStatusPolling } from "./AnalysisStatusPolling";
 
 describe("AnalysisStatusPolling", () => {
+  test("muestra etapa de analizando categorías", () => {
+    render(
+      <AnalysisStatusPolling
+        statusData={{
+          id: "analysis-0",
+          status: "analyzing",
+          current_stage: "Analizando categorías (5/8 completadas)",
+        }}
+        isLoading={false}
+        error={null}
+      />,
+    );
+
+    expect(screen.getByText(/Analizando categorías/i)).toBeInTheDocument();
+  });
+
   test("muestra estado Extrayendo texto", () => {
     render(
       <AnalysisStatusPolling
@@ -50,5 +66,26 @@ describe("AnalysisStatusPolling", () => {
     );
 
     expect(screen.getByText(/No se pudo leer el texto/i)).toBeInTheDocument();
+  });
+
+  test("muestra advertencia cuando hay categorías fallidas", () => {
+    render(
+      <AnalysisStatusPolling
+        statusData={{
+          id: "analysis-4",
+          status: "analyzed",
+          current_stage: "Análisis completo",
+          extracted_data: {
+            plazos_extraction_status: "failed",
+            garantias_extraction_status: "success",
+          },
+        }}
+        isLoading={false}
+        error={null}
+      />,
+    );
+
+    expect(screen.getByText(/Análisis completo con advertencias/i)).toBeInTheDocument();
+    expect(screen.getByText(/Algunas categorías no pudieron extraerse/i)).toBeInTheDocument();
   });
 });

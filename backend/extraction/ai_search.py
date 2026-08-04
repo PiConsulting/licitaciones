@@ -51,10 +51,46 @@ class LocalJsonSearchAdapter(SearchClientPort):
                 handle.write(json.dumps(doc, ensure_ascii=True) + "\n")
 
 
+class LocalChromaSearchAdapter(SearchClientPort):
+    def __init__(self, persist_dir: str) -> None:
+        self._persist_dir = Path(persist_dir)
+        self._persist_dir.mkdir(parents=True, exist_ok=True)
+
+    def upload_chunks(self, documents: list[dict]) -> None:
+        if not documents:
+            return
+
+        import chromadb
+
+        client = chromadb.PersistentClient(path=str(self._persist_dir))
+        collection = client.get_or_create_collection(name="analysis_chunks")
+
+        ids: list[str] = []
+        embeddings: list[list[float]] = []
+        metadatas: list[dict] = []
+        contents: list[str] = []
+
+        for doc in documents:
+            ids.append(doc["id"])
+            embeddings.append(list(doc["embedding"]))
+            contents.append(doc["content"])
+            metadatas.append(
+                {
+                    "analysis_id": str(doc["analysis_id"]),
+                    "document_id": str(doc["document_id"]),
+                    "page_number": int(doc["page_number"]),
+                    "chunk_index": int(doc["chunk_index"]),
+                    "section_key": str(doc.get("section_key", "general")),
+                }
+            )
+
+        collection.upsert(ids=ids, embeddings=embeddings, metadatas=metadatas, documents=contents)
+
+
 def _build_adapter() -> SearchClientPort:
     settings = get_settings()
-    if settings.use_local_adapters:
-        return LocalJsonSearchAdapter(settings.local_blob_storage_path)
+    if settings.is_development:
+        return LocalChromaSearchAdapter(settings.chroma_persist_directory)
     return AzureSearchAdapter(
         endpoint=settings.azure_search_endpoint,
         key=settings.azure_search_key,
@@ -71,7 +107,7 @@ def upload_chunks(chunks_with_embeddings: list[dict], analysis_id: str | UUID, c
         correlation_id=str(correlation_id),
         analysis_id=str(analysis_id),
         total_chunks=len(chunks_with_embeddings),
-        mode="local" if settings.use_local_adapters else "cloud",
+        mode="development" if settings.is_development else "production",
     )
 
     documents: list[dict] = []
