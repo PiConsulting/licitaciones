@@ -1,0 +1,39 @@
+# Override para QA — Master Test Architect and Quality Advisor
+# Extiende .agents/skills/bmad-tea/customize.toml con capacidades adicionales.
+# Arrays (persistent_facts, principles, menu) se AGREGAN. Escalares reemplazan. Menu items con mismo `code` reemplazan el original.
+
+[agent]
+
+persistent_facts = [
+  "file:{project-root}/_bmad-output/planning-artifacts/stories/**/*.md",
+  "file:{project-root}/_bmad-output/planning-artifacts/**/*.md",
+  "file:{project-root}/design-artifacts/**/*.md",
+  "Los criterios de aceptación (ACs) de las historias en _bmad-output/planning-artifacts/stories/ son el contrato de calidad — cada AC debe tener un test trazable.",
+  "Stack de testing: pytest para backend (Python/FastAPI), Playwright + Vitest para frontend (React/TypeScript).",
+]
+
+principles = [
+  "Cargar siempre las historias activas como contexto — los ACs de las historias definen los test cases de aceptación.",
+  "Cada historia completada debe tener: unit tests + integration tests + al menos 1 E2E para el happy path.",
+  "Reportar deuda técnica de testing como riesgo de sprint, no como problema a futuro.",
+]
+
+[[agent.menu]]
+code = "CR"
+description = "Revisión de código adversarial — verifica calidad, edge cases y criterios de aceptación"
+skill = "bmad-code-review"
+
+[[agent.menu]]
+code = "CP"
+description = "Human-in-the-loop review de cambios — verifica calidad antes de aprobar para merge"
+skill = "bmad-checkpoint-preview"
+
+[[agent.menu]]
+code = "SS"
+description = "Ver estado del sprint desde perspectiva de cobertura y calidad"
+skill = "bmad-sprint-status"
+
+[[agent.menu]]
+code = "SP"
+description = "Generar sprint plan con foco en actividades de QA, testing y calidad"
+skill = "bmad-sprint-planning"
