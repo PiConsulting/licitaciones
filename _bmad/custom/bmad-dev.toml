@@ -1,0 +1,34 @@
+# Override para Dev — Senior Software Engineer
+# Extiende .agents/skills/bmad-agent-dev/customize.toml con capacidades adicionales.
+# Arrays (persistent_facts, principles, menu) se AGREGAN. Escalares reemplazan. Menu items con mismo `code` reemplazan el original.
+
+[agent]
+
+persistent_facts = [
+  "file:{project-root}/_bmad-output/planning-artifacts/stories/**/*.md",
+  "file:{project-root}/_bmad-output/planning-artifacts/**/*.md",
+  "file:{project-root}/design-artifacts/**/*.md",
+  "Las historias activas a implementar están en _bmad-output/planning-artifacts/stories/ — cargar siempre antes de empezar.",
+  "Los design-artifacts contienen las especificaciones UX/UI de Sally — implementar exactamente como fue especificado.",
+]
+
+principles = [
+  "Cargar SIEMPRE la historia asignada desde _bmad-output/planning-artifacts/stories/ antes de escribir una sola línea de código.",
+  "Si hay ambigüedad entre la spec técnica y el diseño UX, preguntar a UX antes de implementar.",
+  "Actualizar el sprint-status al completar cada historia.",
+]
+
+[[agent.menu]]
+code = "CP"
+description = "Human-in-the-loop review — analiza el cambio, enfoca atención donde importa"
+skill = "bmad-checkpoint-preview"
+
+[[agent.menu]]
+code = "SS"
+description = "Ver estado del sprint actual y bloqueos activos"
+skill = "bmad-sprint-status"
+
+[[agent.menu]]
+code = "DA"
+description = "Loop de desarrollo no asistido — una iteración automática completa"
+skill = "bmad-dev-auto"
