@@ -23,6 +23,23 @@ class AzureSearchAdapter(SearchClientPort):
         self._endpoint = endpoint
         self._key = key
         self._index_name = index_name
+        self._cached_index_fields: set[str] | None = None
+
+    def _index_field_names(self) -> set[str]:
+        if self._cached_index_fields is not None:
+            return self._cached_index_fields
+
+        client = SearchIndexClient(
+            endpoint=self._endpoint,
+            credential=AzureKeyCredential(self._key),
+        )
+        index = client.get_index(self._index_name)
+        self._cached_index_fields = {field.name for field in index.fields}
+        return self._cached_index_fields
+
+    def _to_index_document(self, document: dict) -> dict:
+        allowed = self._index_field_names()
+        return {key: value for key, value in document.items() if key in allowed}
 
     def upload_chunks(self, documents: list[dict]) -> None:
         from azure.search.documents import SearchClient
@@ -32,7 +49,7 @@ class AzureSearchAdapter(SearchClientPort):
             index_name=self._index_name,
             credential=AzureKeyCredential(self._key),
         )
-        result = client.upload_documents(documents=documents)
+        result = client.upload_documents(documents=[self._to_index_document(document) for document in documents])
         failed = [item for item in result if not item.succeeded]
         if failed:
             raise TransientExtractionError(f"Fallaron {len(failed)} documentos en upload")
@@ -84,6 +101,10 @@ class LocalChromaSearchAdapter(SearchClientPort):
                     "page_number": int(doc["page_number"]),
                     "chunk_index": int(doc["chunk_index"]),
                     "section_key": str(doc.get("section_key", "general")),
+                    "section_path": str(doc.get("section_path", doc.get("section_key", "general"))),
+                    "section_level": int(doc.get("section_level", 0) or 0),
+                    "block_type": str(doc.get("block_type", "paragraph")),
+                    "table_ref": json.dumps(doc.get("table_ref", None), ensure_ascii=True),
                 }
             )
 
@@ -166,6 +187,10 @@ def upload_chunks(chunks_with_embeddings: list[dict], analysis_id: str | UUID, c
                 "page_number": chunk["page_number"],
                 "chunk_index": chunk["chunk_index"],
                 "section_key": chunk.get("section_key", "general"),
+                "section_path": chunk.get("section_path", chunk.get("section_key", "general")),
+                "section_level": int(chunk.get("section_level", 0) or 0),
+                "block_type": chunk.get("block_type", "paragraph"),
+                "table_ref": chunk.get("table_ref"),
                 "content": chunk["content"],
                 "embedding": chunk["embedding"],
             }

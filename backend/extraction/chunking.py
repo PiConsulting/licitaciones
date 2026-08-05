@@ -14,6 +14,16 @@ _SECTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("incisos", re.compile(r"^\s*([a-z]\)|inciso\b)", re.IGNORECASE)),
 ]
 
+_HEADING_ROLES = {"title", "sectionHeading"}
+
+
+def _normalize_heading_value(text: str) -> str:
+    return " ".join(text.strip().split())
+
+
+def _looks_like_structured_input(pages: list[dict]) -> bool:
+    return any("block_type" in item or "role" in item for item in pages)
+
 
 def _tokenize(text: str) -> list[str]:
     return text.split()
@@ -42,6 +52,33 @@ def _infer_section_key(text: str, default_key: str = "general") -> str:
         if pattern.search(first_line):
             return section_key
     return default_key
+
+
+def _section_path_from_stack(stack: list[str], fallback_key: str) -> tuple[str, int]:
+    if stack:
+        return " > ".join(stack), len(stack)
+    return fallback_key, 0
+
+
+def _heading_level_from_text(text: str, role: str, current_stack: list[str]) -> int:
+    if role == "title":
+        return 1
+
+    first_line = text.strip().splitlines()[0] if text.strip() else ""
+    numeric_match = re.match(r"^\s*(\d+(?:\.\d+)*)", first_line)
+    if numeric_match:
+        return min(6, len(numeric_match.group(1).split(".")) + 1)
+
+    inferred = _infer_section_key(first_line, default_key="general")
+    if inferred == "capitulos":
+        return 2
+    if inferred == "articulos":
+        return 3
+    if inferred == "anexos":
+        return 2
+    if inferred == "incisos":
+        return 4
+    return min(6, max(2, len(current_stack) + 1))
 
 
 def _split_structural_blocks(content: str) -> list[dict[str, str]]:
@@ -78,6 +115,83 @@ def _split_structural_blocks(content: str) -> list[dict[str, str]]:
     return blocks
 
 
+def _to_intermediate_blocks(pages: list[dict]) -> tuple[list[dict], int]:
+    intermediate: list[dict] = []
+    fallback_sections = 0
+
+    if _looks_like_structured_input(pages):
+        ordered = sorted(
+            pages,
+            key=lambda item: (
+                int(item.get("page_number", 0)),
+                int(item.get("source_order", item.get("chunk_index", 0))),
+            ),
+        )
+        heading_stack: list[str] = []
+        fallback_section_key = "general"
+
+        for block in ordered:
+            block_type = str(block.get("block_type", "paragraph"))
+            role = str(block.get("role", "paragraph") or "paragraph")
+            content = str(block.get("content", "") or "").strip()
+            if not content:
+                continue
+
+            if role in _HEADING_ROLES:
+                heading_text = _normalize_heading_value(content)
+                level = _heading_level_from_text(heading_text, role, heading_stack)
+                while len(heading_stack) >= level:
+                    heading_stack.pop()
+                heading_stack.append(heading_text)
+                fallback_section_key = _infer_section_key(heading_text, default_key=fallback_section_key)
+            elif not heading_stack:
+                new_key = _infer_section_key(content, default_key=fallback_section_key)
+                if new_key != fallback_section_key:
+                    fallback_sections += 1
+                fallback_section_key = new_key
+
+            section_path, section_level = _section_path_from_stack(heading_stack, fallback_section_key)
+            section_key = _infer_section_key(content, default_key=fallback_section_key)
+
+            intermediate.append(
+                {
+                    "page_number": int(block.get("page_number", 0)),
+                    "block_type": block_type,
+                    "role": role,
+                    "section_key": section_key,
+                    "section_path": section_path,
+                    "section_level": section_level,
+                    "content": content,
+                    "table_ref": block.get("table_ref"),
+                }
+            )
+
+        return intermediate, fallback_sections
+
+    for page in pages:
+        page_number = int(page["page_number"])
+        content = str(page.get("content", "") or "")
+        blocks = _split_structural_blocks(content)
+        if not blocks and content.strip():
+            blocks = [{"section_key": "general", "content": content.strip()}]
+
+        for block in blocks:
+            intermediate.append(
+                {
+                    "page_number": page_number,
+                    "block_type": "paragraph",
+                    "role": "paragraph",
+                    "section_key": block["section_key"],
+                    "section_path": block["section_key"],
+                    "section_level": 0,
+                    "content": block["content"],
+                    "table_ref": None,
+                }
+            )
+
+    return intermediate, fallback_sections
+
+
 def create_chunks(
     pages: list[dict],
     document_id: str | UUID,
@@ -98,36 +212,62 @@ def create_chunks(
     chunks: list[dict] = []
     chunk_index = 0
 
-    for page in pages:
-        page_number = int(page["page_number"])
-        content = str(page["content"])
+    blocks, fallback_sections = _to_intermediate_blocks(pages)
 
-        blocks = _split_structural_blocks(content)
-        if not blocks:
-            blocks = [{"section_key": "general", "content": content}]
+    for block in blocks:
+        page_number = int(block["page_number"])
+        block_type = str(block.get("block_type", "paragraph"))
+        section_key = str(block.get("section_key", "general"))
+        section_path = str(block.get("section_path", section_key))
+        section_level = int(block.get("section_level", 0))
 
-        for block in blocks:
-            tokens = _tokenize(block["content"])
-            if not tokens:
+        if block_type == "table":
+            row_tokens = _tokenize(str(block["content"]))
+            if not row_tokens:
                 continue
-            for piece in _split_with_overlap(tokens, chunk_size, overlap):
-                chunk_content = " ".join(piece)
-                chunks.append(
-                    {
-                        "document_id": str(document_id),
-                        "page_number": page_number,
-                        "chunk_index": chunk_index,
-                        "content": chunk_content,
-                        "token_count": len(piece),
-                        "section_key": block["section_key"],
-                    }
-                )
-                chunk_index += 1
+            chunks.append(
+                {
+                    "document_id": str(document_id),
+                    "page_number": page_number,
+                    "chunk_index": chunk_index,
+                    "content": str(block["content"]),
+                    "token_count": len(row_tokens),
+                    "section_key": section_key,
+                    "section_path": section_path,
+                    "section_level": section_level,
+                    "block_type": "table",
+                    "table_ref": block.get("table_ref"),
+                }
+            )
+            chunk_index += 1
+            continue
+
+        tokens = _tokenize(str(block["content"]))
+        if not tokens:
+            continue
+        for piece in _split_with_overlap(tokens, chunk_size, overlap):
+            chunk_content = " ".join(piece)
+            chunks.append(
+                {
+                    "document_id": str(document_id),
+                    "page_number": page_number,
+                    "chunk_index": chunk_index,
+                    "content": chunk_content,
+                    "token_count": len(piece),
+                    "section_key": section_key,
+                    "section_path": section_path,
+                    "section_level": section_level,
+                    "block_type": "paragraph",
+                    "table_ref": None,
+                }
+            )
+            chunk_index += 1
 
     logger.info(
         "chunking_completed",
         correlation_id=str(correlation_id),
         document_id=str(document_id),
         total_chunks=len(chunks),
+        sections_by_fallback=fallback_sections,
     )
     return chunks
