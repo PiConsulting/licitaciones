@@ -124,5 +124,45 @@
       "informacion del proceso",
       "datos administrativos"
     ]
+  },
+  "cronograma_proceso": {
+    "query_terms": [
+      "cronograma",
+      "etapas del proceso",
+      "fecha de publicacion",
+      "periodo de consultas",
+      "respuesta a consultas",
+      "acto de apertura",
+      "evaluacion de ofertas",
+      "preadjudicacion",
+      "adjudicacion",
+      "hora limite",
+      "calendario del llamado"
+    ],
+    "aliases": [
+      "hitos del proceso",
+      "timeline",
+      "agenda del llamado",
+      "fechas clave"
+    ]
+  },
+  "estimacion_presupuesto": {
+    "query_terms": [
+      "presupuesto oficial",
+      "monto estimado",
+      "valor de referencia",
+      "importe total estimado",
+      "credito presupuestario",
+      "forma de pago",
+      "condiciones de pago",
+      "redeterminacion de precios",
+      "ajuste de precios"
+    ],
+    "aliases": [
+      "monto del contrato",
+      "precio tope",
+      "presupuesto estimado",
+      "erogacion"
+    ]
   }
 }

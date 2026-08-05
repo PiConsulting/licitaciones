@@ -13,5 +13,5 @@ def extractor_cronograma_proceso(state: GraphState) -> GraphState:
         prompt_file_name="datos_procedimiento_cronograma.txt",
         query="cronograma etapas fechas timeline proceso licitatorio",
         section_key="cronograma_proceso",
-        glossary_key="datos_procedimiento",
+        glossary_key="cronograma_proceso",
     )

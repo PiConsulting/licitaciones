@@ -40,10 +40,10 @@ def get_category_terms(category_key: str) -> list[str]:
 
 
 def build_query_from_glossary(category_key: str, fallback_query: str) -> str:
+    """Combina query del extractor con sinonimos del glosario sin descartar ninguna."""
     terms = get_category_terms(category_key)
-    if not terms:
-        return fallback_query
-    return " ".join(terms)
+    combined = [fallback_query.strip(), *terms]
+    return " ".join(part for part in combined if part).strip()
 
 
 def build_prompt_glossary_block(category_key: str) -> str:

@@ -37,6 +37,9 @@ class GraphState(TypedDict, total=False):
     cronograma: list[dict[str, Any]]
     cronograma_status: str
 
+    identificacion: list[dict[str, Any]]
+    identificacion_status: str
+
     presupuesto: dict[str, Any]
     presupuesto_status: str
 
@@ -52,6 +55,7 @@ class GraphState(TypedDict, total=False):
     documentos_token_usage: dict[str, int]
     criterios_token_usage: dict[str, int]
     restricciones_token_usage: dict[str, int]
+    identificacion_token_usage: dict[str, int]
     cronograma_token_usage: dict[str, int]
     presupuesto_token_usage: dict[str, int]
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from unittest.mock import Mock
 
 import pytest
@@ -14,6 +15,7 @@ from analysis.extraction.extractors.objeto_alcance import extractor_objeto_alcan
 from analysis.extraction.extractors.plazos import extractor_plazos
 from analysis.extraction.extractors.restricciones_participacion import extractor_restricciones_participacion
 from analysis.extraction.extractors.anexos_obligatorios import extractor_anexos_obligatorios
+from analysis.extraction.extractors.base import _normalize_item, _parse_json_response
 from analysis.extraction.graph import calculate_confidence, graph, merge_node
 from analysis.extraction.schemas import ExtractedData
 
@@ -41,7 +43,8 @@ def mock_search(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def _fake_llm_result(prompt: str) -> dict:
+def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
+    prompt = "\n".join(content for _role, content in messages)
     if '"objeto_alcance"' in prompt:
         return {
             "objeto_alcance": [
@@ -183,8 +186,8 @@ def _fake_llm_result(prompt: str) -> dict:
 def mock_llm(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "analysis.extraction.extractors.base._call_llm",
-        lambda prompt, correlation_id: (
-            _fake_llm_result(prompt),
+        lambda messages, correlation_id: (
+            _fake_llm_result(messages),
             {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
         ),
     )
@@ -205,6 +208,7 @@ def test_extractor_retry_on_failure(mock_state: dict, mock_search: None, monkeyp
         response_metadata = {"token_usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}}
 
     mock_client = Mock()
+    mock_client.bind.return_value = mock_client
     mock_client.invoke.side_effect = [Exception("Timeout"), Response()]
     monkeypatch.setattr("analysis.extraction.extractors.base.get_azure_openai_client", lambda: mock_client)
 
@@ -215,6 +219,7 @@ def test_extractor_retry_on_failure(mock_state: dict, mock_search: None, monkeyp
 
 def test_extractor_failure_continues(mock_state: dict, mock_search: None, monkeypatch: pytest.MonkeyPatch) -> None:
     mock_client = Mock()
+    mock_client.bind.return_value = mock_client
     mock_client.invoke.side_effect = Exception("Permanent failure")
     monkeypatch.setattr("analysis.extraction.extractors.base.get_azure_openai_client", lambda: mock_client)
 
@@ -384,7 +389,7 @@ def test_extractor_preserves_not_applicable_category_status(
 ) -> None:
     monkeypatch.setattr(
         "analysis.extraction.extractors.base._call_llm",
-        lambda prompt, correlation_id: (
+        lambda messages, correlation_id: (
             {
                 "garantias": [
                     {
@@ -522,10 +527,41 @@ def test_extractor_uses_query_from_glossary(
         return []
 
     monkeypatch.setattr("analysis.extraction.extractors.base.search_hybrid", _fake_search_hybrid)
-    monkeypatch.setattr(
-        "analysis.extraction.extractors.base._call_llm",
-        lambda prompt, correlation_id: ({"criterios_evaluacion": []}, {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}),
-    )
 
     extractor_criterios_evaluacion(mock_state)
     assert "matriz de evaluacion" in captured_query["value"].lower()
+
+
+def test_status_con_pipes_no_se_mapea_a_success() -> None:
+    item = _normalize_item({"extraction_status": "success | partial | failed | not_found"})
+    assert item["extraction_status"] != "success"
+
+
+def test_confidence_invalida_se_deja_calcular_por_heuristica() -> None:
+    item = _normalize_item({"extraction_status": "success", "confidence": 0.0})
+    assert "confidence" not in item
+
+
+def test_parser_tolera_texto_antes_del_json() -> None:
+    parsed = _parse_json_response('Claro, aqui esta:\n```json\n{"plazos": []}\n```')
+    assert parsed == {"plazos": []}
+
+
+def test_todos_los_prompts_referenciados_existen_y_tienen_placeholders() -> None:
+    from pathlib import Path
+
+    base = Path("analysis/extraction")
+    extractor_sources = "\n".join(
+        path.read_text(encoding="utf-8") for path in (base / "extractors").glob("*.py")
+    )
+    referenciados = set(re.findall(r'prompt_file_name="([^"]+)"', extractor_sources))
+
+    for nombre in referenciados:
+        archivo = base / "prompts" / nombre
+        assert archivo.exists(), f"prompt referenciado inexistente: {nombre}"
+        contenido = archivo.read_text(encoding="utf-8")
+        assert "{chunks}" in contenido, f"{nombre} no tiene placeholder {{chunks}}"
+
+    en_disco = {path.name for path in (base / "prompts").glob("*.txt")} - {"_base_system.txt"}
+    huerfanos = en_disco - referenciados
+    assert not huerfanos, f"prompts sin extractor que los use: {huerfanos}"

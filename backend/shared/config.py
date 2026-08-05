@@ -70,6 +70,8 @@ class Settings(BaseSettings):
 
     markitdown_enabled: bool = Field(default=True, alias="MARKITDOWN_ENABLED")
     extraction_max_concurrency: int = Field(default=4, alias="EXTRACTION_MAX_CONCURRENCY")
+    extraction_top_k: int = Field(default=25, alias="EXTRACTION_TOP_K")
+    extraction_max_context_tokens: int = Field(default=12000, alias="EXTRACTION_MAX_CONTEXT_TOKENS")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     persistence_mode: str = Field(default="sql", alias="PERSISTENCE_MODE")
     cosmos_endpoint: str = Field(default="", alias="COSMOS_ENDPOINT")

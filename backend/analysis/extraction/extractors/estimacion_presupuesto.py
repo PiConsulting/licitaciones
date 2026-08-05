@@ -14,5 +14,5 @@ def extractor_estimacion_presupuesto(state: GraphState) -> GraphState:
         query="presupuesto oficial monto estimado valor referencia forma de pago",
         section_key="estimacion_presupuesto",
         is_object_result=True,
-        glossary_key="datos_procedimiento",
+        glossary_key="estimacion_presupuesto",
     )

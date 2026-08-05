@@ -68,6 +68,11 @@ def _build_adapter() -> EmbeddingsPort:
     )
 
 
+def embed_query(text: str) -> list[float]:
+    """Vectoriza una consulta con el mismo modelo usado para indexar los chunks."""
+    return _build_adapter().generate_embeddings([text])[0]
+
+
 def generate_embeddings(chunks: list[dict], correlation_id: str | UUID) -> list[dict]:
     settings = get_settings()
     adapter = _build_adapter()

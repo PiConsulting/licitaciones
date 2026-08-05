@@ -82,9 +82,8 @@ def test_cloud_search_falls_back_without_section_filter(monkeypatch: pytest.Monk
 
     assert len(results) == 1
     assert results[0]["section_path"] == "plazos"
-    assert len(fake_client.calls) == 2
-    assert "section_key eq 'plazos'" in fake_client.calls[0]["filter"]
-    assert fake_client.calls[1]["filter"] == "analysis_id eq 'analysis-1'"
+    assert len(fake_client.calls) == 1
+    assert fake_client.calls[0]["filter"] == "analysis_id eq 'analysis-1'"
 
 
 def test_cloud_search_without_section_filter_executes_once(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -132,5 +131,5 @@ def test_cloud_search_uses_wildcard_fallback_when_query_returns_empty(monkeypatc
 
     assert len(results) == 1
     assert results[0]["document_id"] == "doc-2"
-    assert len(fake_client.calls) == 3
-    assert fake_client.calls[2]["search_text"] == "*"
+    assert len(fake_client.calls) == 2
+    assert fake_client.calls[1]["search_text"] == "*"

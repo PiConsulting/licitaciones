@@ -14,6 +14,7 @@ from analysis.extraction.extractors import (
     extractor_documentos_requeridos,
     extractor_estimacion_presupuesto,
     extractor_garantias,
+    extractor_identificacion_procedimiento,
     extractor_objeto_alcance,
     extractor_plazos,
     extractor_restricciones_participacion,
@@ -128,6 +129,12 @@ def calculate_confidence(source_references: list[dict], extraction_status: str) 
     if extraction_status in {"failed", "not_found"}:
         return 0.0
 
+    if extraction_status == "not_applicable":
+        return 0.7 if source_references else 0.0
+
+    if not source_references:
+        return 0.3
+
     confidence = 0.5
     if len(source_references) > 1:
         confidence += 0.3
@@ -138,8 +145,13 @@ def calculate_confidence(source_references: list[dict], extraction_status: str) 
         avg_citation_length = sum(len(str(ref.get("citation", ""))) for ref in source_references) / len(source_references)
         if avg_citation_length > 100:
             confidence += 0.2
+        elif avg_citation_length < 25:
+            confidence -= 0.2
 
-    return min(confidence, 1.0)
+    if extraction_status == "partial":
+        confidence -= 0.2
+
+    return max(0.0, min(confidence, 1.0))
 
 
 def get_confidence_level(confidence: float) -> str:
@@ -156,6 +168,18 @@ def _normalize_confidence(item: dict) -> dict:
     if "confidence" not in item:
         item["confidence"] = calculate_confidence(refs, status)
     item["confidence_level"] = get_confidence_level(float(item.get("confidence", 0.0) or 0.0))
+    return item
+
+
+def _penalize_unverifiable(item: dict) -> dict:
+    """Marca como partial los items sin citas verificables."""
+    refs = list(item.get("source_references", []))
+    status = str(item.get("extraction_status", ""))
+    if status in {"success", "partial"}:
+        usable = [ref for ref in refs if len(str(ref.get("citation", "")).strip()) >= 25]
+        if not usable:
+            item["extraction_status"] = "partial"
+            item["_warning"] = "cita_insuficiente"
     return item
 
 
@@ -181,6 +205,8 @@ def setup_node(state: GraphState) -> GraphState:
             "restricciones_status": "pending",
             "cronograma": [],
             "cronograma_status": "pending",
+            "identificacion": [],
+            "identificacion_status": "pending",
             "presupuesto": {},
             "presupuesto_status": "pending",
             "conflicts": [],
@@ -194,19 +220,24 @@ def merge_node(state: GraphState) -> GraphState:
     correlation_id = state["correlation_id"]
     logger.info("merge_node_started", correlation_id=correlation_id, analysis_id=state["analysis_id"])
 
-    plazos = [_normalize_confidence(item) for item in state.get("plazos", [])]
-    objeto_alcance = [_normalize_confidence(item) for item in state.get("objeto_alcance", [])]
-    garantias = [_normalize_confidence(item) for item in state.get("garantias", [])]
-    causales = [_normalize_confidence(item) for item in state.get("causales", [])]
-    anexos = [_normalize_confidence(item) for item in state.get("anexos", [])]
-    documentos = [_normalize_confidence(item) for item in state.get("documentos", [])]
-    criterios = [_normalize_confidence(item) for item in state.get("criterios", [])]
-    restricciones = [_normalize_confidence(item) for item in state.get("restricciones", [])]
-    cronograma = [_normalize_confidence(item) for item in state.get("cronograma", [])]
-    presupuesto = _normalize_confidence(dict(state.get("presupuesto", {}))) if state.get("presupuesto") else None
+    plazos = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("plazos", [])]
+    objeto_alcance = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("objeto_alcance", [])]
+    garantias = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("garantias", [])]
+    causales = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("causales", [])]
+    anexos = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("anexos", [])]
+    documentos = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("documentos", [])]
+    criterios = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("criterios", [])]
+    restricciones = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("restricciones", [])]
+    cronograma = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("cronograma", [])]
+    identificacion = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("identificacion", [])]
+    presupuesto = (
+        _normalize_confidence(_penalize_unverifiable(dict(state.get("presupuesto", {}))))
+        if state.get("presupuesto")
+        else None
+    )
 
     requisitos = [*documentos, *restricciones]
-    datos_procedimiento = list(cronograma)
+    datos_procedimiento = [*identificacion, *cronograma]
     if presupuesto:
         datos_procedimiento.append(_presupuesto_to_generic_item(presupuesto))
 
@@ -230,6 +261,7 @@ def merge_node(state: GraphState) -> GraphState:
         "anexos_extraction_status": state.get("anexos_status", "unknown"),
         "datos_procedimiento": datos_procedimiento,
         "datos_procedimiento_extraction_status": _merge_category_status(
+            state.get("identificacion_status", "unknown"),
             state.get("cronograma_status", "unknown"),
             state.get("presupuesto_status", "unknown"),
         ),
@@ -254,6 +286,7 @@ def merge_node(state: GraphState) -> GraphState:
         "documentos_requeridos": state.get("documentos_token_usage", {}),
         "criterios_evaluacion": state.get("criterios_token_usage", {}),
         "restricciones_participacion": state.get("restricciones_token_usage", {}),
+        "identificacion_procedimiento": state.get("identificacion_token_usage", {}),
         "cronograma_proceso": state.get("cronograma_token_usage", {}),
         "estimacion_presupuesto": state.get("presupuesto_token_usage", {}),
     }
@@ -323,6 +356,7 @@ builder.add_node("extract_anexos", extractor_anexos_obligatorios)
 builder.add_node("extract_documentos", extractor_documentos_requeridos)
 builder.add_node("extract_criterios", extractor_criterios_evaluacion)
 builder.add_node("extract_restricciones", extractor_restricciones_participacion)
+builder.add_node("extract_identificacion", extractor_identificacion_procedimiento)
 builder.add_node("extract_cronograma", extractor_cronograma_proceso)
 builder.add_node("extract_presupuesto", extractor_estimacion_presupuesto)
 builder.add_node("merge", merge_node)
@@ -338,6 +372,7 @@ extractor_nodes = [
     "extract_documentos",
     "extract_criterios",
     "extract_restricciones",
+    "extract_identificacion",
     "extract_cronograma",
     "extract_presupuesto",
 ]
