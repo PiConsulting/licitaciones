@@ -1,0 +1,70 @@
+# OBJETIVO
+Extraer el objeto y el alcance de la contratación: qué se contrata, bajo qué
+modalidad, en qué cantidad, dónde se entrega o presta, en qué plazo, y si se
+admiten ofertas parciales o alternativas.
+
+Cada aspecto distinto es un ítem separado del array. No armes un solo ítem
+resumen que junte todo.
+
+# ESQUEMA
+{
+  "objeto_alcance": [
+    {
+      "tipo": "resumen_objeto|modalidad|item|oferta_parcial|oferta_alternativa|lugar_entrega|plazo_ejecucion",
+      "valor": <texto literal o casi literal del pliego>,
+      "metadata": {
+        "cantidad": <número o null>,
+        "unidad_medida": <texto o null>,
+        "renglon": <identificador del renglón o null>
+      },
+      "confidence": <número calculado según la rúbrica del sistema>,
+      "source_references": [
+        {
+          "document_id": <valor exacto del header del fragmento>,
+          "page_number": <valor exacto del header del fragmento>,
+          "citation": <subcadena literal del fragmento>
+        }
+      ],
+      "extraction_status": "success|partial|not_applicable|not_found"
+    }
+  ]
+}
+
+# REGLAS ESPECÍFICAS
+- `resumen_objeto`: emitir exactamente uno, con la descripción de qué se contrata.
+- `modalidad`: bienes, servicios, obra pública, suministro, locación, u otro que
+  el pliego nombre. Copiá el término del pliego, no lo normalices.
+- `item`: un ítem por renglón / lote cotizable. Si el pliego lista renglones en
+  una tabla, emitir uno por fila y citar encabezado + fila.
+- `oferta_parcial` / `oferta_alternativa`: `valor` debe ser `"si"` o `"no"`.
+  Frases como "no se admiten ofertas parciales" → `valor: "no"`, status `success`.
+  Si el pliego no lo menciona → status `not_found`, no asumas ninguna de las dos.
+- `plazo_ejecucion`: el plazo de prestación o entrega del objeto contratado.
+  NO confundir con los plazos del procedimiento (presentación, apertura), que van
+  en la categoría de plazos clave.
+- `lugar_entrega`: dirección o dependencia donde se presta o entrega. Copiá la
+  dirección completa tal como figura.
+- No mezcles especificaciones técnicas detalladas acá; solo el alcance.
+
+# EJEMPLO DE FORMA (no copiar contenido)
+Fragmento:
+  [Fragmento: F1, Documento: 7c9e, Página: 2, Sección: Capítulo 1 > Artículo 1°, Tipo: PÁRRAFO]
+  Artículo 1° — Objeto. La presente contratación tiene por objeto la provisión de
+  200 (doscientas) resmas de papel A4. Modalidad: bienes. No se admiten ofertas alternativas.
+
+Salida correcta:
+{"objeto_alcance":[
+{"tipo":"resumen_objeto","valor":"Provisión de 200 resmas de papel A4","metadata":{"cantidad":200,"unidad_medida":"resmas","renglon":null},"confidence":0.9,"source_references":[{"document_id":"7c9e","page_number":2,"citation":"La presente contratación tiene por objeto la provisión de 200 (doscientas) resmas de papel A4."}],"extraction_status":"success"},
+{"tipo":"modalidad","valor":"bienes","metadata":{"cantidad":null,"unidad_medida":null,"renglon":null},"confidence":0.85,"source_references":[{"document_id":"7c9e","page_number":2,"citation":"Modalidad: bienes. No se admiten ofertas alternativas."}],"extraction_status":"success"},
+{"tipo":"oferta_alternativa","valor":"no","metadata":{"cantidad":null,"unidad_medida":null,"renglon":null},"confidence":0.9,"source_references":[{"document_id":"7c9e","page_number":2,"citation":"Modalidad: bienes. No se admiten ofertas alternativas."}],"extraction_status":"success"}
+]}
+
+# EJEMPLO DE AUSENCIA
+Si los fragmentos no describen el objeto de la contratación:
+{"objeto_alcance":[]}
+
+=== CONTENIDO DEL PLIEGO ===
+{chunks}
+=== FIN DEL CONTENIDO ===
+
+Recordá: primera letra `{`. Un solo valor por campo enumerado. Citas literales.

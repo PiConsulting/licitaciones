@@ -14,6 +14,11 @@ _SECTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("incisos", re.compile(r"^\s*([a-z]\)|inciso\b)", re.IGNORECASE)),
 ]
 
+_HEADING_LINE_RE = re.compile(
+    r"^\s*(cap[ií]tulo|art[ií]culo|anexo|secci[oó]n|t[ií]tulo)\b.{0,120}$",
+    re.IGNORECASE,
+)
+
 _HEADING_ROLES = {"title", "sectionHeading"}
 
 
@@ -84,35 +89,62 @@ def _heading_level_from_text(text: str, role: str, current_stack: list[str]) -> 
 def _split_structural_blocks(content: str) -> list[dict[str, str]]:
     lines = content.splitlines()
     blocks: list[dict[str, str]] = []
+    heading_stack: list[str] = []
     current_lines: list[str] = []
     current_section = "general"
+    current_path = "general"
 
     def flush() -> None:
-        if not current_lines:
-            return
+        nonlocal current_lines
         text = "\n".join(current_lines).strip()
         if text:
-            blocks.append({"section_key": current_section, "content": text})
+            blocks.append(
+                {
+                    "section_key": current_section,
+                    "section_path": current_path,
+                    "section_level": len(heading_stack),
+                    "content": text,
+                }
+            )
+        current_lines = []
+
+    def is_standalone_heading(line: str) -> bool:
+        stripped = line.strip()
+        if not stripped or len(stripped) > 140:
+            return False
+        return bool(_HEADING_LINE_RE.match(stripped)) and not stripped.endswith(".")
 
     for line in lines:
         if not line.strip():
             current_lines.append(line)
             continue
 
-        detected_section = _infer_section_key(line, default_key=current_section)
-        is_new_section = detected_section != current_section and bool(current_lines)
-        if is_new_section:
+        if is_standalone_heading(line):
             flush()
-            current_lines = [line]
-            current_section = detected_section
+            heading_text = " ".join(line.split())
+            lower = heading_text.lower()
+            level = 1 if lower.startswith(("capítulo", "capitulo", "título", "titulo")) else 2
+            while len(heading_stack) >= level:
+                heading_stack.pop()
+            heading_stack.append(heading_text)
+            current_section = _infer_section_key(heading_text, default_key=current_section)
+            current_path = " > ".join(heading_stack)
+            current_lines = [heading_text]
             continue
 
         if not current_lines:
-            current_section = detected_section
+            current_section = _infer_section_key(line, default_key=current_section)
+            current_path = " > ".join(heading_stack) if heading_stack else current_section
         current_lines.append(line)
 
     flush()
-    return blocks
+    if blocks:
+        return blocks
+
+    stripped = content.strip()
+    if stripped:
+        return [{"section_key": "general", "section_path": "general", "section_level": 0, "content": stripped}]
+    return []
 
 
 def _to_intermediate_blocks(pages: list[dict]) -> tuple[list[dict], int]:
@@ -172,8 +204,6 @@ def _to_intermediate_blocks(pages: list[dict]) -> tuple[list[dict], int]:
         page_number = int(page["page_number"])
         content = str(page.get("content", "") or "")
         blocks = _split_structural_blocks(content)
-        if not blocks and content.strip():
-            blocks = [{"section_key": "general", "content": content.strip()}]
 
         for block in blocks:
             intermediate.append(
@@ -182,8 +212,8 @@ def _to_intermediate_blocks(pages: list[dict]) -> tuple[list[dict], int]:
                     "block_type": "paragraph",
                     "role": "paragraph",
                     "section_key": block["section_key"],
-                    "section_path": block["section_key"],
-                    "section_level": 0,
+                    "section_path": block.get("section_path", block["section_key"]),
+                    "section_level": int(block.get("section_level", 0)),
                     "content": block["content"],
                     "table_ref": None,
                 }
@@ -197,8 +227,8 @@ def create_chunks(
     document_id: str | UUID,
     correlation_id: str | UUID,
     *,
-    chunk_size: int = 500,
-    overlap: int = 50,
+    chunk_size: int = 700,
+    overlap: int = 120,
 ) -> list[dict]:
     logger.info(
         "chunking_started",

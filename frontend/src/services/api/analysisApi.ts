@@ -69,6 +69,190 @@ function emptyCategoryData(): CategoryData {
   };
 }
 
+/**
+ * El backend emite cada categoría como un array de ítems y el estado agregado en
+ * una clave hermana, cuyo nombre no siempre coincide con el de la categoría.
+ */
+const BACKEND_STATUS_KEY: Record<CategoryId, string> = {
+  plazos_clave: "plazos_clave_extraction_status",
+  garantias: "garantias_extraction_status",
+  causales_rechazo: "causales_extraction_status",
+  objeto_alcance: "objeto_alcance_extraction_status",
+  requisitos_admisibilidad: "requisitos_admisibilidad_extraction_status",
+  criterios_evaluacion: "criterios_extraction_status",
+  anexos_obligatorios: "anexos_extraction_status",
+  datos_procedimiento: "datos_procedimiento_extraction_status",
+};
+
+const FIELD_LABELS: Record<string, string> = {
+  presentacion_ofertas: "Presentación de ofertas",
+  apertura: "Apertura de ofertas",
+  consultas: "Consultas",
+  respuesta_consultas: "Respuesta a consultas",
+  visita_obra: "Visita a obra",
+  mantenimiento_oferta: "Mantenimiento de oferta",
+  adjudicacion: "Adjudicación",
+  firma_contrato: "Firma del contrato",
+  inicio_ejecucion: "Inicio de ejecución",
+  entrega: "Entrega",
+  garantia_tecnica: "Garantía técnica",
+  impugnacion: "Impugnación",
+  cumplimiento_contrato: "Garantía de cumplimiento de contrato",
+  anticipo: "Garantía de anticipo",
+  resumen_objeto: "Objeto",
+  modalidad: "Modalidad",
+  oferta_parcial: "Admite oferta parcial",
+  oferta_alternativa: "Admite oferta alternativa",
+  lugar_entrega: "Lugar de entrega",
+  plazo_ejecucion: "Plazo de ejecución",
+  presupuesto_oficial: "Presupuesto oficial",
+  otro: "Otro",
+  otra: "Otra",
+};
+
+function humanizeTipo(tipo: string): string {
+  if (!tipo) {
+    return "Campo sin nombre";
+  }
+  if (FIELD_LABELS[tipo]) {
+    return FIELD_LABELS[tipo];
+  }
+  const spaced = tipo.replace(/_/g, " ").trim();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+const STATE_BY_STATUS: Record<string, FieldItem["field_state"]> = {
+  success: "extraido",
+  partial: "extraido",
+  not_found: "no_encontrado",
+  failed: "no_encontrado",
+  not_applicable: "no_aplica",
+};
+
+function joinParts(parts: Array<string | null | undefined>): string | null {
+  const clean = parts.map((part) => (part == null ? "" : String(part).trim())).filter(Boolean);
+  return clean.length > 0 ? clean.join(" · ") : null;
+}
+
+/** Deriva un valor legible según la forma del ítem (plazo, garantía o genérico). */
+function backendItemValue(item: Record<string, unknown>): string | null {
+  if (item.valor != null && String(item.valor).trim() !== "") {
+    return String(item.valor);
+  }
+
+  // PlazoItem
+  if ("fecha" in item || "expresion_relativa" in item || "texto_original" in item) {
+    const fecha = item.fecha == null ? "" : String(item.fecha).trim();
+    const hora = item.hora == null ? "" : String(item.hora).trim();
+    const fechaHora = fecha && hora ? `${fecha} ${hora}` : fecha || "";
+    const value = joinParts([
+      fechaHora || null,
+      fechaHora ? null : (item.expresion_relativa as string | null),
+      fechaHora || item.expresion_relativa ? null : (item.texto_original as string | null),
+      item.lugar == null ? null : `Lugar: ${String(item.lugar)}`,
+    ]);
+    if (value) {
+      return value;
+    }
+  }
+
+  // GarantiaItem
+  if ("monto_porcentaje" in item || "monto_valor" in item || "forma_constitucion" in item) {
+    const moneda = item.moneda == null ? "" : String(item.moneda).trim();
+    const value = joinParts([
+      item.monto_porcentaje == null ? null : `${item.monto_porcentaje}%`,
+      item.monto_valor == null ? null : `${item.monto_valor}${moneda ? ` ${moneda}` : ""}`,
+      item.sobre_que_se_calcula == null ? null : `Sobre: ${String(item.sobre_que_se_calcula)}`,
+      item.forma_constitucion == null ? null : `Forma: ${String(item.forma_constitucion)}`,
+      item.vigencia == null ? null : `Vigencia: ${String(item.vigencia)}`,
+    ]);
+    if (value) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+/** Convierte un ítem del backend (tipo/valor/source_references) en un FieldItem de UI. */
+function fromBackendItem(value: unknown): FieldItem | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const status = String(value.extraction_status ?? "success");
+  const refsRaw = Array.isArray(value.source_references) ? value.source_references : [];
+
+  return {
+    field_name: humanizeTipo(String(value.tipo ?? "")),
+    field_value: backendItemValue(value),
+    field_state: STATE_BY_STATUS[status] ?? "extraido",
+    confidence: Number(value.confidence ?? 0),
+    citations: refsRaw.filter(isRecord).map((ref) => ({
+      text: String(ref.citation ?? ""),
+      page: Number(ref.page_number ?? 0),
+      document_id: String(ref.document_id ?? ""),
+      document_name: "Documento",
+    })),
+  };
+}
+
+function summarize(items: FieldItem[]): string {
+  if (items.length === 0) {
+    return "Sin datos extraídos todavía.";
+  }
+  const extracted = items.filter((item) => item.field_state === "extraido").length;
+  const notFound = items.filter((item) => item.field_state === "no_encontrado").length;
+  const notApplicable = items.filter((item) => item.field_state === "no_aplica").length;
+
+  const parts = [`${extracted} dato${extracted === 1 ? "" : "s"} extraído${extracted === 1 ? "" : "s"}`];
+  if (notFound > 0) {
+    parts.push(`${notFound} no encontrado${notFound === 1 ? "" : "s"}`);
+  }
+  if (notApplicable > 0) {
+    parts.push(`${notApplicable} no aplica${notApplicable === 1 ? "" : "n"}`);
+  }
+  return parts.join(" · ");
+}
+
+/** Construye CategoryData a partir del array de ítems que emite el backend. */
+function fromBackendArray(
+  rawItems: unknown[],
+  statusFromSibling: unknown,
+): CategoryData {
+  const items = rawItems.map(fromBackendItem).filter((item): item is FieldItem => item !== null);
+
+  const withConfidence = items.filter((item) => Number.isFinite(item.confidence) && item.confidence > 0);
+  const confidence =
+    withConfidence.length > 0
+      ? withConfidence.reduce((total, item) => total + item.confidence, 0) / withConfidence.length
+      : 0;
+
+  const sourceReferences = items.flatMap((item) =>
+    item.citations.map((citation) => ({
+      page: citation.page,
+      document_id: citation.document_id,
+      text_snippet: citation.text,
+    })),
+  );
+
+  const statusValue = String(statusFromSibling ?? "");
+  const extractionStatus = ["success", "partial", "failed", "not_found", "not_applicable"].includes(statusValue)
+    ? (statusValue as CategoryData["extraction_status"])
+    : items.length > 0
+      ? "success"
+      : "not_found";
+
+  return {
+    items,
+    confidence,
+    source_references: sourceReferences,
+    extraction_status: extractionStatus,
+    summary: summarize(items),
+    is_reviewed: false,
+  };
+}
+
 function normalizeCategories(extractedData: unknown): Record<CategoryId, CategoryData> {
   const result = CATEGORY_ORDER.reduce<Record<CategoryId, CategoryData>>((acc, categoryId) => {
     acc[categoryId] = emptyCategoryData();
@@ -79,8 +263,45 @@ function normalizeCategories(extractedData: unknown): Record<CategoryId, Categor
     return result;
   }
 
+  const legacyToUiMap: Partial<Record<CategoryId, string[]>> = {
+    plazos_clave: ["plazos"],
+    requisitos_admisibilidad: ["documentos_requeridos", "restricciones_participacion"],
+    datos_procedimiento: ["cronograma_proceso", "estimacion_presupuesto"],
+  };
+
   for (const categoryId of CATEGORY_ORDER) {
-    const rawCategory = extractedData[categoryId];
+    let rawCategory = extractedData[categoryId];
+
+    // Forma actual del backend: la categoría es un array de ítems y el estado
+    // agregado viaja en una clave hermana.
+    if (Array.isArray(rawCategory)) {
+      result[categoryId] = fromBackendArray(rawCategory, extractedData[BACKEND_STATUS_KEY[categoryId]]);
+      continue;
+    }
+
+    if (!isRecord(rawCategory) && legacyToUiMap[categoryId]) {
+      const legacyKeys = legacyToUiMap[categoryId] as string[];
+      const arrayCandidates = legacyKeys
+        .map((key) => extractedData[key])
+        .filter((value): value is unknown[] => Array.isArray(value));
+
+      if (arrayCandidates.length > 0) {
+        result[categoryId] = fromBackendArray(
+          arrayCandidates.flat(),
+          extractedData[BACKEND_STATUS_KEY[categoryId]],
+        );
+        continue;
+      }
+
+      const candidates = legacyKeys
+        .map((key) => extractedData[key])
+        .filter((value) => isRecord(value));
+
+      if (candidates.length > 0) {
+        rawCategory = candidates[0];
+      }
+    }
+
     if (!isRecord(rawCategory)) {
       continue;
     }
@@ -94,7 +315,7 @@ function normalizeCategories(extractedData: unknown): Record<CategoryId, Categor
       .filter((ref): ref is SourceReference => ref !== null);
 
     const statusValue = String(rawCategory.extraction_status ?? "partial");
-    const extractionStatus = ["success", "partial", "failed"].includes(statusValue)
+    const extractionStatus = ["success", "partial", "failed", "not_found", "not_applicable"].includes(statusValue)
       ? (statusValue as CategoryData["extraction_status"])
       : "partial";
 

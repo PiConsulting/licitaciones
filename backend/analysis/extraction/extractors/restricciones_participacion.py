@@ -10,7 +10,8 @@ def extractor_restricciones_participacion(state: GraphState) -> GraphState:
         result_key="restricciones_participacion",
         state_field="restricciones",
         status_field="restricciones_status",
-        prompt_file_name="restricciones_participacion.txt",
+        prompt_file_name="requisitos_admisibilidad_restricciones.txt",
         query="restricciones requisitos capacidad experiencia habilitación certificación",
         section_key="restricciones_participacion",
+        glossary_key="requisitos_admisibilidad",
     )

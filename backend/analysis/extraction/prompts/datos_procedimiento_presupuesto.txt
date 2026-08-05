@@ -1,0 +1,68 @@
+# OBJETIVO
+Extraer ÚNICAMENTE el presupuesto oficial / monto estimado de la contratación y sus
+condiciones de pago y ajuste.
+
+Esta categoría devuelve UN OBJETO, no un array.
+No incluyas acá datos administrativos del procedimiento (organismo, expediente,
+tipo de procedimiento): esos van en otra categoría.
+
+# ESQUEMA
+{
+  "estimacion_presupuesto": {
+    "monto": <número sin separadores de miles, o null>,
+    "moneda": "ARS|USD|EUR|otra" o null,
+    "forma_pago": <texto literal de la condición de pago, o null>,
+    "ajustes": <texto literal del mecanismo de redeterminación o ajuste, o null>,
+    "confidence": <número calculado según la rúbrica del sistema>,
+    "source_references": [
+      {
+        "document_id": <valor exacto del header del fragmento>,
+        "page_number": <valor exacto del header del fragmento>,
+        "citation": <subcadena literal del fragmento>
+      }
+    ],
+    "extraction_status": "success|partial|not_applicable|not_found"
+  }
+}
+
+# REGLAS ESPECÍFICAS
+- Formato numérico argentino: punto = miles, coma = decimales.
+  `AR$ 3.750.000` → `3750000.0`
+  `$ 1.250.000,50` → `1250000.5`
+  `USD 45.300` → `45300.0`
+  Nunca devuelvas el monto como string ni con símbolos.
+- `moneda`: `"ARS"` si el pliego usa `$`, `AR$`, `pesos`, `ARS`.
+  `"USD"` si usa `U$S`, `USD`, `dólares`. Si no hay indicación → `null`.
+  NO asumas ARS por defecto.
+- Si el presupuesto está desagregado por renglón, devolvé el TOTAL. Si no hay total
+  explícito, devolvé `monto: null` con `extraction_status: "partial"` y citá la
+  desagregación. NO sumes vos los renglones.
+- `forma_pago`: copia literal. "Pago a 30 días de la conformidad de la factura",
+  "anticipo del 20% contra póliza", "pago mensual por certificación".
+- `ajustes`: copia literal del mecanismo. "Redeterminación de precios según Decreto
+  X", "ajuste por IPC INDEC", "precios firmes e inalterables". Si el pliego dice que
+  no hay ajuste, eso también va acá literal.
+- Si el pliego declara explícitamente que el presupuesto es reservado o no se
+  publica → `extraction_status: "not_applicable"` con la cita de esa declaración.
+- Si los fragmentos no mencionan monto → `extraction_status: "not_found"`,
+  todos los campos en `null`, `confidence: 0.0`.
+
+# EJEMPLO DE FORMA (no copiar contenido)
+Fragmento:
+  [Fragmento: F1, Documento: 7c9e, Página: 9, Sección: Capítulo 10 > Artículo 22°, Tipo: PÁRRAFO]
+  Artículo 22° — El presupuesto oficial asciende a la suma de PESOS OCHO MILLONES
+  CUATROCIENTOS MIL ($ 8.400.000). El pago se efectuará dentro de los 30 días corridos
+  de conformada la factura. Los precios se mantendrán firmes e inalterables.
+
+Salida correcta:
+{"estimacion_presupuesto":{"monto":8400000.0,"moneda":"ARS","forma_pago":"dentro de los 30 días corridos de conformada la factura","ajustes":"Los precios se mantendrán firmes e inalterables","confidence":0.95,"source_references":[{"document_id":"7c9e","page_number":9,"citation":"El presupuesto oficial asciende a la suma de PESOS OCHO MILLONES CUATROCIENTOS MIL ($ 8.400.000). El pago se efectuará dentro de los 30 días corridos de conformada la factura."}],"extraction_status":"success"}}
+
+# EJEMPLO DE AUSENCIA
+Si los fragmentos no mencionan ningún monto:
+{"estimacion_presupuesto":{"monto":null,"moneda":null,"forma_pago":null,"ajustes":null,"confidence":0.0,"source_references":[],"extraction_status":"not_found"}}
+
+=== CONTENIDO DEL PLIEGO ===
+{chunks}
+=== FIN DEL CONTENIDO ===
+
+Recordá: primera letra `{`. Devolvés un OBJETO, no un array. Monto numérico, sin símbolos.

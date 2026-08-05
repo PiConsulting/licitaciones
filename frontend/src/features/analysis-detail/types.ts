@@ -39,7 +39,7 @@ export interface CategoryData {
   items: FieldItem[];
   confidence: number;
   source_references: SourceReference[];
-  extraction_status: "success" | "partial" | "failed";
+  extraction_status: "success" | "partial" | "failed" | "not_found" | "not_applicable";
   summary: string;
   is_reviewed: boolean;
 }

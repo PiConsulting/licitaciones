@@ -13,4 +13,5 @@ def extractor_garantias(state: GraphState) -> GraphState:
         prompt_file_name="garantias.txt",
         query="garantía oferta cumplimiento anticipo monto caución seguro",
         section_key="garantias",
+        glossary_key="garantias",
     )

@@ -65,3 +65,7 @@ Thumbs.db
 # Engram — track config but never the local database
 .engram/*.db
 .engram/*.db-*
+
+# Ignore internal docs draft folder
+docs/docu/
+

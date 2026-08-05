@@ -10,8 +10,9 @@ def extractor_estimacion_presupuesto(state: GraphState) -> GraphState:
         result_key="estimacion_presupuesto",
         state_field="presupuesto",
         status_field="presupuesto_status",
-        prompt_file_name="estimacion_presupuesto.txt",
+        prompt_file_name="datos_procedimiento_presupuesto.txt",
         query="presupuesto oficial monto estimado valor referencia forma de pago",
         section_key="estimacion_presupuesto",
         is_object_result=True,
+        glossary_key="estimacion_presupuesto",
     )

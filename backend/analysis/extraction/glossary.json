@@ -1,0 +1,168 @@
+{
+  "objeto_alcance": {
+    "query_terms": [
+      "objeto",
+      "alcance",
+      "alcance del servicio",
+      "descripcion de la contratacion",
+      "modalidad",
+      "oferta parcial",
+      "ofertas alternativas",
+      "lugar de entrega",
+      "plazo de ejecucion"
+    ],
+    "aliases": [
+      "objeto de la contratacion",
+      "alcance de la contratacion",
+      "objeto del llamado",
+      "descripcion del servicio"
+    ]
+  },
+  "requisitos_admisibilidad": {
+    "query_terms": [
+      "requisitos de admisibilidad",
+      "condiciones de admision",
+      "requisitos habilitantes",
+      "documentacion requerida",
+      "subsanable",
+      "momento de presentacion"
+    ],
+    "aliases": [
+      "requisitos legales",
+      "requisitos tecnicos",
+      "requisitos economico financieros",
+      "requisitos administrativos"
+    ]
+  },
+  "garantias": {
+    "query_terms": [
+      "garantia",
+      "garantia de oferta",
+      "mantenimiento de oferta",
+      "cumplimiento de contrato",
+      "anticipo",
+      "caucion",
+      "fianza"
+    ],
+    "aliases": [
+      "poliza",
+      "boleta de garantia",
+      "seriedad de la oferta"
+    ]
+  },
+  "plazos_clave": {
+    "query_terms": [
+      "plazos",
+      "fecha limite",
+      "presentacion de ofertas",
+      "apertura",
+      "adjudicacion",
+      "firma de contrato",
+      "inicio de ejecucion"
+    ],
+    "aliases": [
+      "cronograma",
+      "hitos",
+      "timeline"
+    ]
+  },
+  "criterios_evaluacion": {
+    "query_terms": [
+      "criterios de evaluacion",
+      "ponderacion",
+      "puntaje",
+      "metodo de adjudicacion",
+      "oferta economica",
+      "oferta tecnica"
+    ],
+    "aliases": [
+      "matriz de evaluacion",
+      "metodologia de evaluacion",
+      "factor de evaluacion",
+      "criterios de seleccion"
+    ]
+  },
+  "causales_rechazo": {
+    "query_terms": [
+      "causales de rechazo",
+      "desestimacion",
+      "inhabilitacion",
+      "descalificacion",
+      "sanciones"
+    ],
+    "aliases": [
+      "causales de exclusion",
+      "motivos de rechazo",
+      "admisibilidad de ofertas"
+    ]
+  },
+  "anexos_obligatorios": {
+    "query_terms": [
+      "anexo",
+      "anexos obligatorios",
+      "formulario",
+      "debe completarse",
+      "debe firmarse"
+    ],
+    "aliases": [
+      "apendice",
+      "adjunto obligatorio",
+      "modelo de presentacion"
+    ]
+  },
+  "datos_procedimiento": {
+    "query_terms": [
+      "organismo convocante",
+      "numero de expediente",
+      "numero de procedimiento",
+      "tipo de procedimiento",
+      "presupuesto oficial",
+      "jurisdiccion"
+    ],
+    "aliases": [
+      "datos del llamado",
+      "informacion del proceso",
+      "datos administrativos"
+    ]
+  },
+  "cronograma_proceso": {
+    "query_terms": [
+      "cronograma",
+      "etapas del proceso",
+      "fecha de publicacion",
+      "periodo de consultas",
+      "respuesta a consultas",
+      "acto de apertura",
+      "evaluacion de ofertas",
+      "preadjudicacion",
+      "adjudicacion",
+      "hora limite",
+      "calendario del llamado"
+    ],
+    "aliases": [
+      "hitos del proceso",
+      "timeline",
+      "agenda del llamado",
+      "fechas clave"
+    ]
+  },
+  "estimacion_presupuesto": {
+    "query_terms": [
+      "presupuesto oficial",
+      "monto estimado",
+      "valor de referencia",
+      "importe total estimado",
+      "credito presupuestario",
+      "forma de pago",
+      "condiciones de pago",
+      "redeterminacion de precios",
+      "ajuste de precios"
+    ],
+    "aliases": [
+      "monto del contrato",
+      "precio tope",
+      "presupuesto estimado",
+      "erogacion"
+    ]
+  }
+}
