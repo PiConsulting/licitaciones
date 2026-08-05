@@ -13,4 +13,5 @@ def extractor_criterios_evaluacion(state: GraphState) -> GraphState:
         prompt_file_name="criterios_evaluacion.txt",
         query="criterios evaluación ponderación puntaje oferta económica técnica",
         section_key="criterios_evaluacion",
+        glossary_key="criterios_evaluacion",
     )

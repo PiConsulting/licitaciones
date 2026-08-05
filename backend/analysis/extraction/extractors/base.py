@@ -7,11 +7,14 @@ from typing import Any
 import structlog
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from analysis.extraction.glossary import build_prompt_glossary_block, build_query_from_glossary
 from analysis.extraction.state import GraphState
 from shared.ports.azure_openai import get_azure_openai_client
 from shared.ports.azure_search import search_hybrid
 
 logger = structlog.get_logger(__name__)
+
+VALID_EXTRACTION_STATUSES = {"success", "partial", "failed", "not_found", "not_applicable"}
 
 
 def _load_prompt(prompt_file_name: str) -> str:
@@ -116,8 +119,24 @@ def _normalize_item(item: dict[str, Any], fallback: dict[str, Any] | None = None
 
     normalized["confidence"] = float(normalized.get("confidence", 0.0) or 0.0)
     normalized["source_references"] = list(normalized.get("source_references", []))
-    normalized["extraction_status"] = str(normalized.get("extraction_status", "success"))
+    status = str(normalized.get("extraction_status", "success"))
+    normalized["extraction_status"] = status if status in VALID_EXTRACTION_STATUSES else "success"
     return normalized
+
+
+def _aggregate_status(items: list[dict[str, Any]]) -> str:
+    statuses = {str(item.get("extraction_status", "not_found")) for item in items}
+    if "success" in statuses:
+        return "success"
+    if "partial" in statuses:
+        return "partial"
+    if "not_applicable" in statuses:
+        return "not_applicable"
+    if "not_found" in statuses:
+        return "not_found"
+    if "failed" in statuses:
+        return "failed"
+    return "not_found"
 
 
 def run_extractor(
@@ -130,6 +149,7 @@ def run_extractor(
     query: str,
     section_key: str,
     is_object_result: bool = False,
+    glossary_key: str | None = None,
 ) -> GraphState:
     correlation_id = state["correlation_id"]
     analysis_id = state["analysis_id"]
@@ -143,14 +163,19 @@ def run_extractor(
     delta: GraphState = {}
 
     try:
+        resolved_glossary_key = glossary_key or result_key
+        resolved_query = build_query_from_glossary(resolved_glossary_key, query)
         chunks = search_hybrid(
-            query=query,
+            query=resolved_query,
             analysis_id=analysis_id,
             top_k=10,
             section_key=section_key,
         )
         prompt_template = _load_prompt(prompt_file_name)
-        prompt = prompt_template.replace("{chunks}", _format_chunks(chunks))
+        prompt = (
+            prompt_template.replace("{chunks}", _format_chunks(chunks))
+            .replace("{glossary_terms}", build_prompt_glossary_block(resolved_glossary_key))
+        )
 
         llm_result, token_usage = _call_llm(prompt=prompt, correlation_id=correlation_id)
         token_usage_key = f"{state_field}_token_usage"
@@ -166,13 +191,10 @@ def run_extractor(
                 payload = [_default_not_found_item()]
             delta[state_field] = [_normalize_item(item) for item in payload if isinstance(item, dict)]
 
-        has_data = False
         if is_object_result:
-            has_data = delta[state_field].get("extraction_status") == "success"
+            delta[status_field] = str(delta[state_field].get("extraction_status", "not_found"))
         else:
-            has_data = any(item.get("extraction_status") == "success" for item in delta[state_field])
-
-        delta[status_field] = "success" if has_data else "not_found"
+            delta[status_field] = _aggregate_status(delta[state_field])
         logger.info(
             "extractor_completed",
             correlation_id=correlation_id,

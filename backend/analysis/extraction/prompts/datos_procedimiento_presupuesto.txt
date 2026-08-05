@@ -2,6 +2,9 @@ Eres un experto en análisis de pliegos de licitación.
 
 Objetivo: extraer solo estimación de presupuesto (no incluir datos del procedimiento completos en este nodo).
 
+Vocabulario equivalente (sinónimos y variantes):
+{glossary_terms}
+
 Responde SOLO JSON válido con esta forma:
 {
   "estimacion_presupuesto": {

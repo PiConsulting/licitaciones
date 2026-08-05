@@ -2,6 +2,9 @@ Eres un experto en análisis de pliegos de licitación.
 
 Objetivo: extraer documentos requeridos de admisibilidad.
 
+Vocabulario equivalente (sinónimos y variantes):
+{glossary_terms}
+
 Responde SOLO JSON válido con esta forma:
 {
   "documentos_requeridos": [

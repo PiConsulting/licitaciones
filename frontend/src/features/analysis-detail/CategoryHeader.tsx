@@ -7,7 +7,7 @@ interface CategoryHeaderProps {
   name: string;
   isCritical: boolean;
   isReviewed: boolean;
-  extractionStatus: "success" | "partial" | "failed";
+  extractionStatus: "success" | "partial" | "failed" | "not_found" | "not_applicable";
   extractedCount: number;
   notFoundCount: number;
   conflictCount: number;
@@ -25,13 +25,15 @@ export function CategoryHeader({
 }: CategoryHeaderProps) {
   const state = extractionStatus === "failed"
     ? "error"
-    : conflictCount > 0
-      ? "con_conflictos"
-      : isReviewed
-        ? "revisada"
-        : isCritical
-          ? "critica"
-          : "sin_revisar";
+    : extractionStatus === "not_applicable"
+      ? "no_aplica"
+      : conflictCount > 0
+        ? "con_conflictos"
+        : isReviewed
+          ? "revisada"
+          : isCritical
+            ? "critica"
+            : "sin_revisar";
 
   const conflictWord = conflictCount === 1 ? "conflicto" : "conflictos";
 

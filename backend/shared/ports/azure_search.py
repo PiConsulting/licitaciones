@@ -1,9 +1,48 @@
 from __future__ import annotations
 
 import json
+from functools import lru_cache
 from pathlib import Path
 
+import structlog
+
 from shared.config import get_settings
+
+logger = structlog.get_logger(__name__)
+
+SEARCH_CHUNK_SELECT_FIELDS = [
+    "analysis_id",
+    "document_id",
+    "page_number",
+    "chunk_index",
+    "section_key",
+    "section_path",
+    "section_level",
+    "block_type",
+    "table_ref",
+    "content",
+]
+
+
+@lru_cache(maxsize=1)
+def _azure_index_fields_cache(index_key: str) -> tuple[str, ...]:
+    settings = get_settings()
+    from azure.core.credentials import AzureKeyCredential
+    from azure.search.documents.indexes import SearchIndexClient
+
+    client = SearchIndexClient(
+        endpoint=settings.azure_search_endpoint,
+        credential=AzureKeyCredential(settings.azure_search_key),
+    )
+    index = client.get_index(settings.azure_search_index_name)
+    return tuple(field.name for field in index.fields)
+
+
+def _search_chunk_select_fields() -> list[str]:
+    settings = get_settings()
+    index_key = f"{settings.azure_search_endpoint}:{settings.azure_search_index_name}"
+    available_fields = set(_azure_index_fields_cache(index_key))
+    return [field for field in SEARCH_CHUNK_SELECT_FIELDS if field in available_fields]
 
 
 def _section_bonus(section_key: str, preferred_sections: list[str] | None) -> float:
@@ -97,30 +136,44 @@ def _search_azure(
         credential=AzureKeyCredential(settings.azure_search_key),
     )
 
-    filters = [f"analysis_id eq '{analysis_id}'"]
-    if section_key:
-        filters.append(f"section_key eq '{section_key}'")
+    def _run_query(filters: list[str], search_text: str) -> list[dict]:
+        search_kwargs = {
+            "search_text": search_text,
+            "top": top_k,
+            "filter": " and ".join(filters),
+        }
+        select_fields = _search_chunk_select_fields()
+        if select_fields:
+            search_kwargs["select"] = select_fields
+        return list(client.search(**search_kwargs))
 
-    results = client.search(
-        search_text=query,
-        top=top_k,
-        filter=" and ".join(filters),
-        select=[
-            "analysis_id",
-            "document_id",
-            "page_number",
-            "chunk_index",
-            "section_key",
-            "section_path",
-            "section_level",
-            "block_type",
-            "table_ref",
-            "content",
-        ],
-    )
+    scoped_filters = [f"analysis_id eq '{analysis_id}'"]
+    if section_key:
+        scoped_filters.append(f"section_key eq '{section_key}'")
+
+    analysis_filter = [f"analysis_id eq '{analysis_id}'"]
+
+    raw_results = _run_query(scoped_filters, query)
+    if section_key and not raw_results:
+        logger.info(
+            "azure_search_section_fallback",
+            analysis_id=analysis_id,
+            section_key=section_key,
+            query=query,
+        )
+        raw_results = _run_query(analysis_filter, query)
+
+    if not raw_results:
+        logger.info(
+            "azure_search_wildcard_fallback",
+            analysis_id=analysis_id,
+            section_key=section_key,
+            query=query,
+        )
+        raw_results = _run_query(analysis_filter, "*")
 
     chunks: list[dict] = []
-    for item in results:
+    for item in raw_results:
         chunks.append(
             {
                 "analysis_id": item.get("analysis_id"),

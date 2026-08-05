@@ -79,8 +79,26 @@ function normalizeCategories(extractedData: unknown): Record<CategoryId, Categor
     return result;
   }
 
+  const legacyToUiMap: Partial<Record<CategoryId, string[]>> = {
+    plazos_clave: ["plazos"],
+    requisitos_admisibilidad: ["documentos_requeridos", "restricciones_participacion"],
+    datos_procedimiento: ["cronograma_proceso", "estimacion_presupuesto"],
+  };
+
   for (const categoryId of CATEGORY_ORDER) {
-    const rawCategory = extractedData[categoryId];
+    let rawCategory = extractedData[categoryId];
+
+    if (!isRecord(rawCategory) && legacyToUiMap[categoryId]) {
+      const legacyKeys = legacyToUiMap[categoryId] as string[];
+      const candidates = legacyKeys
+        .map((key) => extractedData[key])
+        .filter((value) => isRecord(value));
+
+      if (candidates.length > 0) {
+        rawCategory = candidates[0];
+      }
+    }
+
     if (!isRecord(rawCategory)) {
       continue;
     }
@@ -94,7 +112,7 @@ function normalizeCategories(extractedData: unknown): Record<CategoryId, Categor
       .filter((ref): ref is SourceReference => ref !== null);
 
     const statusValue = String(rawCategory.extraction_status ?? "partial");
-    const extractionStatus = ["success", "partial", "failed"].includes(statusValue)
+    const extractionStatus = ["success", "partial", "failed", "not_found", "not_applicable"].includes(statusValue)
       ? (statusValue as CategoryData["extraction_status"])
       : "partial";
 

@@ -205,6 +205,23 @@ describe("CategoryAccordion", () => {
     expect(screen.getByText("ERROR")).toBeInTheDocument();
   });
 
+  test("T7b: Categoría con extraction_status=not_applicable muestra badge NO APLICA", () => {
+    const category = createMockCategory("datos_procedimiento", { extraction_status: "not_applicable" });
+
+    render(<CategoryAccordion category={category} categoryId="datos_procedimiento" />);
+
+    expect(screen.getByText("NO APLICA")).toBeInTheDocument();
+  });
+
+  test("T7c: Categoría con extraction_status=not_found no cae en badge ERROR", () => {
+    const category = createMockCategory("objeto_alcance", { extraction_status: "not_found" });
+
+    render(<CategoryAccordion category={category} categoryId="objeto_alcance" />);
+
+    expect(screen.getByText("SIN REVISAR")).toBeInTheDocument();
+    expect(screen.queryByText("ERROR")).not.toBeInTheDocument();
+  });
+
   test("T8: Cada categoría muestra su icono correcto", () => {
     const categories: CategoryId[] = [
       "objeto_alcance",

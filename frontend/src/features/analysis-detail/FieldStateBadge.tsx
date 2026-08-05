@@ -1,6 +1,6 @@
 import { AlertTriangle, CheckCircle, XCircle } from "lucide-react";
 
-type CategoryVisualState = "sin_revisar" | "revisada" | "critica" | "error" | "con_conflictos";
+type CategoryVisualState = "sin_revisar" | "revisada" | "critica" | "error" | "con_conflictos" | "no_aplica";
 
 const STATE_BADGES: Record<
   CategoryVisualState,
@@ -34,6 +34,11 @@ const STATE_BADGES: Record<
     text: "CONFLICTOS",
     className: "bg-error-light text-error",
     icon: AlertTriangle,
+  },
+  no_aplica: {
+    text: "NO APLICA",
+    className: "bg-sky-100 text-sky-700",
+    icon: null,
   },
 };
 

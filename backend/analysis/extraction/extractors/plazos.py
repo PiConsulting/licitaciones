@@ -10,7 +10,8 @@ def extractor_plazos(state: GraphState) -> GraphState:
         result_key="plazos",
         state_field="plazos",
         status_field="plazos_status",
-        prompt_file_name="plazos.txt",
+        prompt_file_name="plazos_clave.txt",
         query="plazos fecha presentación ofertas apertura adjudicación vigencia",
         section_key="plazos",
+        glossary_key="plazos_clave",
     )

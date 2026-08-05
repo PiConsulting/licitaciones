@@ -10,7 +10,8 @@ def extractor_causales(state: GraphState) -> GraphState:
         result_key="causales",
         state_field="causales",
         status_field="causales_status",
-        prompt_file_name="causales.txt",
+        prompt_file_name="causales_rechazo.txt",
         query="causales rechazo inhabilita descalifica sanciones",
         section_key="causales_rechazo",
+        glossary_key="causales_rechazo",
     )
