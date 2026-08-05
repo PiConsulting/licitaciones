@@ -1,0 +1,27 @@
+services:
+  engram-postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: .env.cloud
+    volumes:
+      - engram-cloud-pg:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${ENGRAM_POSTGRES_USER} -d ${ENGRAM_POSTGRES_DB}
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  engram-cloud:
+    image: ghcr.io/gentleman-programming/engram:latest
+    restart: unless-stopped
+    depends_on:
+      engram-postgres:
+        condition: service_healthy
+    env_file: .env.cloud
+    ports:
+      - "18080:18080"
+
+volumes:
+  engram-cloud-pg:

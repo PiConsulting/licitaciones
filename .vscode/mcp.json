@@ -1,0 +1,8 @@
+{
+  "servers": {
+    "engram": {
+      "command": "engram",
+      "args": ["mcp", "--project=licitaciones-pi", "--tools=agent"]
+    }
+  }
+}
