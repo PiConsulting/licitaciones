@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field
+from datetime import datetime
 from typing import Literal
 
 from documents.schemas import DocumentResponse, DocumentWarning
@@ -41,4 +42,12 @@ class StartAnalysisResponse(BaseModel):
 class AnalysisStatusResponse(BaseModel):
     id: str
     status: str
-    current_stage: str | None
+    current_stage: str
+    stage_progress: str | None = None
+    progress_percentage: int
+    started_at: datetime | None = None
+    timeout_at: datetime | None = None
+    timeout_warning_at: datetime | None = None
+    error_message: str | None = None
+    extracted_data: dict | None = None
+    conflicts: list[dict] | None = None

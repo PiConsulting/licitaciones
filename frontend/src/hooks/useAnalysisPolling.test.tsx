@@ -37,8 +37,10 @@ describe("useAnalysisPolling", () => {
   test("consulta estado mientras está activo", async () => {
     mockGetAnalysisStatus.mockResolvedValue({
       id: "analysis-1",
-      status: "analyzing",
-      current_stage: "stub_processing",
+      status: "processing",
+      current_stage: "analyzing",
+      progress_percentage: 45,
+      stage_progress: "Analizando categorias (4 de 8)",
     });
 
     const { result } = renderHook(() => useAnalysisPolling("analysis-1", true), {
@@ -46,7 +48,7 @@ describe("useAnalysisPolling", () => {
     });
 
     await waitFor(() => {
-      expect(result.current.data?.status).toBe("analyzing");
+      expect(result.current.data?.status).toBe("processing");
     });
 
     expect(mockNavigate).not.toHaveBeenCalled();
@@ -55,8 +57,10 @@ describe("useAnalysisPolling", () => {
   test("redirige cuando se completa", async () => {
     mockGetAnalysisStatus.mockResolvedValue({
       id: "analysis-2",
-      status: "completed",
-      current_stage: null,
+      status: "analyzed",
+      current_stage: "completed",
+      progress_percentage: 100,
+      stage_progress: "Analizado",
     });
 
     renderHook(() => useAnalysisPolling("analysis-2", true), {

@@ -1,8 +1,7 @@
 from datetime import UTC, datetime
-from io import BytesIO
 from uuid import uuid4
 
-import pypdf
+import fitz
 from fastapi.testclient import TestClient
 
 from analysis.models import Analysis
@@ -15,11 +14,12 @@ from users.service import create_access_token, get_password_hash
 
 
 def _build_pdf() -> bytes:
-    writer = pypdf.PdfWriter()
-    writer.add_blank_page(width=200, height=200)
-    output = BytesIO()
-    writer.write(output)
-    return output.getvalue()
+    doc = fitz.open()
+    doc.new_page(width=200, height=200)
+    try:
+        return doc.tobytes()
+    finally:
+        doc.close()
 
 
 def _create_other_user() -> User:
@@ -136,7 +136,7 @@ def test_start_analysis_returns_duplicate_resolution_payload(client: TestClient,
 def test_start_analysis_success_with_analyze_again_decision(client: TestClient, auth_token: str, monkeypatch) -> None:
     from analysis import routes as analysis_routes
 
-    monkeypatch.setattr(analysis_routes, "run_analysis_stub", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(analysis_routes, "enqueue_analysis", lambda *_args, **_kwargs: None)
 
     db = SessionLocal()
     user = db.query(User).filter(User.email == "test@cedia.com").first()
@@ -229,8 +229,9 @@ def test_start_status_endpoint(client: TestClient, auth_token: str) -> None:
 
     analysis = Analysis(
         created_by=user.id,
-        status="analyzing",
-        current_stage="stub_processing",
+        status="processing",
+        current_stage="analyzing",
+        progress_percentage=45,
         correlation_id=str(uuid4()),
         updated_at=datetime.now(UTC),
     )
@@ -244,7 +245,8 @@ def test_start_status_endpoint(client: TestClient, auth_token: str) -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["status"] == "analyzing"
-    assert payload["current_stage"] == "stub_processing"
+    assert payload["status"] == "processing"
+    assert payload["current_stage"] == "analyzing"
+    assert payload["progress_percentage"] == 45
 
     db.close()

@@ -1,13 +1,13 @@
 import { useParams } from "react-router-dom";
 
+import { AnalysisDetailPage } from "../features/analysis-detail/AnalysisDetailPage";
+
 export default function AnalysisDetail() {
   const { analysisId } = useParams();
 
-  return (
-    <section>
-      <h1 className="text-2xl font-semibold">Detalle del análisis</h1>
-      <p className="mt-2 text-sm text-gray-600">Análisis seleccionado: {analysisId}</p>
-      <p className="mt-1 text-sm text-gray-600">La vista completa de resultados se implementará en las siguientes historias.</p>
-    </section>
-  );
+  if (!analysisId) {
+    return <p className="text-sm text-error">ID de análisis inválido.</p>;
+  }
+
+  return <AnalysisDetailPage analysisId={analysisId} />;
 }

@@ -1,26 +1,26 @@
+import logging
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
-from io import BytesIO
-import logging
 from pathlib import Path
-import time
 from uuid import uuid4
 
-import pypdf
-from fastapi import HTTPException, status
-from pypdf.errors import PdfReadError
+from fastapi import BackgroundTasks, HTTPException, status
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
-from analysis.models import Analysis
+from analysis.metadata_persistence import persist_analysis_metadata
+from analysis.models import Analysis, CurrentStage
 from documents.models import Document
-from documents.service import calculate_content_hash
 from documents.schemas import DocumentResponse, DocumentWarning
+from documents.service import calculate_content_hash
+from extraction.runner import extract_and_index
 from shared.adapters.azure_blob_storage import AzureBlobStorageAdapter
 from shared.adapters.local_blob_storage import LocalBlobStorageAdapter
 from shared.config import get_settings
 from shared.database import SessionLocal
+from shared.pdf_utils import get_pdf_metadata
 from shared.ports.blob_storage import BlobStoragePort
 from users.models import User
 
@@ -44,7 +44,14 @@ def _sanitize_filename(filename: str) -> str:
 
 def _build_blob_storage() -> BlobStoragePort:
     settings = get_settings()
-    if not settings.use_local_adapters and settings.azure_blob_connection_string:
+    if settings.is_production:
+        missing: list[str] = []
+        if not settings.azure_blob_connection_string.strip():
+            missing.append("AZURE_BLOB_CONNECTION_STRING")
+        if not settings.azure_blob_container_name.strip():
+            missing.append("AZURE_BLOB_CONTAINER_NAME")
+        if missing:
+            raise RuntimeError("Configuración de Blob incompleta: " + ", ".join(missing))
         return AzureBlobStorageAdapter(
             connection_string=settings.azure_blob_connection_string,
             container_name=settings.azure_blob_container_name,
@@ -54,17 +61,7 @@ def _build_blob_storage() -> BlobStoragePort:
 
 def _validate_pdf_or_raise(filename: str, content: bytes) -> tuple[int, DocumentWarning | None]:
     try:
-        reader = pypdf.PdfReader(BytesIO(content))
-    except PdfReadError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": {
-                    "code": "PDF_CORRUPTED",
-                    "message": f"No se pudo abrir «{filename}»: el archivo está dañado. Volvé a descargarlo del portal del organismo y subilo de nuevo",
-                }
-            },
-        ) from exc
+        page_count, is_encrypted = get_pdf_metadata(content)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -76,7 +73,7 @@ def _validate_pdf_or_raise(filename: str, content: bytes) -> tuple[int, Document
             },
         ) from exc
 
-    if reader.is_encrypted:
+    if is_encrypted:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
@@ -87,7 +84,6 @@ def _validate_pdf_or_raise(filename: str, content: bytes) -> tuple[int, Document
             },
         )
 
-    page_count = len(reader.pages)
     if page_count > MAX_PAGES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -182,6 +178,13 @@ def create_analysis_with_documents(
         for document in documents:
             db.refresh(document)
 
+        persist_analysis_metadata(
+            analysis=analysis,
+            documents=documents,
+            versions=[],
+            event="analysis_created",
+        )
+
         return analysis, documents, warnings
     except Exception:
         db.rollback()
@@ -248,7 +251,7 @@ def check_duplicates(
                 Document.content_hash == content_hash,
                 Analysis.deleted_at.is_(None),
                 Document.deleted_at.is_(None),
-                Analysis.status.in_(["completed", "analyzing"]),
+                Analysis.status.in_(["completed", "analyzing", "analyzed"]),
             )
         )
     )
@@ -308,6 +311,40 @@ def find_duplicates_for_analysis(db: Session, analysis_id: str, user_id: str) ->
         )
 
     return duplicates
+
+
+def enqueue_analysis(background_tasks: BackgroundTasks, analysis_id: str) -> None:
+    """Enqueue sync extraction/indexing in FastAPI background threadpool."""
+    background_tasks.add_task(extract_and_index, analysis_id)
+
+
+def request_cancellation(db: Session, analysis_id: str, user_id: str) -> Analysis:
+    analysis = db.query(Analysis).filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None)).first()
+    if analysis is None:
+        raise ValueError("Analysis not found")
+
+    if analysis.created_by != user_id:
+        raise PermissionError("Only the owner can cancel this analysis")
+
+    analysis.cancellation_requested = True
+    if analysis.status not in {"analyzed", "error", "cancelled"}:
+        analysis.status = "cancelled"
+        analysis.current_stage = CurrentStage.COMPLETED.value
+        analysis.progress_percentage = max(analysis.progress_percentage or 0, 95)
+        analysis.error_message = "El analisis fue cancelado por el usuario"
+        analysis.updated_at = datetime.now(UTC)
+
+    db.commit()
+    db.refresh(analysis)
+
+    docs = db.query(Document).filter(Document.analysis_id == analysis.id).all()
+    persist_analysis_metadata(
+        analysis=analysis,
+        documents=docs,
+        versions=[],
+        event="analysis_cancelled",
+    )
+    return analysis
 
 
 def run_analysis_stub(analysis_id: str) -> None:
