@@ -27,6 +27,9 @@ coverage/
 .env.*
 *.local
 
+# Engram local database (never commit)
+.engram/
+
 # Local BMAD user overrides
 *.user.toml
 
@@ -53,5 +56,10 @@ temp/
 # OS/editor noise
 .DS_Store
 Thumbs.db
-.vscode/
+.vscode/*
+!.vscode/mcp.json
 .idea/
+
+# Engram — track config but never the local database
+.engram/*.db
+.engram/*.db-*

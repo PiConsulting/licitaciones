@@ -4,8 +4,9 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Resolve .env relative to this file so it works regardless of CWD
+# Resolve paths relative to this file so they work regardless of CWD
 _ENV_FILE = Path(__file__).parent.parent / ".env"
+_DEFAULT_DB_FILE = Path(__file__).parent.parent / "licitaciones.db"
 
 
 class Settings(BaseSettings):
