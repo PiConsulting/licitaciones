@@ -93,6 +93,12 @@ class Settings(BaseSettings):
     def persistence_mode_normalized(self) -> str:
         return (self.persistence_mode or "sql").strip().lower()
 
+    def is_cosmos_temporal_mode(self) -> bool:
+        return self.persistence_mode_normalized() == "cosmos_temporal"
+
+    def is_cosmos_only_mode(self) -> bool:
+        return self.persistence_mode_normalized() == "cosmos_only"
+
     def cloud_required_variables(self) -> dict[str, str]:
         required = {
             "AZURE_BLOB_CONNECTION_STRING": self.azure_blob_connection_string,
@@ -111,7 +117,7 @@ class Settings(BaseSettings):
         }
 
         mode = self.persistence_mode_normalized()
-        if mode in {"cosmos", "dual_write"}:
+        if mode in {"cosmos", "dual_write", "cosmos_temporal", "cosmos_only"}:
             required.update(
                 {
                     "COSMOS_ENDPOINT": self.cosmos_endpoint,
@@ -128,16 +134,19 @@ class Settings(BaseSettings):
 
     def validate_cloud_configuration(self) -> None:
         mode = self.persistence_mode_normalized()
-        if mode not in {"sql", "cosmos", "dual_write"}:
-            raise RuntimeError("PERSISTENCE_MODE debe ser uno de: sql, cosmos, dual_write")
-
-        parsed = urlparse(self.database_url)
-        host = (parsed.hostname or "").strip().lower()
-        if host in {"localhost", "127.0.0.1", "::1"}:
+        if mode not in {"sql", "cosmos", "dual_write", "cosmos_temporal", "cosmos_only"}:
             raise RuntimeError(
-                "DATABASE_URL no puede apuntar a localhost en production. "
-                "Configura una base de datos remota."
+                "PERSISTENCE_MODE debe ser uno de: sql, cosmos, dual_write, cosmos_temporal, cosmos_only"
             )
+
+        if mode not in {"cosmos_temporal", "cosmos_only", "cosmos"}:
+            parsed = urlparse(self.database_url)
+            host = (parsed.hostname or "").strip().lower()
+            if host in {"localhost", "127.0.0.1", "::1"}:
+                raise RuntimeError(
+                    "DATABASE_URL no puede apuntar a localhost en production. "
+                    "Configura una base de datos remota."
+                )
 
         missing = self.missing_cloud_required_variables()
         if missing:

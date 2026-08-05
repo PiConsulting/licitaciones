@@ -336,6 +336,14 @@ def request_cancellation(db: Session, analysis_id: str, user_id: str) -> Analysi
 
     db.commit()
     db.refresh(analysis)
+
+    docs = db.query(Document).filter(Document.analysis_id == analysis.id).all()
+    persist_analysis_metadata(
+        analysis=analysis,
+        documents=docs,
+        versions=[],
+        event="analysis_cancelled",
+    )
     return analysis
 
 

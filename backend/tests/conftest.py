@@ -9,6 +9,7 @@ os.environ["JWT_ALGORITHM"] = "HS256"
 os.environ["JWT_EXPIRATION_HOURS"] = "24"
 os.environ["APP_ENV"] = "development"
 os.environ["USE_LOCAL_ADAPTERS"] = "true"
+os.environ["PERSISTENCE_MODE"] = "sql"
 
 from main import app
 from shared.config import get_settings
