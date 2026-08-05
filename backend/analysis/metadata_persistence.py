@@ -94,7 +94,7 @@ class CosmosMetadataSink:
             "error_message": analysis.error_message,
             "updated_at": timestamp,
         }
-        total_ru += self._request_charge(container.upsert_item(analysis_item))
+        total_ru += self._request_charge(container.upsert_item(analysis_item, partition_key=partition_key))
 
         for document in documents:
             total_ru += self._request_charge(
@@ -112,7 +112,8 @@ class CosmosMetadataSink:
                         "deleted": document.deleted_at is not None,
                         "event": event,
                         "updated_at": timestamp,
-                    }
+                    },
+                    partition_key=partition_key,
                 )
             )
 
@@ -131,7 +132,8 @@ class CosmosMetadataSink:
                         "conflicts": version.conflicts,
                         "event": event,
                         "updated_at": timestamp,
-                    }
+                    },
+                    partition_key=partition_key,
                 )
             )
 

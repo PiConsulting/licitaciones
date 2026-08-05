@@ -25,11 +25,28 @@ def _format_chunks(chunks: list[dict[str, Any]]) -> str:
 
     return "\n\n".join(
         [
-            f"[Documento: {chunk.get('document_id', 'desconocido')}, Página: {chunk.get('page_number', 0)}]\n"
-            f"{chunk.get('content', '')}"
+            (
+                f"[Documento: {chunk.get('document_id', 'desconocido')}, "
+                f"Página: {chunk.get('page_number', 0)}, "
+                f"Sección: {chunk.get('section_path', chunk.get('section_key', 'general'))}, "
+                f"Tipo: {'TABLA' if chunk.get('block_type') == 'table' else 'PÁRRAFO'}"
+                f"{_table_hint(chunk)}]\n"
+                f"{chunk.get('content', '')}"
+            )
             for chunk in chunks
         ]
     )
+
+
+def _table_hint(chunk: dict[str, Any]) -> str:
+    table_ref = chunk.get("table_ref")
+    if not isinstance(table_ref, dict):
+        return ""
+    table_id = table_ref.get("table_id")
+    row_index = table_ref.get("row_index")
+    if table_id is None or row_index is None:
+        return ""
+    return f", Tabla: {table_id}, Fila: {row_index}"
 
 
 def _parse_json_response(content: str) -> dict[str, Any]:
@@ -163,7 +180,7 @@ def run_extractor(
             category=result_key,
             status=delta[status_field],
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.error(
             "extractor_failed",
             correlation_id=correlation_id,
