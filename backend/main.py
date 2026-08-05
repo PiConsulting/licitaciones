@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 
 def _database_health() -> tuple[str, str]:
+    if engine is None:
+        return "skipped", "Chequeo de base SQL omitido (cosmos_only)"
     try:
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
@@ -44,7 +46,7 @@ def _local_storage_health(local_path: str) -> tuple[str, str]:
 def _azure_config_health() -> tuple[str, str, list[str]]:
     settings = get_settings()
     mode = settings.persistence_mode_normalized()
-    if mode not in {"sql", "cosmos", "dual_write"}:
+    if mode not in {"sql", "cosmos", "dual_write", "cosmos_temporal", "cosmos_only"}:
         return "error", "Modo de persistencia inválido", ["PERSISTENCE_MODE"]
 
     missing = settings.missing_cloud_required_variables()
@@ -57,7 +59,11 @@ def _run_health_checks() -> tuple[int, dict[str, Any]]:
     settings = get_settings()
     timestamp = datetime.now(UTC).isoformat()
 
-    db_status, db_message = _database_health()
+    mode = settings.persistence_mode_normalized()
+    if settings.is_production and mode in {"cosmos_temporal", "cosmos_only", "cosmos"}:
+        db_status, db_message = "skipped", f"Chequeo de base SQL omitido en modo {mode}"
+    else:
+        db_status, db_message = _database_health()
     checks: dict[str, dict[str, Any]] = {
         "database": {
             "status": db_status,
@@ -81,7 +87,7 @@ def _run_health_checks() -> tuple[int, dict[str, Any]]:
             "missing": missing,
         }
 
-    has_errors = any(item["status"] != "ok" for item in checks.values())
+    has_errors = any(item["status"] == "error" for item in checks.values())
     status_code = 503 if has_errors else 200
     payload = {
         "status": "degraded" if has_errors else "ok",

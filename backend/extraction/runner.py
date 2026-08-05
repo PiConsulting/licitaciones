@@ -6,6 +6,7 @@ import structlog
 from sqlalchemy.orm import Session
 
 from analysis.extraction.runner import extract_categories
+from analysis.metadata_persistence import persist_analysis_metadata
 from analysis.models import Analysis, CurrentStage
 from analysis.progress import (
     build_stage_progress,
@@ -30,6 +31,18 @@ from shared.security import sanitize_error_message
 logger = structlog.get_logger(__name__)
 
 TOTAL_ANALYSIS_CATEGORIES = 8
+
+
+def _persist_runtime_state(db: Session, analysis_id: str, event: str) -> None:
+    analysis = db.query(Analysis).filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None)).first()
+    if analysis is None:
+        return
+    persist_analysis_metadata(
+        analysis=analysis,
+        documents=list(analysis.documents),
+        versions=list(analysis.versions),
+        event=event,
+    )
 
 
 def _now_for_comparison(target: datetime) -> datetime:
@@ -69,6 +82,7 @@ def check_timeout_warning(db: Session, analysis_id: str, logger_instance) -> boo
             analysis.extraction_metadata = metadata
             analysis.updated_at = now
             db.commit()
+            _persist_runtime_state(db, analysis_id, "timeout_warning_reached")
         logger_instance.warning(
             "timeout_warning_threshold_reached",
             correlation_id=analysis.correlation_id,
@@ -107,6 +121,7 @@ def check_timeout_exceeded(db: Session, analysis_id: str, logger_instance) -> bo
     mark_timeout_error(analysis, timeout_minutes)
     analysis.updated_at = now
     db.commit()
+    _persist_runtime_state(db, analysis_id, "analysis_timeout")
     return True
 
 
@@ -129,6 +144,7 @@ def check_cancellation_requested(db: Session, analysis_id: str, logger_instance)
     analysis.progress_percentage = min(99, max(analysis.progress_percentage or 0, 35))
     analysis.updated_at = datetime.now(UTC)
     db.commit()
+    _persist_runtime_state(db, analysis_id, "analysis_cancelled")
     return True
 
 
@@ -159,6 +175,7 @@ def extract_and_index(analysis_id: str) -> None:
             analysis.error_message = "No se pudo procesar el documento. Intenta nuevamente"
             analysis.updated_at = datetime.now(UTC)
             db.commit()
+            _persist_runtime_state(db, analysis_id, "analysis_error")
             return
 
         set_timeout_timestamps(analysis, total_pages)
@@ -167,6 +184,7 @@ def extract_and_index(analysis_id: str) -> None:
         analysis.error_message = None
         analysis.updated_at = datetime.now(UTC)
         db.commit()
+        _persist_runtime_state(db, analysis_id, "analysis_processing")
 
         update_stage_and_progress(
             db,
@@ -202,6 +220,7 @@ def extract_and_index(analysis_id: str) -> None:
                 analysis.error_message = f"No se pudo leer el texto de {document.filename}"
                 analysis.updated_at = datetime.now(UTC)
                 db.commit()
+                _persist_runtime_state(db, analysis_id, "analysis_error")
                 return
 
             chunks = create_chunks(pages, document.id, correlation_id)
@@ -259,6 +278,7 @@ def extract_and_index(analysis_id: str) -> None:
             analysis.error_message = "No se pudo procesar el documento. Intenta nuevamente"
             analysis.updated_at = datetime.now(UTC)
             db.commit()
+            _persist_runtime_state(db, analysis_id, "analysis_error")
     except Exception as exc:
         logger.exception(
             "extract_and_index_unhandled_failed",
@@ -272,5 +292,6 @@ def extract_and_index(analysis_id: str) -> None:
             analysis.error_message = "No se pudo procesar el documento. Intenta nuevamente"
             analysis.updated_at = datetime.now(UTC)
             db.commit()
+            _persist_runtime_state(db, analysis_id, "analysis_error")
     finally:
         db.close()

@@ -86,6 +86,32 @@ def test_cloud_config_rejects_localhost_database_url(monkeypatch: pytest.MonkeyP
         settings.validate_cloud_configuration()
 
 
+def test_cosmos_temporal_allows_localhost_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_production_env(monkeypatch)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/licitaciones")
+    monkeypatch.setenv("PERSISTENCE_MODE", "cosmos_temporal")
+    monkeypatch.setenv("AZURE_BLOB_CONNECTION_STRING", "blob")
+    monkeypatch.setenv("AZURE_BLOB_CONTAINER_NAME", "pliegos")
+    monkeypatch.setenv("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT", "https://example.cognitiveservices.azure.com")
+    monkeypatch.setenv("AZURE_DOCUMENT_INTELLIGENCE_KEY", "fake")
+    monkeypatch.setenv("AZURE_SEARCH_ENDPOINT", "https://example.search.windows.net")
+    monkeypatch.setenv("AZURE_SEARCH_KEY", "fake")
+    monkeypatch.setenv("AZURE_SEARCH_INDEX_NAME", "documents-index")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://example.openai.azure.com")
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "fake")
+    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT", "gpt")
+    monkeypatch.setenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "emb")
+    monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-10-21")
+    monkeypatch.setenv("COSMOS_ENDPOINT", "https://example.documents.azure.com")
+    monkeypatch.setenv("COSMOS_KEY", "fake")
+    monkeypatch.setenv("COSMOS_DATABASE", "pliegos")
+    monkeypatch.setenv("COSMOS_CONTAINER", "container_pliegos")
+    get_settings.cache_clear()
+
+    settings = get_settings()
+    settings.validate_cloud_configuration()
+
+
 def test_blob_builder_fails_without_config_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
     _set_production_env(monkeypatch)
     monkeypatch.setenv("AZURE_BLOB_CONNECTION_STRING", "")
