@@ -2,6 +2,12 @@ Antes de cualquier cambio o análisis, leer PROJECT_CONTEXT.md en la raíz del r
 
 ---
 
+## Pull Requests — rama destino por defecto
+
+Siempre que se cree un PR sin indicar rama destino, apuntar a **`develop`**. Solo usar otra rama si el usuario lo especifica explícitamente.
+
+---
+
 ## Engram — Memoria persistente del equipo
 
 Este workspace usa Engram como memoria persistente vía MCP (configurado en `.vscode/mcp.json`). Las memorias son compartidas entre todos los desarrolladores del equipo a través de Engram Cloud.
