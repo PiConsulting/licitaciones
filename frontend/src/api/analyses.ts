@@ -1,6 +1,8 @@
 import apiClient from "./client";
 import type {
   AnalysisCreateResponse,
+  AnalysisListFilters,
+  AnalysisListResponse,
   AnalysisStartPayload,
   AnalysisStartResponse,
   AnalysisStatusResponse,
@@ -42,5 +44,21 @@ export async function getAnalysisStatus(analysisId: string): Promise<AnalysisSta
 
 export async function cancelAnalysis(analysisId: string): Promise<AnalysisStatusResponse> {
   const response = await apiClient.post<AnalysisStatusResponse>(`/analyses/${analysisId}/cancel`);
+  return response.data;
+}
+
+export async function fetchAnalyses(filters: AnalysisListFilters = {}): Promise<AnalysisListResponse> {
+  const response = await apiClient.get<AnalysisListResponse>("/analyses", {
+    params: {
+      search: filters.search,
+      status: filters.status,
+      date_from: filters.date_from,
+      date_to: filters.date_to,
+      page: filters.page ?? 1,
+      per_page: filters.per_page ?? 20,
+      sort_by: filters.sort_by ?? "created_at",
+      sort_order: filters.sort_order ?? "desc",
+    },
+  });
   return response.data;
 }

@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Annotated
 
 from fastapi import (
@@ -8,6 +8,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
     UploadFile,
     status,
 )
@@ -26,6 +27,7 @@ from analysis.metadata_persistence import (
 from analysis.models import CurrentStage
 from analysis.schemas import (
     AnalysisCreateResponse,
+    AnalysisListResponse,
     AnalysisStatusResponse,
     DocumentResponse,
     StartAnalysisRequest,
@@ -36,6 +38,7 @@ from analysis.service import (
     create_analysis_with_documents,
     enqueue_analysis,
     find_duplicates_for_analysis,
+    list_analyses,
     request_cancellation,
     to_document_response,
     validate_analysis_ownership,
@@ -47,6 +50,61 @@ from shared.database import SessionLocal
 from users.service import get_current_user, http_bearer
 
 analysis_router = APIRouter(prefix="/analyses", tags=["analyses"])
+
+
+@analysis_router.get("", response_model=AnalysisListResponse)
+async def get_analyses(
+    search: str | None = None,
+    analysis_status: str | None = Query(default=None, alias="status"),
+    date_from: date | None = None,
+    date_to: date | None = None,
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=20, ge=1, le=100),
+    sort_by: str = Query(default="created_at"),
+    sort_order: str = Query(default="desc"),
+    credentials=Depends(http_bearer),
+) -> AnalysisListResponse:
+    settings = get_settings()
+    current_user = get_current_user(credentials, None)
+
+    if settings.persistence_mode_normalized() == "cosmos_only":
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail={
+                "error": {
+                    "code": "NOT_IMPLEMENTED",
+                    "message": "El listado de análisis no está disponible en este modo de persistencia",
+                }
+            },
+        )
+
+    normalized_sort_order = "asc" if sort_order == "asc" else "desc"
+
+    db = SessionLocal()
+    try:
+        items, total = list_analyses(
+            db,
+            user_id=current_user.id,
+            search=search,
+            status_filter=analysis_status,
+            date_from=date_from,
+            date_to=date_to,
+            page=page,
+            per_page=per_page,
+            sort_by=sort_by,
+            sort_order=normalized_sort_order,
+        )
+    finally:
+        db.close()
+
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    return AnalysisListResponse(
+        items=items,
+        page=page,
+        per_page=per_page,
+        total=total,
+        total_pages=total_pages,
+    )
 
 
 @analysis_router.post("", response_model=AnalysisCreateResponse, status_code=status.HTTP_201_CREATED)
