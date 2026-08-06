@@ -31,15 +31,22 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
     return <p className="text-sm text-gray-600">No hay datos de análisis disponibles.</p>;
   }
 
-  const selectedDocument = selectedCitation ? documentsById.get(selectedCitation.document_id) : null;
+  const primaryDocument = query.data.documents.find((document) => document.is_primary) ?? query.data.documents[0];
+  const activeDocumentId = selectedCitation?.document_id ?? primaryDocument?.id;
+  const activeDocumentName = selectedCitation
+    ? (documentsById.get(selectedCitation.document_id)?.filename ?? selectedCitation.document_name)
+    : primaryDocument?.filename;
+  const activeCitations = selectedCitations.length > 0 ? selectedCitations : selectedCitation ? [selectedCitation] : [];
 
   return (
-    <section>
-      <AnalysisDetailHeader analysis={query.data} />
-      <AnalysisSummaryStrip analysis={query.data} />
+    <section className="flex min-w-0 flex-col gap-6">
+      <div data-testid="detail-summary-panel" className="-mx-6 -mt-6 border-b border-gray-200 bg-surface px-6 pt-6 pb-4">
+        <AnalysisDetailHeader analysis={query.data} />
+      </div>
 
-      <div className="flex min-w-0 flex-col gap-4 lg:flex-row">
-        <div data-testid="categories-panel" className="min-w-0 w-full lg:w-[60%] xl:w-[55%]">
+      <div className="flex min-w-0 flex-col gap-6 xl:flex-row">
+        <div data-testid="categories-panel" className="min-w-0 w-full rounded-md border border-gray-200 bg-white p-5 xl:w-[60%] 2xl:w-[55%]">
+          <AnalysisSummaryStrip analysis={query.data} />
           <CategoryList
             analysis={query.data}
             onViewSource={({ citation, citations }) => {
@@ -51,18 +58,18 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
 
         <aside
           data-testid="pdf-viewer-panel"
-          className="min-w-0 w-full rounded-md border border-gray-200 bg-white p-2 text-sm text-gray-600 lg:sticky lg:top-4 lg:h-[calc(100vh-6rem)] lg:w-[40%] xl:w-[45%]"
+          className="min-w-0 w-full rounded-md border border-gray-200 bg-white p-2 text-sm text-gray-600 xl:sticky xl:top-4 xl:h-[calc(100vh-6rem)] xl:w-[40%] 2xl:w-[45%]"
         >
-          {selectedCitation ? (
+          {activeDocumentId ? (
             <PDFViewer
-              key={selectedCitation.document_id}
-              documentId={selectedCitation.document_id}
-              documentName={selectedDocument?.filename ?? selectedCitation.document_name}
-              citations={selectedCitations.length > 0 ? selectedCitations : [selectedCitation]}
+              key={activeDocumentId}
+              documentId={activeDocumentId}
+              documentName={activeDocumentName ?? "Documento"}
+              citations={activeCitations}
               documents={query.data.documents}
             />
           ) : (
-            <p className="p-4">Selecciona Ver fuente en cualquier campo para abrir el visor PDF.</p>
+            <p className="p-4">No hay documentos disponibles para este análisis.</p>
           )}
         </aside>
       </div>

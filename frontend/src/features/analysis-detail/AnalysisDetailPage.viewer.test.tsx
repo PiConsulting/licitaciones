@@ -27,7 +27,7 @@ function createAnalysis(): AnalysisDetail {
       version_number: 1,
       extracted_data: {
         objeto_alcance: {
-          confidence: 0.9,
+          confidence: 0.6,
           extraction_status: "success",
           is_reviewed: false,
           summary: "Resumen",
@@ -37,7 +37,7 @@ function createAnalysis(): AnalysisDetail {
               field_name: "Objeto",
               field_value: "Adquisicion",
               field_state: "extraido",
-              confidence: 0.9,
+              confidence: 0.6,
               citations: [
                 {
                   text: "Texto cita",
@@ -86,25 +86,26 @@ describe("AnalysisDetailPage PDF integration", () => {
     sessionStorage.clear();
   });
 
-  test("muestra placeholder antes de seleccionar cita", async () => {
+  test("carga el documento primario por default, sin necesidad de seleccionar una cita", async () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByTestId("categories-panel")).toBeInTheDocument();
+      expect(screen.getByTestId("pdf-viewer-mock")).toBeInTheDocument();
     });
 
-    expect(screen.getByText(/selecciona ver fuente/i)).toBeInTheDocument();
+    expect(screen.getByTestId("pdf-viewer-mock")).toHaveTextContent("viewer:doc-1:0");
   });
 
-  test("los paneles usan un ancho mayor en pantallas xl para aprovechar notebooks", async () => {
+  test("la vista divide PDF y campos en contenedores inferiores con anchos xl esperados", async () => {
     renderPage();
 
     await waitFor(() => {
       expect(screen.getByTestId("categories-panel")).toBeInTheDocument();
     });
 
-    expect(screen.getByTestId("categories-panel")).toHaveClass("xl:w-[55%]");
-    expect(screen.getByTestId("pdf-viewer-panel")).toHaveClass("xl:w-[45%]");
+    expect(screen.getByTestId("detail-summary-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("categories-panel")).toHaveClass("xl:w-[60%]");
+    expect(screen.getByTestId("pdf-viewer-panel")).toHaveClass("xl:w-[40%]");
   });
 
   test("click en Ver fuente abre visor con documento/cita seleccionados", async () => {
@@ -113,10 +114,9 @@ describe("AnalysisDetailPage PDF integration", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /objeto y alcance/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /ver fuente/i })).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole("button", { name: /objeto y alcance/i }));
     await user.click(screen.getByRole("button", { name: /ver fuente/i }));
 
     expect(screen.getByTestId("pdf-viewer-mock")).toHaveTextContent("viewer:doc-1:1");

@@ -2,7 +2,6 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { AnalysisSummaryStrip } from "./AnalysisSummaryStrip";
-import { useAccordionState } from "./hooks/useAccordionState";
 import type { AnalysisDetail, CategoryData, CategoryId, FieldItem } from "./types";
 
 function field(field_name: string, field_state: FieldItem["field_state"]): FieldItem {
@@ -39,11 +38,6 @@ function createAnalysis(categories: Partial<Record<CategoryId, CategoryData>>): 
 }
 
 describe("AnalysisSummaryStrip", () => {
-  beforeEach(() => {
-    sessionStorage.clear();
-    useAccordionState.setState({ expandedCategories: [], hasInitialized: false });
-  });
-
   test("muestra el total de campos extraídos", () => {
     const analysis = createAnalysis({
       objeto_alcance: category([field("a", "extraido"), field("b", "no_encontrado")]),
@@ -66,16 +60,25 @@ describe("AnalysisSummaryStrip", () => {
     expect(screen.queryByRole("button", { name: /Criterios de Evaluación/i })).not.toBeInTheDocument();
   });
 
-  test("click en un chip expande esa categoría en el store", async () => {
+  test("click en un chip hace scroll a la sección de esa categoría", async () => {
     const user = userEvent.setup();
     const analysis = createAnalysis({
       garantias: category([], { is_reviewed: false }),
     });
 
     render(<AnalysisSummaryStrip analysis={analysis} />);
+
+    const section = document.createElement("div");
+    section.id = "category-garantias";
+    const scrollIntoView = vi.fn();
+    section.scrollIntoView = scrollIntoView;
+    document.body.appendChild(section);
+
     await user.click(screen.getByRole("button", { name: /Garantías/i }));
 
-    expect(useAccordionState.getState().expandedCategories).toContain("garantias");
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+
+    document.body.removeChild(section);
   });
 
   test("sin categorías pendientes, no muestra la sección de chips", () => {

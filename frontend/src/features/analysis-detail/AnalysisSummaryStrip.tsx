@@ -1,6 +1,5 @@
 import { Badge } from "../../components/Badge";
 import { CATEGORY_ICONS, CATEGORY_NAMES } from "../../utils/categoryIcons";
-import { useAccordionState } from "./hooks/useAccordionState";
 import type { AnalysisDetail, CategoryId } from "./types";
 import { getAnalysisSummary } from "./utils/categoryStats";
 
@@ -10,18 +9,13 @@ interface AnalysisSummaryStripProps {
 
 export function AnalysisSummaryStrip({ analysis }: AnalysisSummaryStripProps) {
   const summary = getAnalysisSummary(analysis);
-  const openCategory = useAccordionState((state) => state.openCategory);
 
   const handleChipClick = (categoryId: CategoryId) => {
-    openCategory(categoryId);
     document.getElementById(`category-${categoryId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   return (
-    <section
-      aria-label="Resumen de extracción"
-      className="mb-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
-    >
+    <section aria-label="Resumen de extracción" className="mb-4">
       <div className="flex flex-wrap items-center gap-3">
         <p className="text-sm font-semibold text-gray-900">
           {`${summary.extracted}/${summary.totalFields} campos extraídos`}

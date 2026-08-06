@@ -42,6 +42,10 @@ export interface CategoryData {
   extraction_status: "success" | "partial" | "failed" | "not_found" | "not_applicable";
   summary: string;
   is_reviewed: boolean;
+  /** Párrafo en lenguaje natural generado por LLM a partir de la metadata extraída.
+   * Todavía no lo emite el backend; hasta entonces se arma en frontend, ver
+   * `buildCategoryNarrative` en `utils/categoryNarrative.ts`. */
+  narrative?: string;
 }
 
 export interface ConflictData {

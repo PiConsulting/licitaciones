@@ -37,7 +37,7 @@ describe("Sidebar", () => {
     const aside = screen.getByLabelText("Barra lateral");
     const toggle = screen.getByRole("button", { name: /colapsar menú/i });
 
-    expect(aside).toHaveClass("w-60");
+    expect(aside).toHaveClass("w-52");
     fireEvent.click(toggle);
     expect(aside).toHaveClass("w-16");
   });

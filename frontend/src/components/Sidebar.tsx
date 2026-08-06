@@ -21,16 +21,18 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "h-screen border-r border-gray-200 bg-surface transition-all duration-200 ease-in-out",
+        "sticky top-0 h-screen self-start overflow-y-auto border-r border-gray-200 bg-surface transition-all duration-200 ease-in-out",
         sidebarCollapsed ? "w-16" : "w-52",
       )}
       aria-label="Barra lateral"
     >
       <div className="flex h-full flex-col">
-        <div className="flex items-center justify-between px-4 py-4">
-          <span className={cn("font-semibold text-cedia-primary", sidebarCollapsed && "sr-only")}>
-            CedIA
-          </span>
+        <div className="border-b border-gray-200 px-4 py-4">
+          <div className="flex items-start justify-between gap-2">
+            <div className={cn("min-w-0", sidebarCollapsed && "sr-only")}>
+              <p className="text-sm font-semibold text-cedia-primary">CedIA</p>
+              <p className="mt-0.5 text-xs text-gray-500">Análisis de pliegos</p>
+            </div>
           <button
             type="button"
             aria-label={sidebarCollapsed ? "Expandir menú" : "Colapsar menú"}
@@ -39,6 +41,7 @@ export function Sidebar() {
           >
             <ChevronLeft className={cn("transition-transform duration-200", sidebarCollapsed && "rotate-180")} />
           </button>
+          </div>
         </div>
 
         <nav className="flex-1" role="navigation" aria-label="Navegación principal">
@@ -48,7 +51,7 @@ export function Sidebar() {
               to={to}
               className={({ isActive }) =>
                 cn(
-                  "flex min-h-[44px] items-center gap-3 px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50",
+                  "flex min-h-[44px] items-center gap-3 px-4 py-3 text-xs font-medium text-gray-700 hover:bg-gray-50",
                   isActive && "border-l-4 border-primary bg-primary-light text-primary",
                 )
               }
@@ -69,15 +72,15 @@ export function Sidebar() {
         </nav>
 
         <div className="border-t border-gray-200 px-4 py-4">
-          <div className="mb-2 flex items-center gap-3 text-sm text-gray-700">
-            <User size={20} />
+          <div className="mb-2 flex items-center gap-3 text-xs text-gray-700">
+            <User size={18} />
             <span className={cn(sidebarCollapsed && "sr-only")}>Usuario Test</span>
           </div>
           <button
             type="button"
-            className="inline-flex min-h-[44px] min-w-[44px] items-center gap-2 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="inline-flex min-h-[44px] min-w-[44px] items-center gap-2 rounded-md text-xs font-medium text-gray-700 hover:bg-gray-50"
           >
-            <LogOut size={18} />
+            <LogOut size={16} />
             <span className={cn(sidebarCollapsed && "sr-only")}>Cerrar Sesión</span>
           </button>
         </div>
