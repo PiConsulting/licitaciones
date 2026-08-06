@@ -5,14 +5,15 @@ import { sortFieldsBySeverity } from "../../utils/fieldSeverity";
 import { CategoryContent } from "./CategoryContent";
 import { CategoryHeader } from "./CategoryHeader";
 import { useAccordionState } from "./hooks/useAccordionState";
-import type { CategoryData, CategoryId } from "./types";
+import type { CategoryData, CategoryId, Citation } from "./types";
 
 interface CategoryAccordionProps {
   categoryId: CategoryId;
   category: CategoryData;
+  onViewSource?: (payload: { citation: Citation; citations: Citation[] }) => void;
 }
 
-export function CategoryAccordion({ categoryId, category }: CategoryAccordionProps) {
+export function CategoryAccordion({ categoryId, category, onViewSource }: CategoryAccordionProps) {
   const { expandedCategories, toggleCategory } = useAccordionState();
   const isOpen = expandedCategories.includes(categoryId);
 
@@ -62,6 +63,7 @@ export function CategoryAccordion({ categoryId, category }: CategoryAccordionPro
             sourceReferences={category.source_references}
             fields={sortFieldsBySeverity(category.items)}
             categoryId={categoryId}
+            onViewSource={onViewSource}
           />
         </div>
       ) : null}

@@ -8,9 +8,10 @@ import type { FieldItem } from "./types";
 
 interface FieldCardProps {
   field: FieldItem;
+  onViewSource?: (payload: { citation: FieldItem["citations"][number]; citations: FieldItem["citations"] }) => void;
 }
 
-export function FieldCard({ field }: FieldCardProps) {
+export function FieldCard({ field, onViewSource }: FieldCardProps) {
   const confidenceLevel = getConfidenceLevel(field.confidence);
 
   const cardClass = cn(
@@ -21,6 +22,12 @@ export function FieldCard({ field }: FieldCardProps) {
   );
 
   const primaryCitation = field.citations[0];
+  const handleViewSource = () => {
+    if (!primaryCitation || !onViewSource) {
+      return;
+    }
+    onViewSource({ citation: primaryCitation, citations: field.citations });
+  };
 
   return (
     <div data-testid="field-card" className={cardClass}>
@@ -74,12 +81,12 @@ export function FieldCard({ field }: FieldCardProps) {
         {field.field_state === "extraido" && confidenceLevel !== "high" ? (
           <>
             <ActionButton text="Corregir" icon={Edit} variant="warning" />
-            <ActionButton text="Ver fuente" icon={Eye} variant="ghost" />
+            <ActionButton text="Ver fuente" icon={Eye} variant="ghost" onClick={handleViewSource} />
           </>
         ) : null}
 
         {field.field_state === "extraido" && confidenceLevel === "high" ? (
-          <ActionButton text="Ver fuente" icon={Eye} variant="ghost" />
+          <ActionButton text="Ver fuente" icon={Eye} variant="ghost" onClick={handleViewSource} />
         ) : null}
       </div>
     </div>

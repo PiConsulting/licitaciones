@@ -1,4 +1,4 @@
-import type { CategoryId, FieldItem, SourceReference } from "./types";
+import type { CategoryId, Citation, FieldItem, SourceReference } from "./types";
 import { FieldCard } from "./FieldCard";
 
 interface CategoryContentProps {
@@ -6,9 +6,10 @@ interface CategoryContentProps {
   sourceReferences: SourceReference[];
   fields: FieldItem[];
   categoryId: CategoryId;
+  onViewSource?: (payload: { citation: Citation; citations: Citation[] }) => void;
 }
 
-export function CategoryContent({ summary, sourceReferences, fields, categoryId }: CategoryContentProps) {
+export function CategoryContent({ summary, sourceReferences, fields, categoryId, onViewSource }: CategoryContentProps) {
   const representativeSource = sourceReferences[0];
 
   return (
@@ -29,7 +30,7 @@ export function CategoryContent({ summary, sourceReferences, fields, categoryId 
       ) : null}
 
       {fields.map((field) => (
-        <FieldCard key={field.field_name} field={field} />
+        <FieldCard key={field.field_name} field={field} onViewSource={onViewSource} />
       ))}
     </div>
   );

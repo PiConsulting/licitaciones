@@ -69,3 +69,4 @@ Thumbs.db
 # Ignore internal docs draft folder
 docs/docu/
 
+.claude/

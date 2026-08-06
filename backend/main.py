@@ -10,6 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from analysis.routes import analysis_router
+from documents.routes import router as documents_router
 from shared.config import get_settings
 from shared.database import engine
 from shared.logging import configure_logging
@@ -175,6 +176,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(protected_router, prefix="/api/v1")
     app.include_router(analysis_router, prefix="/api/v1")
+    app.include_router(documents_router, prefix="/api/v1")
     return app
 
 
