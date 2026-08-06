@@ -18,7 +18,7 @@ export function AnalysisSummaryStrip({ analysis }: AnalysisSummaryStripProps) {
     <section aria-label="Resumen de extracción" className="mb-4">
       <div className="flex flex-wrap items-center gap-3">
         <p className="text-sm font-semibold text-gray-900">
-          {`${summary.extracted}/${summary.totalFields} campos extraídos`}
+          {`${summary.extractedCategories}/${summary.totalCategories} categorías extraídas`}
         </p>
         {summary.conflict > 0 ? <Badge tone="error">{`${summary.conflict} conflictos`}</Badge> : null}
         {summary.notFound > 0 ? <Badge tone="warning">{`${summary.notFound} no encontrados`}</Badge> : null}

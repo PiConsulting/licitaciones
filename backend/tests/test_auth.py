@@ -8,6 +8,8 @@ def test_login_success(client):
     data = response.json()
     assert "access_token" in data
     assert data["token_type"] == "bearer"
+    assert data["name"] == "Test User"
+    assert data["email"] == "test@cedia.com"
 
 
 def test_login_invalid_credentials(client):

@@ -22,6 +22,8 @@ export function getCategoryCounts(category: CategoryData): CategoryCounts {
 export interface AnalysisSummary {
   totalFields: number;
   extracted: number;
+  extractedCategories: number;
+  totalCategories: number;
   notFound: number;
   conflict: number;
   notApplicable: number;
@@ -34,6 +36,8 @@ export function getAnalysisSummary(analysis: AnalysisDetail): AnalysisSummary {
   const summary: AnalysisSummary = {
     totalFields: 0,
     extracted: 0,
+    extractedCategories: 0,
+    totalCategories: 0,
     notFound: 0,
     conflict: 0,
     notApplicable: 0,
@@ -47,11 +51,15 @@ export function getAnalysisSummary(analysis: AnalysisDetail): AnalysisSummary {
     }
 
     const counts = getCategoryCounts(category);
+    summary.totalCategories += 1;
     summary.totalFields += counts.total;
     summary.extracted += counts.extracted;
     summary.notFound += counts.notFound;
     summary.conflict += counts.conflict;
     summary.notApplicable += counts.notApplicable;
+    if (counts.extracted > 0) {
+      summary.extractedCategories += 1;
+    }
 
     const isCriticalUnreviewed = CRITICAL_CATEGORIES.has(categoryId) && !category.is_reviewed;
     if (counts.conflict > 0 || isCriticalUnreviewed) {

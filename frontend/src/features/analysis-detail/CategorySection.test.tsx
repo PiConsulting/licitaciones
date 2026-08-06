@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 import { CategorySection } from "./CategorySection";
 import type { CategoryData, CategoryId, FieldItem } from "./types";
@@ -10,6 +11,7 @@ function createField(
     state?: FieldItem["field_state"];
     confidence?: number;
     value?: string | null;
+    citations?: FieldItem["citations"];
   },
 ): FieldItem {
   return {
@@ -17,14 +19,15 @@ function createField(
     field_value: options?.value ?? field_name,
     field_state: options?.state ?? "extraido",
     confidence: options?.confidence ?? 0.9,
-    citations: [
-      {
-        text: `Cita de ${field_name}`,
-        page: 2,
-        document_id: "doc-1",
-        document_name: "Pliego.pdf",
-      },
-    ],
+    citations:
+      options?.citations ?? [
+        {
+          text: `Cita de ${field_name}`,
+          page: 2,
+          document_id: "doc-1",
+          document_name: "Pliego.pdf",
+        },
+      ],
   };
 }
 
@@ -137,8 +140,61 @@ describe("CategorySection", () => {
     expect(fieldCards[2]).toHaveTextContent("field4");
     expect(fieldCards[3]).toHaveTextContent("field5");
 
-    // field1 tiene confianza alta y no necesita acción: no se muestra como field-card.
-    expect(screen.queryByTestId("field-row")).not.toBeInTheDocument();
+    // field1 tiene confianza alta y no necesita acción: no aparece en "acciones recomendadas",
+    // pero sí queda en el detalle secundario por campo.
+    expect(screen.getAllByTestId("field-row")).toHaveLength(5);
+  });
+
+  test("T5b: Muestra bullets cuando la síntesis supera el umbral de legibilidad", () => {
+    const fields: FieldItem[] = [
+      createField("criterio_1", { value: "Precio total de la oferta" }),
+      createField("criterio_2", { value: "Experiencia en contratos similares" }),
+      createField("criterio_3", { value: "Plan de trabajo propuesto" }),
+      createField("criterio_4", { value: "Plazo de entrega" }),
+      createField("criterio_5", { value: "Calidad técnica" }),
+    ];
+    const category = createMockCategory({ items: fields, summary: "Se detectaron criterios de evaluación múltiples." });
+
+    render(<CategorySection category={category} categoryId="criterios_evaluacion" />);
+
+    const bullets = screen.getByTestId("narrative-bullets");
+    expect(bullets).toBeInTheDocument();
+    expect(bullets.querySelectorAll("li")).toHaveLength(5);
+    expect(screen.getByText("Se detectaron criterios de evaluación múltiples.")).toBeInTheDocument();
+  });
+
+  test("T5c: Muestra fallback controlado cuando no hay extracción útil", () => {
+    const category = createMockCategory({
+      items: [createField("garantia_anticipo", { state: "no_encontrado", value: null, confidence: 0 })],
+    });
+
+    render(<CategorySection category={category} categoryId="garantias" />);
+
+    expect(screen.getByText(/No se encontró información útil para garantías/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("narrative-bullets")).not.toBeInTheDocument();
+  });
+
+  test("T5d: Conserva fuente representativa en la síntesis narrativa", () => {
+    const category = createMockCategory({
+      items: [
+        createField("objeto", {
+          value: "Servicio de mantenimiento preventivo",
+          citations: [
+            {
+              text: "El objeto es la contratación de mantenimiento preventivo.",
+              page: 8,
+              document_id: "doc-1",
+              document_name: "Pliego.pdf",
+            },
+          ],
+        }),
+      ],
+    });
+
+    render(<CategorySection category={category} categoryId="objeto_alcance" />);
+
+    expect(screen.getByTestId("narrative-source")).toBeInTheDocument();
+    expect(screen.getByText(/Pliego.pdf \(pag\. 8\)/i)).toBeInTheDocument();
   });
 
   test("T6: Muestra contadores como badges", () => {
@@ -207,5 +263,58 @@ describe("CategorySection", () => {
       const icon = CATEGORY_ICONS[categoryId];
       expect(container.querySelector(`[data-icon=\"${icon.displayName ?? icon.name}\"]`)).toBeInTheDocument();
     });
+  });
+
+  test("T9: Muestra fuentes clickeables por categoría y dispara navegación con cita exacta", async () => {
+    const user = userEvent.setup();
+    const onViewSource = vi.fn();
+    const category = createMockCategory({
+      items: [
+        createField("objeto", {
+          value: "Servicio integral",
+          citations: [
+            {
+              text: "El objeto de la contratación es el servicio integral.",
+              page: 12,
+              document_id: "doc-1",
+              document_name: "Pliego Principal.pdf",
+            },
+          ],
+        }),
+      ],
+    });
+
+    render(<CategorySection category={category} categoryId="objeto_alcance" onViewSource={onViewSource} />);
+
+    const sourceButton = screen.getByRole("button", { name: /Pliego Principal.pdf · pág. 12/i });
+    await user.click(sourceButton);
+
+    expect(onViewSource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        citation: expect.objectContaining({
+          document_id: "doc-1",
+          page: 12,
+          text: "El objeto de la contratación es el servicio integral.",
+        }),
+      }),
+    );
+  });
+
+  test("T10: Sin citas muestra aviso de no evidencia y evita estado revisada automática", () => {
+    const category = createMockCategory({
+      is_reviewed: true,
+      items: [
+        createField("campo_sin_cita", {
+          value: "Dato sin cita",
+          citations: [],
+        }),
+      ],
+    });
+
+    render(<CategorySection category={category} categoryId="garantias" />);
+
+    expect(screen.getByTestId("category-sources-empty")).toBeInTheDocument();
+    expect(screen.queryByText(/^REVISADA$/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/CRÍTICA/i)).toBeInTheDocument();
   });
 });

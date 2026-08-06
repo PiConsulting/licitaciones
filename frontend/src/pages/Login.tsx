@@ -22,6 +22,10 @@ export default function Login() {
     try {
       const response = await login({ email, password });
       localStorage.setItem("access_token", response.access_token);
+      if (response.name?.trim()) {
+        localStorage.setItem("user_name", response.name.trim());
+      }
+      localStorage.setItem("user_email", response.email || email);
       navigate("/dashboard");
     } catch {
       setError(INVALID_CREDENTIALS_MSG);

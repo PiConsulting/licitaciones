@@ -10,14 +10,10 @@ from analysis.extraction.extractors import (
     extractor_anexos_obligatorios,
     extractor_causales,
     extractor_criterios_evaluacion,
-    extractor_cronograma_proceso,
-    extractor_documentos_requeridos,
-    extractor_estimacion_presupuesto,
     extractor_garantias,
-    extractor_identificacion_procedimiento,
     extractor_objeto_alcance,
     extractor_plazos,
-    extractor_restricciones_participacion,
+    extractor_requisitos_admisibilidad,
 )
 from analysis.extraction.schemas import ExtractedData
 from analysis.extraction.state import GraphState
@@ -38,25 +34,6 @@ def _merge_category_status(*statuses: str) -> str:
     if "failed" in pool:
         return "failed"
     return "unknown"
-
-
-def _presupuesto_to_generic_item(presupuesto: dict) -> dict:
-    monto = presupuesto.get("monto")
-    moneda = presupuesto.get("moneda")
-    valor = None
-    if monto is not None:
-        valor = f"{monto} {moneda}".strip() if moneda else str(monto)
-    return {
-        "tipo": "presupuesto_oficial",
-        "valor": valor,
-        "metadata": {
-            "forma_pago": presupuesto.get("forma_pago"),
-            "ajustes": presupuesto.get("ajustes"),
-        },
-        "confidence": presupuesto.get("confidence", 0.0),
-        "source_references": list(presupuesto.get("source_references", [])),
-        "extraction_status": presupuesto.get("extraction_status", "not_found"),
-    }
 
 
 def _normalize_text(value: str) -> str:
@@ -189,6 +166,8 @@ def setup_node(state: GraphState) -> GraphState:
         {
             "objeto_alcance": [],
             "objeto_alcance_status": "pending",
+            "requisitos_admisibilidad": [],
+            "requisitos_admisibilidad_status": "pending",
             "plazos": [],
             "plazos_status": "pending",
             "garantias": [],
@@ -197,18 +176,8 @@ def setup_node(state: GraphState) -> GraphState:
             "causales_status": "pending",
             "anexos": [],
             "anexos_status": "pending",
-            "documentos": [],
-            "documentos_status": "pending",
             "criterios": [],
             "criterios_status": "pending",
-            "restricciones": [],
-            "restricciones_status": "pending",
-            "cronograma": [],
-            "cronograma_status": "pending",
-            "identificacion": [],
-            "identificacion_status": "pending",
-            "presupuesto": {},
-            "presupuesto_status": "pending",
             "conflicts": [],
         }
     )
@@ -222,33 +191,19 @@ def merge_node(state: GraphState) -> GraphState:
 
     plazos = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("plazos", [])]
     objeto_alcance = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("objeto_alcance", [])]
+    requisitos_admisibilidad = [
+        _normalize_confidence(_penalize_unverifiable(item)) for item in state.get("requisitos_admisibilidad", [])
+    ]
     garantias = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("garantias", [])]
     causales = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("causales", [])]
     anexos = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("anexos", [])]
-    documentos = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("documentos", [])]
     criterios = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("criterios", [])]
-    restricciones = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("restricciones", [])]
-    cronograma = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("cronograma", [])]
-    identificacion = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("identificacion", [])]
-    presupuesto = (
-        _normalize_confidence(_penalize_unverifiable(dict(state.get("presupuesto", {}))))
-        if state.get("presupuesto")
-        else None
-    )
-
-    requisitos = [*documentos, *restricciones]
-    datos_procedimiento = [*identificacion, *cronograma]
-    if presupuesto:
-        datos_procedimiento.append(_presupuesto_to_generic_item(presupuesto))
 
     extracted_data = {
         "objeto_alcance": objeto_alcance,
         "objeto_alcance_extraction_status": state.get("objeto_alcance_status", "unknown"),
-        "requisitos_admisibilidad": requisitos,
-        "requisitos_admisibilidad_extraction_status": _merge_category_status(
-            state.get("documentos_status", "unknown"),
-            state.get("restricciones_status", "unknown"),
-        ),
+        "requisitos_admisibilidad": requisitos_admisibilidad,
+        "requisitos_admisibilidad_extraction_status": state.get("requisitos_admisibilidad_status", "unknown"),
         "plazos_clave": plazos,
         "plazos_clave_extraction_status": state.get("plazos_status", "unknown"),
         "plazos": plazos,
@@ -259,36 +214,28 @@ def merge_node(state: GraphState) -> GraphState:
         "causales_extraction_status": state.get("causales_status", "unknown"),
         "anexos_obligatorios": anexos,
         "anexos_extraction_status": state.get("anexos_status", "unknown"),
-        "datos_procedimiento": datos_procedimiento,
-        "datos_procedimiento_extraction_status": _merge_category_status(
-            state.get("identificacion_status", "unknown"),
-            state.get("cronograma_status", "unknown"),
-            state.get("presupuesto_status", "unknown"),
-        ),
-        "documentos_requeridos": documentos,
-        "documentos_extraction_status": state.get("documentos_status", "unknown"),
+        "datos_procedimiento": [],
+        "datos_procedimiento_extraction_status": "not_found",
+        "documentos_requeridos": [],
+        "documentos_extraction_status": "not_found",
         "criterios_evaluacion": criterios,
         "criterios_extraction_status": state.get("criterios_status", "unknown"),
-        "restricciones_participacion": restricciones,
-        "restricciones_extraction_status": state.get("restricciones_status", "unknown"),
-        "cronograma_proceso": cronograma,
-        "cronograma_extraction_status": state.get("cronograma_status", "unknown"),
-        "estimacion_presupuesto": presupuesto,
-        "presupuesto_extraction_status": state.get("presupuesto_status", "unknown"),
+        "restricciones_participacion": [],
+        "restricciones_extraction_status": "not_found",
+        "cronograma_proceso": [],
+        "cronograma_extraction_status": "not_found",
+        "estimacion_presupuesto": None,
+        "presupuesto_extraction_status": "not_found",
     }
 
     token_usage = {
         "objeto_alcance": state.get("objeto_alcance_token_usage", {}),
-        "plazos": state.get("plazos_token_usage", {}),
+        "requisitos_admisibilidad": state.get("requisitos_admisibilidad_token_usage", {}),
+        "plazos_clave": state.get("plazos_token_usage", {}),
         "garantias": state.get("garantias_token_usage", {}),
-        "causales": state.get("causales_token_usage", {}),
+        "causales_rechazo": state.get("causales_token_usage", {}),
         "anexos_obligatorios": state.get("anexos_token_usage", {}),
-        "documentos_requeridos": state.get("documentos_token_usage", {}),
         "criterios_evaluacion": state.get("criterios_token_usage", {}),
-        "restricciones_participacion": state.get("restricciones_token_usage", {}),
-        "identificacion_procedimiento": state.get("identificacion_token_usage", {}),
-        "cronograma_proceso": state.get("cronograma_token_usage", {}),
-        "estimacion_presupuesto": state.get("presupuesto_token_usage", {}),
     }
 
     conflicts: list[dict] = []
@@ -353,12 +300,8 @@ builder.add_node("extract_plazos", extractor_plazos)
 builder.add_node("extract_garantias", extractor_garantias)
 builder.add_node("extract_causales", extractor_causales)
 builder.add_node("extract_anexos", extractor_anexos_obligatorios)
-builder.add_node("extract_documentos", extractor_documentos_requeridos)
+builder.add_node("extract_requisitos", extractor_requisitos_admisibilidad)
 builder.add_node("extract_criterios", extractor_criterios_evaluacion)
-builder.add_node("extract_restricciones", extractor_restricciones_participacion)
-builder.add_node("extract_identificacion", extractor_identificacion_procedimiento)
-builder.add_node("extract_cronograma", extractor_cronograma_proceso)
-builder.add_node("extract_presupuesto", extractor_estimacion_presupuesto)
 builder.add_node("merge", merge_node)
 
 builder.set_entry_point("setup")
@@ -369,12 +312,8 @@ extractor_nodes = [
     "extract_garantias",
     "extract_causales",
     "extract_anexos",
-    "extract_documentos",
+    "extract_requisitos",
     "extract_criterios",
-    "extract_restricciones",
-    "extract_identificacion",
-    "extract_cronograma",
-    "extract_presupuesto",
 ]
 
 for node in extractor_nodes:

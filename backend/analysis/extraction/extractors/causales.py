@@ -7,7 +7,7 @@ from analysis.extraction.state import GraphState
 def extractor_causales(state: GraphState) -> GraphState:
     return run_extractor(
         state=state,
-        result_key="causales",
+        result_key="causales_rechazo",
         state_field="causales",
         status_field="causales_status",
         prompt_file_name="causales_rechazo.txt",

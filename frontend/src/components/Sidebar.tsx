@@ -5,18 +5,29 @@ import {
   LogOut,
   User,
 } from "lucide-react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 
+import { logout } from "../api/auth";
 import { useUIStore } from "../store/useUIStore";
 import { cn } from "../utils/cn";
 
 export function Sidebar() {
   const { sidebarCollapsed, toggleSidebar } = useUIStore();
+  const navigate = useNavigate();
+
+  const userName = localStorage.getItem("user_name")?.trim();
+  const userEmail = localStorage.getItem("user_email")?.trim();
+  const displayUser = userName || userEmail || "Usuario";
 
   const navItems = [
     { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
     { to: "/analyze", icon: FileText, label: "Analizar nuevo pliego" },
   ];
+
+  const handleLogout = () => {
+    logout();
+    navigate("/login");
+  };
 
   return (
     <aside
@@ -74,10 +85,11 @@ export function Sidebar() {
         <div className="border-t border-gray-200 px-4 py-4">
           <div className="mb-2 flex items-center gap-3 text-xs text-gray-700">
             <User size={18} />
-            <span className={cn(sidebarCollapsed && "sr-only")}>Usuario Test</span>
+            <span className={cn(sidebarCollapsed && "sr-only")}>{displayUser}</span>
           </div>
           <button
             type="button"
+            onClick={handleLogout}
             className="inline-flex min-h-[44px] min-w-[44px] items-center gap-2 rounded-md text-xs font-medium text-gray-700 hover:bg-gray-50"
           >
             <LogOut size={16} />

@@ -3,10 +3,12 @@ import { AlertTriangle } from "lucide-react";
 import { Badge } from "../../components/Badge";
 import { CATEGORY_ICONS, CATEGORY_NAMES, CRITICAL_CATEGORIES } from "../../utils/categoryIcons";
 import { needsAction, sortFieldsBySeverity } from "../../utils/fieldSeverity";
+import { NarrativeBlock } from "./components/NarrativeBlock";
 import { FieldCard } from "./FieldCard";
+import { FieldRow } from "./FieldRow";
 import { FieldStateBadge } from "./FieldStateBadge";
 import type { CategoryData, CategoryId, Citation } from "./types";
-import { buildCategoryNarrative } from "./utils/categoryNarrative";
+import { buildNarrativeSynthesis } from "./utils/narrativeSynthesis";
 import { getCategoryCounts } from "./utils/categoryStats";
 
 interface CategorySectionProps {
@@ -20,8 +22,23 @@ export function CategorySection({ categoryId, category, onViewSource }: Category
   const Icon = CATEGORY_ICONS[categoryId];
   const name = CATEGORY_NAMES[categoryId];
   const counts = getCategoryCounts(category);
-  const narrative = category.narrative ?? buildCategoryNarrative(category, categoryId);
-  const actionableFields = sortFieldsBySeverity(category.items).filter(needsAction);
+  const orderedFields = sortFieldsBySeverity(category.items);
+  const actionableFields = orderedFields.filter(needsAction);
+  const computedSynthesis = buildNarrativeSynthesis(category, categoryId);
+  const synthesis = category.narrative?.trim()
+    ? {
+      ...computedSynthesis,
+      text: category.narrative,
+      intro: null,
+      bullets: [],
+      hasUsefulData: true,
+    }
+    : computedSynthesis;
+  const allCitations = category.items.flatMap((item) => item.citations);
+  const hasClickableEvidence = allCitations.some(
+    (citation) => citation.document_id.trim() !== "" && citation.page > 0 && citation.text.trim() !== "",
+  );
+  const isReviewed = category.is_reviewed && hasClickableEvidence;
 
   const state = category.extraction_status === "failed"
     ? "error"
@@ -29,7 +46,7 @@ export function CategorySection({ categoryId, category, onViewSource }: Category
       ? "no_aplica"
       : counts.conflict > 0
         ? "con_conflictos"
-        : category.is_reviewed
+        : isReviewed
           ? "revisada"
           : isCritical
             ? "critica"
@@ -38,9 +55,9 @@ export function CategorySection({ categoryId, category, onViewSource }: Category
   let accentClass = "border-l-gray-200";
   if (counts.conflict > 0) {
     accentClass = "border-l-error";
-  } else if (isCritical && !category.is_reviewed) {
+  } else if (isCritical && !isReviewed) {
     accentClass = "border-l-highlight";
-  } else if (category.is_reviewed) {
+  } else if (isReviewed) {
     accentClass = "border-l-success";
   }
 
@@ -65,14 +82,30 @@ export function CategorySection({ categoryId, category, onViewSource }: Category
         </div>
       </div>
 
-      <p className="mt-2 text-sm leading-relaxed text-gray-700">{narrative}</p>
+      <NarrativeBlock synthesis={synthesis} citations={allCitations} onViewSource={onViewSource} />
 
       {actionableFields.length > 0 ? (
-        <div className="mt-3 space-y-2">
-          {actionableFields.map((field) => (
-            <FieldCard key={field.field_name} field={field} onViewSource={onViewSource} />
-          ))}
+        <div className="mt-4">
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-700">Acciones recomendadas</h4>
+          <div className="space-y-2">
+            {actionableFields.map((field) => (
+              <FieldCard key={field.field_name} field={field} onViewSource={onViewSource} />
+            ))}
+          </div>
         </div>
+      ) : null}
+
+      {orderedFields.length > 0 ? (
+        <details className="mt-4 rounded border border-gray-200 bg-white p-3" data-testid="category-details">
+          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-gray-700">
+            Detalle por campo ({orderedFields.length})
+          </summary>
+          <div className="mt-3 space-y-2">
+            {orderedFields.map((field) => (
+              <FieldRow key={`${field.field_name}-${field.field_state}`} field={field} onViewSource={onViewSource} />
+            ))}
+          </div>
+        </details>
       ) : null}
     </article>
   );

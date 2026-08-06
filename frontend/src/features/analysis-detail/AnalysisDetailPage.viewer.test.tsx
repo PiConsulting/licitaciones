@@ -114,10 +114,24 @@ describe("AnalysisDetailPage PDF integration", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /ver fuente/i })).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: /ver fuente/i }).length).toBeGreaterThan(0);
     });
 
-    await user.click(screen.getByRole("button", { name: /ver fuente/i }));
+    await user.click(screen.getAllByRole("button", { name: /ver fuente/i })[0]);
+
+    expect(screen.getByTestId("pdf-viewer-mock")).toHaveTextContent("viewer:doc-1:1");
+  });
+
+  test("click en fuente de categoría (documento + página) abre visor en la cita elegida", async () => {
+    const user = userEvent.setup();
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Pliego Principal.pdf · pág. 15/i })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /Pliego Principal.pdf · pág. 15/i }));
 
     expect(screen.getByTestId("pdf-viewer-mock")).toHaveTextContent("viewer:doc-1:1");
   });
