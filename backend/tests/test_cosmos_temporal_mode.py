@@ -63,10 +63,10 @@ def test_cosmos_metadata_sink_upserts_with_analysis_partition_key(monkeypatch: p
 
     class _Container:
         def __init__(self) -> None:
-            self.upserts: list[tuple[dict, str | None]] = []
+            self.upserts: list[dict] = []
 
-        def upsert_item(self, item, partition_key=None):
-            self.upserts.append((item, partition_key))
+        def upsert_item(self, item):
+            self.upserts.append(item)
             return _Response()
 
     container = _Container()
@@ -98,8 +98,7 @@ def test_cosmos_metadata_sink_upserts_with_analysis_partition_key(monkeypatch: p
     sink.persist(analysis=analysis, documents=[], versions=[], event="analysis_queued")
 
     assert container.upserts
-    first_item, first_partition_key = container.upserts[0]
-    assert first_partition_key == analysis.id
+    first_item = container.upserts[0]
     assert first_item["analysis_id"] == analysis.id
     assert first_item["partition_key"] == analysis.id
     db.close()

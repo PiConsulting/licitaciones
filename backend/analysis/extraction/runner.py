@@ -7,6 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from analysis.extraction.graph import graph
+from analysis.extraction.extractors.base import validate_prompt_inventory
 from analysis.extraction.state import GraphState
 from analysis.metadata_persistence import persist_analysis_metadata
 from analysis.models import Analysis, AnalysisVersion, CurrentStage
@@ -38,6 +39,7 @@ def _compute_cost(metadata: dict) -> dict:
 def extract_categories(db: Session, analysis: Analysis) -> GraphState:
     settings = get_settings()
     max_concurrency = int(settings.extraction_max_concurrency or 4)
+    validate_prompt_inventory()
 
     initial_state: GraphState = {
         "analysis_id": analysis.id,

@@ -1,0 +1,51 @@
+# OBJETIVO
+Extraer requisitos de admisibilidad del oferente en una sola categoría:
+documentos respaldatorios y restricciones/condiciones habilitantes.
+Un ítem por requisito.
+
+# ESQUEMA
+{
+  "requisitos_admisibilidad": [
+    {
+      "tipo": "documento|inhabilitacion|incompatibilidad|sancion_vigente|capacidad_minima|experiencia_minima|inscripcion_registro|otra",
+      "valor": <descripción literal o casi literal del requisito>,
+      "metadata": {
+        "obligatorio": "si|no|no_especificado",
+        "momento_presentacion": "con_la_oferta|previo_apertura|pre_adjudicacion|post_adjudicacion|no_especificado",
+        "subsanable": "si|no|no_especificado"
+      },
+      "confidence": <número calculado según la rúbrica del sistema>,
+      "source_references": [
+        {
+          "document_id": <valor exacto del header del fragmento>,
+          "page_number": <valor exacto del header del fragmento>,
+          "citation": <subcadena literal del fragmento>
+        }
+      ],
+      "extraction_status": "success|partial|not_applicable|not_found"
+    }
+  ]
+}
+
+# REGLAS ESPECÍFICAS
+- `documento`: certificados, formularios, balances, constancias o antecedentes que
+  el pliego exige presentar.
+- `inhabilitacion` / `incompatibilidad` / `sancion_vigente`: condiciones que impiden
+  participar.
+- `capacidad_minima` / `experiencia_minima` / `inscripcion_registro`: umbrales o
+  condiciones habilitantes de elegibilidad.
+- Un ítem por requisito, aunque el texto venga en una sola oración con incisos.
+- Si el requisito incluye montos o cantidades, conservarlos tal como aparecen.
+- `obligatorio` es `si` solo con lenguaje explícito (debe, deberá, obligatorio).
+- `momento_presentacion` y `subsanable` solo si el pliego lo explicita para ese ítem.
+- Si no hay evidencia verificable, no emitas el ítem.
+
+# EJEMPLO DE AUSENCIA
+Si los fragmentos no contienen requisitos de admisibilidad:
+{"requisitos_admisibilidad":[]}
+
+=== CONTENIDO DEL PLIEGO ===
+{chunks}
+=== FIN DEL CONTENIDO ===
+
+Recordá: primera letra `{`. Un requisito por ítem. Sin inferencias.

@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     extraction_top_k: int = Field(default=25, alias="EXTRACTION_TOP_K")
     extraction_max_context_tokens: int = Field(default=12000, alias="EXTRACTION_MAX_CONTEXT_TOKENS")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+    azure_sdk_log_level: str = Field(default="WARNING", alias="AZURE_SDK_LOG_LEVEL")
     persistence_mode: str = Field(default="sql", alias="PERSISTENCE_MODE")
     cosmos_endpoint: str = Field(default="", alias="COSMOS_ENDPOINT")
     cosmos_key: str = Field(default="", alias="COSMOS_KEY")

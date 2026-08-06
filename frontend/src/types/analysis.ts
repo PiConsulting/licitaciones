@@ -49,3 +49,37 @@ export interface AnalysisStatusResponse {
   extracted_data?: Record<string, unknown> | null;
   conflicts?: Array<Record<string, unknown>> | null;
 }
+
+export type AnalysisListSortBy = "created_at" | "status" | "current_stage";
+export type AnalysisListSortOrder = "asc" | "desc";
+
+export interface AnalysisListFilters {
+  search?: string;
+  status?: string;
+  date_from?: string;
+  date_to?: string;
+  page?: number;
+  per_page?: number;
+  sort_by?: AnalysisListSortBy;
+  sort_order?: AnalysisListSortOrder;
+}
+
+export interface AnalysisListItem {
+  id: string;
+  status: string;
+  current_stage: string;
+  stage_progress?: string | null;
+  progress_percentage: number;
+  created_at: string;
+  primary_document_name?: string | null;
+  organismo?: string | null;
+  confidence_avg?: number | null;
+}
+
+export interface AnalysisListResponse {
+  items: AnalysisListItem[];
+  page: number;
+  per_page: number;
+  total: number;
+  total_pages: number;
+}

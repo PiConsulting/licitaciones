@@ -30,7 +30,7 @@ def login(payload: LoginRequest) -> LoginResponse:
         )
 
     token = create_access_token(user.id)
-    return LoginResponse(access_token=token)
+    return LoginResponse(access_token=token, name=user.name, email=user.email)
 
 
 @auth_router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)

@@ -1,4 +1,5 @@
 import {
+  Ban,
   ClipboardCheck,
   Clock,
   FileText,
@@ -6,7 +7,6 @@ import {
   Paperclip,
   Scale,
   Shield,
-  XCircle,
   type LucideIcon,
 } from "lucide-react";
 
@@ -18,7 +18,7 @@ export const CATEGORY_ICONS: Record<CategoryId, LucideIcon> = {
   garantias: Shield,
   plazos_clave: Clock,
   criterios_evaluacion: Scale,
-  causales_rechazo: XCircle,
+  causales_rechazo: Ban,
   anexos_obligatorios: Paperclip,
   datos_procedimiento: Info,
 };
@@ -40,13 +40,20 @@ export const CRITICAL_CATEGORIES = new Set<CategoryId>([
   "causales_rechazo",
 ]);
 
+/**
+ * Orden canónico de categorías para visualización.
+ * Define el flujo de lectura de negocio del pliego.
+ * 
+ * NOTA: datos_procedimiento NO está incluido en el checklist principal.
+ * Las categorías críticas mantienen su significado para validación
+ * pero NO gobiernan el orden visual.
+ */
 export const CATEGORY_ORDER: CategoryId[] = [
-  "plazos_clave",
-  "garantias",
-  "causales_rechazo",
   "objeto_alcance",
   "requisitos_admisibilidad",
+  "garantias",
+  "plazos_clave",
   "criterios_evaluacion",
+  "causales_rechazo",
   "anexos_obligatorios",
-  "datos_procedimiento",
 ];

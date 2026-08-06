@@ -215,6 +215,14 @@ function summarize(items: FieldItem[]): string {
   return parts.join(" · ");
 }
 
+function hasClickableEvidence(items: FieldItem[]): boolean {
+  return items.some((item) =>
+    item.citations.some(
+      (citation) => citation.document_id.trim() !== "" && citation.page > 0 && citation.text.trim() !== "",
+    ),
+  );
+}
+
 /** Construye CategoryData a partir del array de ítems que emite el backend. */
 function fromBackendArray(
   rawItems: unknown[],
@@ -325,7 +333,8 @@ function normalizeCategories(extractedData: unknown): Record<CategoryId, Categor
       source_references: refs,
       extraction_status: extractionStatus,
       summary: String(rawCategory.summary ?? "Sin resumen disponible."),
-      is_reviewed: Boolean(rawCategory.is_reviewed),
+      is_reviewed: Boolean(rawCategory.is_reviewed) && hasClickableEvidence(items),
+      narrative: rawCategory.narrative == null ? undefined : String(rawCategory.narrative),
     };
   }
 

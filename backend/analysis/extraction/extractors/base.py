@@ -21,11 +21,62 @@ VALID_EXTRACTION_STATUSES = {"success", "partial", "failed", "not_found", "not_a
 BASE_SYSTEM_PROMPT_FILE = "_base_system.txt"
 _JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
 
+CANONICAL_PROMPT_FILES = {
+    BASE_SYSTEM_PROMPT_FILE,
+    "objeto_alcance.txt",
+    "requisitos_admisibilidad.txt",
+    "garantias.txt",
+    "plazos_clave.txt",
+    "criterios_evaluacion.txt",
+    "causales_rechazo.txt",
+    "anexos_obligatorios.txt",
+}
+
+CANONICAL_CATEGORY_PROMPT_MAP = {
+    "objeto_alcance": "objeto_alcance.txt",
+    "requisitos_admisibilidad": "requisitos_admisibilidad.txt",
+    "garantias": "garantias.txt",
+    "plazos_clave": "plazos_clave.txt",
+    "criterios_evaluacion": "criterios_evaluacion.txt",
+    "causales_rechazo": "causales_rechazo.txt",
+    "anexos_obligatorios": "anexos_obligatorios.txt",
+}
+
 
 @lru_cache(maxsize=32)
 def _load_prompt(prompt_file_name: str) -> str:
     prompt_path = Path(__file__).resolve().parents[1] / "prompts" / prompt_file_name
     return prompt_path.read_text(encoding="utf-8")
+
+
+def validate_prompt_inventory() -> None:
+    prompts_dir = Path(__file__).resolve().parents[1] / "prompts"
+    actual_files = {path.name for path in prompts_dir.glob("*.txt")}
+
+    missing = sorted(CANONICAL_PROMPT_FILES - actual_files)
+    extras = sorted(actual_files - CANONICAL_PROMPT_FILES)
+    if missing or extras:
+        details: list[str] = []
+        if missing:
+            details.append(f"faltan prompts canónicos: {', '.join(missing)}")
+        if extras:
+            details.append(f"sobran prompts no permitidos: {', '.join(extras)}")
+        raise ValueError("Configuración inválida de prompts de extracción: " + " | ".join(details))
+
+
+def validate_category_prompt_mapping(result_key: str, prompt_file_name: str) -> None:
+    expected_prompt = CANONICAL_CATEGORY_PROMPT_MAP.get(result_key)
+    if not expected_prompt:
+        raise ValueError(
+            f"Categoría de extracción no canónica: '{result_key}'. "
+            f"Permitidas: {', '.join(sorted(CANONICAL_CATEGORY_PROMPT_MAP))}"
+        )
+
+    if prompt_file_name != expected_prompt:
+        raise ValueError(
+            "Mapeo categoría->prompt inválido: "
+            f"{result_key} debe usar '{expected_prompt}', no '{prompt_file_name}'"
+        )
 
 
 def _build_messages(
@@ -218,6 +269,7 @@ def run_extractor(
 ) -> GraphState:
     correlation_id = state["correlation_id"]
     analysis_id = state["analysis_id"]
+    validate_category_prompt_mapping(result_key, prompt_file_name)
     logger.info(
         "extractor_started",
         correlation_id=correlation_id,

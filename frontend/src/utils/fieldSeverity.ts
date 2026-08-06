@@ -1,4 +1,17 @@
+import { getConfidenceLevel } from "./confidence";
 import type { FieldItem } from "../features/analysis-detail/types";
+
+/** True when a field needs the user's attention (full card + action buttons)
+ * rather than a compact, informational row. */
+export function needsAction(field: FieldItem): boolean {
+  if (field.field_state === "en_conflicto" || field.field_state === "no_encontrado") {
+    return true;
+  }
+  if (field.field_state === "extraido") {
+    return getConfidenceLevel(field.confidence) !== "high";
+  }
+  return false;
+}
 
 const STATE_RANK: Record<FieldItem["field_state"], number> = {
   en_conflicto: 0,

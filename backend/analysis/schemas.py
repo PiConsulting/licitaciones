@@ -51,3 +51,42 @@ class AnalysisStatusResponse(BaseModel):
     error_message: str | None = None
     extracted_data: dict | None = None
     conflicts: list[dict] | None = None
+
+
+class AnalysisListItem(BaseModel):
+    id: str
+    status: str
+    current_stage: str
+    stage_progress: str | None = None
+    progress_percentage: int
+    created_at: datetime
+    primary_document_name: str | None = None
+    organismo: str | None = None
+    confidence_avg: float | None = None
+
+
+class AnalysisListResponse(BaseModel):
+    items: list[AnalysisListItem]
+    page: int
+    per_page: int
+    total: int
+    total_pages: int
+
+
+class AnalysisVersionResponse(BaseModel):
+    id: str
+    version_number: int
+    extracted_data: dict
+    conflicts: list[dict] | None = None
+    created_at: datetime
+    created_by: str | None = None
+
+
+class AnalysisDetailResponse(BaseModel):
+    id: str
+    created_at: datetime
+    status: str
+    current_stage: str
+    current_version: AnalysisVersionResponse
+    documents: list[DocumentResponse]
+    created_by: str | None = None

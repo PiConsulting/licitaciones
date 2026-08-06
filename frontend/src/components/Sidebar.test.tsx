@@ -4,7 +4,13 @@ import { MemoryRouter } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 
 describe("Sidebar", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
   test("renderiza items de navegación", () => {
+    localStorage.setItem("user_name", "Agostina Torres");
+
     render(
       <MemoryRouter>
         <Sidebar />
@@ -13,6 +19,7 @@ describe("Sidebar", () => {
 
     expect(screen.getByText("Dashboard")).toBeInTheDocument();
     expect(screen.getByText("Analizar nuevo pliego")).toBeInTheDocument();
+    expect(screen.getByText("Agostina Torres")).toBeInTheDocument();
   });
 
   test("marca item activo", () => {
@@ -37,7 +44,7 @@ describe("Sidebar", () => {
     const aside = screen.getByLabelText("Barra lateral");
     const toggle = screen.getByRole("button", { name: /colapsar menú/i });
 
-    expect(aside).toHaveClass("w-60");
+    expect(aside).toHaveClass("w-52");
     fireEvent.click(toggle);
     expect(aside).toHaveClass("w-16");
   });

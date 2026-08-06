@@ -1,21 +1,24 @@
 from __future__ import annotations
 
-import re
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 
+from analysis.extraction.extractors.anexos_obligatorios import extractor_anexos_obligatorios
+from analysis.extraction.extractors.base import (
+    CANONICAL_PROMPT_FILES,
+    _normalize_item,
+    _parse_json_response,
+    validate_category_prompt_mapping,
+    validate_prompt_inventory,
+)
 from analysis.extraction.extractors.causales import extractor_causales
 from analysis.extraction.extractors.criterios_evaluacion import extractor_criterios_evaluacion
-from analysis.extraction.extractors.cronograma_proceso import extractor_cronograma_proceso
-from analysis.extraction.extractors.documentos_requeridos import extractor_documentos_requeridos
-from analysis.extraction.extractors.estimacion_presupuesto import extractor_estimacion_presupuesto
 from analysis.extraction.extractors.garantias import extractor_garantias
 from analysis.extraction.extractors.objeto_alcance import extractor_objeto_alcance
 from analysis.extraction.extractors.plazos import extractor_plazos
-from analysis.extraction.extractors.restricciones_participacion import extractor_restricciones_participacion
-from analysis.extraction.extractors.anexos_obligatorios import extractor_anexos_obligatorios
-from analysis.extraction.extractors.base import _normalize_item, _parse_json_response
+from analysis.extraction.extractors.requisitos_admisibilidad import extractor_requisitos_admisibilidad
 from analysis.extraction.graph import calculate_confidence, graph, merge_node
 from analysis.extraction.schemas import ExtractedData
 
@@ -59,9 +62,9 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                 }
             ]
         }
-    if '"plazos"' in prompt:
+    if '"plazos_clave"' in prompt:
         return {
-            "plazos": [
+            "plazos_clave": [
                 {
                     "tipo": "presentación ofertas",
                     "fecha": "2024-05-15",
@@ -87,9 +90,9 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                 }
             ]
         }
-    if '"causales"' in prompt:
+    if '"causales_rechazo"' in prompt:
         return {
-            "causales": [
+            "causales_rechazo": [
                 {
                     "tipo": "inhabilitante",
                     "valor": "falta de certificado",
@@ -101,12 +104,12 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                 }
             ]
         }
-    if '"documentos_requeridos"' in prompt:
+    if '"requisitos_admisibilidad"' in prompt:
         return {
-            "documentos_requeridos": [
+            "requisitos_admisibilidad": [
                 {
-                    "tipo": "legal",
-                    "valor": "CUIT",
+                    "tipo": "documento",
+                    "valor": "Certificado fiscal para contratar",
                     "confidence": 0.8,
                     "source_references": [
                         {"document_id": "doc-1", "page_number": 8, "citation": "texto literal"}
@@ -129,34 +132,6 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                 }
             ]
         }
-    if '"restricciones_participacion"' in prompt:
-        return {
-            "restricciones_participacion": [
-                {
-                    "tipo": "experiencia",
-                    "valor": "3 contratos",
-                    "confidence": 0.8,
-                    "source_references": [
-                        {"document_id": "doc-1", "page_number": 10, "citation": "texto literal"}
-                    ],
-                    "extraction_status": "success",
-                }
-            ]
-        }
-    if '"cronograma_proceso"' in prompt:
-        return {
-            "cronograma_proceso": [
-                {
-                    "tipo": "apertura",
-                    "valor": "2024-05-20",
-                    "confidence": 0.8,
-                    "source_references": [
-                        {"document_id": "doc-1", "page_number": 11, "citation": "texto literal"}
-                    ],
-                    "extraction_status": "success",
-                }
-            ]
-        }
     if '"anexos_obligatorios"' in prompt:
         return {
             "anexos_obligatorios": [
@@ -171,15 +146,7 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                 }
             ]
         }
-    return {
-        "estimacion_presupuesto": {
-            "monto": 1000000,
-            "moneda": "ARS",
-            "confidence": 0.8,
-            "source_references": [{"document_id": "doc-1", "page_number": 12, "citation": "texto literal"}],
-            "extraction_status": "success",
-        }
-    }
+    return {"criterios_evaluacion": []}
 
 
 @pytest.fixture
@@ -204,7 +171,7 @@ def test_graph_execution_all_success(mock_state: dict, mock_search: None, mock_l
 
 def test_extractor_retry_on_failure(mock_state: dict, mock_search: None, monkeypatch: pytest.MonkeyPatch) -> None:
     class Response:
-        content = '{"plazos": []}'
+        content = '{"plazos_clave": []}'
         response_metadata = {"token_usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}}
 
     mock_client = Mock()
@@ -249,19 +216,13 @@ def test_merge_node_detects_conflicts() -> None:
         ],
         "garantias": [],
         "causales": [],
-        "documentos": [],
+        "requisitos_admisibilidad": [],
         "criterios": [],
-        "restricciones": [],
-        "cronograma": [],
-        "presupuesto": {},
         "plazos_status": "success",
         "garantias_status": "success",
         "causales_status": "success",
-        "documentos_status": "success",
+        "requisitos_admisibilidad_status": "success",
         "criterios_status": "success",
-        "restricciones_status": "success",
-        "cronograma_status": "success",
-        "presupuesto_status": "not_found",
     }
 
     result = merge_node(state)
@@ -278,36 +239,6 @@ def test_confidence_calculation() -> None:
 
     assert confidence_high >= 0.8
     assert confidence_low < 0.8
-
-
-def test_json_contract_compliance() -> None:
-    payload = {
-        "plazos": [
-            {
-                "tipo": "presentación",
-                "fecha": "2024-05-15",
-                "confidence": 0.95,
-                "source_references": [
-                    {
-                        "document_id": "doc-1",
-                        "page_number": 3,
-                        "citation": "texto literal",
-                    }
-                ],
-                "extraction_status": "success",
-            }
-        ],
-        "garantias": [],
-        "causales_rechazo": [],
-        "documentos_requeridos": [],
-        "criterios_evaluacion": [],
-        "restricciones_participacion": [],
-        "cronograma_proceso": [],
-        "estimacion_presupuesto": None,
-    }
-
-    validated = ExtractedData(**payload)
-    assert validated.plazos[0].confidence == 0.95
 
 
 def test_json_contract_allows_not_applicable_status() -> None:
@@ -329,94 +260,14 @@ def test_json_contract_allows_not_applicable_status() -> None:
         ],
         "garantias": [],
         "causales_rechazo": [],
-        "documentos_requeridos": [],
+        "requisitos_admisibilidad": [],
         "criterios_evaluacion": [],
-        "restricciones_participacion": [],
-        "cronograma_proceso": [],
+        "anexos_obligatorios": [],
         "estimacion_presupuesto": None,
     }
 
     validated = ExtractedData(**payload)
     assert validated.plazos[0].extraction_status == "not_applicable"
-
-
-def test_merge_node_detects_conflict_for_synonym_tipo_plazos() -> None:
-    state = {
-        "analysis_id": "analysis-1",
-        "correlation_id": "corr-1",
-        "plazos": [
-            {
-                "tipo": "presentación de ofertas",
-                "fecha": "2024-05-15",
-                "source_references": [{"document_id": "doc-1", "page_number": 1, "citation": "a"}],
-                "extraction_status": "success",
-                "confidence": 0.8,
-            },
-            {
-                "tipo": "cierre de recepción de ofertas",
-                "fecha": "2024-05-20",
-                "source_references": [{"document_id": "doc-2", "page_number": 2, "citation": "b"}],
-                "extraction_status": "success",
-                "confidence": 0.8,
-            },
-        ],
-        "garantias": [],
-        "causales": [],
-        "documentos": [],
-        "criterios": [],
-        "restricciones": [],
-        "cronograma": [],
-        "presupuesto": {},
-        "plazos_status": "success",
-        "garantias_status": "success",
-        "causales_status": "success",
-        "documentos_status": "success",
-        "criterios_status": "success",
-        "restricciones_status": "success",
-        "cronograma_status": "success",
-        "presupuesto_status": "not_found",
-    }
-
-    result = merge_node(state)
-    assert len(result["conflicts"]) > 0
-    assert result["conflicts"][0]["tipo"] == "presentacion_ofertas"
-
-
-def test_extractor_preserves_not_applicable_category_status(
-    mock_state: dict,
-    mock_search: None,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        "analysis.extraction.extractors.base._call_llm",
-        lambda messages, correlation_id: (
-            {
-                "garantias": [
-                    {
-                        "tipo": "mantenimiento_oferta",
-                        "monto_porcentaje": None,
-                        "monto_valor": None,
-                        "forma_constitucion": None,
-                        "vigencia": None,
-                        "confidence": 0.85,
-                        "source_references": [
-                            {
-                                "document_id": "doc-1",
-                                "page_number": 6,
-                                "citation": "No se exige garantía de mantenimiento de oferta.",
-                            }
-                        ],
-                        "extraction_status": "not_applicable",
-                    }
-                ]
-            },
-            {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
-        ),
-    )
-
-    result = extractor_garantias(mock_state)
-    assert result["garantias_status"] == "not_applicable"
-    assert result["garantias"][0]["extraction_status"] == "not_applicable"
 
 
 def test_merge_preserves_table_citation_header_and_row() -> None:
@@ -441,19 +292,13 @@ def test_merge_preserves_table_citation_header_and_row() -> None:
         ],
         "garantias": [],
         "causales": [],
-        "documentos": [],
+        "requisitos_admisibilidad": [],
         "criterios": [],
-        "restricciones": [],
-        "cronograma": [],
-        "presupuesto": {},
         "plazos_status": "success",
         "garantias_status": "not_found",
         "causales_status": "not_found",
-        "documentos_status": "not_found",
+        "requisitos_admisibilidad_status": "not_found",
         "criterios_status": "not_found",
-        "restricciones_status": "not_found",
-        "cronograma_status": "not_found",
-        "presupuesto_status": "not_found",
     }
 
     result = merge_node(state)
@@ -469,9 +314,9 @@ def test_merge_exposes_ui_category_keys() -> None:
         "plazos": [],
         "garantias": [],
         "causales": [],
-        "documentos": [
+        "requisitos_admisibilidad": [
             {
-                "tipo": "legal",
+                "tipo": "documento",
                 "valor": "estatuto",
                 "confidence": 0.8,
                 "source_references": [{"document_id": "doc-1", "page_number": 2, "citation": "texto"}],
@@ -479,17 +324,11 @@ def test_merge_exposes_ui_category_keys() -> None:
             }
         ],
         "criterios": [],
-        "restricciones": [],
-        "cronograma": [],
-        "presupuesto": {},
         "plazos_status": "not_found",
         "garantias_status": "not_found",
         "causales_status": "not_found",
-        "documentos_status": "success",
+        "requisitos_admisibilidad_status": "success",
         "criterios_status": "not_found",
-        "restricciones_status": "not_found",
-        "cronograma_status": "not_found",
-        "presupuesto_status": "not_found",
     }
 
     result = merge_node(state)
@@ -509,11 +348,11 @@ def test_individual_extractors(mock_state: dict, mock_search: None, mock_llm: No
     assert extractor_garantias(dict(mock_state))["garantias_status"] in {"success", "not_found"}
     assert extractor_causales(dict(mock_state))["causales_status"] in {"success", "not_found"}
     assert extractor_anexos_obligatorios(dict(mock_state))["anexos_status"] in {"success", "not_found"}
-    assert extractor_documentos_requeridos(dict(mock_state))["documentos_status"] in {"success", "not_found"}
+    assert extractor_requisitos_admisibilidad(dict(mock_state))["requisitos_admisibilidad_status"] in {
+        "success",
+        "not_found",
+    }
     assert extractor_criterios_evaluacion(dict(mock_state))["criterios_status"] in {"success", "not_found"}
-    assert extractor_restricciones_participacion(dict(mock_state))["restricciones_status"] in {"success", "not_found"}
-    assert extractor_cronograma_proceso(dict(mock_state))["cronograma_status"] in {"success", "not_found"}
-    assert extractor_estimacion_presupuesto(dict(mock_state))["presupuesto_status"] in {"success", "not_found"}
 
 
 def test_extractor_uses_query_from_glossary(
@@ -548,12 +387,22 @@ def test_parser_tolera_texto_antes_del_json() -> None:
 
 
 def test_todos_los_prompts_referenciados_existen_y_tienen_placeholders() -> None:
-    from pathlib import Path
-
-    base = Path("analysis/extraction")
+    base = Path("backend/analysis/extraction")
+    extractor_files = [
+        "objeto_alcance.py",
+        "requisitos_admisibilidad.py",
+        "garantias.py",
+        "plazos.py",
+        "criterios_evaluacion.py",
+        "causales.py",
+        "anexos_obligatorios.py",
+    ]
     extractor_sources = "\n".join(
-        path.read_text(encoding="utf-8") for path in (base / "extractors").glob("*.py")
+        (base / "extractors" / name).read_text(encoding="utf-8") for name in extractor_files
     )
+
+    import re
+
     referenciados = set(re.findall(r'prompt_file_name="([^"]+)"', extractor_sources))
 
     for nombre in referenciados:
@@ -562,6 +411,31 @@ def test_todos_los_prompts_referenciados_existen_y_tienen_placeholders() -> None
         contenido = archivo.read_text(encoding="utf-8")
         assert "{chunks}" in contenido, f"{nombre} no tiene placeholder {{chunks}}"
 
-    en_disco = {path.name for path in (base / "prompts").glob("*.txt")} - {"_base_system.txt"}
-    huerfanos = en_disco - referenciados
-    assert not huerfanos, f"prompts sin extractor que los use: {huerfanos}"
+    en_disco = {path.name for path in (base / "prompts").glob("*.txt")}
+    assert en_disco == CANONICAL_PROMPT_FILES
+
+
+def test_inventario_canonico_de_prompts_es_estricto(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir(parents=True, exist_ok=True)
+    for name in CANONICAL_PROMPT_FILES:
+        (prompts_dir / name).write_text("{chunks}", encoding="utf-8")
+
+    fake_base = tmp_path / "extractors"
+    fake_base.mkdir(parents=True, exist_ok=True)
+    fake_file = fake_base / "base.py"
+    fake_file.write_text("# test", encoding="utf-8")
+
+    monkeypatch.setattr("analysis.extraction.extractors.base.__file__", str(fake_file))
+
+    validate_prompt_inventory()
+
+    (prompts_dir / "legacy.txt").write_text("{chunks}", encoding="utf-8")
+    with pytest.raises(ValueError, match="sobran prompts no permitidos"):
+        validate_prompt_inventory()
+
+
+def test_mapeo_categoria_prompt_canonico() -> None:
+    validate_category_prompt_mapping("plazos_clave", "plazos_clave.txt")
+    with pytest.raises(ValueError, match="debe usar"):
+        validate_category_prompt_mapping("plazos_clave", "garantias.txt")

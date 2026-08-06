@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Annotated
 
 from fastapi import (
@@ -8,6 +8,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
     UploadFile,
     status,
 )
@@ -16,8 +17,10 @@ from analysis.cosmos_runtime import (
     cancel_analysis_cosmos,
     create_analysis_with_documents_cosmos,
     extract_and_index_cosmos,
+    get_analysis_detail_cosmos,
     get_analysis_status_cosmos,
-    start_analysis_cosmos,
+    list_analyses_cosmos,
+    start_analysis_with_duplicates_cosmos,
 )
 from analysis.metadata_persistence import (
     persist_analysis_metadata,
@@ -26,8 +29,12 @@ from analysis.metadata_persistence import (
 from analysis.models import CurrentStage
 from analysis.schemas import (
     AnalysisCreateResponse,
+    AnalysisDetailResponse,
+    AnalysisListResponse,
     AnalysisStatusResponse,
+    AnalysisVersionResponse,
     DocumentResponse,
+    DuplicateWarning,
     StartAnalysisRequest,
     StartAnalysisResponse,
 )
@@ -36,6 +43,7 @@ from analysis.service import (
     create_analysis_with_documents,
     enqueue_analysis,
     find_duplicates_for_analysis,
+    list_analyses,
     request_cancellation,
     to_document_response,
     validate_analysis_ownership,
@@ -47,6 +55,133 @@ from shared.database import SessionLocal
 from users.service import get_current_user, http_bearer
 
 analysis_router = APIRouter(prefix="/analyses", tags=["analyses"])
+
+
+@analysis_router.get("", response_model=AnalysisListResponse)
+async def get_analyses(
+    search: str | None = None,
+    analysis_status: str | None = Query(default=None, alias="status"),
+    date_from: date | None = None,
+    date_to: date | None = None,
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=10, ge=1, le=100),
+    sort_by: str = Query(default="created_at"),
+    sort_order: str = Query(default="desc"),
+    credentials=Depends(http_bearer),
+) -> AnalysisListResponse:
+    settings = get_settings()
+    current_user = get_current_user(credentials, None)
+
+    normalized_sort_order = "asc" if sort_order == "asc" else "desc"
+
+    if settings.persistence_mode_normalized() == "cosmos_only":
+        items, total = list_analyses_cosmos(
+            user_id=current_user.id,
+            search=search,
+            status_filter=analysis_status,
+            date_from=date_from,
+            date_to=date_to,
+            page=page,
+            per_page=per_page,
+            sort_by=sort_by,
+            sort_order=normalized_sort_order,
+        )
+        total_pages = max(1, (total + per_page - 1) // per_page)
+        return AnalysisListResponse(
+            items=items,
+            page=page,
+            per_page=per_page,
+            total=total,
+            total_pages=total_pages,
+        )
+
+    db = SessionLocal()
+    try:
+        items, total = list_analyses(
+            db,
+            user_id=current_user.id,
+            search=search,
+            status_filter=analysis_status,
+            date_from=date_from,
+            date_to=date_to,
+            page=page,
+            per_page=per_page,
+            sort_by=sort_by,
+            sort_order=normalized_sort_order,
+        )
+    finally:
+        db.close()
+
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    return AnalysisListResponse(
+        items=items,
+        page=page,
+        per_page=per_page,
+        total=total,
+        total_pages=total_pages,
+    )
+
+
+@analysis_router.get("/{analysis_id}", response_model=AnalysisDetailResponse)
+async def get_analysis_detail(
+    analysis_id: str,
+    credentials=Depends(http_bearer),
+) -> AnalysisDetailResponse:
+    settings = get_settings()
+    current_user = get_current_user(credentials, None)
+
+    if settings.persistence_mode_normalized() == "cosmos_only":
+        try:
+            payload = get_analysis_detail_cosmos(analysis_id, current_user.id)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": {"code": "ANALYSIS_NOT_FOUND", "message": "Análisis no encontrado"}},
+            ) from exc
+        except PermissionError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"error": {"code": "FORBIDDEN", "message": "No tenés permisos para este análisis"}},
+            ) from exc
+        return AnalysisDetailResponse(**payload)
+
+    db = SessionLocal()
+    try:
+        analysis = validate_analysis_ownership(db, analysis_id, current_user.id)
+
+        current_version = None
+        if analysis.current_version_id:
+            for version in analysis.versions:
+                if version.id == analysis.current_version_id:
+                    current_version = version
+                    break
+
+        if current_version is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": {"code": "ANALYSIS_NOT_FOUND", "message": "Análisis no encontrado"}},
+            )
+
+        documents = [document for document in analysis.documents if document.deleted_at is None]
+
+        return AnalysisDetailResponse(
+            id=analysis.id,
+            created_at=analysis.created_at,
+            status=analysis.status,
+            current_stage=analysis.current_stage,
+            created_by=analysis.created_by,
+            current_version=AnalysisVersionResponse(
+                id=current_version.id,
+                version_number=current_version.version_number,
+                extracted_data=current_version.extracted_data,
+                conflicts=current_version.conflicts,
+                created_at=current_version.created_at,
+                created_by=current_version.created_by,
+            ),
+            documents=[to_document_response(document) for document in documents],
+        )
+    finally:
+        db.close()
 
 
 @analysis_router.post("", response_model=AnalysisCreateResponse, status_code=status.HTTP_201_CREATED)
@@ -146,8 +281,14 @@ async def start_analysis(
     current_user = get_current_user(credentials, None)
 
     if settings.persistence_mode_normalized() == "cosmos_only":
+        decisions = [decision.model_dump() for decision in (payload.decisions if payload else [])]
         try:
-            result = start_analysis_cosmos(analysis_id, current_user.id)
+            result = start_analysis_with_duplicates_cosmos(
+                analysis_id,
+                current_user.id,
+                created_by_label=current_user.name or current_user.email,
+                decisions=decisions,
+            )
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -169,11 +310,16 @@ async def start_analysis(
                 },
             ) from exc
 
-        background_tasks.add_task(extract_and_index_cosmos, analysis_id)
+        if result["status"] == "queued":
+            background_tasks.add_task(extract_and_index_cosmos, analysis_id)
+
         return StartAnalysisResponse(
             id=str(result["id"]),
             status=str(result["status"]),
             message=str(result["message"]),
+            requires_resolution=bool(result.get("requires_resolution", False)),
+            duplicates=[DuplicateWarning(**item) for item in result.get("duplicates", [])],
+            redirect_analysis_id=result.get("redirect_analysis_id"),
         )
 
     db = SessionLocal()

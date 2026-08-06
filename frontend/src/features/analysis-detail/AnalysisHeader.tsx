@@ -1,3 +1,4 @@
+import { Badge, type BadgeTone } from "../../components/Badge";
 import { Button } from "../../components/Button";
 import type { AnalysisDetail } from "./types";
 
@@ -13,18 +14,18 @@ function formatDate(dateIso: string): string {
   }).format(date);
 }
 
-function getStatusBadgeClass(status: AnalysisDetail["status"]): string {
+function getStatusTone(status: AnalysisDetail["status"]): BadgeTone {
   switch (status) {
     case "validated":
-      return "bg-success-light text-success";
+      return "success";
     case "analyzed":
-      return "bg-info-light text-info";
+      return "info";
     case "error":
-      return "bg-error-light text-error";
+      return "error";
     case "cancelled":
-      return "bg-gray-100 text-gray-600";
+      return "neutral";
     default:
-      return "bg-warning-light text-warning";
+      return "warning";
   }
 }
 
@@ -46,9 +47,7 @@ export function AnalysisHeader({ analysis }: AnalysisHeaderProps) {
         </div>
 
         <div className="flex items-center gap-2">
-          <span className={`rounded px-2 py-1 text-xs font-semibold uppercase ${getStatusBadgeClass(analysis.status)}`}>
-            {analysis.status}
-          </span>
+          <Badge tone={getStatusTone(analysis.status)}>{analysis.status}</Badge>
           <Button type="button" size="sm">Validar análisis</Button>
         </div>
       </div>

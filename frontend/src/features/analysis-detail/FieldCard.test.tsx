@@ -103,6 +103,19 @@ describe("FieldCard", () => {
     expect(screen.getByRole("button", { name: /resolver conflicto/i })).toBeInTheDocument();
   });
 
+  test("T6: Campo no aplica muestra mensaje informativo y no muestra botones de acción", () => {
+    const field = createField("garantia_mantenimiento_oferta", {
+      state: "no_aplica",
+      value: null,
+      confidence: 0,
+    });
+
+    render(<FieldCard field={field} />);
+
+    expect(screen.getByText("No aplica para este pliego")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
   test("T5: Campo muestra cita resumida y fuente", () => {
     const field = createField("objeto", {
       state: "extraido",

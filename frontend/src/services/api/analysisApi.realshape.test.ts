@@ -40,19 +40,27 @@ describe("normalizeCategories con la forma real del backend", () => {
     const result = await getAnalysisById("analysis-real");
     const data = result.current_version.extracted_data;
 
+    // Solo las 7 categorías canónicas (sin datos_procedimiento)
     for (const categoryId of [
-      "plazos_clave",
-      "garantias",
-      "causales_rechazo",
       "objeto_alcance",
       "requisitos_admisibilidad",
+      "garantias",
+      "plazos_clave",
       "criterios_evaluacion",
+      "causales_rechazo",
       "anexos_obligatorios",
-      "datos_procedimiento",
     ] as const) {
       expect(data[categoryId].items.length, `categoría ${categoryId}`).toBeGreaterThan(0);
       expect(data[categoryId].extraction_status, `categoría ${categoryId}`).toBe("success");
     }
+  });
+
+  test("datos_procedimiento NO está en las categorías procesadas", async () => {
+    const result = await getAnalysisById("analysis-real");
+    const data = result.current_version.extracted_data;
+
+    // datos_procedimiento no debe estar en el objeto normalizado
+    expect(data.datos_procedimiento).toBeUndefined();
   });
 
   test("los ítems traen nombre, valor y cita utilizables", async () => {

@@ -7,7 +7,7 @@ from analysis.extraction.state import GraphState
 def extractor_plazos(state: GraphState) -> GraphState:
     return run_extractor(
         state=state,
-        result_key="plazos",
+        result_key="plazos_clave",
         state_field="plazos",
         status_field="plazos_status",
         prompt_file_name="plazos_clave.txt",

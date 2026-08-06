@@ -1,18 +1,10 @@
+import { Badge, type BadgeTone } from "../../components/Badge";
 import type { ConfidenceLevel } from "./types";
 
-const CONFIDENCE_BADGES: Record<ConfidenceLevel, { text: string; className: string }> = {
-  high: {
-    text: "ALTA",
-    className: "bg-success-light text-success border-success",
-  },
-  medium: {
-    text: "MEDIA",
-    className: "bg-warning-light text-warning border-warning",
-  },
-  low: {
-    text: "BAJA",
-    className: "bg-critical-light text-critical border-critical",
-  },
+const CONFIDENCE_TONES: Record<ConfidenceLevel, { text: string; tone: BadgeTone; borderClass: string }> = {
+  high: { text: "ALTA", tone: "success", borderClass: "border-success" },
+  medium: { text: "MEDIA", tone: "warning", borderClass: "border-warning" },
+  low: { text: "BAJA", tone: "critical", borderClass: "border-critical" },
 };
 
 interface FieldBadgeProps {
@@ -20,11 +12,11 @@ interface FieldBadgeProps {
 }
 
 export function FieldBadge({ level }: FieldBadgeProps) {
-  const config = CONFIDENCE_BADGES[level];
+  const config = CONFIDENCE_TONES[level];
 
   return (
-    <span className={`rounded px-2 py-1 text-xs font-bold uppercase border ${config.className}`}>
+    <Badge tone={config.tone} className={`border font-bold ${config.borderClass}`}>
       {config.text}
-    </span>
+    </Badge>
   );
 }

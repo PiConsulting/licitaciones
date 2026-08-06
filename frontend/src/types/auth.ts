@@ -6,6 +6,8 @@ export interface LoginRequest {
 export interface LoginResponse {
   access_token: string;
   token_type: string;
+  name: string;
+  email: string;
 }
 
 export interface RegisterRequest {

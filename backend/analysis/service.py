@@ -1,17 +1,19 @@
 import logging
 import time
 from dataclasses import dataclass
+from datetime import date
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
 
 from fastapi import BackgroundTasks, HTTPException, status
-from sqlalchemy import and_, select
+from sqlalchemy import String, and_, asc, cast, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from analysis.metadata_persistence import persist_analysis_metadata
-from analysis.models import Analysis, CurrentStage
+from analysis.models import Analysis, AnalysisVersion, CurrentStage
+from analysis.utils import calculate_confidence_avg
 from documents.models import Document
 from documents.schemas import DocumentResponse, DocumentWarning
 from documents.service import calculate_content_hash
@@ -345,6 +347,130 @@ def request_cancellation(db: Session, analysis_id: str, user_id: str) -> Analysi
         event="analysis_cancelled",
     )
     return analysis
+
+
+def _extract_organism(extracted_data: dict | None) -> str | None:
+    if not isinstance(extracted_data, dict):
+        return None
+
+    datos_procedimiento = extracted_data.get("datos_procedimiento")
+    if isinstance(datos_procedimiento, dict):
+        items = datos_procedimiento.get("items")
+        if isinstance(items, list):
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                field_name = str(item.get("field_name", "")).lower()
+                if "organismo" not in field_name:
+                    continue
+                field_value = item.get("field_value")
+                if isinstance(field_value, str) and field_value.strip():
+                    return field_value.strip()
+
+    for key, value in extracted_data.items():
+        if "organismo" not in str(key).lower():
+            continue
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    return None
+
+
+def list_analyses(
+    db: Session,
+    *,
+    user_id: str,
+    search: str | None = None,
+    status_filter: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    page: int = 1,
+    per_page: int = 20,
+    sort_by: str = "created_at",
+    sort_order: str = "desc",
+) -> tuple[list[dict], int]:
+    primary_document = Document
+    sort_columns = {
+        "created_at": Analysis.created_at,
+        "status": Analysis.status,
+        "current_stage": Analysis.current_stage,
+    }
+    selected_sort = sort_columns.get(sort_by, Analysis.created_at)
+    selected_order = asc if sort_order == "asc" else desc
+
+    query = (
+        db.query(
+            Analysis,
+            primary_document.filename.label("primary_document_name"),
+            AnalysisVersion.extracted_data.label("extracted_data"),
+        )
+        .outerjoin(
+            primary_document,
+            and_(
+                primary_document.analysis_id == Analysis.id,
+                primary_document.is_primary.is_(True),
+                primary_document.deleted_at.is_(None),
+            ),
+        )
+        .outerjoin(AnalysisVersion, AnalysisVersion.id == Analysis.current_version_id)
+        .filter(
+            Analysis.created_by == user_id,
+            Analysis.deleted_at.is_(None),
+        )
+    )
+
+    if status_filter:
+        query = query.filter(Analysis.status == status_filter)
+
+    if date_from:
+        date_from_dt = datetime.combine(date_from, datetime.min.time(), tzinfo=UTC)
+        query = query.filter(Analysis.created_at >= date_from_dt)
+
+    if date_to:
+        date_to_dt = datetime.combine(date_to, datetime.max.time(), tzinfo=UTC)
+        query = query.filter(Analysis.created_at <= date_to_dt)
+
+    if search and search.strip():
+        normalized = f"%{search.strip().lower()}%"
+        query = query.filter(
+            or_(
+                func.lower(func.coalesce(primary_document.filename, "")).like(normalized),
+                func.lower(func.coalesce(cast(AnalysisVersion.extracted_data, String), "")).like(normalized),
+                func.lower(func.coalesce(Analysis.id, "")).like(normalized),
+            )
+        )
+
+    total = query.count()
+    rows = (
+        query.order_by(selected_order(selected_sort), desc(Analysis.created_at))
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+        .all()
+    )
+
+    items: list[dict] = []
+    for analysis, primary_document_name, extracted_data in rows:
+        stage_progress = None
+        if isinstance(analysis.extraction_metadata, dict):
+            raw_progress = analysis.extraction_metadata.get("stage_progress")
+            if isinstance(raw_progress, str):
+                stage_progress = raw_progress
+
+        items.append(
+            {
+                "id": analysis.id,
+                "status": analysis.status,
+                "current_stage": analysis.current_stage,
+                "stage_progress": stage_progress,
+                "progress_percentage": analysis.progress_percentage or 0,
+                "created_at": analysis.created_at,
+                "primary_document_name": primary_document_name,
+                "organismo": _extract_organism(extracted_data),
+                "confidence_avg": calculate_confidence_avg(extracted_data),
+            }
+        )
+
+    return items, total
 
 
 def run_analysis_stub(analysis_id: str) -> None:
