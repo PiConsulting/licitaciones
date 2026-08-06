@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from datetime import datetime as dt_parse
+from functools import lru_cache
 from typing import Protocol
 
 import structlog
@@ -13,6 +14,14 @@ from shared.config import Settings, get_settings
 from shared.security import sanitize_error_message
 
 logger = structlog.get_logger(__name__)
+
+
+@lru_cache
+def _build_cosmos_container_client(endpoint: str, key: str, database: str, container: str):
+    from azure.cosmos import CosmosClient  # type: ignore[import-not-found]
+
+    client = CosmosClient(url=endpoint, credential=key)
+    return client.get_database_client(database).get_container_client(container)
 
 
 class AnalysisMetadataSink(Protocol):
@@ -46,10 +55,7 @@ class CosmosMetadataSink:
         self._container = container
 
     def _get_container_client(self):
-        from azure.cosmos import CosmosClient  # type: ignore[import-not-found]
-
-        client = CosmosClient(url=self._endpoint, credential=self._key)
-        return client.get_database_client(self._database).get_container_client(self._container)
+        return _build_cosmos_container_client(self._endpoint, self._key, self._database, self._container)
 
     @staticmethod
     def _request_charge(response: object) -> float:
@@ -94,7 +100,7 @@ class CosmosMetadataSink:
             "error_message": analysis.error_message,
             "updated_at": timestamp,
         }
-        total_ru += self._request_charge(container.upsert_item(analysis_item, partition_key=partition_key))
+        total_ru += self._request_charge(container.upsert_item(analysis_item))
 
         for document in documents:
             total_ru += self._request_charge(
@@ -112,8 +118,7 @@ class CosmosMetadataSink:
                         "deleted": document.deleted_at is not None,
                         "event": event,
                         "updated_at": timestamp,
-                    },
-                    partition_key=partition_key,
+                    }
                 )
             )
 
@@ -132,8 +137,7 @@ class CosmosMetadataSink:
                         "conflicts": version.conflicts,
                         "event": event,
                         "updated_at": timestamp,
-                    },
-                    partition_key=partition_key,
+                    }
                 )
             )
 
@@ -250,18 +254,22 @@ def read_runtime_analysis_from_cosmos(analysis_id: str, settings: Settings | Non
         return None
 
     latest_version = None
-    try:
-        versions = list(
-            container.query_items(
-                query="SELECT * FROM c WHERE c.type = 'analysis_version' AND c.analysis_id = @analysis_id ORDER BY c.version_number DESC",
-                parameters=[{"name": "@analysis_id", "value": analysis_id}],
-                enable_cross_partition_query=True,
+    if analysis_item.get("current_version_id"):
+        try:
+            versions = list(
+                container.query_items(
+                    query=(
+                        "SELECT TOP 1 * FROM c WHERE c.type = 'analysis_version' AND c.analysis_id = @analysis_id "
+                        "ORDER BY c.version_number DESC"
+                    ),
+                    parameters=[{"name": "@analysis_id", "value": analysis_id}],
+                    partition_key=analysis_id,
+                )
             )
-        )
-        if versions:
-            latest_version = versions[0]
-    except Exception:  # noqa: BLE001
-        latest_version = None
+            if versions:
+                latest_version = versions[0]
+        except Exception:  # noqa: BLE001
+            latest_version = None
 
     def _parse_dt(value: str | None) -> datetime | None:
         if not value:

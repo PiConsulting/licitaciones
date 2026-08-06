@@ -92,6 +92,7 @@ export function Step4StartAnalysis({ analysisId, onBack }: Step4StartAnalysisPro
       {showModal ? (
         <DuplicateWarningModal
           duplicates={duplicates}
+          isSubmitting={startMutation.isPending}
           onCancel={() => setShowModal(false)}
           onConfirm={(decisions) => {
             void startWithDecisions(decisions);

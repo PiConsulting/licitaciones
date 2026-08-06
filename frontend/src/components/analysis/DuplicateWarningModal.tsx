@@ -8,9 +8,15 @@ interface DuplicateWarningModalProps {
   duplicates: DuplicateWarning[];
   onConfirm: (decisions: DuplicateDecision[]) => void;
   onCancel: () => void;
+  isSubmitting?: boolean;
 }
 
-export function DuplicateWarningModal({ duplicates, onConfirm, onCancel }: DuplicateWarningModalProps) {
+export function DuplicateWarningModal({
+  duplicates,
+  onConfirm,
+  onCancel,
+  isSubmitting = false,
+}: DuplicateWarningModalProps) {
   const [actions, setActions] = useState<Record<string, DuplicateAction>>(() => {
     const seed: Record<string, DuplicateAction> = {};
     duplicates.forEach((duplicate) => {
@@ -50,10 +56,10 @@ export function DuplicateWarningModal({ duplicates, onConfirm, onCancel }: Dupli
         </div>
 
         <div className="mt-6 flex justify-end gap-3">
-          <Button type="button" variant="secondary" onClick={onCancel}>
+          <Button type="button" variant="secondary" onClick={onCancel} disabled={isSubmitting}>
             Cerrar
           </Button>
-          <Button type="button" onClick={() => onConfirm(decisions)}>
+          <Button type="button" onClick={() => onConfirm(decisions)} loading={isSubmitting}>
             Confirmar decisiones
           </Button>
         </div>

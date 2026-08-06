@@ -71,3 +71,22 @@ class AnalysisListResponse(BaseModel):
     per_page: int
     total: int
     total_pages: int
+
+
+class AnalysisVersionResponse(BaseModel):
+    id: str
+    version_number: int
+    extracted_data: dict
+    conflicts: list[dict] | None = None
+    created_at: datetime
+    created_by: str | None = None
+
+
+class AnalysisDetailResponse(BaseModel):
+    id: str
+    created_at: datetime
+    status: str
+    current_stage: str
+    current_version: AnalysisVersionResponse
+    documents: list[DocumentResponse]
+    created_by: str | None = None

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from datetime import datetime as dt_parse
 from hashlib import sha256
 from pathlib import Path
@@ -16,8 +16,10 @@ from analysis.service import (
     MAX_FILES,
     IncomingUploadFile,
     _build_blob_storage,
+    _extract_organism,
     _validate_pdf_or_raise,
 )
+from analysis.utils import calculate_confidence_avg
 from documents.schemas import DocumentWarning
 from documents.service import calculate_content_hash
 from extraction.ai_search import upload_chunks
@@ -118,7 +120,7 @@ def _query_documents(analysis_id: str, *, include_deleted: bool = False) -> list
         container.query_items(
             query=query,
             parameters=[{"name": "@analysis_id", "value": analysis_id}],
-            enable_cross_partition_query=True,
+            partition_key=analysis_id,
         )
     )
 
@@ -128,14 +130,129 @@ def _get_latest_version(analysis_id: str) -> dict | None:
     versions = list(
         container.query_items(
             query=(
-                "SELECT * FROM c WHERE c.type = 'analysis_version' AND c.analysis_id = @analysis_id "
+                "SELECT TOP 1 * FROM c WHERE c.type = 'analysis_version' AND c.analysis_id = @analysis_id "
                 "ORDER BY c.version_number DESC"
             ),
             parameters=[{"name": "@analysis_id", "value": analysis_id}],
-            enable_cross_partition_query=True,
+            partition_key=analysis_id,
         )
     )
     return versions[0] if versions else None
+
+
+def _fetch_analysis_enrichment(analysis: dict) -> tuple[list[dict], object]:
+    analysis_id = str(analysis.get("analysis_id"))
+    documents = _query_documents(analysis_id)
+    extracted_data = None
+    if analysis.get("current_version_id"):
+        latest_version = _get_latest_version(analysis_id)
+        extracted_data = (latest_version or {}).get("extracted_data")
+    return documents, extracted_data
+
+
+def _build_analysis_list_item(analysis: dict, documents: list[dict], extracted_data: object) -> dict:
+    analysis_id = str(analysis.get("analysis_id"))
+    primary_document_name = next(
+        (document.get("filename") for document in documents if document.get("is_primary")),
+        None,
+    )
+
+    metadata = analysis.get("extraction_metadata") or {}
+    raw_stage_progress = metadata.get("stage_progress")
+    stage_progress = raw_stage_progress if isinstance(raw_stage_progress, str) else None
+
+    return {
+        "id": analysis_id,
+        "status": analysis.get("status", "draft"),
+        "current_stage": analysis.get("current_stage", CurrentStage.QUEUED.value),
+        "stage_progress": stage_progress,
+        "progress_percentage": int(analysis.get("progress_percentage", 0) or 0),
+        "created_at": _parse_dt(analysis.get("created_at")),
+        "primary_document_name": primary_document_name,
+        "organismo": _extract_organism(extracted_data),
+        "confidence_avg": calculate_confidence_avg(extracted_data),
+    }
+
+
+def list_analyses_cosmos(
+    *,
+    user_id: str,
+    search: str | None = None,
+    status_filter: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    page: int = 1,
+    per_page: int = 20,
+    sort_by: str = "created_at",
+    sort_order: str = "desc",
+) -> tuple[list[dict], int]:
+    container = get_cosmos_container()
+
+    query = "SELECT * FROM c WHERE c.type = 'analysis' AND c.created_by = @user_id"
+    parameters: list[dict] = [{"name": "@user_id", "value": user_id}]
+
+    if status_filter:
+        query += " AND c.status = @status"
+        parameters.append({"name": "@status", "value": status_filter})
+
+    if date_from:
+        date_from_iso = datetime.combine(date_from, datetime.min.time(), tzinfo=UTC).isoformat()
+        query += " AND c.created_at >= @date_from"
+        parameters.append({"name": "@date_from", "value": date_from_iso})
+
+    if date_to:
+        date_to_iso = datetime.combine(date_to, datetime.max.time(), tzinfo=UTC).isoformat()
+        query += " AND c.created_at <= @date_to"
+        parameters.append({"name": "@date_to", "value": date_to_iso})
+
+    analyses = list(
+        container.query_items(query=query, parameters=parameters, enable_cross_partition_query=True)
+    )
+
+    sort_key_fns = {
+        "created_at": lambda item: item.get("created_at") or "",
+        "status": lambda item: item.get("status", "draft") or "",
+        "current_stage": lambda item: item.get("current_stage", CurrentStage.QUEUED.value) or "",
+    }
+    key_fn = sort_key_fns.get(sort_by, sort_key_fns["created_at"])
+    analyses.sort(key=key_fn, reverse=(sort_order != "asc"))
+
+    normalized_search = search.strip().lower() if search and search.strip() else None
+
+    # Sorting only needs fields already present on the analysis item, so when there's
+    # no search term we can page first and only fetch documents/versions (the
+    # expensive per-item lookups) for the page actually being returned.
+    if normalized_search is None:
+        total = len(analyses)
+        start = (page - 1) * per_page
+        items = []
+        for analysis in analyses[start : start + per_page]:
+            documents, extracted_data = _fetch_analysis_enrichment(analysis)
+            items.append(_build_analysis_list_item(analysis, documents, extracted_data))
+        return items, total
+
+    # Search inspects document filenames and extracted data, which live outside the
+    # analysis item, so every candidate has to be enriched before we can filter.
+    items = []
+    for analysis in analyses:
+        documents, extracted_data = _fetch_analysis_enrichment(analysis)
+        analysis_id = str(analysis.get("analysis_id"))
+        primary_document_name = next(
+            (document.get("filename") for document in documents if document.get("is_primary")),
+            None,
+        )
+        haystack = " ".join(
+            str(value).lower()
+            for value in (primary_document_name, extracted_data, analysis_id)
+            if value
+        )
+        if normalized_search not in haystack:
+            continue
+        items.append(_build_analysis_list_item(analysis, documents, extracted_data))
+
+    total = len(items)
+    start = (page - 1) * per_page
+    return items[start : start + per_page], total
 
 
 def create_analysis_with_documents_cosmos(
@@ -225,6 +342,99 @@ def create_analysis_with_documents_cosmos(
         raise
 
 
+_DUPLICATE_ELIGIBLE_STATUSES = {"completed", "analyzing", "analyzed"}
+
+
+def _check_duplicate_document_cosmos(
+    content_hash: str,
+    *,
+    exclude_analysis_id: str,
+    user_id: str,
+) -> dict | None:
+    container = get_cosmos_container()
+    query = (
+        "SELECT * FROM c WHERE c.type = 'document' "
+        "AND c.content_hash = @content_hash "
+        "AND c.created_by = @user_id "
+        "AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+    )
+    parameters = [
+        {"name": "@content_hash", "value": content_hash},
+        {"name": "@user_id", "value": user_id},
+    ]
+    documents = list(
+        container.query_items(query=query, parameters=parameters, enable_cross_partition_query=True)
+    )
+
+    candidates: list[tuple[dict, dict]] = []
+    for document in documents:
+        candidate_analysis_id = str(document.get("analysis_id"))
+        if candidate_analysis_id == exclude_analysis_id:
+            continue
+        analysis = _load_analysis_or_none(candidate_analysis_id)
+        if analysis is None or analysis.get("status") not in _DUPLICATE_ELIGIBLE_STATUSES:
+            continue
+        candidates.append((document, analysis))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda pair: pair[1].get("created_at") or "", reverse=True)
+    document, analysis = candidates[0]
+
+    return {
+        "analysis_id": str(analysis.get("analysis_id")),
+        "created_at": str(analysis.get("created_at")),
+        "status": str(analysis.get("status")),
+    }
+
+
+def find_duplicates_for_analysis_cosmos(
+    analysis_id: str,
+    user_id: str,
+    created_by_label: str,
+) -> list[dict]:
+    duplicates: list[dict] = []
+    for document in _query_documents(analysis_id):
+        content_hash = document.get("content_hash")
+        if not content_hash:
+            continue
+
+        duplicate = _check_duplicate_document_cosmos(
+            str(content_hash),
+            exclude_analysis_id=analysis_id,
+            user_id=user_id,
+        )
+        if duplicate is None:
+            continue
+
+        duplicates.append(
+            {
+                "document_id": str(document.get("document_id")),
+                "filename": str(document.get("filename")),
+                "existing_analysis_id": duplicate["analysis_id"],
+                "created_at": duplicate["created_at"],
+                "created_by": created_by_label,
+                "status": duplicate["status"],
+            }
+        )
+
+    return duplicates
+
+
+def _soft_delete_documents_cosmos(analysis_id: str, document_ids: set[str]) -> None:
+    if not document_ids:
+        return
+    container = get_cosmos_container()
+    now = datetime.now(UTC).isoformat()
+    for document in _query_documents(analysis_id, include_deleted=True):
+        if str(document.get("document_id")) not in document_ids:
+            continue
+        document["deleted"] = True
+        document["deleted_at"] = now
+        container.upsert_item(document)
+
+
 def start_analysis_cosmos(analysis_id: str, user_id: str) -> dict:
     analysis = _load_analysis_or_none(analysis_id)
     if analysis is None:
@@ -252,6 +462,122 @@ def start_analysis_cosmos(analysis_id: str, user_id: str) -> dict:
     }
 
 
+def start_analysis_with_duplicates_cosmos(
+    analysis_id: str,
+    user_id: str,
+    *,
+    created_by_label: str,
+    decisions: list[dict],
+) -> dict:
+    analysis = _load_analysis_or_none(analysis_id)
+    if analysis is None:
+        raise ValueError("ANALYSIS_NOT_FOUND")
+    if analysis.get("created_by") != user_id:
+        raise PermissionError("FORBIDDEN")
+    if analysis.get("status") not in {"draft", "error"}:
+        raise RuntimeError("ANALYSIS_ALREADY_STARTED")
+
+    duplicates = find_duplicates_for_analysis_cosmos(analysis_id, user_id, created_by_label)
+
+    if duplicates:
+        decision_map = {decision["document_id"]: decision["action"] for decision in decisions}
+        unresolved = [item for item in duplicates if item["document_id"] not in decision_map]
+
+        if unresolved:
+            return {
+                "id": analysis_id,
+                "status": analysis.get("status", "draft"),
+                "message": "Se detectaron documentos duplicados. Elegí qué hacer con cada uno.",
+                "requires_resolution": True,
+                "duplicates": duplicates,
+                "redirect_analysis_id": None,
+            }
+
+        redirect_target: str | None = None
+        cancelled_ids = {doc_id for doc_id, action in decision_map.items() if action == "cancel"}
+
+        if cancelled_ids:
+            _soft_delete_documents_cosmos(analysis_id, cancelled_ids)
+
+        for duplicate in duplicates:
+            if decision_map.get(duplicate["document_id"]) == "view_existing":
+                redirect_target = duplicate["existing_analysis_id"]
+                break
+
+        remaining_docs = len(_query_documents(analysis_id))
+        if remaining_docs == 0:
+            return {
+                "id": analysis_id,
+                "status": analysis.get("status", "draft"),
+                "message": "No quedan documentos para analizar. Podés volver al wizard y subir otros archivos.",
+                "requires_resolution": False,
+                "duplicates": [],
+                "redirect_analysis_id": redirect_target,
+            }
+
+        if redirect_target:
+            return {
+                "id": analysis_id,
+                "status": analysis.get("status", "draft"),
+                "message": "Redirigiendo al análisis existente.",
+                "requires_resolution": False,
+                "duplicates": [],
+                "redirect_analysis_id": redirect_target,
+            }
+
+    result = start_analysis_cosmos(analysis_id, user_id)
+    return {
+        "id": result["id"],
+        "status": result["status"],
+        "message": result["message"],
+        "requires_resolution": False,
+        "duplicates": [],
+        "redirect_analysis_id": None,
+    }
+
+
+def get_analysis_detail_cosmos(analysis_id: str, user_id: str) -> dict:
+    analysis = _load_analysis_or_none(analysis_id)
+    if analysis is None:
+        raise ValueError("ANALYSIS_NOT_FOUND")
+    if analysis.get("created_by") != user_id:
+        raise PermissionError("FORBIDDEN")
+    if not analysis.get("current_version_id"):
+        raise ValueError("NO_VERSION_YET")
+
+    latest_version = _get_latest_version(analysis_id)
+    if latest_version is None:
+        raise ValueError("NO_VERSION_YET")
+
+    documents = _query_documents(analysis_id)
+
+    return {
+        "id": analysis_id,
+        "created_at": _parse_dt(analysis.get("created_at")),
+        "status": analysis.get("status", "draft"),
+        "current_stage": analysis.get("current_stage", CurrentStage.QUEUED.value),
+        "created_by": analysis.get("created_by"),
+        "current_version": {
+            "id": str(latest_version.get("version_id")),
+            "version_number": int(latest_version.get("version_number", 0) or 0),
+            "extracted_data": latest_version.get("extracted_data") or {},
+            "conflicts": latest_version.get("conflicts"),
+            "created_at": _parse_dt(latest_version.get("created_at")),
+            "created_by": latest_version.get("created_by"),
+        },
+        "documents": [
+            {
+                "id": str(document.get("document_id")),
+                "filename": str(document.get("filename")),
+                "page_count": int(document.get("page_count") or 0),
+                "file_size_bytes": int(document.get("file_size_bytes") or 0),
+                "is_primary": bool(document.get("is_primary")),
+            }
+            for document in documents
+        ],
+    }
+
+
 def get_analysis_status_cosmos(analysis_id: str, user_id: str) -> dict:
     analysis = _load_analysis_or_none(analysis_id)
     if analysis is None:
@@ -259,7 +585,7 @@ def get_analysis_status_cosmos(analysis_id: str, user_id: str) -> dict:
     if analysis.get("created_by") != user_id:
         raise PermissionError("FORBIDDEN")
 
-    latest_version = _get_latest_version(analysis_id)
+    latest_version = _get_latest_version(analysis_id) if analysis.get("current_version_id") else None
     metadata = analysis.get("extraction_metadata") or {}
     return {
         "id": analysis_id,
