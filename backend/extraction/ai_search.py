@@ -104,7 +104,9 @@ class LocalChromaSearchAdapter(SearchClientPort):
                     "section_path": str(doc.get("section_path", doc.get("section_key", "general"))),
                     "section_level": int(doc.get("section_level", 0) or 0),
                     "block_type": str(doc.get("block_type", "paragraph")),
-                    "table_ref": json.dumps(doc.get("table_ref", None), ensure_ascii=True),
+                    # upload_chunks() ya serializó table_ref a JSON (o None); Chroma
+                    # no acepta None en metadata, así que el "sin tabla" es "null".
+                    "table_ref": doc.get("table_ref") or "null",
                 }
             )
 
@@ -179,6 +181,7 @@ def upload_chunks(chunks_with_embeddings: list[dict], analysis_id: str | UUID, c
     documents: list[dict] = []
     for chunk in chunks_with_embeddings:
         chunk_id = f"{analysis_id}_{chunk['document_id']}_{chunk['chunk_index']}"
+        table_ref = chunk.get("table_ref")
         documents.append(
             {
                 "id": chunk_id,
@@ -190,7 +193,10 @@ def upload_chunks(chunks_with_embeddings: list[dict], analysis_id: str | UUID, c
                 "section_path": chunk.get("section_path", chunk.get("section_key", "general")),
                 "section_level": int(chunk.get("section_level", 0) or 0),
                 "block_type": chunk.get("block_type", "paragraph"),
-                "table_ref": chunk.get("table_ref"),
+                # Serializado una sola vez acá: tanto el índice de Azure Search
+                # (Edm.String) como la metadata de Chroma requieren texto plano,
+                # nunca un dict crudo.
+                "table_ref": json.dumps(table_ref, ensure_ascii=True) if table_ref is not None else None,
                 "content": chunk["content"],
                 "embedding": chunk["embedding"],
             }

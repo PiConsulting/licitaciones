@@ -133,3 +133,76 @@ def test_cloud_search_uses_wildcard_fallback_when_query_returns_empty(monkeypatc
     assert results[0]["document_id"] == "doc-2"
     assert len(fake_client.calls) == 2
     assert fake_client.calls[1]["search_text"] == "*"
+
+
+class _FakeSchemaMigrationSearchClient:
+    """Simula documents-index tras agregarle section_path/section_level/block_type/table_ref.
+
+    Devuelve un chunk de tabla ya subido con el esquema nuevo y un chunk viejo,
+    indexado antes de la migracion, donde esos campos existen en el esquema pero
+    valen None (Azure Search los completa asi para documentos preexistentes).
+    """
+
+    def search(self, **kwargs) -> Iterator[dict]:
+        return iter(
+            [
+                {
+                    "analysis_id": "analysis-1",
+                    "document_id": "doc-1",
+                    "page_number": 3,
+                    "chunk_index": 0,
+                    "section_key": "anexos",
+                    "section_path": "Anexo I",
+                    "section_level": 1,
+                    "block_type": "table",
+                    "table_ref": '{"table_id": "T1", "row_index": 1, "headers": ["Cantidad"]}',
+                    "content": "Tabla T1 | Fila 1 | Cantidad: 200",
+                },
+                {
+                    "analysis_id": "analysis-1",
+                    "document_id": "doc-0",
+                    "page_number": 1,
+                    "chunk_index": 0,
+                    "section_key": "articulos",
+                    "section_path": None,
+                    "section_level": None,
+                    "block_type": None,
+                    "table_ref": None,
+                    "content": "Articulo indexado antes de la migracion del esquema",
+                },
+            ]
+        )
+
+
+def test_cloud_search_deserializes_table_ref_and_defaults_legacy_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_production_env(monkeypatch)
+    get_settings.cache_clear()
+    azure_search._azure_index_fields_cache.cache_clear()
+
+    monkeypatch.setattr(
+        azure_search,
+        "_search_chunk_select_fields",
+        lambda: ["analysis_id", "document_id", "section_key", "section_path", "section_level", "block_type", "table_ref", "content"],
+    )
+
+    import azure.search.documents as search_documents
+
+    monkeypatch.setattr(search_documents, "SearchClient", lambda *args, **kwargs: _FakeSchemaMigrationSearchClient())
+
+    results = azure_search.search_hybrid(query="cantidad", analysis_id="analysis-1", top_k=5, section_key="anexos_obligatorios")
+    by_doc = {item["document_id"]: item for item in results}
+
+    table_chunk = by_doc["doc-1"]
+    assert table_chunk["block_type"] == "table"
+    assert table_chunk["table_ref"] == {"table_id": "T1", "row_index": 1, "headers": ["Cantidad"]}
+    assert table_chunk["section_path"] == "Anexo I"
+    assert table_chunk["section_level"] == 1
+
+    # Chunk indexado antes de la migracion: los campos nuevos vienen en None desde
+    # Azure (la clave existe en el esquema pero nunca se completo), y deben caer a
+    # los mismos defaults que antes de que el esquema tuviera estos campos.
+    legacy_chunk = by_doc["doc-0"]
+    assert legacy_chunk["block_type"] == "paragraph"
+    assert legacy_chunk["table_ref"] is None
+    assert legacy_chunk["section_path"] == "articulos"
+    assert legacy_chunk["section_level"] == 0

@@ -67,6 +67,15 @@ def _search_chunk_select_fields() -> list[str]:
     return [field for field in SEARCH_CHUNK_SELECT_FIELDS if field in available_fields]
 
 
+def _deserialize_table_ref(raw_table_ref: object) -> dict | None:
+    if not isinstance(raw_table_ref, str) or not raw_table_ref:
+        return None
+    try:
+        return json.loads(raw_table_ref)
+    except json.JSONDecodeError:
+        return None
+
+
 def _section_bonus(section_key: str, preferred_sections: list[str] | None) -> float:
     if not preferred_sections:
         return 0.0
@@ -119,14 +128,7 @@ def _search_local(
     scored: list[tuple[float, dict]] = []
 
     for metadata, content, distance in zip(metadatas, documents, distances, strict=False):
-        raw_table_ref = metadata.get("table_ref")
-        table_ref = None
-        if isinstance(raw_table_ref, str) and raw_table_ref:
-            try:
-                table_ref = json.loads(raw_table_ref)
-            except json.JSONDecodeError:
-                table_ref = None
-
+        table_ref = _deserialize_table_ref(metadata.get("table_ref"))
         chunk_section = metadata.get("section_key", "general")
         base_score = 1.0 - float(distance or 0.0)
         score = (
@@ -241,17 +243,22 @@ def _search_azure(
 
     chunks: list[dict] = []
     for item in raw_results:
+        # `.get(key, default)` sólo aplica el default cuando la clave está AUSENTE.
+        # Azure Search devuelve la clave presente con valor None para chunks
+        # indexados antes de que el campo existiera en el esquema, así que acá
+        # hace falta `or` explícito para no propagar None a los extractores.
+        section_key = item.get("section_key") or "general"
         chunks.append(
             {
                 "analysis_id": item.get("analysis_id"),
                 "document_id": item.get("document_id"),
                 "page_number": int(item.get("page_number", 0)),
                 "chunk_index": int(item.get("chunk_index", 0)),
-                "section_key": item.get("section_key", "general"),
-                "section_path": item.get("section_path", item.get("section_key", "general")),
-                "section_level": int(item.get("section_level", 0) or 0),
-                "block_type": item.get("block_type", "paragraph"),
-                "table_ref": item.get("table_ref"),
+                "section_key": section_key,
+                "section_path": item.get("section_path") or section_key,
+                "section_level": int(item.get("section_level") or 0),
+                "block_type": item.get("block_type") or "paragraph",
+                "table_ref": _deserialize_table_ref(item.get("table_ref")),
                 "content": item.get("content", ""),
             }
         )
