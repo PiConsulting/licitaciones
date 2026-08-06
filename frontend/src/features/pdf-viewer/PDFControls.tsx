@@ -1,15 +1,26 @@
-import { ChevronLeft, ChevronRight, Minus, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Minus, Plus, Scan } from "lucide-react";
 
 interface PDFControlsProps {
   currentPage: number;
   totalPages: number;
   zoom: number;
+  isFitMode: boolean;
   onPageChange: (page: number) => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
+  onFitToWidth: () => void;
 }
 
-export function PDFControls({ currentPage, totalPages, zoom, onPageChange, onZoomIn, onZoomOut }: PDFControlsProps) {
+export function PDFControls({
+  currentPage,
+  totalPages,
+  zoom,
+  isFitMode,
+  onPageChange,
+  onZoomIn,
+  onZoomOut,
+  onFitToWidth,
+}: PDFControlsProps) {
   return (
     <div className="flex items-center gap-2 border-b border-gray-200 bg-gray-50 p-2">
       <button
@@ -35,6 +46,16 @@ export function PDFControls({ currentPage, totalPages, zoom, onPageChange, onZoo
       </button>
 
       <div className="ml-auto flex items-center gap-1">
+        <button
+          type="button"
+          onClick={onFitToWidth}
+          disabled={isFitMode}
+          className="rounded p-2 hover:bg-gray-200 disabled:opacity-40"
+          aria-label="Ajustar al ancho"
+          title="Ajustar al ancho"
+        >
+          <Scan className="h-4 w-4" />
+        </button>
         <button
           type="button"
           onClick={onZoomOut}

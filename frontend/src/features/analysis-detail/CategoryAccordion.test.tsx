@@ -110,10 +110,10 @@ function createMockAnalysis(): AnalysisDetail {
 describe("CategoryAccordion", () => {
   beforeEach(() => {
     sessionStorage.clear();
-    useAccordionState.setState({ expandedCategories: [] });
+    useAccordionState.setState({ expandedCategories: [], hasInitialized: false });
   });
 
-  test("T1: Categoría crítica sin revisar muestra borde naranja y badge CRÍTICA", () => {
+  test("T1: Categoría crítica sin revisar muestra borde índigo y badge CRÍTICA", () => {
     const category = createMockCategory("plazos_clave", { is_reviewed: false });
 
     render(<CategoryAccordion category={category} categoryId="plazos_clave" />);
@@ -121,7 +121,7 @@ describe("CategoryAccordion", () => {
     const header = screen.getByRole("button");
     const wrapper = header.closest("article");
 
-    expect(wrapper).toHaveClass("border-l-critical", "bg-critical-light");
+    expect(wrapper).toHaveClass("border-l-highlight", "bg-highlight-light");
     expect(screen.getByText(/CRÍTICA/i)).toBeInTheDocument();
   });
 
@@ -142,7 +142,7 @@ describe("CategoryAccordion", () => {
 
     const wrapper = screen.getByRole("button").closest("article");
     expect(wrapper).toHaveClass("border-l-error");
-    expect(screen.getByText(/2 conflictos sin resolver/i)).toBeInTheDocument();
+    expect(screen.getByText("2 conflictos")).toHaveClass("bg-error-light", "text-error");
   });
 
   test("T4: Click en header expande y colapsa acordeón", async () => {
@@ -177,15 +177,19 @@ describe("CategoryAccordion", () => {
 
     await user.click(screen.getByRole("button"));
 
+    // field1 has high confidence (0.9) and needs no action, so it renders as a
+    // compact FieldRow instead of a full FieldCard — the rest still need action.
     const fieldCards = screen.getAllByTestId("field-card");
     expect(fieldCards[0]).toHaveTextContent("field2");
     expect(fieldCards[1]).toHaveTextContent("field3");
     expect(fieldCards[2]).toHaveTextContent("field4");
     expect(fieldCards[3]).toHaveTextContent("field5");
-    expect(fieldCards[4]).toHaveTextContent("field1");
+
+    const fieldRows = screen.getAllByTestId("field-row");
+    expect(fieldRows[0]).toHaveTextContent("field1");
   });
 
-  test("T6: Header colapsado muestra contadores correctos", () => {
+  test("T6: Header colapsado muestra contadores como badges", () => {
     const category = createMockCategory("plazos_clave", {
       extractedCount: 5,
       notFoundCount: 2,
@@ -194,7 +198,23 @@ describe("CategoryAccordion", () => {
 
     render(<CategoryAccordion category={category} categoryId="plazos_clave" />);
 
-    expect(screen.getByText("5 extraídos • 2 no encontrados • 1 conflicto")).toBeInTheDocument();
+    expect(screen.getByText("5 extraídos")).toHaveClass("bg-success-light", "text-success");
+    expect(screen.getByText("2 no encontrados")).toHaveClass("bg-warning-light", "text-warning");
+    expect(screen.getByText("1 conflicto")).toHaveClass("bg-error-light", "text-error");
+  });
+
+  test("T6b: Categoría sin ningún campo no muestra badges de conteo vacíos", () => {
+    const category = createMockCategory("plazos_clave", {
+      extractedCount: 0,
+      notFoundCount: 0,
+      conflictCount: 0,
+    });
+
+    render(<CategoryAccordion category={category} categoryId="plazos_clave" />);
+
+    expect(screen.queryByText(/extraídos/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no encontrados/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/conflicto/i)).not.toBeInTheDocument();
   });
 
   test("T7: Categoría con extraction_status=failed muestra badge ERROR", () => {
@@ -240,14 +260,39 @@ describe("CategoryAccordion", () => {
   test("T9: Persistencia de estado expandido en sessionStorage", async () => {
     const user = userEvent.setup();
 
+    // "objeto_alcance" is not a critical category and has no conflicts in the
+    // default mock, so it starts collapsed and this exercises a genuine manual
+    // toggle (unlike a critical category, which auto-expands on first visit).
     const { unmount } = render(<CategoryList analysis={createMockAnalysis()} />);
 
-    await user.click(screen.getByRole("button", { name: /Plazos Clave/i }));
+    await user.click(screen.getByRole("button", { name: /Objeto y Alcance/i }));
     unmount();
 
     render(<CategoryList analysis={createMockAnalysis()} />);
 
+    expect(screen.getByText(/Resumen de objeto_alcance/i)).toBeInTheDocument();
+  });
+
+  test("T9b: Categorías críticas sin revisar o con conflictos se expanden solas la primera vez", () => {
+    render(<CategoryList analysis={createMockAnalysis()} />);
+
+    // plazos_clave/garantias/causales_rechazo are critical and unreviewed by default.
     expect(screen.getByText(/Resumen de plazos/i)).toBeInTheDocument();
+    expect(screen.getByText(/Resumen de garantías/i)).toBeInTheDocument();
+    // objeto_alcance is not critical and has no conflicts, so it stays collapsed.
+    expect(screen.queryByText(/Resumen de objeto_alcance/i)).not.toBeInTheDocument();
+  });
+
+  test("T9c: El auto-expandido inicial no vuelve a pisar los cambios manuales del usuario", async () => {
+    const user = userEvent.setup();
+
+    const { unmount } = render(<CategoryList analysis={createMockAnalysis()} />);
+    await user.click(screen.getByRole("button", { name: /Plazos Clave/i }));
+    expect(screen.queryByText(/Resumen de plazos/i)).not.toBeInTheDocument();
+    unmount();
+
+    render(<CategoryList analysis={createMockAnalysis()} />);
+    expect(screen.queryByText(/Resumen de plazos/i)).not.toBeInTheDocument();
   });
 
   test("T10: Acordeón es accesible por teclado y aria", () => {

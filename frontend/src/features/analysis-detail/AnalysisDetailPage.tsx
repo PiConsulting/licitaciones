@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 
-import { AnalysisHeader } from "./AnalysisHeader";
+import { AnalysisDetailHeader } from "./AnalysisDetailHeader";
+import { AnalysisSummaryStrip } from "./AnalysisSummaryStrip";
 import { CategoryList } from "./CategoryList";
 import { PDFViewer } from "../pdf-viewer/PDFViewer";
 import { useAnalysisDetail } from "./hooks/useAnalysisDetail";
@@ -34,10 +35,11 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
 
   return (
     <section>
-      <AnalysisHeader analysis={query.data} />
+      <AnalysisDetailHeader analysis={query.data} />
+      <AnalysisSummaryStrip analysis={query.data} />
 
-      <div className="flex flex-col gap-4 lg:flex-row">
-        <div data-testid="categories-panel" className="w-full lg:w-[60%]">
+      <div className="flex min-w-0 flex-col gap-4 lg:flex-row">
+        <div data-testid="categories-panel" className="min-w-0 w-full lg:w-[60%] xl:w-[55%]">
           <CategoryList
             analysis={query.data}
             onViewSource={({ citation, citations }) => {
@@ -49,7 +51,7 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
 
         <aside
           data-testid="pdf-viewer-panel"
-          className="w-full rounded-md border border-gray-200 bg-white p-2 text-sm text-gray-600 lg:sticky lg:top-4 lg:h-[calc(100vh-6rem)] lg:w-[40%]"
+          className="min-w-0 w-full rounded-md border border-gray-200 bg-white p-2 text-sm text-gray-600 lg:sticky lg:top-4 lg:h-[calc(100vh-6rem)] lg:w-[40%] xl:w-[45%]"
         >
           {selectedCitation ? (
             <PDFViewer

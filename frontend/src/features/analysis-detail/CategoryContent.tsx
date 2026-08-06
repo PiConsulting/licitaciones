@@ -1,5 +1,7 @@
+import { needsAction } from "../../utils/fieldSeverity";
 import type { CategoryId, Citation, FieldItem, SourceReference } from "./types";
 import { FieldCard } from "./FieldCard";
+import { FieldRow } from "./FieldRow";
 
 interface CategoryContentProps {
   summary: string;
@@ -11,11 +13,13 @@ interface CategoryContentProps {
 
 export function CategoryContent({ summary, sourceReferences, fields, categoryId, onViewSource }: CategoryContentProps) {
   const representativeSource = sourceReferences[0];
+  const actionableFields = fields.filter(needsAction);
+  const compactFields = fields.filter((field) => !needsAction(field));
 
   return (
-    <div id={`category-content-${categoryId}`} className="space-y-3">
-      <div className="rounded-md bg-gray-50 p-3">
-        <p className="text-sm text-gray-900">{summary || "Sin resumen disponible."}</p>
+    <div id={`category-content-${categoryId}`} className="space-y-2">
+      <div className="rounded-md bg-gray-50 p-2">
+        <p className="text-xs text-gray-900">{summary || "Sin resumen disponible."}</p>
         {representativeSource ? (
           <p className="mt-2 text-xs text-gray-600">
             {`Fuente: ${representativeSource.document_id || "Documento"} (pág. ${representativeSource.page})`}
@@ -29,9 +33,17 @@ export function CategoryContent({ summary, sourceReferences, fields, categoryId,
         </p>
       ) : null}
 
-      {fields.map((field) => (
+      {actionableFields.map((field) => (
         <FieldCard key={field.field_name} field={field} onViewSource={onViewSource} />
       ))}
+
+      {compactFields.length > 0 ? (
+        <ul className="divide-y divide-gray-100 rounded-md border border-gray-200 bg-white">
+          {compactFields.map((field) => (
+            <FieldRow key={field.field_name} field={field} onViewSource={onViewSource} />
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }

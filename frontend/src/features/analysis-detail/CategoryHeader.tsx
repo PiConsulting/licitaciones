@@ -1,5 +1,7 @@
+import { AlertTriangle } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
+import { Badge } from "../../components/Badge";
 import { FieldStateBadge } from "./FieldStateBadge";
 
 interface CategoryHeaderProps {
@@ -11,6 +13,7 @@ interface CategoryHeaderProps {
   extractedCount: number;
   notFoundCount: number;
   conflictCount: number;
+  notApplicableCount: number;
 }
 
 export function CategoryHeader({
@@ -22,6 +25,7 @@ export function CategoryHeader({
   extractedCount,
   notFoundCount,
   conflictCount,
+  notApplicableCount,
 }: CategoryHeaderProps) {
   const state = extractionStatus === "failed"
     ? "error"
@@ -44,11 +48,13 @@ export function CategoryHeader({
         <span className="font-semibold text-gray-900">{name}</span>
       </div>
 
-      <div className="flex items-center gap-3">
-        <span className="text-xs text-gray-600">
-          {`${extractedCount} extraídos • ${notFoundCount} no encontrados • ${conflictCount} ${conflictWord}`}
-        </span>
-        {conflictCount > 0 ? <span className="text-xs font-semibold text-error">{conflictCount} conflictos sin resolver</span> : null}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {extractedCount > 0 ? <Badge tone="success">{`${extractedCount} extraídos`}</Badge> : null}
+        {notFoundCount > 0 ? <Badge tone="warning">{`${notFoundCount} no encontrados`}</Badge> : null}
+        {conflictCount > 0 ? (
+          <Badge tone="error" icon={AlertTriangle}>{`${conflictCount} ${conflictWord}`}</Badge>
+        ) : null}
+        {notApplicableCount > 0 ? <Badge tone="info">{`${notApplicableCount} no aplica`}</Badge> : null}
         <FieldStateBadge state={state} />
       </div>
     </div>

@@ -33,6 +33,10 @@ export default {
           DEFAULT: "#EA580C",
           light: "#FFEDD5",
         },
+        highlight: {
+          DEFAULT: "#4F46E5",
+          light: "#E0E7FF",
+        },
         info: {
           DEFAULT: "#3B82F6",
           light: "#DBEAFE",

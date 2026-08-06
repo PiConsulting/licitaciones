@@ -209,15 +209,16 @@ def test_list_analyses_pagination_returns_page_window(client: TestClient, auth_t
             created_at=base - timedelta(minutes=i),
         )
 
-    response = client.get("/api/v1/analyses?page=2&per_page=20", headers=_auth_headers(auth_token))
+    # Probar con per_page=10 explícito (ahora es el default)
+    response = client.get("/api/v1/analyses?page=2&per_page=10", headers=_auth_headers(auth_token))
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["page"] == 2
-    assert payload["per_page"] == 20
+    assert payload["per_page"] == 10
     assert payload["total"] == 25
-    assert payload["total_pages"] == 2
-    assert len(payload["items"]) == 5
+    assert payload["total_pages"] == 3  # 25 items / 10 per page = 3 pages
+    assert len(payload["items"]) == 10
 
 
 def test_list_analyses_sorting_toggle_by_status(client: TestClient, auth_token: str) -> None:
@@ -276,3 +277,32 @@ def test_list_analyses_confidence_avg_uses_only_success_items(client: TestClient
     payload = response.json()
     assert payload["total"] == 1
     assert payload["items"][0]["confidence_avg"] == 0.8
+
+
+def test_list_analyses_default_pagination_is_10_items(client: TestClient, auth_token: str) -> None:
+    """Test que el default de per_page es 10 items por página."""
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == "test@cedia.com").first()
+    assert user is not None
+    db.close()
+
+    # Crear 15 análisis para verificar que solo se muestran 10 por defecto
+    base = datetime.now(UTC)
+    for i in range(15):
+        _create_analysis(
+            user_id=user.id,
+            status="queued",
+            filename=f"pliego-{i}.pdf",
+            created_at=base - timedelta(minutes=i),
+        )
+
+    # Request sin especificar per_page - debe usar el default
+    response = client.get("/api/v1/analyses", headers=_auth_headers(auth_token))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["page"] == 1
+    assert payload["per_page"] == 10, "El default de per_page debe ser 10"
+    assert payload["total"] == 15
+    assert payload["total_pages"] == 2
+    assert len(payload["items"]) == 10, "La primera página debe tener exactamente 10 items"

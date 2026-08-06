@@ -33,7 +33,7 @@ export default function Dashboard() {
   const items = analysesQuery.data?.items ?? [];
   const total = analysesQuery.data?.total ?? 0;
   const currentPage = analysesQuery.data?.page ?? page;
-  const perPage = analysesQuery.data?.per_page ?? 20;
+  const perPage = analysesQuery.data?.per_page ?? 10;
   const totalPages = analysesQuery.data?.total_pages ?? 1;
   const rangeStart = total === 0 ? 0 : (currentPage - 1) * perPage + 1;
   const rangeEnd = total === 0 ? 0 : Math.min(currentPage * perPage, total);

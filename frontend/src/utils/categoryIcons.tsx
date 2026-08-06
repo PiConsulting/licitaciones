@@ -1,4 +1,5 @@
 import {
+  Ban,
   ClipboardCheck,
   Clock,
   FileText,
@@ -6,7 +7,6 @@ import {
   Paperclip,
   Scale,
   Shield,
-  XCircle,
   type LucideIcon,
 } from "lucide-react";
 
@@ -18,7 +18,7 @@ export const CATEGORY_ICONS: Record<CategoryId, LucideIcon> = {
   garantias: Shield,
   plazos_clave: Clock,
   criterios_evaluacion: Scale,
-  causales_rechazo: XCircle,
+  causales_rechazo: Ban,
   anexos_obligatorios: Paperclip,
   datos_procedimiento: Info,
 };

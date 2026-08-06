@@ -96,6 +96,17 @@ describe("AnalysisDetailPage PDF integration", () => {
     expect(screen.getByText(/selecciona ver fuente/i)).toBeInTheDocument();
   });
 
+  test("los paneles usan un ancho mayor en pantallas xl para aprovechar notebooks", async () => {
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("categories-panel")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("categories-panel")).toHaveClass("xl:w-[55%]");
+    expect(screen.getByTestId("pdf-viewer-panel")).toHaveClass("xl:w-[45%]");
+  });
+
   test("click en Ver fuente abre visor con documento/cita seleccionados", async () => {
     const user = userEvent.setup();
 

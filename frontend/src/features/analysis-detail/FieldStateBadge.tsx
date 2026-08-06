@@ -1,43 +1,45 @@
 import { AlertTriangle, CheckCircle, XCircle } from "lucide-react";
 
+import { Badge, type BadgeTone } from "../../components/Badge";
+
 type CategoryVisualState = "sin_revisar" | "revisada" | "critica" | "error" | "con_conflictos" | "no_aplica";
 
 const STATE_BADGES: Record<
   CategoryVisualState,
   {
     text: string;
-    className: string;
+    tone: BadgeTone;
     icon: typeof CheckCircle | typeof XCircle | typeof AlertTriangle | null;
   }
 > = {
   sin_revisar: {
     text: "SIN REVISAR",
-    className: "bg-gray-100 text-gray-600",
+    tone: "neutral",
     icon: null,
   },
   revisada: {
     text: "REVISADA",
-    className: "bg-success-light text-success",
+    tone: "success",
     icon: CheckCircle,
   },
   critica: {
     text: "CRÍTICA",
-    className: "bg-critical-light text-critical",
+    tone: "highlight",
     icon: null,
   },
   error: {
     text: "ERROR",
-    className: "bg-error-light text-error",
+    tone: "error",
     icon: XCircle,
   },
   con_conflictos: {
     text: "CONFLICTOS",
-    className: "bg-error-light text-error",
+    tone: "error",
     icon: AlertTriangle,
   },
   no_aplica: {
     text: "NO APLICA",
-    className: "bg-sky-100 text-sky-700",
+    tone: "info",
     icon: null,
   },
 };
@@ -48,14 +50,12 @@ interface FieldStateBadgeProps {
 
 export function FieldStateBadge({ state }: FieldStateBadgeProps) {
   const config = STATE_BADGES[state];
-  const Icon = config.icon;
 
   return (
-    <span className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold uppercase ${config.className}`}>
-      {Icon ? <Icon className="h-3.5 w-3.5" /> : null}
+    <Badge tone={config.tone} icon={config.icon ?? undefined}>
       {state === "critica" ? "⭐ " : ""}
       {state === "revisada" ? "✓ " : ""}
       {config.text}
-    </span>
+    </Badge>
   );
 }

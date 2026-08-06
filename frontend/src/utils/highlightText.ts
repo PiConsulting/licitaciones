@@ -1,29 +1,35 @@
-import type { HighlightCoordinates } from "../features/pdf-viewer/types";
+const MIN_MATCH_LENGTH = 3;
 
 function normalizeText(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
-export function findTextCoordinates(sourceText: string, searchText: string): HighlightCoordinates[] {
-  const normalizedSource = normalizeText(sourceText);
-  const normalizedSearch = normalizeText(searchText);
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 
-  if (!normalizedSource || !normalizedSearch) {
-    return [];
+/** True when a PDF text-layer item is (approximately) part of one of the given citations. */
+export function isPartOfCitation(itemText: string, citationTexts: string[]): boolean {
+  const normalizedItem = normalizeText(itemText);
+  if (normalizedItem.length < MIN_MATCH_LENGTH) {
+    return false;
   }
+  return citationTexts.some((citationText) => normalizeText(citationText).includes(normalizedItem));
+}
 
-  if (!normalizedSource.includes(normalizedSearch)) {
-    return [];
-  }
-
-  // React-PDF no expone coordenadas exactas sin procesar text layer;
-  // devolvemos un highlight aproximado de línea completa para mantener verificabilidad visual.
-  return [
-    {
-      x: 16,
-      y: 64,
-      width: 540,
-      height: 24,
-    },
-  ];
+/**
+ * Builds a react-pdf `customTextRenderer`: for each text item rendered on the page,
+ * wraps it in a `<mark>` when it's part of one of `citationTexts`. This highlights the
+ * real, rendered text directly (via react-pdf's own text layer), so it stays correctly
+ * positioned at any zoom/fit level instead of relying on separately-computed pixel
+ * coordinates that drift out of sync when the page's render size changes.
+ */
+export function createCitationTextRenderer(citationTexts: string[]) {
+  return ({ str }: { str: string }): string => {
+    const escaped = escapeHtml(str);
+    if (citationTexts.length === 0 || !isPartOfCitation(str, citationTexts)) {
+      return escaped;
+    }
+    return `<mark style="background-color:#FEF3C7;color:inherit;border-radius:2px;">${escaped}</mark>`;
+  };
 }

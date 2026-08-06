@@ -8,10 +8,3 @@ export interface ViewerDocument {
   is_primary: boolean;
   page_count?: number;
 }
-
-export interface HighlightCoordinates {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}

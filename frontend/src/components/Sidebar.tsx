@@ -22,7 +22,7 @@ export function Sidebar() {
     <aside
       className={cn(
         "h-screen border-r border-gray-200 bg-surface transition-all duration-200 ease-in-out",
-        sidebarCollapsed ? "w-16" : "w-60",
+        sidebarCollapsed ? "w-16" : "w-52",
       )}
       aria-label="Barra lateral"
     >

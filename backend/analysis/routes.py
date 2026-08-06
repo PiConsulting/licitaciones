@@ -64,7 +64,7 @@ async def get_analyses(
     date_from: date | None = None,
     date_to: date | None = None,
     page: int = Query(default=1, ge=1),
-    per_page: int = Query(default=20, ge=1, le=100),
+    per_page: int = Query(default=10, ge=1, le=100),
     sort_by: str = Query(default="created_at"),
     sort_order: str = Query(default="desc"),
     credentials=Depends(http_bearer),

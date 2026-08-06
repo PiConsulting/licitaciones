@@ -55,7 +55,7 @@ export async function fetchAnalyses(filters: AnalysisListFilters = {}): Promise<
       date_from: filters.date_from,
       date_to: filters.date_to,
       page: filters.page ?? 1,
-      per_page: filters.per_page ?? 20,
+      per_page: filters.per_page ?? 10,
       sort_by: filters.sort_by ?? "created_at",
       sort_order: filters.sort_order ?? "desc",
     },

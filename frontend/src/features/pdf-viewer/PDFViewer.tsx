@@ -9,9 +9,18 @@ import { DocumentSelector } from "./DocumentSelector";
 import { PDFCitationNav } from "./PDFCitationNav";
 import { PDFControls } from "./PDFControls";
 import { PDFPage } from "./PDFPage";
-import { usePDFHighlight } from "./hooks/usePDFHighlight";
+import { useContainerWidth } from "./hooks/useContainerWidth";
 import { useSASUrl } from "./hooks/useSASUrl";
 import type { Citation, ViewerDocument } from "./types";
+
+const PAGE_ZOOM_STEP = 0.25;
+const PAGE_MIN_ZOOM = 0.5;
+const PAGE_MAX_ZOOM = 2;
+// Small safety margin so the rendered page (plus its box-shadow) never bleeds
+// past the container by a pixel or two and triggers an unwanted scrollbar.
+const PAGE_FIT_SAFETY_MARGIN = 4;
+
+type ZoomMode = "fit" | number;
 
 interface PDFViewerProps {
   documentId: string;
@@ -33,8 +42,10 @@ export function PDFViewer({ documentId, documentName, citations, documents }: PD
   const [currentCitationIndex, setCurrentCitationIndex] = useState(0);
   const [currentPage, setCurrentPage] = useState(citations[0]?.page ?? 1);
   const [numPages, setNumPages] = useState(0);
-  const [zoom, setZoom] = useState(1);
+  const [zoomMode, setZoomMode] = useState<ZoomMode>("fit");
+  const [displayScale, setDisplayScale] = useState(1);
   const [error, setError] = useState<string | null>(null);
+  const { ref: pdfContainerRef, width: containerWidth } = useContainerWidth<HTMLDivElement>();
 
   useEffect(() => {
     setActiveDocumentId(documentId);
@@ -43,7 +54,10 @@ export function PDFViewer({ documentId, documentName, citations, documents }: PD
   }, [documentId, citations]);
 
   const { data, isLoading, refetch } = useSASUrl(activeDocumentId);
-  const highlightsByPage = usePDFHighlight(citations);
+  // Only the citation currently focused via "Cita anterior/siguiente" gets highlighted
+  // and scrolled to — highlighting every citation on a page at once made it unclear
+  // which one "Ver fuente" was actually pointing at.
+  const activeCitation = citations[currentCitationIndex] ?? null;
 
   const pagesToRender = useMemo(() => {
     const buffer = 2;
@@ -112,7 +126,7 @@ export function PDFViewer({ documentId, documentName, citations, documents }: PD
   }
 
   return (
-    <div className="flex h-full flex-col" data-testid="pdf-viewer">
+    <div className="flex h-full min-w-0 flex-col" data-testid="pdf-viewer">
       <div className="flex items-center gap-2 border-b border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700">
         <span className="truncate">{activeDocumentName}</span>
         <DocumentSelector
@@ -130,10 +144,20 @@ export function PDFViewer({ documentId, documentName, citations, documents }: PD
       <PDFControls
         currentPage={currentPage}
         totalPages={numPages}
-        zoom={zoom}
+        zoom={displayScale}
+        isFitMode={zoomMode === "fit"}
         onPageChange={(page) => setCurrentPage(page)}
-        onZoomIn={() => setZoom((previous) => Math.min(previous + 0.25, 2))}
-        onZoomOut={() => setZoom((previous) => Math.max(previous - 0.25, 0.5))}
+        onZoomIn={() =>
+          setZoomMode((previous) =>
+            Math.min((typeof previous === "number" ? previous : displayScale) + PAGE_ZOOM_STEP, PAGE_MAX_ZOOM),
+          )
+        }
+        onZoomOut={() =>
+          setZoomMode((previous) =>
+            Math.max((typeof previous === "number" ? previous : displayScale) - PAGE_ZOOM_STEP, PAGE_MIN_ZOOM),
+          )
+        }
+        onFitToWidth={() => setZoomMode("fit")}
       />
 
       <PDFCitationNav
@@ -143,7 +167,11 @@ export function PDFViewer({ documentId, documentName, citations, documents }: PD
         onNext={() => onCitationChange(Math.min(currentCitationIndex + 1, citations.length - 1))}
       />
 
-      <div className="flex-1 overflow-auto bg-gray-100 p-3" data-testid="pdf-container">
+      <div
+        ref={pdfContainerRef}
+        className={`min-w-0 flex-1 overflow-y-auto bg-gray-100 p-3 ${zoomMode === "fit" ? "overflow-x-hidden" : "overflow-x-auto"}`}
+        data-testid="pdf-container"
+      >
         <Document
           file={data.url}
           onLoadSuccess={({ numPages: pages }) => {
@@ -161,7 +189,18 @@ export function PDFViewer({ documentId, documentName, citations, documents }: PD
           data-testid="pdf-document"
         >
           {pagesToRender.map((page) => (
-            <PDFPage key={page} pageNumber={page} zoom={zoom} highlights={highlightsByPage.get(page) ?? []} />
+            <PDFPage
+              key={page}
+              pageNumber={page}
+              scale={typeof zoomMode === "number" ? zoomMode : undefined}
+              fitWidth={
+                zoomMode === "fit" && containerWidth > 0
+                  ? Math.floor(Math.max(containerWidth - PAGE_FIT_SAFETY_MARGIN, 0))
+                  : undefined
+              }
+              citationTexts={activeCitation && activeCitation.page === page ? [activeCitation.text] : []}
+              onScaleResolved={setDisplayScale}
+            />
           ))}
         </Document>
       </div>
