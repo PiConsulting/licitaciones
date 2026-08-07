@@ -4,6 +4,7 @@ import inspect
 
 from extraction.chunking import _SECTION_PATTERNS, create_chunks
 from shared.ports import azure_search
+from shared.ports.local import chroma_search
 
 SECCIONES_EMITIDAS = {key for key, _ in _SECTION_PATTERNS} | {"general"}
 
@@ -25,6 +26,6 @@ def test_preferencias_de_categoria_apuntan_a_secciones_reales() -> None:
 
 
 def test_search_local_no_filtra_por_section_key() -> None:
-    fuente = inspect.getsource(azure_search._search_local)
+    fuente = inspect.getsource(chroma_search._search_local)
     where_segment = fuente.split("where=", maxsplit=1)[1].split(")", maxsplit=1)[0]
     assert '"section_key"' not in where_segment, "_search_local no debe filtrar por section_key"

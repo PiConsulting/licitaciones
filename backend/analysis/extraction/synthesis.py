@@ -14,15 +14,14 @@ logger = structlog.get_logger(__name__)
 
 RESPONSE_BASE_PROMPT_FILE = "_response_base.txt"
 
-# Categorias donde cada item suele ser un hecho discreto (un anexo) y por lo
-# tanto conviene sesgar la sintesis hacia bullet_list.
-CHECKLIST_CATEGORIES = {"anexos_obligatorios"}
+# Categorias donde cada item suele ser un hecho discreto (un anexo, un
+# requisito) y por lo tanto conviene sesgar la sintesis hacia bullet_list.
+CHECKLIST_CATEGORIES = {"anexos_obligatorios", "requisitos_admisibilidad"}
 
 # Categorias que SIEMPRE se responden como un unico parrafo, nunca varios
 # bloques ni bullet_list, sin importar cuantos hechos distintos haya (pedido
-# explicito: mostrar "una sola respuesta" en vez de una tarjeta por requisito
-# o causal).
-SINGLE_PARAGRAPH_CATEGORIES = {"requisitos_admisibilidad", "causales_rechazo"}
+# explicito: mostrar "una sola respuesta" en vez de una tarjeta por causal).
+SINGLE_PARAGRAPH_CATEGORIES = {"causales_rechazo"}
 
 CATEGORY_LABELS = {
     "objeto_alcance": "Objeto y Alcance",

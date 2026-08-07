@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
-from pathlib import Path
 
 import structlog
 
@@ -21,6 +20,11 @@ SEARCH_CHUNK_SELECT_FIELDS = [
     "block_type",
     "table_ref",
     "content",
+    "chapter",
+    "article",
+    "anexo",
+    "inciso",
+    "title",
 ]
 
 # Mapa de categoria semantica -> secciones estructurales del chunker.
@@ -32,11 +36,7 @@ CATEGORY_SECTION_PREFERENCE: dict[str, list[str]] = {
     "garantias": ["articulos", "capitulos"],
     "causales_rechazo": ["articulos", "capitulos"],
     "anexos_obligatorios": ["anexos", "articulos"],
-    "documentos_requeridos": ["articulos", "incisos"],
-    "restricciones_participacion": ["articulos", "incisos"],
     "criterios_evaluacion": ["articulos", "capitulos"],
-    "cronograma_proceso": ["articulos", "capitulos"],
-    "estimacion_presupuesto": ["articulos", "capitulos"],
     "identificacion_procedimiento": ["general", "capitulos"],
 }
 
@@ -90,91 +90,6 @@ def _token_overlap_score(query: str, content: str) -> float:
     content_terms = set(content.lower().split())
     overlap = query_terms.intersection(content_terms)
     return len(overlap) / len(query_terms)
-
-
-def _search_local(
-    query: str,
-    analysis_id: str,
-    top_k: int,
-    section_key: str | None,
-) -> list[dict]:
-    settings = get_settings()
-    chroma_dir = Path(settings.chroma_persist_directory)
-    if not chroma_dir.exists():
-        logger.warning("chroma_dir_missing", path=str(chroma_dir), analysis_id=analysis_id)
-        return []
-
-    import chromadb
-    from sentence_transformers import SentenceTransformer
-
-    client = chromadb.PersistentClient(path=str(chroma_dir))
-    collection = client.get_or_create_collection(name="analysis_chunks")
-    model = SentenceTransformer(settings.sentence_transformers_model)
-    query_embedding = model.encode([query], normalize_embeddings=True)[0].tolist()
-
-    over_fetch = max(top_k * 3, 30)
-
-    result = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=over_fetch,
-        where={"analysis_id": analysis_id},
-        include=["metadatas", "documents", "distances"],
-    )
-
-    metadatas = result.get("metadatas", [[]])[0]
-    documents = result.get("documents", [[]])[0]
-    distances = result.get("distances", [[]])[0]
-
-    preferred = _preferred_sections(section_key)
-    scored: list[tuple[float, dict]] = []
-
-    for metadata, content, distance in zip(metadatas, documents, distances, strict=False):
-        table_ref = _deserialize_table_ref(metadata.get("table_ref"))
-        chunk_section = metadata.get("section_key", "general")
-        base_score = 1.0 - float(distance or 0.0)
-        score = (
-            base_score
-            + _section_bonus(chunk_section, preferred)
-            + (0.25 * _token_overlap_score(query, content or ""))
-        )
-
-        scored.append(
-            (
-                score,
-                {
-                    "analysis_id": metadata.get("analysis_id"),
-                    "document_id": metadata.get("document_id"),
-                    "page_number": int(metadata.get("page_number", 0)),
-                    "chunk_index": int(metadata.get("chunk_index", 0)),
-                    "section_key": chunk_section,
-                    "section_path": metadata.get("section_path", chunk_section),
-                    "section_level": int(metadata.get("section_level", 0) or 0),
-                    "block_type": metadata.get("block_type", "paragraph"),
-                    "table_ref": table_ref,
-                    "content": content,
-                },
-            )
-        )
-
-    scored.sort(key=lambda item: item[0], reverse=True)
-    chunks = [item[1] for item in scored[:top_k]]
-
-    if not chunks:
-        logger.warning(
-            "local_search_empty",
-            analysis_id=analysis_id,
-            section_key=section_key,
-            query=query[:120],
-        )
-    else:
-        logger.info(
-            "local_search_completed",
-            analysis_id=analysis_id,
-            section_key=section_key,
-            returned=len(chunks),
-            top_score=round(scored[0][0], 4),
-        )
-    return chunks
 
 
 def _embed_query_or_none(query: str) -> list[float] | None:
@@ -248,19 +163,24 @@ def _search_azure(
         # Azure Search devuelve la clave presente con valor None para chunks
         # indexados antes de que el campo existiera en el esquema, así que acá
         # hace falta `or` explícito para no propagar None a los extractores.
-        section_key = item.get("section_key") or "general"
+        chunk_section_key = item.get("section_key") or "general"
         chunks.append(
             {
                 "analysis_id": item.get("analysis_id"),
                 "document_id": item.get("document_id"),
                 "page_number": int(item.get("page_number", 0)),
                 "chunk_index": int(item.get("chunk_index", 0)),
-                "section_key": section_key,
-                "section_path": item.get("section_path") or section_key,
+                "section_key": chunk_section_key,
+                "section_path": item.get("section_path") or chunk_section_key,
                 "section_level": int(item.get("section_level") or 0),
                 "block_type": item.get("block_type") or "paragraph",
                 "table_ref": _deserialize_table_ref(item.get("table_ref")),
                 "content": item.get("content", ""),
+                "chapter": item.get("chapter") or None,
+                "article": item.get("article") or None,
+                "anexo": item.get("anexo") or None,
+                "inciso": item.get("inciso") or None,
+                "title": item.get("title") or None,
             }
         )
     preferred = _preferred_sections(section_key)
@@ -283,6 +203,8 @@ def search_hybrid(
     """Recupera chunks para una categoría con filtro por analysis_id y sección."""
     settings = get_settings()
     if settings.is_development:
+        from shared.ports.local.chroma_search import _search_local
+
         return _search_local(query=query, analysis_id=analysis_id, top_k=top_k, section_key=section_key)
 
     return _search_azure(query=query, analysis_id=analysis_id, top_k=top_k, section_key=section_key)

@@ -79,18 +79,28 @@ Una `<fuente>` es la evidencia deduplicada que respalda tus bloques:
    el resto es `baja`. Si un bloque combina ítems con distinta confianza, usá la más
    baja de los que sustentan ese bloque puntual (nunca optimistas).
 
-5. **Deduplicación de fuentes.** Si dos o más ítems citan el mismo fragmento (mismo
+5. **Fechas y horas en formato natural.** Cuando un ítem tenga `fecha` (formato ISO
+   "YYYY-MM-DD") y/o `hora` (formato "HH:MM"), convertilas a formato argentino legible
+   en el texto de salida: "15 de septiembre de 2026" y "14:30 hs" (o "15 de
+   septiembre de 2026 a las 14:30 hs" si hay ambas). Nunca dejes la fecha en formato
+   ISO ni en formato numérico DD/MM/AAAA en la respuesta final. Si el ítem solo tiene
+   `expresion_relativa` (ej. "10 días hábiles desde la notificación") y no tiene
+   `fecha` calculada, usá esa frase tal cual — nunca calcules ni inventes una fecha
+   concreta a partir de una expresión relativa; eso ya está prohibido en la etapa de
+   extracción y sigue prohibido acá.
+
+6. **Deduplicación de fuentes.** Si dos o más ítems citan el mismo fragmento (mismo
    `document_id` + `page_number` + texto igual o subcadena uno del otro), es UNA sola
    entrada en `sources`, no dos. Cada bloque referencia por `source_ids` los índices
    de `sources` que lo respaldan — nunca repitas el objeto completo de la fuente
    dentro de un bloque.
 
-6. **No hay fuente, no hay afirmación.** Un párrafo, ítem de lista o fila de tabla que
+7. **No hay fuente, no hay afirmación.** Un párrafo, ítem de lista o fila de tabla que
    afirma un dato concreto del pliego siempre tiene que traer al menos un
    `source_id`. Frases genéricas de contexto (ej. "en general, se identificaron los
    siguientes requisitos:") pueden no llevar fuente.
 
-7. **Sin contenido útil**: si ningún ítem de entrada tiene datos extraídos
+8. **Sin contenido útil**: si ningún ítem de entrada tiene datos extraídos
    (`extraction_status` distinto de `success`/`partial`/`not_applicable` en todos),
    devolvés `{"blocks": [{"type": "paragraph", "text": "No se encontró información sobre {category_label} en el pliego.", "confidence_level": "baja", "source_ids": []}], "sources": []}`.
 
@@ -102,12 +112,14 @@ Una `<fuente>` es la evidencia deduplicada que respalda tus bloques:
     {"type": "paragraph", "text": "El pliego exige una garantía de mantenimiento de oferta y otra de cumplimiento de contrato.", "confidence_level": "alta", "source_ids": [0]},
     {"type": "bullet_list", "items": [
       {"text": "La garantía de mantenimiento de oferta equivale al 1% del valor total cotizado.", "confidence_level": "alta", "source_ids": [0]},
-      {"text": "La garantía de cumplimiento de contrato equivale al 7% del monto adjudicado y se integra dentro de los cinco días de notificada la adjudicación.", "confidence_level": "media", "source_ids": [1]}
+      {"text": "La garantía de cumplimiento de contrato equivale al 7% del monto adjudicado y se integra dentro de los cinco días de notificada la adjudicación.", "confidence_level": "media", "source_ids": [1]},
+      {"text": "Esta garantía se debe presentar antes del 15 de septiembre de 2026 a las 10:00 hs.", "confidence_level": "alta", "source_ids": [2]}
     ]}
   ],
   "sources": [
     {"id": 0, "document_id": "abc-123", "page_number": 22, "citation": "Junto con la oferta se presentará una garantía del uno por ciento (1%) del valor total de la oferta."},
-    {"id": 1, "document_id": "abc-123", "page_number": 22, "citation": "el adjudicatario entregará o depositará... una garantía del siete por ciento (7%) del valor total de la adjudicación"}
+    {"id": 1, "document_id": "abc-123", "page_number": 22, "citation": "el adjudicatario entregará o depositará... una garantía del siete por ciento (7%) del valor total de la adjudicación"},
+    {"id": 2, "document_id": "abc-123", "page_number": 23, "citation": "La garantía deberá presentarse antes del 15/09/2026 a las 10:00 hs."}
   ]
 }
 ```

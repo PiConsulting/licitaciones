@@ -58,6 +58,8 @@ temp/
 # Debug endpoints (no subir)
 backend/debug/
 
+backend/scripts/
+
 # OS/editor noise
 .DS_Store
 Thumbs.db
@@ -73,3 +75,4 @@ Thumbs.db
 docs/docu/
 
 .claude/
+

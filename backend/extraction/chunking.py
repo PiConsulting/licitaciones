@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from uuid import UUID
 
 import structlog
 
 logger = structlog.get_logger(__name__)
+
+_BOILERPLATE_MIN_PAGES = 3  # no aplica en documentos muy cortos (2 paginas del happy path, por ejemplo)
+_BOILERPLATE_MIN_PAGE_FRACTION = 0.5  # aparece en >=50% de las paginas
+_BOILERPLATE_MAX_WORDS = 12  # una linea de membrete es corta; no queremos podar parrafos largos que coincidan por casualidad
 
 _SECTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("capitulos", re.compile(r"^\s*cap[ií]tulo\b", re.IGNORECASE)),
@@ -28,6 +33,12 @@ _HEADING_LINE_RE = re.compile(
 # al numero empiece en mayuscula para no confundir con una oracion de cuerpo que
 # arranca con un numero ("10 dias habiles siguientes...").
 _NUMBERED_HEADING_RE = re.compile(r"^\s*\d{1,3}(?:\.\d{1,3}){0,5}\.?\s+[A-ZÁÉÍÓÚÑ]")
+
+# Guia de puntos tipica de una entrada de indice/tabla de contenidos
+# ("Garantias……………..….10" o "Garantias.......... 10"). Una linea asi puede
+# matchear el patron de encabezado numerado, pero no es un encabezado real:
+# es un link al encabezado real que aparece mas adelante en el documento.
+_TOC_DOT_LEADER_RE = re.compile(r"[.…]{4,}\s*\d{0,4}\s*$")
 
 _LOWERCASE_STOPWORDS = {
     "el", "la", "los", "las", "un", "una", "unos", "unas", "de", "del", "en",
@@ -77,12 +88,63 @@ def _looks_like_heading_line(line: str) -> bool:
     return False
 
 
+def _looks_like_toc_line(line: str) -> bool:
+    """Detecta una entrada de indice/tabla de contenidos (titulo + guia de
+    puntos + numero de pagina). Matchea el patron de encabezado pero no es
+    uno real: es un link al encabezado real que aparece mas adelante en el
+    documento."""
+    return bool(_TOC_DOT_LEADER_RE.search(line.strip()))
+
+
 def _normalize_heading_value(text: str) -> str:
     return " ".join(text.strip().split())
 
 
 def _looks_like_structured_input(pages: list[dict]) -> bool:
     return any("block_type" in item or "role" in item for item in pages)
+
+
+def _detect_repeated_boilerplate_lines(pages: list[dict]) -> set[str]:
+    """Detecta lineas de encabezado/pie de pagina que se repiten identicas en
+    varias paginas del documento (ej. "Municipalidad de Rosario" en el margen
+    superior de cada hoja). Solo protege de verdad al modo de texto plano: el
+    modo estructurado ya excluye pageHeader/pageFooter/footnote via rol en
+    document_intelligence.py. Es una red de seguridad adicional, no reemplaza
+    esa exclusion."""
+    if len(pages) < _BOILERPLATE_MIN_PAGES:
+        return set()
+
+    counts: Counter[str] = Counter()
+    for page in pages:
+        content = str(page.get("content", "") or "")
+        seen_in_page: set[str] = set()
+        for raw_line in content.splitlines():
+            normalized = " ".join(raw_line.strip().split()).lower()
+            if not normalized or len(normalized.split()) > _BOILERPLATE_MAX_WORDS:
+                continue
+            if normalized in seen_in_page:
+                continue  # contar una sola vez por pagina, no por ocurrencia
+            seen_in_page.add(normalized)
+            counts[normalized] += 1
+
+    threshold = max(_BOILERPLATE_MIN_PAGES, int(len(pages) * _BOILERPLATE_MIN_PAGE_FRACTION))
+    return {line for line, count in counts.items() if count >= threshold}
+
+
+def _strip_boilerplate_lines(pages: list[dict], boilerplate: set[str]) -> list[dict]:
+    if not boilerplate:
+        return pages
+
+    filtered: list[dict] = []
+    for page in pages:
+        content = str(page.get("content", "") or "")
+        kept_lines = [
+            line for line in content.splitlines() if " ".join(line.strip().split()).lower() not in boilerplate
+        ]
+        new_page = dict(page)
+        new_page["content"] = "\n".join(kept_lines)
+        filtered.append(new_page)
+    return filtered
 
 
 def _tokenize(text: str) -> list[str]:
@@ -173,13 +235,13 @@ def _infer_section_key(text: str, default_key: str = "general") -> str:
     return default_key
 
 
-def _section_path_from_stack(stack: list[str], fallback_key: str) -> tuple[str, int]:
+def _section_path_from_stack(stack: list[tuple[str, int]], fallback_key: str) -> tuple[str, int]:
     if stack:
-        return " > ".join(stack), len(stack)
+        return " > ".join(heading_text for heading_text, _level in stack), len(stack)
     return fallback_key, 0
 
 
-def _heading_level_from_text(text: str, role: str, current_stack: list[str]) -> int:
+def _heading_level_from_text(text: str, role: str, current_stack: list[tuple[str, int]]) -> int:
     if role == "title":
         return 1
 
@@ -211,7 +273,7 @@ def _split_heading_label_and_title(heading_text: str) -> tuple[str, str]:
     return heading_text.strip(), ""
 
 
-def _build_heading_metadata(heading_stack: list[str]) -> dict[str, str | None]:
+def _build_heading_metadata(heading_stack: list[tuple[str, int]]) -> dict[str, str | None]:
     """Recorre la pila de encabezados vigente (de mas general a mas
     especifico) y arma metadata estructurada: capitulo, articulo, anexo e
     inciso vigentes, mas el titulo descriptivo del encabezado mas especifico
@@ -225,7 +287,7 @@ def _build_heading_metadata(heading_stack: list[str]) -> dict[str, str | None]:
         "inciso": None,
         "title": None,
     }
-    for heading_text in heading_stack:
+    for heading_text, _level in heading_stack:
         key = _infer_section_key(heading_text, default_key="general")
         label, title = _split_heading_label_and_title(heading_text)
         if key == "capitulos":
@@ -264,7 +326,7 @@ def _heading_prefix_from_metadata(metadata: dict[str, str | None]) -> str:
 def _split_structural_blocks(content: str) -> list[dict]:
     lines = content.splitlines()
     blocks: list[dict] = []
-    heading_stack: list[str] = []
+    heading_stack: list[tuple[str, int]] = []
     body_lines: list[str] = []
     current_section = "general"
     current_path = "general"
@@ -292,21 +354,23 @@ def _split_structural_blocks(content: str) -> list[dict]:
             continue
 
         if _looks_like_heading_line(line):
+            if _looks_like_toc_line(line):
+                continue
             flush()
             heading_text = " ".join(line.split())
             lower = heading_text.lower()
             role_hint = "title" if lower.startswith(("capítulo", "capitulo", "título", "titulo")) else "sectionHeading"
             level = _heading_level_from_text(heading_text, role_hint, heading_stack)
-            while len(heading_stack) >= level:
+            while heading_stack and heading_stack[-1][1] >= level:
                 heading_stack.pop()
-            heading_stack.append(heading_text)
+            heading_stack.append((heading_text, level))
             current_section = _infer_section_key(heading_text, default_key=current_section)
-            current_path = " > ".join(heading_stack)
+            current_path = " > ".join(h for h, _ in heading_stack)
             continue
 
         if not body_lines:
             current_section = _infer_section_key(line, default_key=current_section)
-            current_path = " > ".join(heading_stack) if heading_stack else current_section
+            current_path = " > ".join(h for h, _ in heading_stack) if heading_stack else current_section
         body_lines.append(line)
 
     flush()
@@ -355,7 +419,7 @@ def _to_intermediate_blocks(pages: list[dict]) -> tuple[list[dict], int]:
                 int(item.get("source_order", item.get("chunk_index", 0))),
             ),
         )
-        heading_stack: list[str] = []
+        heading_stack: list[tuple[str, int]] = []
         fallback_section_key = "general"
 
         for block in ordered:
@@ -379,13 +443,16 @@ def _to_intermediate_blocks(pages: list[dict]) -> tuple[list[dict], int]:
                 )
                 is_heading = block_type != "table" and (is_heading_role or looks_like_heading)
 
+                if is_heading and _looks_like_toc_line(content):
+                    continue
+
                 if is_heading:
                     heading_text = _normalize_heading_value(content)
                     effective_role = role if is_heading_role else "sectionHeading"
                     level = _heading_level_from_text(heading_text, effective_role, heading_stack)
-                    while len(heading_stack) >= level:
+                    while heading_stack and heading_stack[-1][1] >= level:
                         heading_stack.pop()
-                    heading_stack.append(heading_text)
+                    heading_stack.append((heading_text, level))
                     fallback_section_key = _infer_section_key(heading_text, default_key=fallback_section_key)
                 elif not heading_stack:
                     new_key = _infer_section_key(content, default_key=fallback_section_key)
@@ -547,6 +614,16 @@ def create_chunks(
         chunk_size=chunk_size,
         overlap=overlap,
     )
+
+    boilerplate = _detect_repeated_boilerplate_lines(pages)
+    if boilerplate:
+        pages = _strip_boilerplate_lines(pages, boilerplate)
+        logger.info(
+            "chunking_boilerplate_filtered",
+            correlation_id=str(correlation_id),
+            document_id=str(document_id),
+            lines_filtered=len(boilerplate),
+        )
 
     chunks: list[dict] = []
     chunk_index = 0

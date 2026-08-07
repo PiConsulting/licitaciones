@@ -11,14 +11,9 @@ def get_azure_openai_client() -> Any:
     """Retorna cliente LLM de extracción según perfil (development|production)."""
     settings = get_settings()
     if settings.is_development:
-        from langchain_cohere import ChatCohere
+        from shared.ports.local.cohere_chat import get_cohere_chat_client
 
-        return ChatCohere(
-            model=settings.cohere_model,
-            cohere_api_key=settings.cohere_api_key,
-            temperature=0.0,
-            max_tokens=4000,
-        )
+        return get_cohere_chat_client()
 
     missing: list[str] = []
     if not settings.azure_openai_endpoint.strip():

@@ -164,11 +164,14 @@ def _merge_typed_item_group(items: list[dict]) -> dict:
     return merged
 
 
-def _merge_duplicate_typed_items(items: list[dict], dedup_value: Callable[[dict], str]) -> list[dict]:
-    grouped: dict[tuple[str, str], list[dict]] = defaultdict(list)
-    order: list[tuple[str, str]] = []
+def _merge_duplicate_items_by_key(items: list[dict], key_fn: Callable[[dict], tuple]) -> list[dict]:
+    """Version generalizada de _merge_duplicate_typed_items: agrupa por una
+    clave arbitraria (no necesariamente tipo + un valor) y fusiona cada grupo
+    con _merge_typed_item_group."""
+    grouped: dict[tuple, list[dict]] = defaultdict(list)
+    order: list[tuple] = []
     for item in items:
-        key = (str(item.get("tipo", "")), dedup_value(item))
+        key = key_fn(item)
         if key not in grouped:
             order.append(key)
         grouped[key].append(item)
@@ -178,6 +181,19 @@ def _merge_duplicate_typed_items(items: list[dict], dedup_value: Callable[[dict]
         group = grouped[key]
         merged.append(group[0] if len(group) == 1 else _merge_typed_item_group(group))
     return merged
+
+
+def _merge_duplicate_typed_items(items: list[dict], dedup_value: Callable[[dict], str]) -> list[dict]:
+    return _merge_duplicate_items_by_key(items, lambda item: (str(item.get("tipo", "")), dedup_value(item)))
+
+
+def _normalized_valor_key(item: dict) -> str:
+    """Huella de texto para detectar el mismo hecho extraido dos veces con
+    redaccion casi identica (tipico cuando el mismo parrafo cae en dos chunks
+    solapados). Solo normaliza espacios/mayusculas -- deliberadamente NO hace
+    matching difuso (por substring o similitud) para no fusionar por error dos
+    hechos distintos que comparten palabras."""
+    return " ".join(str(item.get("valor", "")).split()).strip().lower()
 
 
 def calculate_confidence(source_references: list[dict], extraction_status: str) -> float:
@@ -291,6 +307,29 @@ def merge_node(state: GraphState) -> GraphState:
     for garantia in garantias:
         garantia["tipo"] = _canonical_garantia_tipo(str(garantia.get("tipo", "")))
     garantias = _merge_duplicate_typed_items(garantias, _garantia_dedup_value)
+
+    # Las otras 6 categorías no tienen un `tipo` canonicalizado especial: se
+    # deduplican por (tipo tal cual, huella normalizada del valor). El chunker
+    # solapa 120 tokens a propósito, así que es común que el mismo hecho quede
+    # citado en dos fragmentos distintos que el extractor recupera ambos.
+    objeto_alcance = _merge_duplicate_items_by_key(
+        objeto_alcance, lambda item: (str(item.get("tipo", "")), _normalized_valor_key(item))
+    )
+    requisitos_admisibilidad = _merge_duplicate_items_by_key(
+        requisitos_admisibilidad, lambda item: (str(item.get("tipo", "")), _normalized_valor_key(item))
+    )
+    # causales_rechazo: el único `tipo` posible es "causal_rechazo", así que
+    # agrupar con ese campo no distingue nada — se deduplica solo por valor.
+    causales = _merge_duplicate_items_by_key(causales, lambda item: (_normalized_valor_key(item),))
+    anexos = _merge_duplicate_items_by_key(
+        anexos, lambda item: (str(item.get("tipo", "")), _normalized_valor_key(item))
+    )
+    criterios = _merge_duplicate_items_by_key(
+        criterios, lambda item: (str(item.get("tipo", "")), _normalized_valor_key(item))
+    )
+    identificacion = _merge_duplicate_items_by_key(
+        identificacion, lambda item: (str(item.get("tipo", "")), _normalized_valor_key(item))
+    )
 
     extracted_data = {
         "objeto_alcance": objeto_alcance,

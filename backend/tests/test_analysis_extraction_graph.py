@@ -58,7 +58,11 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                     "valor": "Contratación de servicio de limpieza",
                     "confidence": 0.9,
                     "source_references": [
-                        {"document_id": "doc-1", "page_number": 2, "citation": "texto literal"}
+                        {
+                            "document_id": "doc-1",
+                            "page_number": 2,
+                            "citation": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
+                        }
                     ],
                     "extraction_status": "success",
                 }
@@ -72,7 +76,11 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                     "fecha": "2024-05-15",
                     "confidence": 0.95,
                     "source_references": [
-                        {"document_id": "doc-1", "page_number": 3, "citation": "texto literal"}
+                        {
+                            "document_id": "doc-1",
+                            "page_number": 3,
+                            "citation": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
+                        }
                     ],
                     "extraction_status": "success",
                 }
@@ -86,7 +94,11 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                     "monto_porcentaje": 1.0,
                     "confidence": 0.9,
                     "source_references": [
-                        {"document_id": "doc-1", "page_number": 5, "citation": "texto literal"}
+                        {
+                            "document_id": "doc-1",
+                            "page_number": 5,
+                            "citation": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
+                        }
                     ],
                     "extraction_status": "success",
                 }
@@ -100,7 +112,11 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                     "valor": "falta de certificado",
                     "confidence": 0.8,
                     "source_references": [
-                        {"document_id": "doc-1", "page_number": 7, "citation": "texto literal"}
+                        {
+                            "document_id": "doc-1",
+                            "page_number": 7,
+                            "citation": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
+                        }
                     ],
                     "extraction_status": "success",
                 }
@@ -114,7 +130,11 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                     "valor": "Certificado fiscal para contratar",
                     "confidence": 0.8,
                     "source_references": [
-                        {"document_id": "doc-1", "page_number": 8, "citation": "texto literal"}
+                        {
+                            "document_id": "doc-1",
+                            "page_number": 8,
+                            "citation": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
+                        }
                     ],
                     "extraction_status": "success",
                 }
@@ -128,7 +148,11 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                     "valor": "60%",
                     "confidence": 0.8,
                     "source_references": [
-                        {"document_id": "doc-1", "page_number": 9, "citation": "texto literal"}
+                        {
+                            "document_id": "doc-1",
+                            "page_number": 9,
+                            "citation": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
+                        }
                     ],
                     "extraction_status": "success",
                 }
@@ -142,7 +166,11 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                     "valor": "Anexo I - Formulario de oferta",
                     "confidence": 0.8,
                     "source_references": [
-                        {"document_id": "doc-1", "page_number": 13, "citation": "texto literal"}
+                        {
+                            "document_id": "doc-1",
+                            "page_number": 13,
+                            "citation": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
+                        }
                     ],
                     "extraction_status": "success",
                 }
@@ -548,3 +576,158 @@ def test_esquema_de_cada_prompt_usa_result_key_como_raiz() -> None:
             f"pero result_key es '{category_key}': el LLM va a responder con la clave "
             f"equivocada y la categoria va a quedar vacia siempre"
         )
+
+
+def _dedup_base_state() -> dict:
+    return {
+        "analysis_id": "analysis-1",
+        "correlation_id": "corr-1",
+        "plazos": [],
+        "garantias": [],
+        "objeto_alcance": [],
+        "requisitos_admisibilidad": [],
+        "causales": [],
+        "anexos": [],
+        "criterios": [],
+        "identificacion": [],
+    }
+
+
+def _anexo_item(valor: str, page_number: int, **overrides: object) -> dict:
+    item = {
+        "tipo": "anexo",
+        "valor": valor,
+        "confidence": 0.8,
+        "source_references": [{"document_id": "doc-1", "page_number": page_number, "citation": "cita"}],
+        "extraction_status": "success",
+    }
+    item.update(overrides)
+    return item
+
+
+def test_dedup_anexos_fusiona_duplicado_exacto() -> None:
+    state = _dedup_base_state()
+    state["anexos"] = [_anexo_item("Anexo I — Planilla de Cotización", 3), _anexo_item("Anexo I — Planilla de Cotización", 7)]
+
+    result = merge_node(state)
+    anexos = result["extracted_data"]["anexos_obligatorios"]
+
+    assert len(anexos) == 1
+    refs = anexos[0]["source_references"]
+    assert {ref["page_number"] for ref in refs} == {3, 7}
+
+
+def test_dedup_anexos_fusiona_con_espaciado_y_mayusculas_distintas() -> None:
+    state = _dedup_base_state()
+    state["anexos"] = [_anexo_item("Anexo I — Planilla", 3), _anexo_item("anexo i —  planilla", 7)]
+
+    result = merge_node(state)
+    anexos = result["extracted_data"]["anexos_obligatorios"]
+
+    assert len(anexos) == 1
+
+
+def test_dedup_anexos_no_fusiona_hechos_distintos() -> None:
+    state = _dedup_base_state()
+    state["anexos"] = [
+        _anexo_item("Anexo I — Planilla de Cotización", 3),
+        _anexo_item("Anexo II — Declaración Jurada", 7),
+    ]
+
+    result = merge_node(state)
+    anexos = result["extracted_data"]["anexos_obligatorios"]
+
+    assert len(anexos) == 2
+
+
+def test_dedup_causales_sin_campo_tipo_util_no_fusiona_hechos_distintos() -> None:
+    state = _dedup_base_state()
+    state["causales"] = [
+        {
+            "tipo": "causal_rechazo",
+            "valor": "No presentar la garantía de mantenimiento de oferta.",
+            "confidence": 0.9,
+            "source_references": [{"document_id": "doc-1", "page_number": 4, "citation": "cita"}],
+            "extraction_status": "success",
+        },
+        {
+            "tipo": "causal_rechazo",
+            "valor": "Presentar la oferta fuera del plazo establecido.",
+            "confidence": 0.9,
+            "source_references": [{"document_id": "doc-1", "page_number": 5, "citation": "cita"}],
+            "extraction_status": "success",
+        },
+    ]
+
+    result = merge_node(state)
+    causales = result["extracted_data"]["causales_rechazo"]
+
+    assert len(causales) == 2
+
+
+def test_dedup_causales_mismo_tipo_y_valor_se_fusiona() -> None:
+    state = _dedup_base_state()
+    state["causales"] = [
+        {
+            "tipo": "causal_rechazo",
+            "valor": "No presentar la garantía de mantenimiento de oferta.",
+            "confidence": 0.9,
+            "source_references": [{"document_id": "doc-1", "page_number": 4, "citation": "cita"}],
+            "extraction_status": "success",
+        },
+        {
+            "tipo": "causal_rechazo",
+            "valor": "no presentar la garantía de mantenimiento de oferta.",
+            "confidence": 0.85,
+            "source_references": [{"document_id": "doc-1", "page_number": 9, "citation": "cita"}],
+            "extraction_status": "success",
+        },
+    ]
+
+    result = merge_node(state)
+    causales = result["extracted_data"]["causales_rechazo"]
+
+    assert len(causales) == 1
+
+
+def test_dedup_no_cambia_comportamiento_de_plazos_y_garantias() -> None:
+    state = _dedup_base_state()
+    state["plazos"] = [
+        {
+            "tipo": "presentación ofertas",
+            "fecha": "2024-05-15",
+            "confidence": 0.9,
+            "source_references": [{"document_id": "doc-1", "page_number": 1, "citation": "a"}],
+            "extraction_status": "success",
+        },
+        {
+            "tipo": "presentación de ofertas",
+            "fecha": "2024-05-15",
+            "confidence": 0.8,
+            "source_references": [{"document_id": "doc-2", "page_number": 2, "citation": "b"}],
+            "extraction_status": "success",
+        },
+    ]
+    state["garantias"] = [
+        {
+            "tipo": "garantía de oferta",
+            "monto_porcentaje": 1.0,
+            "monto_valor": None,
+            "confidence": 0.9,
+            "source_references": [{"document_id": "doc-1", "page_number": 5, "citation": "a"}],
+            "extraction_status": "success",
+        },
+        {
+            "tipo": "mantenimiento de oferta",
+            "monto_porcentaje": 1.0,
+            "monto_valor": None,
+            "confidence": 0.85,
+            "source_references": [{"document_id": "doc-1", "page_number": 6, "citation": "b"}],
+            "extraction_status": "success",
+        },
+    ]
+
+    result = merge_node(state)
+
+    assert len(result["extracted_data"]["plazos_clave"]) == 1
+    assert len(result["extracted_data"]["garantias"]) == 1
