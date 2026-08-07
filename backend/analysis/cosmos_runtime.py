@@ -161,6 +161,9 @@ def _build_analysis_list_item(analysis: dict, documents: list[dict], extracted_d
     raw_stage_progress = metadata.get("stage_progress")
     stage_progress = raw_stage_progress if isinstance(raw_stage_progress, str) else None
 
+    # Obtener el nombre del usuario desde Cosmos
+    created_by_name = analysis.get("created_by_name")
+
     return {
         "id": analysis_id,
         "status": analysis.get("status", "draft"),
@@ -170,7 +173,7 @@ def _build_analysis_list_item(analysis: dict, documents: list[dict], extracted_d
         "created_at": _parse_dt(analysis.get("created_at")),
         "primary_document_name": primary_document_name,
         "organismo": _extract_organism(extracted_data),
-        "confidence_avg": calculate_confidence_avg(extracted_data),
+        "created_by_name": created_by_name,
     }
 
 
@@ -258,6 +261,7 @@ def list_analyses_cosmos(
 def create_analysis_with_documents_cosmos(
     *,
     user_id: str,
+    user_name: str,
     files: list[IncomingUploadFile],
     primary_file_index: int,
 ) -> CosmosAnalysisResult:
@@ -279,6 +283,7 @@ def create_analysis_with_documents_cosmos(
         "partition_key": analysis_id,
         "analysis_id": analysis_id,
         "created_by": user_id,
+        "created_by_name": user_name,
         "status": "draft",
         "current_stage": CurrentStage.QUEUED.value,
         "progress_percentage": 0,

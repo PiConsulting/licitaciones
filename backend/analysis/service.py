@@ -398,11 +398,14 @@ def list_analyses(
     selected_sort = sort_columns.get(sort_by, Analysis.created_at)
     selected_order = asc if sort_order == "asc" else desc
 
+    from users.models import User
+
     query = (
         db.query(
             Analysis,
             primary_document.filename.label("primary_document_name"),
             AnalysisVersion.extracted_data.label("extracted_data"),
+            User.name.label("created_by_name"),
         )
         .outerjoin(
             primary_document,
@@ -413,6 +416,7 @@ def list_analyses(
             ),
         )
         .outerjoin(AnalysisVersion, AnalysisVersion.id == Analysis.current_version_id)
+        .outerjoin(User, User.id == Analysis.created_by)
         .filter(
             Analysis.created_by == user_id,
             Analysis.deleted_at.is_(None),
@@ -449,7 +453,7 @@ def list_analyses(
     )
 
     items: list[dict] = []
-    for analysis, primary_document_name, extracted_data in rows:
+    for analysis, primary_document_name, extracted_data, created_by_name in rows:
         stage_progress = None
         if isinstance(analysis.extraction_metadata, dict):
             raw_progress = analysis.extraction_metadata.get("stage_progress")
@@ -466,7 +470,7 @@ def list_analyses(
                 "created_at": analysis.created_at,
                 "primary_document_name": primary_document_name,
                 "organismo": _extract_organism(extracted_data),
-                "confidence_avg": calculate_confidence_avg(extracted_data),
+                "created_by_name": created_by_name,
             }
         )
 

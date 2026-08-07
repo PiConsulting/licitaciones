@@ -206,6 +206,7 @@ async def create_analysis(
         try:
             result = create_analysis_with_documents_cosmos(
                 user_id=current_user.id,
+                user_name=current_user.name,
                 files=incoming_files,
                 primary_file_index=primary_file_index,
             )

@@ -62,7 +62,7 @@ class AnalysisListItem(BaseModel):
     created_at: datetime
     primary_document_name: str | None = None
     organismo: str | None = None
-    confidence_avg: float | None = None
+    created_by_name: str | None = None
 
 
 class AnalysisListResponse(BaseModel):

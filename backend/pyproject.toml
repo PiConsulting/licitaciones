@@ -18,6 +18,7 @@ dependencies = [
   "markitdown[pdf]>=0.0.1a3",
   "openai>=1.0.0",
   "passlib[bcrypt]>=1.7.4",
+  "bcrypt<5.0.0",  # Pin bcrypt<5 for passlib compatibility until passlib 1.7.5+
   "pymupdf>=1.24.9",
   "pydantic-settings>=2.3.0",
   "pyjwt>=2.8.0",
