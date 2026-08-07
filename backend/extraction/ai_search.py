@@ -107,6 +107,12 @@ class LocalChromaSearchAdapter(SearchClientPort):
                     # upload_chunks() ya serializó table_ref a JSON (o None); Chroma
                     # no acepta None en metadata, así que el "sin tabla" es "null".
                     "table_ref": doc.get("table_ref") or "null",
+                    # Chroma no acepta None en metadata: "sin valor" es "" para estos.
+                    "chapter": doc.get("chapter") or "",
+                    "article": doc.get("article") or "",
+                    "anexo": doc.get("anexo") or "",
+                    "inciso": doc.get("inciso") or "",
+                    "title": doc.get("title") or "",
                 }
             )
 
@@ -199,6 +205,11 @@ def upload_chunks(chunks_with_embeddings: list[dict], analysis_id: str | UUID, c
                 "table_ref": json.dumps(table_ref, ensure_ascii=True) if table_ref is not None else None,
                 "content": chunk["content"],
                 "embedding": chunk["embedding"],
+                "chapter": chunk.get("chapter"),
+                "article": chunk.get("article"),
+                "anexo": chunk.get("anexo"),
+                "inciso": chunk.get("inciso"),
+                "title": chunk.get("title"),
             }
         )
 
