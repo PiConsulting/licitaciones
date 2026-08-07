@@ -1,7 +1,6 @@
 import type { MouseEvent } from "react";
 
 import type { AnalysisListItem, AnalysisListSortBy, AnalysisListSortOrder } from "../../../types/analysis";
-import { ConfidenceBadge } from "./ConfidenceBadge";
 import { ProgressBar } from "./ProgressBar";
 import { StatusBadge } from "./StatusBadge";
 
@@ -22,8 +21,6 @@ function formatDate(value: string): string {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
   }).format(date);
 }
 
@@ -36,6 +33,19 @@ function sortIndicator(active: boolean, sortOrder: AnalysisListSortOrder): strin
 
 function isRunningStatus(status: string): boolean {
   return status === "queued" || status === "analyzing";
+}
+
+const STAGE_LABELS: Record<string, string> = {
+  queued: "En cola",
+  extracting_text: "Extrayendo texto",
+  indexing: "Indexando",
+  analyzing: "Analizando",
+  consolidating: "Consolidando",
+  completed: "Completado",
+};
+
+function translateStage(stage: string): string {
+  return STAGE_LABELS[stage] ?? stage;
 }
 
 export function AnalysisTable({ items, sortBy, sortOrder, onSort, onRowClick }: AnalysisTableProps) {
@@ -53,25 +63,25 @@ export function AnalysisTable({ items, sortBy, sortOrder, onSort, onRowClick }: 
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Pliego</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Organismo</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">PLIEGO</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">ORGANISMO</th>
               <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
                 <button type="button" className="hover:text-primary" onClick={() => onSort("status")}>
-                  Estado{sortIndicator(sortBy === "status", sortOrder)}
+                  ESTADO{sortIndicator(sortBy === "status", sortOrder)}
                 </button>
               </th>
               <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
                 <button type="button" className="hover:text-primary" onClick={() => onSort("current_stage")}>
-                  Etapa{sortIndicator(sortBy === "current_stage", sortOrder)}
+                  ETAPA{sortIndicator(sortBy === "current_stage", sortOrder)}
                 </button>
               </th>
-              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Confianza</th>
               <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
                 <button type="button" className="hover:text-primary" onClick={() => onSort("created_at")}>
-                  Fecha{sortIndicator(sortBy === "created_at", sortOrder)}
+                  FECHA{sortIndicator(sortBy === "created_at", sortOrder)}
                 </button>
               </th>
-              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">Acciones</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">CREADO POR</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">ACCIONES</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 bg-white">
@@ -94,13 +104,11 @@ export function AnalysisTable({ items, sortBy, sortOrder, onSort, onRowClick }: 
                       stageProgress={item.stage_progress}
                     />
                   ) : (
-                    <span>{item.current_stage}</span>
+                    <span>{translateStage(item.current_stage)}</span>
                   )}
                 </td>
-                <td className="px-4 py-3 text-sm text-gray-700">
-                  <ConfidenceBadge confidence={item.confidence_avg} />
-                </td>
                 <td className="px-4 py-3 text-sm text-gray-700">{formatDate(item.created_at)}</td>
+                <td className="px-4 py-3 text-sm text-gray-700">{item.created_by_name ?? "Desconocido"}</td>
                 <td className="px-4 py-3 text-sm text-gray-700">
                   <button
                     type="button"

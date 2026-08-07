@@ -73,7 +73,7 @@ export interface AnalysisListItem {
   created_at: string;
   primary_document_name?: string | null;
   organismo?: string | null;
-  confidence_avg?: number | null;
+  created_by_name?: string | null;
 }
 
 export interface AnalysisListResponse {
