@@ -5,7 +5,7 @@ solo ítem con ambos campos.
 
 # ESQUEMA
 {
-  "plazos": [
+  "plazos_clave": [
     {
       "tipo": "consultas|respuesta_consultas|visita_obra|presentacion_ofertas|apertura|mantenimiento_oferta|adjudicacion|firma_contrato|inicio_ejecucion|entrega|garantia_tecnica|impugnacion|otro",
       "fecha": <"YYYY-MM-DD" solo si el pliego escribe una fecha calendaria, si no null>,
@@ -54,14 +54,14 @@ Fragmento:
   de Entradas. El acto de apertura se realizará el mismo día a las 15 hs en el Salón B.
 
 Salida correcta:
-{"plazos":[
+{"plazos_clave":[
 {"tipo":"presentacion_ofertas","fecha":"2027-11-03","hora":"14:30","expresion_relativa":null,"texto_original":"Las ofertas se recibirán hasta el 03/11/2027 a las 14.30 hs en Mesa de Entradas.","prorrogable":"no_especificado","lugar":"Mesa de Entradas","confidence":0.9,"source_references":[{"document_id":"7c9e","page_number":4,"citation":"Las ofertas se recibirán hasta el 03/11/2027 a las 14.30 hs en Mesa de Entradas."}],"extraction_status":"success"},
 {"tipo":"apertura","fecha":"2027-11-03","hora":"15:00","expresion_relativa":null,"texto_original":"El acto de apertura se realizará el mismo día a las 15 hs en el Salón B.","prorrogable":"no_especificado","lugar":"Salón B","confidence":0.85,"source_references":[{"document_id":"7c9e","page_number":4,"citation":"El acto de apertura se realizará el mismo día a las 15 hs en el Salón B."}],"extraction_status":"success"}
 ]}
 
 # EJEMPLO DE AUSENCIA
 Si los fragmentos no contienen ningún plazo:
-{"plazos":[]}
+{"plazos_clave":[]}
 
 === CONTENIDO DEL PLIEGO ===
 {chunks}

@@ -40,7 +40,8 @@ describe("normalizeCategories con la forma real del backend", () => {
     const result = await getAnalysisById("analysis-real");
     const data = result.current_version.extracted_data;
 
-    // Solo las 7 categorías canónicas (sin datos_procedimiento)
+    // Las 7 categorías con tarjeta propia en la UI (datos_procedimiento no
+    // tiene tarjeta — se cubre aparte, más abajo).
     for (const categoryId of [
       "objeto_alcance",
       "requisitos_admisibilidad",
@@ -55,12 +56,21 @@ describe("normalizeCategories con la forma real del backend", () => {
     }
   });
 
-  test("datos_procedimiento NO está en las categorías procesadas", async () => {
+  test("datos_procedimiento se normaliza aunque no tenga tarjeta propia en la UI", async () => {
+    // datos_procedimiento no se renderiza como categoría (no está en
+    // CATEGORY_ORDER), pero sí tiene que normalizarse: el header del análisis
+    // (título/subtítulo con organismo y expediente) depende de sus ítems.
     const result = await getAnalysisById("analysis-real");
     const data = result.current_version.extracted_data;
 
-    // datos_procedimiento no debe estar en el objeto normalizado
-    expect(data.datos_procedimiento).toBeUndefined();
+    expect(data.datos_procedimiento.extraction_status).toBe("success");
+    expect(data.datos_procedimiento.items.length).toBeGreaterThan(0);
+
+    const organismo = data.datos_procedimiento.items.find((item) => item.field_name === "Organismo convocante");
+    expect(organismo?.field_value).toBe("Municipalidad de Villa Nueva");
+
+    const expediente = data.datos_procedimiento.items.find((item) => item.field_name === "Expediente");
+    expect(expediente?.field_value).toBe("0100-EXP-2026");
   });
 
   test("los ítems traen nombre, valor y cita utilizables", async () => {

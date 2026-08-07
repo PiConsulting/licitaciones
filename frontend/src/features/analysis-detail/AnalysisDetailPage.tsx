@@ -67,6 +67,7 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
               documentName={activeDocumentName ?? "Documento"}
               citations={activeCitations}
               documents={query.data.documents}
+              focusCitation={selectedCitation}
             />
           ) : (
             <p className="p-4">No hay documentos disponibles para este análisis.</p>

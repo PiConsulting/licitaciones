@@ -40,6 +40,20 @@ Un ítem por requisito.
 - `momento_presentacion` y `subsanable` solo si el pliego lo explicita para ese ítem.
 - Si no hay evidencia verificable, no emitas el ítem.
 
+# EJEMPLO DE FORMA (no copiar contenido)
+Fragmento:
+  [Fragmento: F1, Documento: 7c9e, Página: 3, Sección: Capítulo 2 > Artículo 2°, Tipo: PÁRRAFO]
+  Artículo 2° — a) Constancia de inscripción en el Registro de Proveedores del
+  Municipio. Requisito legal, obligatorio, a presentar con la oferta. b) Certificado
+  fiscal para contratar. Requisito administrativo, obligatorio, a presentar con la
+  oferta.
+
+Salida correcta (dos ítems, uno por inciso, aunque vengan en una sola oración):
+{"requisitos_admisibilidad":[
+{"tipo":"documento","valor":"Constancia de inscripción en el Registro de Proveedores del Municipio","metadata":{"obligatorio":"si","momento_presentacion":"con_la_oferta","subsanable":"no_especificado"},"confidence":0.9,"source_references":[{"document_id":"7c9e","page_number":3,"citation":"a) Constancia de inscripción en el Registro de Proveedores del Municipio. Requisito legal, obligatorio, a presentar con la oferta."}],"extraction_status":"success"},
+{"tipo":"documento","valor":"Certificado fiscal para contratar","metadata":{"obligatorio":"si","momento_presentacion":"con_la_oferta","subsanable":"no_especificado"},"confidence":0.9,"source_references":[{"document_id":"7c9e","page_number":3,"citation":"b) Certificado fiscal para contratar. Requisito administrativo, obligatorio, a presentar con la oferta."}],"extraction_status":"success"}
+]}
+
 # EJEMPLO DE AUSENCIA
 Si los fragmentos no contienen requisitos de admisibilidad:
 {"requisitos_admisibilidad":[]}

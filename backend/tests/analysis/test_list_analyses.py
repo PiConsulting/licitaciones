@@ -194,6 +194,54 @@ def test_list_analyses_searches_by_organism(client: TestClient, auth_token: str)
     assert payload["items"][0]["organismo"] == "Ministerio de Educación"
 
 
+def test_list_analyses_organismo_desde_forma_actual_del_pipeline(client: TestClient, auth_token: str) -> None:
+    """`datos_procedimiento` sale del pipeline como una lista de items con
+    `tipo`/`valor` (GenericCategoryItem), no como `{"items": [{"field_name":
+    ..., "field_value": ...}]}`. Ese shape legado nunca lo emite el backend real
+    (es una transformación que solo hace el frontend al mostrar los datos), así
+    que este test cubre la forma que efectivamente persiste `merge_node`."""
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == "test@cedia.com").first()
+    assert user is not None
+    db.close()
+
+    now = datetime.now(UTC)
+    matched = _create_analysis(
+        user_id=user.id,
+        status="analyzed",
+        filename="pliego-hospital.pdf",
+        created_at=now,
+        extracted_data={
+            "datos_procedimiento": [
+                {
+                    "tipo": "organismo_convocante",
+                    "valor": "Hospital Público Provincial",
+                    "metadata": {},
+                    "confidence": 0.9,
+                    "source_references": [],
+                    "extraction_status": "success",
+                },
+                {
+                    "tipo": "expediente",
+                    "valor": "1234-2026",
+                    "metadata": {},
+                    "confidence": 0.9,
+                    "source_references": [],
+                    "extraction_status": "success",
+                },
+            ],
+        },
+    )
+    _create_analysis(user_id=user.id, status="analyzed", filename="pliego-vial.pdf", created_at=now)
+
+    response = client.get(f"/api/v1/analyses?search={matched.id}", headers=_auth_headers(auth_token))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["organismo"] == "Hospital Público Provincial"
+
+
 def test_list_analyses_pagination_returns_page_window(client: TestClient, auth_token: str) -> None:
     db = SessionLocal()
     user = db.query(User).filter(User.email == "test@cedia.com").first()

@@ -28,6 +28,7 @@ SEARCH_CHUNK_SELECT_FIELDS = [
 CATEGORY_SECTION_PREFERENCE: dict[str, list[str]] = {
     "objeto_alcance": ["capitulos", "articulos"],
     "plazos": ["articulos", "capitulos"],
+    "requisitos_admisibilidad": ["articulos", "incisos", "capitulos"],
     "garantias": ["articulos", "capitulos"],
     "causales_rechazo": ["articulos", "capitulos"],
     "anexos_obligatorios": ["anexos", "articulos"],

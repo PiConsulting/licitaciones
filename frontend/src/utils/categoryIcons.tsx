@@ -41,6 +41,26 @@ export const CRITICAL_CATEGORIES = new Set<CategoryId>([
 ]);
 
 /**
+ * Categorías donde cada ítem suele ser un hecho discreto (un anexo) en vez de
+ * una idea narrativa única. Misma lista que usa el backend
+ * (`synthesis.py::CHECKLIST_CATEGORIES`) para decidir el formato de la
+ * respuesta — se mantiene acá como fuente de verdad del lado frontend para el
+ * fallback local de síntesis.
+ */
+export const CHECKLIST_CATEGORIES = new Set<CategoryId>(["anexos_obligatorios"]);
+
+/**
+ * Categorías que SIEMPRE se responden como un único párrafo, nunca como
+ * viñetas, sin importar cuántos ítems se hayan extraído (pedido explícito:
+ * "una sola respuesta" en vez de una tarjeta por requisito o causal). Misma
+ * lista que `synthesis.py::SINGLE_PARAGRAPH_CATEGORIES`.
+ */
+export const SINGLE_PARAGRAPH_CATEGORIES = new Set<CategoryId>([
+  "requisitos_admisibilidad",
+  "causales_rechazo",
+]);
+
+/**
  * Orden canónico de categorías para visualización.
  * Define el flujo de lectura de negocio del pliego.
  * 

@@ -354,18 +354,24 @@ def _extract_organism(extracted_data: dict | None) -> str | None:
         return None
 
     datos_procedimiento = extracted_data.get("datos_procedimiento")
-    if isinstance(datos_procedimiento, dict):
-        items = datos_procedimiento.get("items")
-        if isinstance(items, list):
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
-                field_name = str(item.get("field_name", "")).lower()
-                if "organismo" not in field_name:
-                    continue
-                field_value = item.get("field_value")
-                if isinstance(field_value, str) and field_value.strip():
-                    return field_value.strip()
+
+    # Forma actual del pipeline: lista de GenericCategoryItem (`tipo`/`valor`).
+    items = datos_procedimiento if isinstance(datos_procedimiento, list) else None
+    if items is None and isinstance(datos_procedimiento, dict):
+        # Forma legada, por si algún análisis viejo quedó persistido así.
+        candidate = datos_procedimiento.get("items")
+        items = candidate if isinstance(candidate, list) else None
+
+    if items:
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("tipo") or item.get("field_name") or "").lower()
+            if "organismo" not in label:
+                continue
+            value = item.get("valor") if "valor" in item else item.get("field_value")
+            if isinstance(value, str) and value.strip():
+                return value.strip()
 
     for key, value in extracted_data.items():
         if "organismo" not in str(key).lower():

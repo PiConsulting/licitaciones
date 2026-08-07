@@ -1,11 +1,17 @@
 import { AxiosError } from "axios";
 
 import apiClient from "../../api/client";
+import { dedupeNarrativeSources } from "../../features/analysis-detail/utils/dedupeCitations";
 import {
   type AnalysisDetail,
   type CategoryData,
   type CategoryId,
+  type CategoryNarrative,
+  type ConfidenceLevel,
   type FieldItem,
+  type NarrativeBlockData,
+  type NarrativeSource,
+  type PlazoRawFields,
   type SourceReference,
 } from "../../features/analysis-detail/types";
 import type { AnalysisStatusResponse } from "../../types/analysis";
@@ -24,6 +30,134 @@ function toSourceReference(value: unknown): SourceReference | null {
     page: Number(value.page ?? 0),
     document_id: String(value.document_id ?? ""),
     text_snippet: String(value.text_snippet ?? ""),
+  };
+}
+
+function toConfidenceLevel(value: unknown): ConfidenceLevel {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "alta" || normalized === "high") {
+    return "high";
+  }
+  if (normalized === "media" || normalized === "medium") {
+    return "medium";
+  }
+  return "low";
+}
+
+function toSourceIds(value: unknown): number[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((id) => Number(id)).filter((id) => Number.isFinite(id));
+}
+
+function toNarrativeSource(value: unknown): NarrativeSource | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  return {
+    id: Number(value.id ?? 0),
+    document_id: String(value.document_id ?? ""),
+    document_name: "Documento",
+    page: Number(value.page_number ?? 0),
+    text: String(value.citation ?? ""),
+  };
+}
+
+/** Convierte un bloque crudo del backend (o de un narrative mal formado) a la
+ * forma tipada. Devuelve null ante cualquier bloque irreconocible en vez de
+ * lanzar — un bloque malformado nunca puede tumbar el resto de la respuesta. */
+function toNarrativeBlock(value: unknown): NarrativeBlockData | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const type = String(value.type ?? "");
+
+  if (type === "paragraph") {
+    const text = String(value.text ?? "").trim();
+    if (!text) {
+      return null;
+    }
+    return {
+      type: "paragraph",
+      text,
+      confidence_level: toConfidenceLevel(value.confidence_level),
+      source_ids: toSourceIds(value.source_ids),
+    };
+  }
+
+  if (type === "bullet_list") {
+    const rawItems = Array.isArray(value.items) ? value.items : [];
+    const items = rawItems
+      .filter(isRecord)
+      .map((item) => ({
+        text: String(item.text ?? "").trim(),
+        confidence_level: toConfidenceLevel(item.confidence_level),
+        source_ids: toSourceIds(item.source_ids),
+      }))
+      .filter((item) => item.text !== "");
+    if (items.length === 0) {
+      return null;
+    }
+    return { type: "bullet_list", items };
+  }
+
+  if (type === "table") {
+    const headers = Array.isArray(value.headers) ? value.headers.map((header) => String(header)) : [];
+    const rawRows = Array.isArray(value.rows) ? value.rows : [];
+    const rows = rawRows
+      .filter(isRecord)
+      .map((row) => ({
+        cells: Array.isArray(row.cells) ? row.cells.map((cell) => String(cell)) : [],
+        confidence_level: toConfidenceLevel(row.confidence_level),
+        source_ids: toSourceIds(row.source_ids),
+      }));
+    if (headers.length === 0 || rows.length === 0) {
+      return null;
+    }
+    return { type: "table", headers, rows };
+  }
+
+  return null;
+}
+
+/** Arma la CategoryNarrative del backend en la forma tipada del frontend. Es
+ * defensivo a propósito: si la síntesis vino mal formada o vacía, devuelve
+ * undefined y el llamador cae al fallback local en vez de romper la vista. */
+function toCategoryNarrative(value: unknown): CategoryNarrative | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const rawSources = Array.isArray(value.sources) ? value.sources : [];
+  const sources = dedupeNarrativeSources(
+    rawSources.map(toNarrativeSource).filter((source): source is NarrativeSource => source !== null),
+  );
+
+  const rawBlocks = Array.isArray(value.blocks) ? value.blocks : [];
+  const blocks = rawBlocks.map(toNarrativeBlock).filter((block): block is NarrativeBlockData => block !== null);
+
+  if (blocks.length === 0) {
+    return undefined;
+  }
+
+  return { blocks, sources };
+}
+
+/** Solo presente en ítems con forma de PlazoItem (mismo chequeo que usa
+ * `backendItemValue` para reconocerlos). Se preserva sin aplanar para que la
+ * timeline pueda ubicar fechas literales sin inventar ninguna. */
+function toPlazoRawFields(item: Record<string, unknown>): PlazoRawFields | undefined {
+  if (!("fecha" in item) && !("expresion_relativa" in item) && !("texto_original" in item)) {
+    return undefined;
+  }
+  return {
+    fecha: item.fecha == null ? null : String(item.fecha),
+    hora: item.hora == null ? null : String(item.hora),
+    expresion_relativa: item.expresion_relativa == null ? null : String(item.expresion_relativa),
+    texto_original: item.texto_original == null ? null : String(item.texto_original),
+    lugar: item.lugar == null ? null : String(item.lugar),
   };
 }
 
@@ -182,6 +316,7 @@ function fromBackendItem(value: unknown): FieldItem | null {
 
   const status = String(value.extraction_status ?? "success");
   const refsRaw = Array.isArray(value.source_references) ? value.source_references : [];
+  const raw = toPlazoRawFields(value);
 
   return {
     field_name: humanizeTipo(String(value.tipo ?? "")),
@@ -194,6 +329,7 @@ function fromBackendItem(value: unknown): FieldItem | null {
       document_id: String(ref.document_id ?? ""),
       document_name: "Documento",
     })),
+    ...(raw ? { raw } : {}),
   };
 }
 
@@ -227,6 +363,7 @@ function hasClickableEvidence(items: FieldItem[]): boolean {
 function fromBackendArray(
   rawItems: unknown[],
   statusFromSibling: unknown,
+  narrativeFromSibling?: unknown,
 ): CategoryData {
   const items = rawItems.map(fromBackendItem).filter((item): item is FieldItem => item !== null);
 
@@ -236,13 +373,18 @@ function fromBackendArray(
       ? withConfidence.reduce((total, item) => total + item.confidence, 0) / withConfidence.length
       : 0;
 
-  const sourceReferences = items.flatMap((item) =>
-    item.citations.map((citation) => ({
-      page: citation.page,
-      document_id: citation.document_id,
-      text_snippet: citation.text,
-    })),
-  );
+  const sourceReferencesSeen = new Set<string>();
+  const sourceReferences: SourceReference[] = [];
+  for (const item of items) {
+    for (const citation of item.citations) {
+      const key = `${citation.document_id}|${citation.page}|${citation.text.trim().toLowerCase()}`;
+      if (sourceReferencesSeen.has(key)) {
+        continue;
+      }
+      sourceReferencesSeen.add(key);
+      sourceReferences.push({ page: citation.page, document_id: citation.document_id, text_snippet: citation.text });
+    }
+  }
 
   const statusValue = String(statusFromSibling ?? "");
   const extractionStatus = ["success", "partial", "failed", "not_found", "not_applicable"].includes(statusValue)
@@ -258,11 +400,21 @@ function fromBackendArray(
     extraction_status: extractionStatus,
     summary: summarize(items),
     is_reviewed: false,
+    narrative: toCategoryNarrative(narrativeFromSibling),
   };
 }
 
+/**
+ * `CATEGORY_ORDER` es solo el orden de las tarjetas de categoría visibles en la
+ * UI y excluye a propósito `datos_procedimiento` (no tiene tarjeta propia, ver
+ * `categoryIcons.tsx`). Para normalizar datos del backend hace falta la lista
+ * completa de `CategoryId`, si no `datos_procedimiento` nunca se puebla y el
+ * organismo/expediente del header del análisis quedan siempre vacíos.
+ */
+const NORMALIZE_CATEGORY_IDS: CategoryId[] = [...CATEGORY_ORDER, "datos_procedimiento"];
+
 function normalizeCategories(extractedData: unknown): Record<CategoryId, CategoryData> {
-  const result = CATEGORY_ORDER.reduce<Record<CategoryId, CategoryData>>((acc, categoryId) => {
+  const result = NORMALIZE_CATEGORY_IDS.reduce<Record<CategoryId, CategoryData>>((acc, categoryId) => {
     acc[categoryId] = emptyCategoryData();
     return acc;
   }, {} as Record<CategoryId, CategoryData>);
@@ -277,13 +429,18 @@ function normalizeCategories(extractedData: unknown): Record<CategoryId, Categor
     datos_procedimiento: ["cronograma_proceso", "estimacion_presupuesto"],
   };
 
-  for (const categoryId of CATEGORY_ORDER) {
+  for (const categoryId of NORMALIZE_CATEGORY_IDS) {
     let rawCategory = extractedData[categoryId];
 
-    // Forma actual del backend: la categoría es un array de ítems y el estado
-    // agregado viaja en una clave hermana.
+    // Forma actual del backend: la categoría es un array de ítems, el estado
+    // agregado viaja en una clave hermana, y la narrativa de síntesis (cuando
+    // corrió) en `${categoryId}_narrative`.
     if (Array.isArray(rawCategory)) {
-      result[categoryId] = fromBackendArray(rawCategory, extractedData[BACKEND_STATUS_KEY[categoryId]]);
+      result[categoryId] = fromBackendArray(
+        rawCategory,
+        extractedData[BACKEND_STATUS_KEY[categoryId]],
+        extractedData[`${categoryId}_narrative`],
+      );
       continue;
     }
 
@@ -297,6 +454,7 @@ function normalizeCategories(extractedData: unknown): Record<CategoryId, Categor
         result[categoryId] = fromBackendArray(
           arrayCandidates.flat(),
           extractedData[BACKEND_STATUS_KEY[categoryId]],
+          extractedData[`${categoryId}_narrative`],
         );
         continue;
       }
@@ -334,7 +492,7 @@ function normalizeCategories(extractedData: unknown): Record<CategoryId, Categor
       extraction_status: extractionStatus,
       summary: String(rawCategory.summary ?? "Sin resumen disponible."),
       is_reviewed: Boolean(rawCategory.is_reviewed) && hasClickableEvidence(items),
-      narrative: rawCategory.narrative == null ? undefined : String(rawCategory.narrative),
+      narrative: toCategoryNarrative(rawCategory.narrative),
     };
   }
 

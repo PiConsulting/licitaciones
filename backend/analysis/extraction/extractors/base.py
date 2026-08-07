@@ -21,8 +21,11 @@ VALID_EXTRACTION_STATUSES = {"success", "partial", "failed", "not_found", "not_a
 BASE_SYSTEM_PROMPT_FILE = "_base_system.txt"
 _JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
 
+RESPONSE_BASE_PROMPT_FILE = "_response_base.txt"
+
 CANONICAL_PROMPT_FILES = {
     BASE_SYSTEM_PROMPT_FILE,
+    RESPONSE_BASE_PROMPT_FILE,
     "objeto_alcance.txt",
     "requisitos_admisibilidad.txt",
     "garantias.txt",
@@ -30,6 +33,7 @@ CANONICAL_PROMPT_FILES = {
     "criterios_evaluacion.txt",
     "causales_rechazo.txt",
     "anexos_obligatorios.txt",
+    "identificacion_procedimiento.txt",
 }
 
 CANONICAL_CATEGORY_PROMPT_MAP = {
@@ -40,6 +44,7 @@ CANONICAL_CATEGORY_PROMPT_MAP = {
     "criterios_evaluacion": "criterios_evaluacion.txt",
     "causales_rechazo": "causales_rechazo.txt",
     "anexos_obligatorios": "anexos_obligatorios.txt",
+    "identificacion_procedimiento": "identificacion_procedimiento.txt",
 }
 
 

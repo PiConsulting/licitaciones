@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -7,6 +8,7 @@ import pytest
 
 from analysis.extraction.extractors.anexos_obligatorios import extractor_anexos_obligatorios
 from analysis.extraction.extractors.base import (
+    CANONICAL_CATEGORY_PROMPT_MAP,
     CANONICAL_PROMPT_FILES,
     _normalize_item,
     _parse_json_response,
@@ -230,6 +232,54 @@ def test_merge_node_detects_conflicts() -> None:
     assert result["conflicts"][0]["category"] == "plazos"
 
 
+def test_merge_fusiona_plazos_duplicados_del_mismo_hecho() -> None:
+    """Bug real reportado: 'mantenimiento de oferta' aparecía dos veces en
+    Plazos Clave porque cada documento citaba el mismo plazo por separado y
+    nunca se fusionaban en un solo ítem (solo se comparaban para detectar
+    conflictos, nunca para deduplicar)."""
+    state = {
+        "analysis_id": "analysis-1",
+        "correlation_id": "corr-1",
+        "plazos": [
+            {
+                "tipo": "mantenimiento de la oferta",
+                "fecha": None,
+                "expresion_relativa": "30 días corridos desde la apertura",
+                "texto_original": "El oferente deberá mantener su oferta por 30 días corridos desde la apertura.",
+                "source_references": [{"document_id": "doc-1", "page_number": 4, "citation": "texto A"}],
+                "extraction_status": "success",
+                "confidence": 0.8,
+            },
+            {
+                "tipo": "garantía de mantenimiento de oferta",
+                "fecha": None,
+                "expresion_relativa": "30 días corridos desde la apertura",
+                "texto_original": "El oferente deberá mantener su oferta por 30 días corridos desde la apertura.",
+                "source_references": [{"document_id": "doc-2", "page_number": 7, "citation": "texto B"}],
+                "extraction_status": "success",
+                "confidence": 0.75,
+            },
+        ],
+        "garantias": [],
+        "causales": [],
+        "requisitos_admisibilidad": [],
+        "criterios": [],
+        "plazos_status": "success",
+        "garantias_status": "not_found",
+        "causales_status": "not_found",
+        "requisitos_admisibilidad_status": "not_found",
+        "criterios_status": "not_found",
+    }
+
+    result = merge_node(state)
+    plazos = result["extracted_data"]["plazos_clave"]
+
+    mantenimiento = [item for item in plazos if item["tipo"] == "mantenimiento_oferta"]
+    assert len(mantenimiento) == 1
+    assert len(mantenimiento[0]["source_references"]) == 2
+    assert result["conflicts"] == []
+
+
 def test_confidence_calculation() -> None:
     confidence_high = calculate_confidence(
         [{"citation": "A" * 150}, {"citation": "B" * 150}],
@@ -342,6 +392,44 @@ def test_merge_exposes_ui_category_keys() -> None:
     assert data["requisitos_admisibilidad_extraction_status"] == "success"
 
 
+def test_merge_populates_datos_procedimiento_desde_identificacion() -> None:
+    """`datos_procedimiento` solía quedar hardcodeado en `[]` porque el
+    extractor de identificación nunca estaba conectado al grafo (bug real: el
+    organismo convocante nunca se mostraba ni en el listado ni en el detalle
+    de un análisis)."""
+    state = {
+        "analysis_id": "analysis-1",
+        "correlation_id": "corr-1",
+        "plazos": [],
+        "garantias": [],
+        "causales": [],
+        "requisitos_admisibilidad": [],
+        "criterios": [],
+        "identificacion": [
+            {
+                "tipo": "organismo_convocante",
+                "valor": "Municipalidad de Villa Nueva",
+                "confidence": 0.9,
+                "source_references": [{"document_id": "doc-1", "page_number": 1, "citation": "texto literal"}],
+                "extraction_status": "success",
+            }
+        ],
+        "identificacion_status": "success",
+    }
+
+    result = merge_node(state)
+    data = result["extracted_data"]
+
+    assert data["datos_procedimiento_extraction_status"] == "success"
+    assert len(data["datos_procedimiento"]) == 1
+    assert data["datos_procedimiento"][0]["tipo"] == "organismo_convocante"
+    assert data["datos_procedimiento"][0]["valor"] == "Municipalidad de Villa Nueva"
+
+
+def test_extract_identificacion_esta_conectado_al_grafo() -> None:
+    assert "extract_identificacion" in graph.get_graph().nodes
+
+
 def test_individual_extractors(mock_state: dict, mock_search: None, mock_llm: None) -> None:
     assert extractor_objeto_alcance(dict(mock_state))["objeto_alcance_status"] in {"success", "not_found"}
     assert extractor_plazos(dict(mock_state))["plazos_status"] in {"success", "not_found"}
@@ -439,3 +527,24 @@ def test_mapeo_categoria_prompt_canonico() -> None:
     validate_category_prompt_mapping("plazos_clave", "plazos_clave.txt")
     with pytest.raises(ValueError, match="debe usar"):
         validate_category_prompt_mapping("plazos_clave", "garantias.txt")
+
+
+def test_esquema_de_cada_prompt_usa_result_key_como_raiz() -> None:
+    """Bug real detectado: plazos_clave.txt y causales_rechazo.txt declaraban un
+    ESQUEMA con clave raiz "plazos"/"causales" en vez de "plazos_clave"/
+    "causales_rechazo". run_extractor lee `llm_result.get(result_key)`, asi que
+    ese desacople hace que el payload nunca se encuentre y la categoria quede
+    vacia SIEMPRE, en cualquier pliego. Este test evita que el desacople
+    reaparezca sin que ningun otro test lo note (los tests con LLM mockeado no
+    lo detectan porque el mock no valida el texto literal del prompt)."""
+    base = Path("backend/analysis/extraction/prompts")
+
+    for category_key, prompt_file_name in CANONICAL_CATEGORY_PROMPT_MAP.items():
+        contenido = (base / prompt_file_name).read_text(encoding="utf-8")
+        clave_declarada = re.search(r'^\s*"([a-z_]+)":\s*\[', contenido, re.MULTILINE)
+        assert clave_declarada is not None, f"{prompt_file_name} no declara una clave raiz de ESQUEMA reconocible"
+        assert clave_declarada.group(1) == category_key, (
+            f"{prompt_file_name} declara la clave raiz '{clave_declarada.group(1)}' "
+            f"pero result_key es '{category_key}': el LLM va a responder con la clave "
+            f"equivocada y la categoria va a quedar vacia siempre"
+        )

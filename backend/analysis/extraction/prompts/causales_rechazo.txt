@@ -4,7 +4,7 @@ ofertas. Una causal por ítem.
 
 # ESQUEMA
 {
-  "causales": [
+  "causales_rechazo": [
     {
       "tipo": "causal_rechazo",
       "valor": <descripción de la causal, lo más cercana posible al texto del pliego>,
@@ -51,11 +51,11 @@ Fragmento:
   efectuará en el acto de apertura.
 
 Salida correcta:
-{"causales":[{"tipo":"causal_rechazo","valor":"No acompañar la garantía de mantenimiento de oferta","metadata":{"rechazo":"automatico","subsanable":"no","momento_aplicacion":"admision"},"confidence":0.9,"source_references":[{"document_id":"7c9e","page_number":6,"citation":"Serán rechazadas sin más trámite las ofertas que no acompañen la garantía de mantenimiento, no siendo dicha omisión subsanable."}],"extraction_status":"success"}]}
+{"causales_rechazo":[{"tipo":"causal_rechazo","valor":"No acompañar la garantía de mantenimiento de oferta","metadata":{"rechazo":"automatico","subsanable":"no","momento_aplicacion":"admision"},"confidence":0.9,"source_references":[{"document_id":"7c9e","page_number":6,"citation":"Serán rechazadas sin más trámite las ofertas que no acompañen la garantía de mantenimiento, no siendo dicha omisión subsanable."}],"extraction_status":"success"}]}
 
 # EJEMPLO DE AUSENCIA
 Si los fragmentos no enuncian causales de rechazo:
-{"causales":[]}
+{"causales_rechazo":[]}
 
 === CONTENIDO DEL PLIEGO ===
 {chunks}

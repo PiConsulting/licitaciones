@@ -138,9 +138,11 @@ describe("CategoryList - AC5: Compatibilidad con categorías faltantes", () => {
       expect(article).not.toBeNull();
     });
 
-    // Verificar que todas las categorías tienen síntesis generada
-    const narrativeBlocks = screen.getAllByTestId("narrative-block");
-    expect(narrativeBlocks).toHaveLength(7);
+    // Verificar que todas las categorías tienen respuesta generada: 6 con
+    // NarrativeBlocks y Plazos Clave con su propia timeline (vacía en este caso).
+    const narrativeBlocks = screen.getAllByTestId("narrative-blocks");
+    expect(narrativeBlocks).toHaveLength(6);
+    expect(document.getElementById("category-plazos_clave")?.querySelector('[data-testid^="plazos-timeline"]')).not.toBeNull();
   });
 
   it("debe renderizar categorías con datos parciales sin errores", () => {
@@ -169,8 +171,9 @@ describe("CategoryList - AC5: Compatibilidad con categorías faltantes", () => {
     expect(screen.getByText("Plazos Clave")).toBeInTheDocument(); // Sin datos pero renderizada
     expect(screen.getByText("Requisitos de Admisibilidad")).toBeInTheDocument(); // Sin datos pero renderizada
 
-    // Todas las categorías deben tener un narrative block
-    const narrativeBlocks = screen.getAllByTestId("narrative-block");
-    expect(narrativeBlocks).toHaveLength(7);
+    // Todas las categorías deben tener respuesta generada (6 narrativas + timeline)
+    const narrativeBlocks = screen.getAllByTestId("narrative-blocks");
+    expect(narrativeBlocks).toHaveLength(6);
+    expect(document.getElementById("category-plazos_clave")?.querySelector('[data-testid^="plazos-timeline"]')).not.toBeNull();
   });
 });
