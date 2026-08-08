@@ -13,9 +13,12 @@ Cada fragmento viene precedido por un header con este formato exacto:
 
 Reglas sobre la entrada:
 
-1. El campo `Sección` es una etiqueta estructural generada automáticamente y POCO
-   CONFIABLE (valores como "articulos", "capitulos", "general"). NO la uses para
-   decidir si un fragmento es relevante. Leé el texto de TODOS los fragmentos.
+1. El campo `Sección` es la ruta de encabezados del pliego hasta ese fragmento (ej.
+   "Capítulo 3 > Artículo 12 > Garantía de Mantenimiento de Oferta"), tal cual los
+   tituló el pliego — puede no decir literalmente el nombre de la categoría que
+   buscás (un pliego puede titular "Artículo 12" sin mencionar "garantías" en el
+   título). Es una ayuda de contexto, no un filtro: NO descartes un fragmento solo
+   porque su título no menciona la categoría. Leé el texto de TODOS los fragmentos.
 2. `Documento` es exactamente lo que va en `source_references[].document_id`.
    Copialo literal. Nunca lo inventes ni lo abrevies.
 3. `Página` es exactamente lo que va en `source_references[].page_number`.
@@ -63,8 +66,11 @@ La primera letra de tu respuesta es `{` y la última es `}`.
    cuando el pliego escribe una fecha calendaria explícita.
 
 5. `citation` debe ser una subcadena EXACTA del texto de un fragmento, entre 40 y
-   300 caracteres, sin reescribir, sin corregir ortografía, sin traducir.
-   Si no podés copiar texto literal que respalde el ítem, no emitas el ítem.
+   300 caracteres, sin reescribir, sin corregir ortografía, sin traducir. Tiene que
+   ser una oración o cláusula completa con sentido propio — NUNCA una palabra
+   suelta, un número solo, o un fragmento cortado a mitad de frase que no se
+   entiende fuera de contexto. Si no podés copiar texto literal y completo que
+   respalde el ítem, no emitas el ítem.
 
 6. Si la evidencia viene de un fragmento con `Tipo: TABLA`, la `citation` debe
    incluir encabezado y fila, con este formato:
@@ -99,6 +105,8 @@ Partís de 0.5 y ajustás:
 
 Acotás el resultado a [0.0, 1.0] y lo devolvés con dos decimales.
 Si `extraction_status` es `not_found` o `failed`, `confidence` es exactamente `0.0`.
+Si `extraction_status` es `not_applicable` con cita explícita, `confidence` es `0.7`.
+Si `extraction_status` es `not_applicable` sin cita, `confidence` es `0.0`.
 Nunca devuelvas `0.0` junto con `success`: es contradictorio.
 
 Interpretación para el usuario final (no la escribas en la salida):
@@ -114,7 +122,17 @@ reconocible de un pliego de licitación, devolvés exactamente:
 
 No inventes ítems para llenar el esquema.
 
-# VOCABULARIO EQUIVALENTE
-Distintas jurisdicciones usan nombres diferentes para lo mismo. Reconocé todos
-estos términos como referencias a la misma categoría:
+# RECONOCIMIENTO SEMÁNTICO DE LA CATEGORÍA
+Cada pliego usa su propio vocabulario para lo mismo (una jurisdicción dice
+"garantía de seriedad de oferta", otra "garantía de mantenimiento de oferta",
+otra ni siquiera le pone título a esa cláusula). No dependas de que el pliego
+use las palabras exactas de la categoría que buscás: entendé el concepto
+descripto al principio del prompt de la categoría y reconocelo aunque el
+pliego lo nombre distinto o no lo titule en absoluto.
+
+## Sinónimos frecuentes para esta categoría
 {glossary_terms}
+
+Usá esta lista como guía: si ves alguno de estos términos o conceptos
+equivalentes en los fragmentos, es muy probable que el dato pertenezca a esta
+categoría aunque el pliego lo nombre distinto.

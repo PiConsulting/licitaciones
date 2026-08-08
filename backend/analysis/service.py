@@ -113,7 +113,7 @@ def create_analysis_with_documents(
     user_id: str,
     files: list[IncomingUploadFile],
     primary_file_index: int,
-) -> tuple[Analysis, list[Document], list[DocumentWarning]]:
+) -> tuple[Analysis, list[Document], list[DocumentWarning], list[dict]]:
     if len(files) == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -187,7 +187,13 @@ def create_analysis_with_documents(
             event="analysis_created",
         )
 
-        return analysis, documents, warnings
+        # Detectar duplicados acá, apenas se suben los archivos, en vez de
+        # esperar a que el usuario le de a "iniciar análisis": el archivo ya
+        # está en blob y hasheado en este punto, no hay motivo para
+        # posponer el aviso.
+        duplicates = find_duplicates_for_analysis(db, analysis.id, user_id)
+
+        return analysis, documents, warnings, duplicates
     except Exception:
         db.rollback()
         for blob_name in uploaded_blob_names:

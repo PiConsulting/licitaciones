@@ -1,4 +1,3 @@
-import { FieldBadge } from "../FieldBadge";
 import type { CategoryNarrative, Citation, NarrativeSource } from "../types";
 
 interface NarrativeBlocksProps {
@@ -48,26 +47,17 @@ export function NarrativeBlocks({ narrative, onViewSource }: NarrativeBlocksProp
             return (
               <div key={index} className="flex items-start gap-2" data-testid="narrative-paragraph">
                 <p className="flex-1 text-sm leading-relaxed text-gray-800">{block.text}</p>
-                <div className="flex shrink-0 items-center gap-1">
-                  <FieldBadge level={block.confidence_level} />
-                </div>
               </div>
             );
           }
 
           if (block.type === "bullet_list") {
             return (
-              <ul key={index} className="space-y-2" data-testid="narrative-bullet-list">
+              <ul key={index} className="space-y-1.5" data-testid="narrative-bullet-list">
                 {block.items.map((item, itemIndex) => (
-                  <li
-                    key={itemIndex}
-                    className="flex items-start gap-2 rounded border border-gray-200 bg-white p-2"
-                    data-testid="narrative-bullet-item"
-                  >
+                  <li key={itemIndex} className="flex items-start gap-2" data-testid="narrative-bullet-item">
+                    <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-gray-400" aria-hidden="true" />
                     <span className="flex-1 text-sm leading-relaxed text-gray-800">{item.text}</span>
-                    <div className="flex shrink-0 items-center gap-1">
-                      <FieldBadge level={item.confidence_level} />
-                    </div>
                   </li>
                 ))}
               </ul>
@@ -84,7 +74,6 @@ export function NarrativeBlocks({ narrative, onViewSource }: NarrativeBlocksProp
                         {header}
                       </th>
                     ))}
-                    <th className="border-b border-gray-200 px-2 py-1" />
                   </tr>
                 </thead>
                 <tbody>
@@ -95,11 +84,6 @@ export function NarrativeBlocks({ narrative, onViewSource }: NarrativeBlocksProp
                           {cell}
                         </td>
                       ))}
-                      <td className="px-2 py-1.5">
-                        <div className="flex items-center gap-1">
-                          <FieldBadge level={row.confidence_level} />
-                        </div>
-                      </td>
                     </tr>
                   ))}
                 </tbody>

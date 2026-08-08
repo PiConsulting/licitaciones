@@ -69,10 +69,21 @@ Una `<fuente>` es la evidencia deduplicada que respalda tus bloques:
    deduzcas valores que no estén explícitos en los ítems (ej. no conviertas una
    `expresion_relativa` en una fecha).
 
-3. **Elegís el formato según el contenido, no al revés.** No fuerces una tabla si un
-   párrafo alcanza. La categoría puede tener más de un bloque (ej. un párrafo de
-   contexto seguido de una lista) si eso ayuda a la lectura.
-   {checklist_hint}
+3. **Elegís el formato según el contenido, no al revés.** No hay un formato fijo por
+   categoría — la misma categoría puede salir en párrafo en un pliego y en lista en
+   otro, según cuántos hechos independientes haya. Guía:
+   - Una idea central, aunque tenga varios matices menores → un solo `paragraph`
+     fluido en prosa de 2-4 oraciones máximo. Ejemplo: "Objeto y Alcance" tiene
+     tipo, modalidad, lugar y plazo de ejecución — todo eso cabe en un párrafo
+     fluido ("Se licita la provisión de X para Y, con entrega en Z y plazo de W.
+     No se admiten ofertas parciales ni alternativas."), NO en una lista de bullets.
+   - Varios hechos discretos e independientes entre sí (cada uno con su propio dato
+     concreto: un anexo, un requisito, una causal) → `bullet_list`, un ítem por hecho.
+   - Datos naturalmente comparables entre sí en varias filas (ej. distintas
+     garantías con su propio monto y forma de constitución) → `table`.
+   No fuerces una lista si un párrafo alcanza, ni fuerces un párrafo si el contenido
+   son claramente ítems sueltos. **Preferí la concisión**: si la respuesta completa
+   cabe en un párrafo de 2-4 oraciones, usá un solo párrafo.
 
 4. **`confidence_level`** por bloque/ítem/fila sale de la `confidence` numérica de
    los ítems que sustentan ese contenido: `>= 0.8` es `alta`, `>= 0.6` es `media`,
@@ -104,7 +115,9 @@ Una `<fuente>` es la evidencia deduplicada que respalda tus bloques:
    (`extraction_status` distinto de `success`/`partial`/`not_applicable` en todos),
    devolvés `{"blocks": [{"type": "paragraph", "text": "No se encontró información sobre {category_label} en el pliego.", "confidence_level": "baja", "source_ids": []}], "sources": []}`.
 
-# EJEMPLO DE FORMA (no copies el contenido, es solo estructura)
+# EJEMPLOS DE FORMA (no copies el contenido, es solo estructura)
+
+Ejemplo 1 — varios hechos discretos con datos propios → párrafo de contexto + lista:
 
 ```
 {
@@ -120,6 +133,19 @@ Una `<fuente>` es la evidencia deduplicada que respalda tus bloques:
     {"id": 0, "document_id": "abc-123", "page_number": 22, "citation": "Junto con la oferta se presentará una garantía del uno por ciento (1%) del valor total de la oferta."},
     {"id": 1, "document_id": "abc-123", "page_number": 22, "citation": "el adjudicatario entregará o depositará... una garantía del siete por ciento (7%) del valor total de la adjudicación"},
     {"id": 2, "document_id": "abc-123", "page_number": 23, "citation": "La garantía deberá presentarse antes del 15/09/2026 a las 10:00 hs."}
+  ]
+}
+```
+
+Ejemplo 2 — hechos relacionados que se leen mejor como una sola idea → un único párrafo:
+
+```
+{
+  "blocks": [
+    {"type": "paragraph", "text": "Serán causales de rechazo de la oferta: la falta de presentación de la garantía de mantenimiento de oferta, la presentación fuera del plazo fijado y la falsedad en la documentación acompañada.", "confidence_level": "alta", "source_ids": [0]}
+  ],
+  "sources": [
+    {"id": 0, "document_id": "abc-123", "page_number": 8, "citation": "Serán rechazadas las ofertas que no acompañen la garantía de mantenimiento, que se presenten fuera del plazo fijado en el artículo 5, o que contengan documentación falsa."}
   ]
 }
 ```

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from time import sleep
 from uuid import UUID
 
@@ -13,8 +14,30 @@ from shared.security import sanitize_error_message, sanitize_url_for_logs
 
 logger = structlog.get_logger(__name__)
 
-_EXCLUDED_PARAGRAPH_ROLES = {"pageHeader", "pageFooter", "footnote"}
-_HEADING_ROLES = {"title", "sectionHeading"}
+# Document Intelligence, en modo markdown, marca cada salto de pagina con este
+# comentario literal -- es la unica forma confiable de recuperar el numero de
+# pagina, porque el `<!-- PageNumber="N de M" -->` que a veces lo acompana no
+# siempre esta presente (depende de si el pie de pagina real del documento
+# tiene forma "N de M").
+_MD_PAGE_BREAK = "<!-- PageBreak -->"
+_MD_COMMENT_RE = re.compile(r"^<!--.*-->$")
+_MD_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$")
+_MD_TABLE_START_RE = re.compile(r"^<table\b")
+_MD_TABLE_END_RE = re.compile(r"^</table>")
+_MD_FIGURE_START_RE = re.compile(r"^<figure>")
+_MD_FIGURE_END_RE = re.compile(r"^</figure>")
+# Empuja las filas de tabla (extraidas aparte de result.tables, no del texto
+# markdown) siempre despues de los bloques de texto de su misma pagina. No hay
+# un sistema de offsets comun entre el markdown reconstruido y los spans que
+# Azure calcula sobre el documento original, asi que en vez de tratar de
+# interpolar exactamente se aprovecha que en la practica el texto que
+# introduce una tabla siempre viene antes que la tabla misma.
+_TABLE_SOURCE_ORDER_BASE = 10_000_000
+# Une palabras partidas por un salto de linea con guion de fin de renglon
+# ("ad-\nquisicion" -> "adquisicion"). Solo aplica entre minusculas: un guion
+# real de palabra compuesta casi siempre separa dos palabras completas, no
+# deja una letra sola pegada al salto de linea.
+_LINE_WRAP_HYPHEN_RE = re.compile(r"([a-záéíóúñ])-\n([a-záéíóúñ])")
 
 
 def _safe_int(value: object, default: int = 0) -> int:
@@ -125,52 +148,130 @@ def _serialize_table_rows(table: object, table_id: str) -> list[dict]:
     return row_blocks
 
 
-def _build_structured_blocks(result: object) -> tuple[list[dict], EventDict]:
-    paragraphs = list(getattr(result, "paragraphs", None) or [])
+def _dehyphenate(text: str) -> str:
+    return _LINE_WRAP_HYPHEN_RE.sub(r"\1\2", text)
+
+
+def _parse_markdown_blocks(markdown: str) -> tuple[list[dict], dict[int, int]]:
+    """Convierte el markdown de Document Intelligence en bloques de encabezado
+    (con su nivel, segun cantidad de '#') y parrafo, recuperando la pagina real
+    via los marcadores `<!-- PageBreak -->`. Las tablas HTML embebidas se
+    saltean aca -- se extraen aparte desde `result.tables` (fila por fila, con
+    table_ref) para no perder la granularidad que ya tenia el pipeline."""
+    blocks: list[dict] = []
+    heading_levels_by_order: dict[int, int] = {}
+
+    page_number = 1
+    source_order = 0
+    paragraph_lines: list[str] = []
+    in_figure = False
+    in_table = False
+
+    def flush_paragraph() -> None:
+        nonlocal paragraph_lines, source_order
+        text = _dehyphenate("\n".join(paragraph_lines)).strip()
+        paragraph_lines = []
+        if text:
+            blocks.append(
+                {
+                    "page_number": page_number,
+                    "block_type": "paragraph",
+                    "content": text,
+                    "source_order": source_order,
+                    "table_ref": None,
+                }
+            )
+            source_order += 1
+
+    for raw_line in markdown.splitlines():
+        stripped = raw_line.strip()
+
+        if stripped == _MD_PAGE_BREAK:
+            flush_paragraph()
+            page_number += 1
+            continue
+        if _MD_COMMENT_RE.match(stripped):
+            # <!-- PageNumber=... / PageFooter=... / PageHeader=... --> son
+            # membrete/pie repetido que Azure ya separa del cuerpo: se descarta,
+            # no hace falta la deteccion de boilerplate por repeticion de antes.
+            continue
+        if _MD_FIGURE_START_RE.match(stripped):
+            in_figure = True
+            continue
+        if _MD_FIGURE_END_RE.match(stripped):
+            in_figure = False
+            continue
+        if in_figure:
+            continue  # logos/membretes escaneados como figura: sin texto util
+        if _MD_TABLE_START_RE.match(stripped):
+            flush_paragraph()
+            in_table = True
+            continue
+        if _MD_TABLE_END_RE.match(stripped):
+            in_table = False
+            continue
+        if in_table:
+            continue
+
+        heading_match = _MD_HEADING_RE.match(stripped)
+        if heading_match:
+            flush_paragraph()
+            level = len(heading_match.group(1))
+            heading_text = heading_match.group(2).strip()
+            if heading_text:
+                blocks.append(
+                    {
+                        "page_number": page_number,
+                        "block_type": "paragraph",
+                        "content": heading_text,
+                        "source_order": source_order,
+                        "table_ref": None,
+                    }
+                )
+                heading_levels_by_order[source_order] = level
+                source_order += 1
+            continue
+
+        if not stripped:
+            if paragraph_lines:
+                paragraph_lines.append("")
+            continue
+
+        paragraph_lines.append(raw_line)
+
+    flush_paragraph()
+    return blocks, heading_levels_by_order
+
+
+def _build_markdown_blocks(result: object) -> tuple[list[dict], EventDict]:
+    markdown = str(getattr(result, "content", "") or "")
     tables = list(getattr(result, "tables", None) or [])
 
-    role_counts: dict[str, int] = {}
-    structured_blocks: list[dict] = []
-
-    for index, paragraph in enumerate(paragraphs):
-        role = str(getattr(paragraph, "role", "") or "paragraph")
-        role_counts[role] = role_counts.get(role, 0) + 1
-        if role in _EXCLUDED_PARAGRAPH_ROLES:
-            continue
-
-        content = str(getattr(paragraph, "content", "") or "").strip()
-        if not content:
-            continue
-
-        structured_blocks.append(
-            {
-                "page_number": _first_page_number(paragraph),
-                "block_type": "paragraph",
-                "role": role,
-                "content": content,
-                "source_order": _first_span_offset(paragraph, fallback=index),
-                "table_ref": None,
-            }
-        )
+    blocks, heading_levels_by_order = _parse_markdown_blocks(markdown)
+    for block in blocks:
+        level = heading_levels_by_order.get(block["source_order"])
+        if level is not None:
+            block["heading_level"] = level
 
     total_table_rows = 0
     for index, table in enumerate(tables, start=1):
         table_id = f"T{index}"
         row_blocks = _serialize_table_rows(table, table_id=table_id)
+        for row_index, row_block in enumerate(row_blocks):
+            row_block["source_order"] = _TABLE_SOURCE_ORDER_BASE + (index * 1000) + row_index
         total_table_rows += len(row_blocks)
-        structured_blocks.extend(row_blocks)
+        blocks.extend(row_blocks)
 
-    if structured_blocks:
-        structured_blocks.sort(key=lambda item: (int(item.get("page_number", 0)), int(item.get("source_order", 0))))
+    if blocks:
+        blocks.sort(key=lambda item: (int(item.get("page_number", 0)), int(item.get("source_order", 0))))
 
     telemetry: EventDict = {
-        "paragraphs_by_role": role_counts,
+        "markdown_chars": len(markdown),
+        "headings_count": len(heading_levels_by_order),
         "tables_count": len(tables),
         "tables_rows_total": total_table_rows,
-        "sections_by_role": role_counts.get("title", 0) + role_counts.get("sectionHeading", 0),
-        "sections_by_fallback": 0,
     }
-    return structured_blocks, telemetry
+    return blocks, telemetry
 
 
 class AzureDocumentIntelligenceAdapter(DocumentIntelligencePort):
@@ -181,7 +282,7 @@ class AzureDocumentIntelligenceAdapter(DocumentIntelligencePort):
 
     def extract_text(self, blob_url: str) -> list[dict]:
         from azure.ai.documentintelligence import DocumentIntelligenceClient
-        from azure.ai.documentintelligence.models import AnalyzeDocumentRequest
+        from azure.ai.documentintelligence.models import AnalyzeDocumentRequest, DocumentContentFormat
         from azure.core.credentials import AzureKeyCredential
 
         client = DocumentIntelligenceClient(
@@ -191,33 +292,16 @@ class AzureDocumentIntelligenceAdapter(DocumentIntelligencePort):
         poller = client.begin_analyze_document(
             model_id="prebuilt-layout",
             body=AnalyzeDocumentRequest(url_source=blob_url),
+            output_content_format=DocumentContentFormat.MARKDOWN,
         )
         result = poller.result(timeout=self._timeout_seconds)
 
-        blocks, telemetry = _build_structured_blocks(result)
-        if blocks:
-            logger.info("document_intelligence_structured_blocks", **telemetry)
-            return blocks
-
-        pages: list[dict] = []
-        for page in result.pages:
-            lines = [line.content for line in page.lines] if page.lines else []
-            content = "\n".join(lines).strip()
-            if content:
-                pages.append({"page_number": int(page.page_number), "content": content, "block_type": "paragraph"})
-
-        if not pages:
+        blocks, telemetry = _build_markdown_blocks(result)
+        if not blocks:
             raise DocumentTextExtractionError("No se detectó texto útil en el documento")
 
-        logger.info(
-            "document_intelligence_structured_blocks_fallback_lines",
-            paragraphs_by_role={},
-            tables_count=0,
-            tables_rows_total=0,
-            sections_by_role=0,
-            sections_by_fallback=0,
-        )
-        return pages
+        logger.info("document_intelligence_markdown_blocks", **telemetry)
+        return blocks
 
 
 def _build_adapter() -> DocumentIntelligencePort:

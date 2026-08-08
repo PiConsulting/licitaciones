@@ -238,20 +238,38 @@ def _normalize_confidence(item: dict) -> dict:
     refs = list(item.get("source_references", []))
     if "confidence" not in item:
         item["confidence"] = calculate_confidence(refs, status)
+    else:
+        conf = float(item.get("confidence", 0.0) or 0.0)
+        item["confidence"] = max(0.0, min(conf, 1.0))
     item["confidence_level"] = get_confidence_level(float(item.get("confidence", 0.0) or 0.0))
     return item
 
 
 def _penalize_unverifiable(item: dict) -> dict:
-    """Marca como partial los items sin citas verificables."""
+    """Marca como partial los items sin citas verificables. El minimo (40)
+    coincide con el que exige _base_system.txt (regla 5) -- si el LLM manda una
+    cita mas corta que eso, el prompt ya la considera invalida, asi que el
+    backstop de codigo tiene que usar el mismo piso."""
     refs = list(item.get("source_references", []))
     status = str(item.get("extraction_status", ""))
     if status in {"success", "partial"}:
-        usable = [ref for ref in refs if len(str(ref.get("citation", "")).strip()) >= 25]
+        usable = [ref for ref in refs if len(str(ref.get("citation", "")).strip()) >= 40]
         if not usable:
             item["extraction_status"] = "partial"
             item["_warning"] = "cita_insuficiente"
     return item
+
+
+def _category_confidence(items: list[dict]) -> float:
+    """Calcula un score de confianza agregado para toda la categoría."""
+    with_confidence = [
+        float(item.get("confidence", 0.0) or 0.0)
+        for item in items
+        if float(item.get("confidence", 0.0) or 0.0) > 0.0
+    ]
+    if not with_confidence:
+        return 0.0
+    return round(sum(with_confidence) / len(with_confidence), 2)
 
 
 def setup_node(state: GraphState) -> GraphState:
@@ -334,24 +352,32 @@ def merge_node(state: GraphState) -> GraphState:
     extracted_data = {
         "objeto_alcance": objeto_alcance,
         "objeto_alcance_extraction_status": state.get("objeto_alcance_status", "unknown"),
+        "objeto_alcance_confidence": _category_confidence(objeto_alcance),
         "requisitos_admisibilidad": requisitos_admisibilidad,
         "requisitos_admisibilidad_extraction_status": state.get("requisitos_admisibilidad_status", "unknown"),
+        "requisitos_admisibilidad_confidence": _category_confidence(requisitos_admisibilidad),
         "plazos_clave": plazos,
         "plazos_clave_extraction_status": state.get("plazos_status", "unknown"),
+        "plazos_clave_confidence": _category_confidence(plazos),
         "plazos": plazos,
         "plazos_extraction_status": state.get("plazos_status", "unknown"),
         "garantias": garantias,
         "garantias_extraction_status": state.get("garantias_status", "unknown"),
+        "garantias_confidence": _category_confidence(garantias),
         "causales_rechazo": causales,
         "causales_extraction_status": state.get("causales_status", "unknown"),
+        "causales_rechazo_confidence": _category_confidence(causales),
         "anexos_obligatorios": anexos,
         "anexos_extraction_status": state.get("anexos_status", "unknown"),
+        "anexos_obligatorios_confidence": _category_confidence(anexos),
         "datos_procedimiento": identificacion,
         "datos_procedimiento_extraction_status": state.get("identificacion_status", "unknown"),
+        "datos_procedimiento_confidence": _category_confidence(identificacion),
         "documentos_requeridos": [],
         "documentos_extraction_status": "not_found",
         "criterios_evaluacion": criterios,
         "criterios_extraction_status": state.get("criterios_status", "unknown"),
+        "criterios_evaluacion_confidence": _category_confidence(criterios),
         "restricciones_participacion": [],
         "restricciones_extraction_status": "not_found",
         "cronograma_proceso": [],

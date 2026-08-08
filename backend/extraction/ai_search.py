@@ -56,14 +56,13 @@ class AzureSearchAdapter(SearchClientPort):
 
 def _assert_index_contract(index, expected_dimensions: int) -> None:
     fields = {field.name: field for field in index.fields}
-    required_fields = {"analysis_id", "section_key", "content", "document_id", "page_number", "chunk_index", "embedding"}
+    required_fields = {"analysis_id", "content", "document_id", "page_number", "chunk_index", "embedding"}
     missing_fields = sorted(name for name in required_fields if name not in fields)
     if missing_fields:
         raise RuntimeError("Índice de AI Search incompleto. Campos faltantes: " + ", ".join(missing_fields))
 
-    for filter_field in ("analysis_id", "section_key"):
-        if not bool(getattr(fields[filter_field], "filterable", False)):
-            raise RuntimeError(f"Campo {filter_field} debe ser filterable en AI Search")
+    if not bool(getattr(fields["analysis_id"], "filterable", False)):
+        raise RuntimeError("Campo analysis_id debe ser filterable en AI Search")
 
     vector_dimensions = getattr(fields["embedding"], "vector_search_dimensions", None)
     if int(vector_dimensions or 0) != expected_dimensions:
@@ -132,9 +131,9 @@ def upload_chunks(chunks_with_embeddings: list[dict], analysis_id: str | UUID, c
                 "document_id": chunk["document_id"],
                 "page_number": chunk["page_number"],
                 "chunk_index": chunk["chunk_index"],
-                "section_key": chunk.get("section_key", "general"),
-                "section_path": chunk.get("section_path", chunk.get("section_key", "general")),
-                "section_level": int(chunk.get("section_level", 0) or 0),
+                "heading_path": list(chunk.get("heading_path") or []),
+                "heading_level": int(chunk.get("heading_level", 0) or 0),
+                "section_path": chunk.get("section_path", "general"),
                 "block_type": chunk.get("block_type", "paragraph"),
                 # Serializado una sola vez acá: tanto el índice de Azure Search
                 # (Edm.String) como la metadata de Chroma requieren texto plano,
@@ -142,11 +141,6 @@ def upload_chunks(chunks_with_embeddings: list[dict], analysis_id: str | UUID, c
                 "table_ref": json.dumps(table_ref, ensure_ascii=True) if table_ref is not None else None,
                 "content": chunk["content"],
                 "embedding": chunk["embedding"],
-                "chapter": chunk.get("chapter"),
-                "article": chunk.get("article"),
-                "anexo": chunk.get("anexo"),
-                "inciso": chunk.get("inciso"),
-                "title": chunk.get("title"),
             }
         )
 

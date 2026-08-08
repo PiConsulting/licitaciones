@@ -364,14 +364,19 @@ function fromBackendArray(
   rawItems: unknown[],
   statusFromSibling: unknown,
   narrativeFromSibling?: unknown,
+  categoryConfidenceFromSibling?: unknown,
 ): CategoryData {
   const items = rawItems.map(fromBackendItem).filter((item): item is FieldItem => item !== null);
 
-  const withConfidence = items.filter((item) => Number.isFinite(item.confidence) && item.confidence > 0);
-  const confidence =
-    withConfidence.length > 0
-      ? withConfidence.reduce((total, item) => total + item.confidence, 0) / withConfidence.length
-      : 0;
+  // Usar confidence de categoría del backend si existe; si no, fallback a promedio.
+  let confidence = Number(categoryConfidenceFromSibling ?? 0);
+  if (!Number.isFinite(confidence) || confidence <= 0) {
+    const withConfidence = items.filter((item) => Number.isFinite(item.confidence) && item.confidence > 0);
+    confidence =
+      withConfidence.length > 0
+        ? withConfidence.reduce((total, item) => total + item.confidence, 0) / withConfidence.length
+        : 0;
+  }
 
   const sourceReferencesSeen = new Set<string>();
   const sourceReferences: SourceReference[] = [];
@@ -440,6 +445,7 @@ function normalizeCategories(extractedData: unknown): Record<CategoryId, Categor
         rawCategory,
         extractedData[BACKEND_STATUS_KEY[categoryId]],
         extractedData[`${categoryId}_narrative`],
+        extractedData[`${categoryId}_confidence`],
       );
       continue;
     }
@@ -455,6 +461,7 @@ function normalizeCategories(extractedData: unknown): Record<CategoryId, Categor
           arrayCandidates.flat(),
           extractedData[BACKEND_STATUS_KEY[categoryId]],
           extractedData[`${categoryId}_narrative`],
+          extractedData[`${categoryId}_confidence`],
         );
         continue;
       }

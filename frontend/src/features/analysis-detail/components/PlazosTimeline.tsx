@@ -1,11 +1,10 @@
 import { useMemo, useState } from "react";
 import { Eye, Maximize2, MapPin, X } from "lucide-react";
 
-import { getConfidenceLevel, lowestConfidenceLevel } from "../../../utils/confidence";
+import { getConfidenceLevel } from "../../../utils/confidence";
 import { ActionButton } from "../ActionButton";
 import { FieldBadge } from "../FieldBadge";
 import type { Citation, ConfidenceLevel, FieldItem } from "../types";
-import { joinAsEnumeratedClause } from "../utils/naturalLanguage";
 
 interface PlazosTimelineProps {
   items: FieldItem[];
@@ -47,12 +46,17 @@ function formatDate(date: Date): string {
   return date.toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-/** Un solo párrafo con todos los plazos sin fecha fija (ej. "mantenimiento de
- * oferta: 30 días desde la apertura"), en vez de una tarjeta por ítem — misma
- * regla de "una sola respuesta" que el resto de las categorías. */
+/** Cada plazo sin fecha fija (ej. "mantenimiento de oferta: 30 días desde la
+ * apertura") es un hecho discreto e independiente de los demás -- se muestra
+ * como su propia fila, no todos apretujados en un párrafo único. */
 function undatedValue(item: FieldItem): string | null {
   const value = item.field_value ?? item.raw?.expresion_relativa ?? item.raw?.texto_original;
   return value ? value.trim() : null;
+}
+
+interface UndatedEntry {
+  item: FieldItem;
+  text: string;
 }
 
 interface TimelineChartProps {
@@ -190,21 +194,19 @@ export function PlazosTimeline({ items, onViewSource }: PlazosTimelineProps) {
 
   const today = useMemo(() => startOfDay(new Date()), []);
 
-  const undatedParagraph = useMemo(() => {
-    const sentences: string[] = [];
-    const confidenceLevels: ConfidenceLevel[] = [];
+  const undatedEntries = useMemo<UndatedEntry[]>(() => {
+    const entries: UndatedEntry[] = [];
     for (const item of undated) {
       const value = undatedValue(item);
       if (!value) {
         continue;
       }
-      sentences.push(`${item.field_name}: ${value}`);
-      confidenceLevels.push(getConfidenceLevel(item.confidence));
+      entries.push({
+        item,
+        text: `${item.field_name}: ${value}`,
+      });
     }
-    if (sentences.length === 0) {
-      return null;
-    }
-    return { text: joinAsEnumeratedClause(sentences), confidenceLevel: lowestConfidenceLevel(confidenceLevels) };
+    return entries;
   }, [undated]);
 
   if (dated.length === 0 && undated.length === 0) {
@@ -251,14 +253,22 @@ export function PlazosTimeline({ items, onViewSource }: PlazosTimelineProps) {
         </>
       ) : null}
 
-      {undatedParagraph ? (
-        <div className="mt-3 rounded-md border border-gray-200 bg-white p-3" data-testid="plazos-sin-fecha">
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-700">Plazos sin fecha fija</h4>
-          <div className="mt-2 flex items-start gap-2">
-            <p className="flex-1 text-sm leading-relaxed text-gray-800">{undatedParagraph.text}</p>
-            <FieldBadge level={undatedParagraph.confidenceLevel} />
-          </div>
-        </div>
+      {undatedEntries.length > 0 ? (
+        <ul className={`${dated.length > 0 ? "mt-3 border-t border-gray-200 pt-3" : ""} space-y-1.5`} data-testid="plazos-sin-fecha">
+          {undatedEntries.map(({ item, text }, index) => (
+            <li
+              key={`${item.field_name}-${index}`}
+              className="flex items-start gap-2"
+              data-testid="plazos-sin-fecha-item"
+            >
+              <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-gray-400" aria-hidden="true" />
+              <span className="flex-1 text-sm leading-relaxed text-gray-800">{text}</span>
+              {item.citations[0] ? (
+                <ActionButton text="Ver fuente" icon={Eye} variant="ghost" onClick={() => handleViewSource(item)} />
+              ) : null}
+            </li>
+          ))}
+        </ul>
       ) : null}
 
       {isFullscreen ? (

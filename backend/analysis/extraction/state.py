@@ -19,6 +19,9 @@ class GraphState(TypedDict, total=False):
     garantias: list[dict[str, Any]]
     garantias_status: str
 
+    requisitos_admisibilidad: list[dict[str, Any]]
+    requisitos_admisibilidad_status: str
+
     causales: list[dict[str, Any]]
     causales_status: str
 
@@ -50,6 +53,7 @@ class GraphState(TypedDict, total=False):
     plazos_token_usage: dict[str, int]
     objeto_alcance_token_usage: dict[str, int]
     garantias_token_usage: dict[str, int]
+    requisitos_admisibilidad_token_usage: dict[str, int]
     causales_token_usage: dict[str, int]
     anexos_token_usage: dict[str, int]
     documentos_token_usage: dict[str, int]

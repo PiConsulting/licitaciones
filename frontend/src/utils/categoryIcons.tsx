@@ -42,23 +42,15 @@ export const CRITICAL_CATEGORIES = new Set<CategoryId>([
 
 /**
  * Categorías donde cada ítem suele ser un hecho discreto (un anexo) en vez de
- * una idea narrativa única. Misma lista que usa el backend
- * (`synthesis.py::CHECKLIST_CATEGORIES`) para decidir el formato de la
- * respuesta — se mantiene acá como fuente de verdad del lado frontend para el
- * fallback local de síntesis.
+ * una idea narrativa única — usada solo por el fallback local de síntesis
+ * (`narrativeSynthesis.ts`, cuando el backend todavía no mandó `narrative`
+ * para esa categoría) para preferir lista sobre párrafo. El backend real
+ * (`_response_base.txt`) no tiene esta ni ninguna otra lista fija por
+ * categoría: el LLM elige el formato libremente según el contenido de cada
+ * pliego. Este fallback es más simple porque no es un LLM, pero tampoco debe
+ * forzar un formato único por categoría — ver `narrativeSynthesis.ts`.
  */
 export const CHECKLIST_CATEGORIES = new Set<CategoryId>(["anexos_obligatorios"]);
-
-/**
- * Categorías que SIEMPRE se responden como un único párrafo, nunca como
- * viñetas, sin importar cuántos ítems se hayan extraído (pedido explícito:
- * "una sola respuesta" en vez de una tarjeta por requisito o causal). Misma
- * lista que `synthesis.py::SINGLE_PARAGRAPH_CATEGORIES`.
- */
-export const SINGLE_PARAGRAPH_CATEGORIES = new Set<CategoryId>([
-  "requisitos_admisibilidad",
-  "causales_rechazo",
-]);
 
 /**
  * Orden canónico de categorías para visualización.

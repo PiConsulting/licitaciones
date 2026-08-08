@@ -459,32 +459,38 @@ def test_extract_identificacion_esta_conectado_al_grafo() -> None:
 
 
 def test_individual_extractors(mock_state: dict, mock_search: None, mock_llm: None) -> None:
-    assert extractor_objeto_alcance(dict(mock_state))["objeto_alcance_status"] in {"success", "not_found"}
-    assert extractor_plazos(dict(mock_state))["plazos_status"] in {"success", "not_found"}
-    assert extractor_garantias(dict(mock_state))["garantias_status"] in {"success", "not_found"}
-    assert extractor_causales(dict(mock_state))["causales_status"] in {"success", "not_found"}
-    assert extractor_anexos_obligatorios(dict(mock_state))["anexos_status"] in {"success", "not_found"}
+    assert extractor_objeto_alcance(dict(mock_state))["objeto_alcance_status"] in {"success", "not_found", "partial"}
+    assert extractor_plazos(dict(mock_state))["plazos_status"] in {"success", "not_found", "partial"}
+    assert extractor_garantias(dict(mock_state))["garantias_status"] in {"success", "not_found", "partial"}
+    assert extractor_causales(dict(mock_state))["causales_status"] in {"success", "not_found", "partial"}
+    assert extractor_anexos_obligatorios(dict(mock_state))["anexos_status"] in {"success", "not_found", "partial"}
     assert extractor_requisitos_admisibilidad(dict(mock_state))["requisitos_admisibilidad_status"] in {
         "success",
         "not_found",
+        "partial",
     }
-    assert extractor_criterios_evaluacion(dict(mock_state))["criterios_status"] in {"success", "not_found"}
+    assert extractor_criterios_evaluacion(dict(mock_state))["criterios_status"] in {"success", "not_found", "partial"}
 
 
-def test_extractor_uses_query_from_glossary(
+def test_extractor_usa_una_query_semantica_rica_sin_glosario(
     mock_state: dict,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Cada extractor manda una descripcion semantica rica del concepto
+    que busca, mas keywords del glossary para BM25."""
     captured_query = {"value": ""}
+    captured_keyword = {"value": ""}
 
-    def _fake_search_hybrid(*, query: str, analysis_id: str, top_k: int, section_key: str | None):
+    def _fake_search_hybrid(*, query: str, analysis_id: str, top_k: int, keyword_query: str | None = None):
         captured_query["value"] = query
+        captured_keyword["value"] = keyword_query or ""
         return []
 
     monkeypatch.setattr("analysis.extraction.extractors.base.search_hybrid", _fake_search_hybrid)
 
     extractor_criterios_evaluacion(mock_state)
-    assert "matriz de evaluacion" in captured_query["value"].lower()
+    assert "puntaje ponderado" in captured_keyword["value"].lower()
+    assert "criterios de evaluacion" in captured_keyword["value"].lower()
 
 
 def test_status_con_pipes_no_se_mapea_a_success() -> None:
@@ -493,8 +499,14 @@ def test_status_con_pipes_no_se_mapea_a_success() -> None:
 
 
 def test_confidence_invalida_se_deja_calcular_por_heuristica() -> None:
+    # confidence=0.0 ahora se acepta como valor valido (no se stripea)
     item = _normalize_item({"extraction_status": "success", "confidence": 0.0})
-    assert "confidence" not in item
+    assert item["confidence"] == 0.0
+    # Pero confidence invalida (>1.0, negativa, string) si se stripea
+    item2 = _normalize_item({"extraction_status": "success", "confidence": 1.5})
+    assert "confidence" not in item2
+    item3 = _normalize_item({"extraction_status": "success", "confidence": "invalid"})
+    assert "confidence" not in item3
 
 
 def test_parser_tolera_texto_antes_del_json() -> None:
@@ -503,7 +515,7 @@ def test_parser_tolera_texto_antes_del_json() -> None:
 
 
 def test_todos_los_prompts_referenciados_existen_y_tienen_placeholders() -> None:
-    base = Path("backend/analysis/extraction")
+    base = Path("analysis/extraction")
     extractor_files = [
         "objeto_alcance.py",
         "requisitos_admisibilidad.py",
@@ -565,7 +577,7 @@ def test_esquema_de_cada_prompt_usa_result_key_como_raiz() -> None:
     vacia SIEMPRE, en cualquier pliego. Este test evita que el desacople
     reaparezca sin que ningun otro test lo note (los tests con LLM mockeado no
     lo detectan porque el mock no valida el texto literal del prompt)."""
-    base = Path("backend/analysis/extraction/prompts")
+    base = Path("analysis/extraction/prompts")
 
     for category_key, prompt_file_name in CANONICAL_CATEGORY_PROMPT_MAP.items():
         contenido = (base / prompt_file_name).read_text(encoding="utf-8")

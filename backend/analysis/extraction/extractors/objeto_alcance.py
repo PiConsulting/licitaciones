@@ -3,6 +3,12 @@ from __future__ import annotations
 from analysis.extraction.extractors.base import run_extractor
 from analysis.extraction.state import GraphState
 
+_QUERY = (
+    "Qué se licita: objeto de la contratación, modalidad (bienes, servicios, obra), "
+    "lugar de entrega o prestación, plazo de ejecución, si se admiten ofertas parciales "
+    "o alternativas."
+)
+
 
 def extractor_objeto_alcance(state: GraphState) -> GraphState:
     return run_extractor(
@@ -11,7 +17,5 @@ def extractor_objeto_alcance(state: GraphState) -> GraphState:
         state_field="objeto_alcance",
         status_field="objeto_alcance_status",
         prompt_file_name="objeto_alcance.txt",
-        query="objeto alcance modalidad oferta parcial alternativas lugar de entrega plazo de ejecucion",
-        section_key="objeto_alcance",
-        glossary_key="objeto_alcance",
+        query=_QUERY,
     )

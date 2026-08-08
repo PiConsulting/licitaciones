@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { StepIndicator } from "../../components/StepIndicator";
+import type { DuplicateDecision } from "../../types/analysis";
 import type { UploadedFile } from "../../types/upload";
 import { Step1UploadFiles } from "./Step1UploadFiles";
 import { Step2DesignatePrimary } from "./Step2DesignatePrimary";
@@ -14,6 +15,7 @@ export default function NewAnalysisWizard() {
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [primaryIndex, setPrimaryIndex] = useState<number | null>(null);
   const [analysisId, setAnalysisId] = useState<string | null>(null);
+  const [initialDecisions, setInitialDecisions] = useState<DuplicateDecision[]>([]);
 
   const handleStep1Next = (selectedFiles: UploadedFile[]) => {
     setFiles(selectedFiles);
@@ -30,8 +32,9 @@ export default function NewAnalysisWizard() {
     setCurrentStep(3);
   };
 
-  const handleStep3Next = (newAnalysisId: string) => {
+  const handleStep3Next = (newAnalysisId: string, decisions: DuplicateDecision[]) => {
     setAnalysisId(newAnalysisId);
+    setInitialDecisions(decisions);
     setCurrentStep(4);
   };
 
@@ -56,7 +59,11 @@ export default function NewAnalysisWizard() {
         />
       ) : null}
       {currentStep === 4 && analysisId ? (
-        <Step4StartAnalysis analysisId={analysisId} onBack={() => setCurrentStep(3)} />
+        <Step4StartAnalysis
+          analysisId={analysisId}
+          initialDecisions={initialDecisions}
+          onBack={() => setCurrentStep(3)}
+        />
       ) : null}
     </div>
   );

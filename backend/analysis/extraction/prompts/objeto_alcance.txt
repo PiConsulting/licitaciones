@@ -1,10 +1,13 @@
 # OBJETIVO
-Extraer el objeto y el alcance de la contratación: qué se contrata, bajo qué
-modalidad, en qué cantidad, dónde se entrega o presta, en qué plazo, y si se
-admiten ofertas parciales o alternativas.
+Extraer qué se licita exactamente: el objeto y alcance de la contratación en
+forma concisa. Qué se contrata, bajo qué modalidad, dónde se entrega/presta y
+en qué plazo de ejecución. La respuesta final debería poder resumirse en 2-3
+líneas — no es un inventario técnico detallado sino una síntesis de qué se
+está licitando.
 
 Cada aspecto distinto es un ítem separado del array. No armes un solo ítem
-resumen que junte todo.
+resumen que junte todo, PERO tampoco emitas un ítem por cada renglón de una
+tabla larga de especificaciones técnicas — eso no va acá.
 
 # ESQUEMA
 {
@@ -31,11 +34,15 @@ resumen que junte todo.
 }
 
 # REGLAS ESPECÍFICAS
-- `resumen_objeto`: emitir exactamente uno, con la descripción de qué se contrata.
+- `resumen_objeto`: emitir exactamente uno, con la descripción concisa de qué se
+  contrata. Máximo 2 oraciones. Si es un pliego de servidores → "Provisión e
+  instalación de servidores rack para el datacenter municipal". No copies toda
+  la especificación técnica.
 - `modalidad`: bienes, servicios, obra pública, suministro, locación, u otro que
   el pliego nombre. Copiá el término del pliego, no lo normalices.
-- `item`: un ítem por renglón / lote cotizable. Si el pliego lista renglones en
-  una tabla, emitir uno por fila y citar encabezado + fila.
+- `item`: SOLO emitir si hay pocos renglones (≤5). Si el pliego tiene una tabla
+  con 20+ renglones técnicos, NO emitas uno por fila — eso es especificación
+  técnica, no alcance. En ese caso, el resumen_objeto ya cubre qué se licita.
 - `oferta_parcial` / `oferta_alternativa`: `valor` debe ser `"si"` o `"no"`.
   Frases como "no se admiten ofertas parciales" → `valor: "no"`, status `success`.
   Si el pliego no lo menciona → status `not_found`, no asumas ninguna de las dos.
@@ -44,7 +51,7 @@ resumen que junte todo.
   en la categoría de plazos clave.
 - `lugar_entrega`: dirección o dependencia donde se presta o entrega. Copiá la
   dirección completa tal como figura.
-- No mezcles especificaciones técnicas detalladas acá; solo el alcance.
+- No mezcles especificaciones técnicas detalladas acá; solo el alcance general.
 
 # EJEMPLO DE FORMA (no copiar contenido)
 Fragmento:

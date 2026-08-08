@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from extraction.ports.search_client_port import SearchClientPort
@@ -34,19 +35,15 @@ class LocalChromaSearchAdapter(SearchClientPort):
                     "document_id": str(doc["document_id"]),
                     "page_number": int(doc["page_number"]),
                     "chunk_index": int(doc["chunk_index"]),
-                    "section_key": str(doc.get("section_key", "general")),
-                    "section_path": str(doc.get("section_path", doc.get("section_key", "general"))),
-                    "section_level": int(doc.get("section_level", 0) or 0),
+                    # Chroma no acepta listas en metadata: se serializa igual que
+                    # table_ref, y chroma_search.py la deserializa de vuelta.
+                    "heading_path": json.dumps(list(doc.get("heading_path") or []), ensure_ascii=True),
+                    "heading_level": int(doc.get("heading_level", 0) or 0),
+                    "section_path": str(doc.get("section_path", "general")),
                     "block_type": str(doc.get("block_type", "paragraph")),
                     # upload_chunks() ya serializó table_ref a JSON (o None); Chroma
                     # no acepta None en metadata, así que el "sin tabla" es "null".
                     "table_ref": doc.get("table_ref") or "null",
-                    # Chroma no acepta None en metadata: "sin valor" es "" para estos.
-                    "chapter": doc.get("chapter") or "",
-                    "article": doc.get("article") or "",
-                    "anexo": doc.get("anexo") or "",
-                    "inciso": doc.get("inciso") or "",
-                    "title": doc.get("title") or "",
                 }
             )
 

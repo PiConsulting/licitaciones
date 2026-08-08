@@ -1,6 +1,12 @@
 # OBJETIVO
-Extraer las causales de rechazo, desestimación, descalificación o exclusión de
-ofertas. Una causal por ítem.
+Extraer la LISTA COMPLETA de motivos por los cuales una oferta se descalifica
+SIN evaluarla — las causales de rechazo formal. Esta es la información más
+crítica y la que menos se lee: todo lo que puede hacer que una oferta
+perfectamente competitiva sea descartada por un error formal.
+
+Incluye: falta de documentación, garantías insuficientes, incumplimiento de
+formatos, presentación fuera de término, inhabilitaciones, falsedad de datos,
+conductas anticompetitivas. Una causal por ítem.
 
 # ESQUEMA
 {

@@ -70,7 +70,11 @@ describe("buildNarrativeBlocks", () => {
     expect(narrative.blocks[0].type).toBe("bullet_list");
   });
 
-  test("requisitos_admisibilidad y causales_rechazo siempre son un unico parrafo, nunca bullet_list", () => {
+  test("requisitos_admisibilidad y causales_rechazo con varios hechos van en bullet_list, no apretujados en un parrafo", () => {
+    // No hay formato fijo por categoria: varios hechos discretos e
+    // independientes se listan, igual que cualquier otra categoria con mas de
+    // un item (ver comentario en categoryIcons.tsx sobre por que se saco
+    // SINGLE_PARAGRAPH_CATEGORIES).
     const category = createCategory([
       createField("documento", { value: "Certificado fiscal para contratar" }),
       createField("inhabilitacion", { value: "No estar inhabilitado por el Registro de Proveedores" }),
@@ -79,13 +83,13 @@ describe("buildNarrativeBlocks", () => {
 
     const requisitos = buildNarrativeBlocks(category, "requisitos_admisibilidad");
     expect(requisitos.blocks).toHaveLength(1);
-    expect(requisitos.blocks[0].type).toBe("paragraph");
-    if (requisitos.blocks[0].type === "paragraph") {
-      expect(requisitos.blocks[0].text).toContain("Certificado fiscal para contratar");
-      expect(requisitos.blocks[0].text).toContain("No estar inhabilitado por el Registro de Proveedores");
-      expect(requisitos.blocks[0].text).toContain("Acreditar 3 años de experiencia en el rubro");
-      // Una sola respuesta: los tres hechos van dentro de la misma oración, no en viñetas separadas.
-      expect(requisitos.blocks[0].text.match(/\(\d\)/g)).toHaveLength(3);
+    expect(requisitos.blocks[0].type).toBe("bullet_list");
+    if (requisitos.blocks[0].type === "bullet_list") {
+      expect(requisitos.blocks[0].items).toHaveLength(3);
+      const texts = requisitos.blocks[0].items.map((item) => item.text);
+      expect(texts.some((text) => text.includes("Certificado fiscal para contratar"))).toBe(true);
+      expect(texts.some((text) => text.includes("No estar inhabilitado por el Registro de Proveedores"))).toBe(true);
+      expect(texts.some((text) => text.includes("Acreditar 3 años de experiencia en el rubro"))).toBe(true);
     }
 
     const causalesCategory = createCategory([
@@ -94,7 +98,15 @@ describe("buildNarrativeBlocks", () => {
     ]);
     const causales = buildNarrativeBlocks(causalesCategory, "causales_rechazo");
     expect(causales.blocks).toHaveLength(1);
-    expect(causales.blocks[0].type).toBe("paragraph");
+    expect(causales.blocks[0].type).toBe("bullet_list");
+  });
+
+  test("requisitos_admisibilidad con un unico hecho va en parrafo, no en lista de un solo item", () => {
+    const category = createCategory([createField("documento", { value: "Certificado fiscal para contratar" })]);
+
+    const requisitos = buildNarrativeBlocks(category, "requisitos_admisibilidad");
+    expect(requisitos.blocks).toHaveLength(1);
+    expect(requisitos.blocks[0].type).toBe("paragraph");
   });
 
   test("nunca produce un bloque de tipo table", () => {

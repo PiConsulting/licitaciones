@@ -1,7 +1,7 @@
 import {
-  MAX_FILES,
   MAX_FILE_SIZE_BYTES,
   MAX_TOTAL_SIZE_BYTES,
+  MVP_MAX_FILES,
   type ValidationResult,
 } from "../types/upload";
 
@@ -43,13 +43,16 @@ export function validateTotalSize(totalBytes: number): ValidationResult {
 }
 
 export function validateFileCount(count: number): ValidationResult {
-  if (count <= MAX_FILES) {
+  if (count <= MVP_MAX_FILES) {
     return { valid: true };
   }
 
   return {
     valid: false,
-    error: `Podés subir hasta 10 archivos por análisis y seleccionaste ${count}`,
+    error:
+      MVP_MAX_FILES === 1
+        ? `Por ahora solo podés subir un archivo por análisis y seleccionaste ${count}`
+        : `Podés subir hasta ${MVP_MAX_FILES} archivos por análisis y seleccionaste ${count}`,
   };
 }
 

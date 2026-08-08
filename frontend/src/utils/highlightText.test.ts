@@ -9,6 +9,16 @@ describe("isPartOfCitation", () => {
     expect(isPartOfCitation("de", ["El objeto de la licitación"])).toBe(false);
   });
 
+  test("no marca match para stopwords de 3-5 letras muy frecuentes (ruido)", () => {
+    // Antes el piso era 3 caracteres: "los", "las", "del", "por", "con", "una"
+    // matcheaban casi cualquier cita y resaltaban palabras sueltas por toda la
+    // página, sin relación real con el fragmento citado.
+    const citation = "Los oferentes deberán presentar la garantía dentro del plazo establecido";
+    expect(isPartOfCitation("los", [citation])).toBe(false);
+    expect(isPartOfCitation("del", [citation])).toBe(false);
+    expect(isPartOfCitation("la", [citation])).toBe(false);
+  });
+
   test("no marca match si el fragmento no aparece en ninguna cita", () => {
     expect(isPartOfCitation("garantía", ["El objeto de la licitación es..."])).toBe(false);
   });

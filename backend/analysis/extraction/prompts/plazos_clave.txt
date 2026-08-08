@@ -1,7 +1,11 @@
 # OBJETIVO
-Extraer TODOS los plazos y fechas del procedimiento licitatorio.
-Un ítem por plazo. Si el pliego da una fecha y una hora para el mismo hito, es un
-solo ítem con ambos campos.
+Extraer los plazos y fechas CLAVE del procedimiento licitatorio: fecha de
+apertura de ofertas, plazo de mantenimiento de oferta, plazo de entrega o
+ejecución, plazos para consultas o impugnaciones, fecha de presentación.
+
+Estos son los hitos que un oferente necesita tener en un calendario para no
+perder la licitación por vencimiento. Un ítem por plazo. Si el pliego da una
+fecha y una hora para el mismo hito, es un solo ítem con ambos campos.
 
 # ESQUEMA
 {

@@ -3,6 +3,13 @@ from __future__ import annotations
 from analysis.extraction.extractors.base import run_extractor
 from analysis.extraction.state import GraphState
 
+_QUERY = (
+    "Datos de identificación del procedimiento: organismo o jurisdicción convocante, número "
+    "de expediente, número y tipo de procedimiento (licitación pública, privada, concurso, "
+    "contratación directa) y jurisdicción — típicamente en la carátula o los primeros "
+    "artículos del pliego."
+)
+
 
 def extractor_identificacion_procedimiento(state: GraphState) -> GraphState:
     return run_extractor(
@@ -11,7 +18,5 @@ def extractor_identificacion_procedimiento(state: GraphState) -> GraphState:
         state_field="identificacion",
         status_field="identificacion_status",
         prompt_file_name="identificacion_procedimiento.txt",
-        query="organismo convocante expediente numero de procedimiento tipo de procedimiento jurisdiccion",
-        section_key="identificacion_procedimiento",
-        glossary_key="datos_procedimiento",
+        query=_QUERY,
     )

@@ -32,7 +32,7 @@ describe("PlazosTimeline", () => {
     expect(screen.getByTestId("plazos-timeline-empty")).toBeInTheDocument();
   });
 
-  test("los plazos sin fecha se muestran como un único párrafo, no como bloques separados", () => {
+  test("los plazos sin fecha se muestran como filas separadas, no apretujados en un párrafo único", () => {
     const items = [
       undatedField("Mantenimiento de oferta", "30 días corridos desde la apertura"),
       undatedField("Consultas", "Hasta 5 días antes de la apertura"),
@@ -41,18 +41,18 @@ describe("PlazosTimeline", () => {
     render(<PlazosTimeline items={items} />);
 
     const container = screen.getByTestId("plazos-sin-fecha");
-    // Una sola respuesta: un único párrafo, nunca una lista con un <li> por ítem.
-    expect(container.querySelectorAll("li")).toHaveLength(0);
-    expect(container.querySelectorAll("p")).toHaveLength(1);
+    // Cada plazo es un hecho independiente: una fila por ítem, nunca un único
+    // párrafo con todo encadenado (eso era ilegible con muchos plazos).
+    expect(container.querySelectorAll('[data-testid="plazos-sin-fecha-item"]')).toHaveLength(2);
     expect(container).toHaveTextContent("Mantenimiento de oferta: 30 días corridos desde la apertura");
     expect(container).toHaveTextContent("Consultas: Hasta 5 días antes de la apertura");
   });
 
   test("plazos duplicados del mismo hecho no deberían llegar dos veces (regresión de datos, no de UI)", () => {
     // Este test documenta que la deduplicación real vive en el backend
-    // (merge_node); acá solo verificamos que si igual llegaran dos ítems con
-    // el mismo campo, ambos se listan dentro del mismo párrafo único (nunca
-    // como dos bloques), para no duplicar visualmente la respuesta.
+    // (merge_node); acá solo verificamos que la UI no hace su propia
+    // deduplicación silenciosa -- si llegaran dos ítems iguales, ambos se
+    // muestran como dos filas (el bug de datos se ve, no se esconde).
     const items = [
       undatedField("Mantenimiento de oferta", "30 días corridos desde la apertura"),
       undatedField("Mantenimiento de oferta", "30 días corridos desde la apertura"),
@@ -61,7 +61,7 @@ describe("PlazosTimeline", () => {
     render(<PlazosTimeline items={items} />);
 
     const container = screen.getByTestId("plazos-sin-fecha");
-    expect(container.querySelectorAll("p")).toHaveLength(1);
+    expect(container.querySelectorAll('[data-testid="plazos-sin-fecha-item"]')).toHaveLength(2);
   });
 
   test("con plazos con fecha, muestra el botón de pantalla completa y abre/cierra el modal", async () => {

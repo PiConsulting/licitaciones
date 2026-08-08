@@ -1,5 +1,5 @@
-import { CATEGORY_NAMES, CHECKLIST_CATEGORIES, SINGLE_PARAGRAPH_CATEGORIES } from "../../../utils/categoryIcons";
-import { getConfidenceLevel, lowestConfidenceLevel } from "../../../utils/confidence";
+import { CATEGORY_NAMES, CHECKLIST_CATEGORIES } from "../../../utils/categoryIcons";
+import { getConfidenceLevel } from "../../../utils/confidence";
 import type {
   CategoryData,
   CategoryId,
@@ -10,15 +10,6 @@ import type {
   NarrativeSource,
 } from "../types";
 import { dedupeNarrativeSources } from "./dedupeCitations";
-import { joinAsEnumeratedClause } from "./naturalLanguage";
-
-/** Frase de apertura para el párrafo único de las categorías en
- * `SINGLE_PARAGRAPH_CATEGORIES` — sin esto, el párrafo arranca directo con el
- * primer hecho enumerado, sin contexto de qué está respondiendo. */
-const SINGLE_PARAGRAPH_LEAD_IN: Partial<Record<CategoryId, string>> = {
-  requisitos_admisibilidad: "El pliego exige los siguientes requisitos de admisibilidad",
-  causales_rechazo: "El pliego establece que serán causales de rechazo de la oferta",
-};
 
 function normalizeText(value: string | null | undefined): string {
   return (value ?? "").trim();
@@ -84,35 +75,6 @@ function fallbackBlock(categoryId: CategoryId): NarrativeParagraphBlock {
 }
 
 /**
- * Arma el único párrafo de una categoría en `SINGLE_PARAGRAPH_CATEGORIES`:
- * une el valor de cada ítem extraído en una sola cláusula enumerada, en vez de
- * una viñeta por ítem — esas categorías tienen que verse como una sola
- * respuesta, nunca como una tarjeta por requisito/causal.
- */
-function buildSingleParagraphBlock(
-  items: FieldItem[],
-  categoryId: CategoryId,
-  sourceIndex: Map<string, number>,
-  sources: NarrativeSource[],
-): NarrativeParagraphBlock | null {
-  const extracted = items.filter(
-    (item) => item.field_state === "extraido" && normalizeText(item.field_value) !== "",
-  );
-  if (extracted.length === 0) {
-    return null;
-  }
-
-  const leadIn = SINGLE_PARAGRAPH_LEAD_IN[categoryId];
-  const clause = joinAsEnumeratedClause(extracted.map((item) => normalizeText(item.field_value)));
-  const text = leadIn ? `${leadIn}: ${clause}` : clause;
-
-  const sourceIds = [...new Set(extracted.flatMap((item) => collectSourceIds(item, sourceIndex, sources)))];
-  const confidenceLevel = lowestConfidenceLevel(extracted.map((item) => getConfidenceLevel(item.confidence)));
-
-  return { type: "paragraph", text, confidence_level: confidenceLevel, source_ids: sourceIds };
-}
-
-/**
  * Fallback de frontend para cuando el backend todavía no emitió `narrative`
  * para una categoría (la síntesis por LLM no corrió o falló). Produce la
  * misma forma de bloques que la síntesis del backend, para que el renderer
@@ -138,14 +100,11 @@ export function buildNarrativeBlocks(category: CategoryData, categoryId: Categor
   const sources: NarrativeSource[] = [];
   const sourceIndex = new Map<string, number>();
 
-  if (SINGLE_PARAGRAPH_CATEGORIES.has(categoryId)) {
-    const block = buildSingleParagraphBlock(items, categoryId, sourceIndex, sources);
-    if (!block) {
-      return { blocks: [fallbackBlock(categoryId)], sources: [] };
-    }
-    return { blocks: [block], sources: dedupeNarrativeSources(sources) };
-  }
-
+  // El formato no es fijo por categoría: varios hechos discretos e
+  // independientes van en lista, una idea única va en párrafo. Nunca se
+  // fuerza a juntar todo en un solo párrafo solo porque la categoría "suele"
+  // tener pocos datos -- eso llevaba a respuestas ilegibles cuando el pliego
+  // real tenía muchos hechos para esa categoría.
   const useBulletList = CHECKLIST_CATEGORIES.has(categoryId) || items.length > 1;
 
   if (!useBulletList) {

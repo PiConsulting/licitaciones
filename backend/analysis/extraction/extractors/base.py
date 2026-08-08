@@ -10,7 +10,7 @@ from typing import Any
 import structlog
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from analysis.extraction.glossary import build_prompt_glossary_block, build_query_from_glossary
+from analysis.extraction.glossary import build_keyword_query, build_prompt_glossary_block
 from analysis.extraction.state import GraphState
 from shared.config import get_settings
 from shared.ports.azure_openai import get_azure_openai_client
@@ -94,14 +94,11 @@ def _build_messages(
 ) -> list[tuple[str, str]]:
     system_prompt = (
         _load_prompt(BASE_SYSTEM_PROMPT_FILE)
-        .replace("{glossary_terms}", glossary_block or "(sin sinonimos configurados)")
+        .replace("{glossary_terms}", glossary_block or "(sin sinónimos configurados)")
         .replace("{root_key}", root_key)
     )
     user_prompt = (
-        _load_prompt(prompt_file_name)
-        .replace("{chunks}", chunks_block)
-        .replace("{glossary_terms}", glossary_block or "(sin sinonimos configurados)")
-        .replace("{root_key}", root_key)
+        _load_prompt(prompt_file_name).replace("{chunks}", chunks_block).replace("{root_key}", root_key)
     )
     return [("system", system_prompt), ("human", user_prompt)]
 
@@ -116,7 +113,7 @@ def _format_chunks(chunks: list[dict[str, Any]]) -> str:
             f"[Fragmento: F{position}, "
             f"Documento: {chunk.get('document_id', 'desconocido')}, "
             f"Página: {chunk.get('page_number', 0)}, "
-            f"Sección: {chunk.get('section_path', chunk.get('section_key', 'general'))}, "
+            f"Sección: {chunk.get('section_path', 'general')}, "
             f"Tipo: {'TABLA' if chunk.get('block_type') == 'table' else 'PÁRRAFO'}"
             f"{_table_hint(chunk)}]"
         )
@@ -220,7 +217,7 @@ def _normalize_item(item: dict[str, Any], fallback: dict[str, Any] | None = None
     except (TypeError, ValueError):
         parsed_confidence = None
 
-    if parsed_confidence is None or not (0.0 < parsed_confidence <= 1.0):
+    if parsed_confidence is None or not (0.0 <= parsed_confidence <= 1.0):
         normalized.pop("confidence", None)
     else:
         normalized["confidence"] = min(parsed_confidence, 1.0)
@@ -356,7 +353,9 @@ def _verify_citation_grounding(
         for ref in refs:
             citation = str(ref.get("citation", ""))
             key = (str(ref.get("document_id", "")), int(ref.get("page_number", 0) or 0))
-            candidates = chunks_by_doc_page.get(key) or chunks
+            candidates = chunks_by_doc_page.get(key)
+            if not candidates:
+                continue
             if _verify_reference_grounded(citation, candidates):
                 any_verified = True
                 break
@@ -387,9 +386,7 @@ def run_extractor(
     status_field: str,
     prompt_file_name: str,
     query: str,
-    section_key: str,
     is_object_result: bool = False,
-    glossary_key: str | None = None,
 ) -> GraphState:
     correlation_id = state["correlation_id"]
     analysis_id = state["analysis_id"]
@@ -404,14 +401,13 @@ def run_extractor(
     delta: GraphState = {}
 
     try:
-        resolved_glossary_key = glossary_key or result_key
-        resolved_query = build_query_from_glossary(resolved_glossary_key, query)
         settings = get_settings()
+        keyword_query = build_keyword_query(result_key)
         chunks = search_hybrid(
-            query=resolved_query,
+            query=query,
             analysis_id=analysis_id,
             top_k=settings.extraction_top_k,
-            section_key=section_key,
+            keyword_query=keyword_query or None,
         )
         chunks = _truncate_to_token_budget(chunks, settings.extraction_max_context_tokens)
 
@@ -421,8 +417,7 @@ def run_extractor(
                 correlation_id=correlation_id,
                 analysis_id=analysis_id,
                 category=result_key,
-                section_key=section_key,
-                query=resolved_query[:160],
+                query=query[:160],
             )
             delta[state_field] = _default_not_found_item() if is_object_result else []
             delta[status_field] = "not_found"
@@ -436,7 +431,7 @@ def run_extractor(
         messages = _build_messages(
             prompt_file_name=prompt_file_name,
             chunks_block=_format_chunks(chunks),
-            glossary_block=build_prompt_glossary_block(resolved_glossary_key),
+            glossary_block=build_prompt_glossary_block(result_key),
             root_key=result_key,
         )
 
