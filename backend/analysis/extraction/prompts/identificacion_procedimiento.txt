@@ -1,0 +1,73 @@
+# OBJETIVO
+Extraer los datos que identifican al procedimiento de contratación: qué organismo
+lo convoca, bajo qué expediente y número de procedimiento, qué tipo de
+procedimiento es (licitación pública, contratación directa, etc.) y en qué
+jurisdicción se tramita.
+
+Cada dato distinto es un ítem separado del array. No armes un solo ítem que junte
+todo.
+
+# ESQUEMA
+{
+  "identificacion_procedimiento": [
+    {
+      "tipo": "organismo_convocante|expediente|numero_procedimiento|tipo_procedimiento|jurisdiccion",
+      "valor": <texto literal o casi literal del pliego>,
+      "metadata": {},
+      "confidence": <número calculado según la rúbrica del sistema>,
+      "source_references": [
+        {
+          "document_id": <valor exacto del header del fragmento>,
+          "page_number": <valor exacto del header del fragmento>,
+          "citation": <subcadena literal del fragmento>
+        }
+      ],
+      "extraction_status": "success|partial|not_applicable|not_found"
+    }
+  ]
+}
+
+# REGLAS ESPECÍFICAS
+- `organismo_convocante`: el nombre propio del organismo, ministerio, municipio,
+  ente o dependencia que llama a la contratación (ej. "Municipalidad de Villa
+  Nueva", "Ministerio de Educación de la Provincia de Buenos Aires"). Copiá el
+  nombre completo tal como figura, sin abreviar ni completar siglas que el pliego
+  no expanda.
+- `expediente`: el número de expediente administrativo, tal como está escrito
+  (incluye guiones, barras y años si el pliego los usa).
+- `numero_procedimiento`: el número/código de la licitación o procedimiento en sí
+  (ej. "Licitación Pública N° 12/2026"), distinto del expediente administrativo.
+  Si el pliego solo menciona uno de los dos, no inventes el otro.
+- `tipo_procedimiento`: la modalidad de selección que el pliego nombra
+  explícitamente (licitación pública, licitación privada, contratación directa,
+  concurso de precios, subasta, u otra). Copiá el término del pliego, no lo
+  normalices.
+- `jurisdiccion`: el ámbito jurisdiccional o nivel de gobierno declarado
+  explícitamente (nacional, provincial, municipal, u otro que el pliego nombre).
+  No lo deduzcas del nombre del organismo si el pliego no lo declara aparte.
+- Emití como máximo un ítem por `tipo`. Si el mismo dato aparece repetido en
+  varios fragmentos, consolidalo en un solo ítem y sumá las citas.
+
+# EJEMPLO DE FORMA (no copiar contenido)
+Fragmento:
+  [Fragmento: F1, Documento: 7c9e, Página: 1, Sección: Carátula, Tipo: PÁRRAFO]
+  MUNICIPALIDAD DE VILLA NUEVA — Expediente N° 4521-2026. Licitación Pública N°
+  08/2026 para la contratación del servicio de limpieza integral de los edificios
+  municipales.
+
+Salida correcta:
+{"identificacion_procedimiento":[
+{"tipo":"organismo_convocante","valor":"Municipalidad de Villa Nueva","metadata":{},"confidence":0.9,"source_references":[{"document_id":"7c9e","page_number":1,"citation":"MUNICIPALIDAD DE VILLA NUEVA — Expediente N° 4521-2026."}],"extraction_status":"success"},
+{"tipo":"expediente","valor":"4521-2026","metadata":{},"confidence":0.9,"source_references":[{"document_id":"7c9e","page_number":1,"citation":"Expediente N° 4521-2026."}],"extraction_status":"success"},
+{"tipo":"numero_procedimiento","valor":"Licitación Pública N° 08/2026","metadata":{},"confidence":0.9,"source_references":[{"document_id":"7c9e","page_number":1,"citation":"Licitación Pública N° 08/2026 para la contratación del servicio de limpieza integral de los edificios municipales."}],"extraction_status":"success"}
+]}
+
+# EJEMPLO DE AUSENCIA
+Si los fragmentos no identifican el procedimiento:
+{"identificacion_procedimiento":[]}
+
+=== CONTENIDO DEL PLIEGO ===
+{chunks}
+=== FIN DEL CONTENIDO ===
+
+Recordá: primera letra `{`. Un solo ítem por `tipo`. Citas literales.

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
-from pathlib import Path
 from time import sleep
 from uuid import UUID
 
@@ -55,74 +54,15 @@ class AzureSearchAdapter(SearchClientPort):
             raise TransientExtractionError(f"Fallaron {len(failed)} documentos en upload")
 
 
-class LocalJsonSearchAdapter(SearchClientPort):
-    def __init__(self, base_dir: str) -> None:
-        self._base_dir = Path(base_dir) / "analysis_index"
-        self._base_dir.mkdir(parents=True, exist_ok=True)
-
-    def upload_chunks(self, documents: list[dict]) -> None:
-        if not documents:
-            return
-
-        analysis_id = documents[0]["analysis_id"]
-        target = self._base_dir / f"{analysis_id}.jsonl"
-        with target.open("w", encoding="utf-8") as handle:
-            for doc in documents:
-                handle.write(json.dumps(doc, ensure_ascii=True) + "\n")
-
-
-class LocalChromaSearchAdapter(SearchClientPort):
-    def __init__(self, persist_dir: str) -> None:
-        self._persist_dir = Path(persist_dir)
-        self._persist_dir.mkdir(parents=True, exist_ok=True)
-
-    def upload_chunks(self, documents: list[dict]) -> None:
-        if not documents:
-            return
-
-        import chromadb
-
-        client = chromadb.PersistentClient(path=str(self._persist_dir))
-        collection = client.get_or_create_collection(name="analysis_chunks")
-
-        ids: list[str] = []
-        embeddings: list[list[float]] = []
-        metadatas: list[dict] = []
-        contents: list[str] = []
-
-        for doc in documents:
-            ids.append(doc["id"])
-            embeddings.append(list(doc["embedding"]))
-            contents.append(doc["content"])
-            metadatas.append(
-                {
-                    "analysis_id": str(doc["analysis_id"]),
-                    "document_id": str(doc["document_id"]),
-                    "page_number": int(doc["page_number"]),
-                    "chunk_index": int(doc["chunk_index"]),
-                    "section_key": str(doc.get("section_key", "general")),
-                    "section_path": str(doc.get("section_path", doc.get("section_key", "general"))),
-                    "section_level": int(doc.get("section_level", 0) or 0),
-                    "block_type": str(doc.get("block_type", "paragraph")),
-                    # upload_chunks() ya serializó table_ref a JSON (o None); Chroma
-                    # no acepta None en metadata, así que el "sin tabla" es "null".
-                    "table_ref": doc.get("table_ref") or "null",
-                }
-            )
-
-        collection.upsert(ids=ids, embeddings=embeddings, metadatas=metadatas, documents=contents)
-
-
 def _assert_index_contract(index, expected_dimensions: int) -> None:
     fields = {field.name: field for field in index.fields}
-    required_fields = {"analysis_id", "section_key", "content", "document_id", "page_number", "chunk_index", "embedding"}
+    required_fields = {"analysis_id", "content", "document_id", "page_number", "chunk_index", "embedding"}
     missing_fields = sorted(name for name in required_fields if name not in fields)
     if missing_fields:
         raise RuntimeError("Índice de AI Search incompleto. Campos faltantes: " + ", ".join(missing_fields))
 
-    for filter_field in ("analysis_id", "section_key"):
-        if not bool(getattr(fields[filter_field], "filterable", False)):
-            raise RuntimeError(f"Campo {filter_field} debe ser filterable en AI Search")
+    if not bool(getattr(fields["analysis_id"], "filterable", False)):
+        raise RuntimeError("Campo analysis_id debe ser filterable en AI Search")
 
     vector_dimensions = getattr(fields["embedding"], "vector_search_dimensions", None)
     if int(vector_dimensions or 0) != expected_dimensions:
@@ -156,6 +96,8 @@ def validate_index_contract() -> None:
 def _build_adapter() -> SearchClientPort:
     settings = get_settings()
     if settings.is_development:
+        from extraction.local.chroma_upload import LocalChromaSearchAdapter
+
         return LocalChromaSearchAdapter(settings.chroma_persist_directory)
     return AzureSearchAdapter(
         endpoint=settings.azure_search_endpoint,
@@ -189,9 +131,9 @@ def upload_chunks(chunks_with_embeddings: list[dict], analysis_id: str | UUID, c
                 "document_id": chunk["document_id"],
                 "page_number": chunk["page_number"],
                 "chunk_index": chunk["chunk_index"],
-                "section_key": chunk.get("section_key", "general"),
-                "section_path": chunk.get("section_path", chunk.get("section_key", "general")),
-                "section_level": int(chunk.get("section_level", 0) or 0),
+                "heading_path": list(chunk.get("heading_path") or []),
+                "heading_level": int(chunk.get("heading_level", 0) or 0),
+                "section_path": chunk.get("section_path", "general"),
                 "block_type": chunk.get("block_type", "paragraph"),
                 # Serializado una sola vez acá: tanto el índice de Azure Search
                 # (Edm.String) como la metadata de Chroma requieren texto plano,

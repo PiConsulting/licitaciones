@@ -41,6 +41,18 @@ export const CRITICAL_CATEGORIES = new Set<CategoryId>([
 ]);
 
 /**
+ * Categorías donde cada ítem suele ser un hecho discreto (un anexo) en vez de
+ * una idea narrativa única — usada solo por el fallback local de síntesis
+ * (`narrativeSynthesis.ts`, cuando el backend todavía no mandó `narrative`
+ * para esa categoría) para preferir lista sobre párrafo. El backend real
+ * (`_response_base.txt`) no tiene esta ni ninguna otra lista fija por
+ * categoría: el LLM elige el formato libremente según el contenido de cada
+ * pliego. Este fallback es más simple porque no es un LLM, pero tampoco debe
+ * forzar un formato único por categoría — ver `narrativeSynthesis.ts`.
+ */
+export const CHECKLIST_CATEGORIES = new Set<CategoryId>(["anexos_obligatorios"]);
+
+/**
  * Orden canónico de categorías para visualización.
  * Define el flujo de lectura de negocio del pliego.
  * 

@@ -12,6 +12,7 @@ import { PDFPage } from "./PDFPage";
 import { useContainerWidth } from "./hooks/useContainerWidth";
 import { useSASUrl } from "./hooks/useSASUrl";
 import type { Citation, ViewerDocument } from "./types";
+import { normalizeText } from "../../utils/highlightText";
 
 const PAGE_ZOOM_STEP = 0.25;
 const PAGE_MIN_ZOOM = 0.5;
@@ -27,6 +28,36 @@ interface PDFViewerProps {
   documentName: string;
   citations: Citation[];
   documents: ViewerDocument[];
+  /** Cita puntual que el usuario clickeó (ej. una fuente específica de la
+   * lista de "Fuentes verificables"), a diferencia de `citations`, que es el
+   * conjunto completo por el que se puede navegar con "Cita anterior/siguiente".
+   * Determina en qué cita del conjunto arranca el visor — sin esto, siempre
+   * arrancaba en la primera cita de `citations`, sin importar cuál se clickeó. */
+  focusCitation?: Citation | null;
+}
+
+/** Misma cita: mismo documento, página, y texto igual o uno subcadena del
+ * otro — igual criterio que `dedupeCitations` usa para "misma fuente". */
+function isSameCitation(a: Citation, b: Citation): boolean {
+  if (a.document_id !== b.document_id || a.page !== b.page) {
+    return false;
+  }
+  const normalizedA = normalizeText(a.text);
+  const normalizedB = normalizeText(b.text);
+  if (normalizedA === "" || normalizedB === "") {
+    return normalizedA === normalizedB;
+  }
+  return normalizedA.includes(normalizedB) || normalizedB.includes(normalizedA);
+}
+
+/** Índice en `citations` que corresponde a `focusCitation`, o 0 si no hay
+ * coincidencia (o no se especificó ninguna cita puntual a enfocar). */
+function findFocusIndex(citations: Citation[], focusCitation: Citation | null | undefined): number {
+  if (!focusCitation) {
+    return 0;
+  }
+  const index = citations.findIndex((citation) => isSameCitation(citation, focusCitation));
+  return index === -1 ? 0 : index;
 }
 
 function isForbiddenError(error: unknown): boolean {
@@ -37,10 +68,11 @@ function isForbiddenError(error: unknown): boolean {
   return message.toLowerCase().includes("forbidden") || message.toLowerCase().includes("403");
 }
 
-export function PDFViewer({ documentId, documentName, citations, documents }: PDFViewerProps) {
+export function PDFViewer({ documentId, documentName, citations, documents, focusCitation }: PDFViewerProps) {
   const [activeDocumentId, setActiveDocumentId] = useState(documentId);
-  const [currentCitationIndex, setCurrentCitationIndex] = useState(0);
-  const [currentPage, setCurrentPage] = useState(citations[0]?.page ?? 1);
+  const initialIndex = findFocusIndex(citations, focusCitation);
+  const [currentCitationIndex, setCurrentCitationIndex] = useState(initialIndex);
+  const [currentPage, setCurrentPage] = useState(citations[initialIndex]?.page ?? focusCitation?.page ?? 1);
   const [numPages, setNumPages] = useState(0);
   const [zoomMode, setZoomMode] = useState<ZoomMode>("fit");
   const [displayScale, setDisplayScale] = useState(1);
@@ -49,9 +81,10 @@ export function PDFViewer({ documentId, documentName, citations, documents }: PD
 
   useEffect(() => {
     setActiveDocumentId(documentId);
-    setCurrentCitationIndex(0);
-    setCurrentPage(citations[0]?.page ?? 1);
-  }, [documentId, citations]);
+    const focusIndex = findFocusIndex(citations, focusCitation);
+    setCurrentCitationIndex(focusIndex);
+    setCurrentPage(citations[focusIndex]?.page ?? focusCitation?.page ?? 1);
+  }, [documentId, citations, focusCitation]);
 
   const { data, isLoading, refetch } = useSASUrl(activeDocumentId);
   // Only the citation currently focused via "Cita anterior/siguiente" gets highlighted

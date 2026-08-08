@@ -2,14 +2,15 @@ import { AlertTriangle } from "lucide-react";
 
 import { Badge } from "../../components/Badge";
 import { CATEGORY_ICONS, CATEGORY_NAMES, CRITICAL_CATEGORIES } from "../../utils/categoryIcons";
-import { needsAction, sortFieldsBySeverity } from "../../utils/fieldSeverity";
-import { NarrativeBlock } from "./components/NarrativeBlock";
-import { FieldCard } from "./FieldCard";
-import { FieldRow } from "./FieldRow";
+import { getConfidenceLevel } from "../../utils/confidence";
+import { NarrativeBlocks } from "./components/NarrativeBlocks";
+import { PlazosTimeline } from "./components/PlazosTimeline";
+import { FieldBadge } from "./FieldBadge";
 import { FieldStateBadge } from "./FieldStateBadge";
 import type { CategoryData, CategoryId, Citation } from "./types";
-import { buildNarrativeSynthesis } from "./utils/narrativeSynthesis";
 import { getCategoryCounts } from "./utils/categoryStats";
+import { dedupeCitations } from "./utils/dedupeCitations";
+import { buildNarrativeBlocks } from "./utils/narrativeSynthesis";
 
 interface CategorySectionProps {
   categoryId: CategoryId;
@@ -22,23 +23,13 @@ export function CategorySection({ categoryId, category, onViewSource }: Category
   const Icon = CATEGORY_ICONS[categoryId];
   const name = CATEGORY_NAMES[categoryId];
   const counts = getCategoryCounts(category);
-  const orderedFields = sortFieldsBySeverity(category.items);
-  const actionableFields = orderedFields.filter(needsAction);
-  const computedSynthesis = buildNarrativeSynthesis(category, categoryId);
-  const synthesis = category.narrative?.trim()
-    ? {
-      ...computedSynthesis,
-      text: category.narrative,
-      intro: null,
-      bullets: [],
-      hasUsefulData: true,
-    }
-    : computedSynthesis;
-  const allCitations = category.items.flatMap((item) => item.citations);
+  const narrative = category.narrative ?? buildNarrativeBlocks(category, categoryId);
+  const allCitations = dedupeCitations(category.items.flatMap((item) => item.citations));
   const hasClickableEvidence = allCitations.some(
     (citation) => citation.document_id.trim() !== "" && citation.page > 0 && citation.text.trim() !== "",
   );
   const isReviewed = category.is_reviewed && hasClickableEvidence;
+  const confidenceLevel = category.confidence > 0 ? getConfidenceLevel(category.confidence) : null;
 
   const state = category.extraction_status === "failed"
     ? "error"
@@ -72,6 +63,7 @@ export function CategorySection({ categoryId, category, onViewSource }: Category
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
+          {confidenceLevel ? <FieldBadge level={confidenceLevel} /> : null}
           {counts.extracted > 0 ? <Badge tone="success">{`${counts.extracted} extraídos`}</Badge> : null}
           {counts.notFound > 0 ? <Badge tone="warning">{`${counts.notFound} no encontrados`}</Badge> : null}
           {counts.conflict > 0 ? (
@@ -82,31 +74,11 @@ export function CategorySection({ categoryId, category, onViewSource }: Category
         </div>
       </div>
 
-      <NarrativeBlock synthesis={synthesis} citations={allCitations} onViewSource={onViewSource} />
-
-      {actionableFields.length > 0 ? (
-        <div className="mt-4">
-          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-700">Acciones recomendadas</h4>
-          <div className="space-y-2">
-            {actionableFields.map((field) => (
-              <FieldCard key={field.field_name} field={field} onViewSource={onViewSource} />
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {orderedFields.length > 0 ? (
-        <details className="mt-4 rounded border border-gray-200 bg-white p-3" data-testid="category-details">
-          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-gray-700">
-            Detalle por campo ({orderedFields.length})
-          </summary>
-          <div className="mt-3 space-y-2">
-            {orderedFields.map((field) => (
-              <FieldRow key={`${field.field_name}-${field.field_state}`} field={field} onViewSource={onViewSource} />
-            ))}
-          </div>
-        </details>
-      ) : null}
+      {categoryId === "plazos_clave" ? (
+        <PlazosTimeline items={category.items} onViewSource={onViewSource} />
+      ) : (
+        <NarrativeBlocks narrative={narrative} onViewSource={onViewSource} />
+      )}
     </article>
   );
 }

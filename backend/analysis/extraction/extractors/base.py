@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import defaultdict
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -9,7 +10,7 @@ from typing import Any
 import structlog
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from analysis.extraction.glossary import build_prompt_glossary_block, build_query_from_glossary
+from analysis.extraction.glossary import build_keyword_query, build_prompt_glossary_block
 from analysis.extraction.state import GraphState
 from shared.config import get_settings
 from shared.ports.azure_openai import get_azure_openai_client
@@ -21,8 +22,11 @@ VALID_EXTRACTION_STATUSES = {"success", "partial", "failed", "not_found", "not_a
 BASE_SYSTEM_PROMPT_FILE = "_base_system.txt"
 _JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
 
+RESPONSE_BASE_PROMPT_FILE = "_response_base.txt"
+
 CANONICAL_PROMPT_FILES = {
     BASE_SYSTEM_PROMPT_FILE,
+    RESPONSE_BASE_PROMPT_FILE,
     "objeto_alcance.txt",
     "requisitos_admisibilidad.txt",
     "garantias.txt",
@@ -30,6 +34,7 @@ CANONICAL_PROMPT_FILES = {
     "criterios_evaluacion.txt",
     "causales_rechazo.txt",
     "anexos_obligatorios.txt",
+    "identificacion_procedimiento.txt",
 }
 
 CANONICAL_CATEGORY_PROMPT_MAP = {
@@ -40,6 +45,7 @@ CANONICAL_CATEGORY_PROMPT_MAP = {
     "criterios_evaluacion": "criterios_evaluacion.txt",
     "causales_rechazo": "causales_rechazo.txt",
     "anexos_obligatorios": "anexos_obligatorios.txt",
+    "identificacion_procedimiento": "identificacion_procedimiento.txt",
 }
 
 
@@ -88,14 +94,11 @@ def _build_messages(
 ) -> list[tuple[str, str]]:
     system_prompt = (
         _load_prompt(BASE_SYSTEM_PROMPT_FILE)
-        .replace("{glossary_terms}", glossary_block or "(sin sinonimos configurados)")
+        .replace("{glossary_terms}", glossary_block or "(sin sinónimos configurados)")
         .replace("{root_key}", root_key)
     )
     user_prompt = (
-        _load_prompt(prompt_file_name)
-        .replace("{chunks}", chunks_block)
-        .replace("{glossary_terms}", glossary_block or "(sin sinonimos configurados)")
-        .replace("{root_key}", root_key)
+        _load_prompt(prompt_file_name).replace("{chunks}", chunks_block).replace("{root_key}", root_key)
     )
     return [("system", system_prompt), ("human", user_prompt)]
 
@@ -110,7 +113,7 @@ def _format_chunks(chunks: list[dict[str, Any]]) -> str:
             f"[Fragmento: F{position}, "
             f"Documento: {chunk.get('document_id', 'desconocido')}, "
             f"Página: {chunk.get('page_number', 0)}, "
-            f"Sección: {chunk.get('section_path', chunk.get('section_key', 'general'))}, "
+            f"Sección: {chunk.get('section_path', 'general')}, "
             f"Tipo: {'TABLA' if chunk.get('block_type') == 'table' else 'PÁRRAFO'}"
             f"{_table_hint(chunk)}]"
         )
@@ -214,7 +217,7 @@ def _normalize_item(item: dict[str, Any], fallback: dict[str, Any] | None = None
     except (TypeError, ValueError):
         parsed_confidence = None
 
-    if parsed_confidence is None or not (0.0 < parsed_confidence <= 1.0):
+    if parsed_confidence is None or not (0.0 <= parsed_confidence <= 1.0):
         normalized.pop("confidence", None)
     else:
         normalized["confidence"] = min(parsed_confidence, 1.0)
@@ -255,6 +258,126 @@ def _aggregate_status(items: list[dict[str, Any]]) -> str:
     return "not_found"
 
 
+_TABLE_CITATION_RE = re.compile(
+    r"^\s*Encabezado:\s*(?P<column>.+?)\s*\|\s*Fila:\s*(?P<row>\d+)\s*\|\s*Valor:\s*(?P<value>.+?)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _normalize_for_grounding(text: Any) -> str:
+    return " ".join(str(text or "").split()).lower()
+
+
+def _is_table_citation(citation: str) -> bool:
+    return bool(_TABLE_CITATION_RE.match(citation))
+
+
+def _citation_verified_in_paragraph_chunk(citation: str, chunk: dict[str, Any]) -> bool:
+    normalized_citation = _normalize_for_grounding(citation)
+    if not normalized_citation:
+        return False
+    normalized_content = _normalize_for_grounding(chunk.get("content", ""))
+    return normalized_citation in normalized_content
+
+
+def _citation_verified_in_table_chunk(citation: str, chunk: dict[str, Any]) -> bool:
+    match = _TABLE_CITATION_RE.match(citation)
+    if not match:
+        return False
+
+    table_ref = chunk.get("table_ref")
+    if not isinstance(table_ref, dict):
+        return False
+
+    try:
+        row_index = int(match.group("row").strip())
+    except ValueError:
+        return False
+    if int(table_ref.get("row_index") or -1) != row_index:
+        return False
+
+    column_raw = match.group("column").strip()
+    headers = [str(header) for header in (table_ref.get("headers") or [])]
+    content = str(chunk.get("content", ""))
+    column_matches = any(_normalize_for_grounding(header) == _normalize_for_grounding(column_raw) for header in headers) or (
+        f"{column_raw}:" in content
+    )
+    if not column_matches:
+        return False
+
+    value = _normalize_for_grounding(match.group("value"))
+    if not value:
+        return False
+    return value in _normalize_for_grounding(content)
+
+
+def _verify_reference_grounded(citation: str, candidate_chunks: list[dict[str, Any]]) -> bool:
+    if not str(citation or "").strip():
+        return False
+    if _is_table_citation(citation):
+        table_chunks = [chunk for chunk in candidate_chunks if chunk.get("block_type") == "table"]
+        return any(_citation_verified_in_table_chunk(citation, chunk) for chunk in table_chunks)
+    paragraph_chunks = [chunk for chunk in candidate_chunks if chunk.get("block_type") != "table"]
+    return any(_citation_verified_in_paragraph_chunk(citation, chunk) for chunk in paragraph_chunks)
+
+
+def _verify_citation_grounding(
+    items: list[dict[str, Any]],
+    chunks: list[dict[str, Any]],
+    *,
+    category: str,
+    correlation_id: str,
+) -> list[dict[str, Any]]:
+    """Confirma que cada `source_reference` de cada ítem exista de verdad en los
+    chunks recuperados (anti-alucinación). Corre dentro de run_extractor porque
+    es el único lugar del pipeline que todavía tiene en scope tanto los ítems ya
+    parseados como los `chunks` originales pasados al LLM. Sigue el mismo patrón
+    de `_warning` + downgrade a "partial" que ya usa `_penalize_unverifiable` en
+    graph.py, sin inventar un mecanismo paralelo."""
+    chunks_by_doc_page: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
+    for chunk in chunks:
+        key = (str(chunk.get("document_id", "")), int(chunk.get("page_number", 0) or 0))
+        chunks_by_doc_page[key].append(chunk)
+
+    total_items = 0
+    unverified_items = 0
+
+    for item in items:
+        status = str(item.get("extraction_status", ""))
+        refs = item.get("source_references") or []
+        if status not in {"success", "partial", "not_applicable"} or not refs:
+            continue
+
+        total_items += 1
+        any_verified = False
+        for ref in refs:
+            citation = str(ref.get("citation", ""))
+            key = (str(ref.get("document_id", "")), int(ref.get("page_number", 0) or 0))
+            candidates = chunks_by_doc_page.get(key)
+            if not candidates:
+                continue
+            if _verify_reference_grounded(citation, candidates):
+                any_verified = True
+                break
+
+        if not any_verified:
+            unverified_items += 1
+            if status == "success":
+                item["extraction_status"] = "partial"
+            item["_warning"] = "cita_no_verificada"
+
+    if total_items:
+        logger.info(
+            "citation_grounding_check",
+            correlation_id=correlation_id,
+            category=category,
+            total_items=total_items,
+            unverified_items=unverified_items,
+        )
+
+    return items
+
+
 def run_extractor(
     *,
     state: GraphState,
@@ -263,9 +386,7 @@ def run_extractor(
     status_field: str,
     prompt_file_name: str,
     query: str,
-    section_key: str,
     is_object_result: bool = False,
-    glossary_key: str | None = None,
 ) -> GraphState:
     correlation_id = state["correlation_id"]
     analysis_id = state["analysis_id"]
@@ -280,14 +401,13 @@ def run_extractor(
     delta: GraphState = {}
 
     try:
-        resolved_glossary_key = glossary_key or result_key
-        resolved_query = build_query_from_glossary(resolved_glossary_key, query)
         settings = get_settings()
+        keyword_query = build_keyword_query(result_key)
         chunks = search_hybrid(
-            query=resolved_query,
+            query=query,
             analysis_id=analysis_id,
             top_k=settings.extraction_top_k,
-            section_key=section_key,
+            keyword_query=keyword_query or None,
         )
         chunks = _truncate_to_token_budget(chunks, settings.extraction_max_context_tokens)
 
@@ -297,8 +417,7 @@ def run_extractor(
                 correlation_id=correlation_id,
                 analysis_id=analysis_id,
                 category=result_key,
-                section_key=section_key,
-                query=resolved_query[:160],
+                query=query[:160],
             )
             delta[state_field] = _default_not_found_item() if is_object_result else []
             delta[status_field] = "not_found"
@@ -312,7 +431,7 @@ def run_extractor(
         messages = _build_messages(
             prompt_file_name=prompt_file_name,
             chunks_block=_format_chunks(chunks),
-            glossary_block=build_prompt_glossary_block(resolved_glossary_key),
+            glossary_block=build_prompt_glossary_block(result_key),
             root_key=result_key,
         )
 
@@ -340,8 +459,12 @@ def run_extractor(
             delta[state_field] = [_normalize_item(item) for item in payload if isinstance(item, dict)]
 
         if is_object_result:
+            _verify_citation_grounding(
+                [delta[state_field]], chunks, category=result_key, correlation_id=correlation_id
+            )
             delta[status_field] = str(delta[state_field].get("extraction_status", "not_found"))
         else:
+            _verify_citation_grounding(delta[state_field], chunks, category=result_key, correlation_id=correlation_id)
             delta[status_field] = _aggregate_status(delta[state_field])
         logger.info(
             "extractor_completed",

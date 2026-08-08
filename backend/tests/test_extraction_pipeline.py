@@ -43,16 +43,32 @@ def test_create_chunks_with_overlap() -> None:
     assert set(first_tokens[-60:]) & set(second_tokens[:80])
 
 
-def test_create_chunks_adds_unified_contract_fields_for_legacy_pages() -> None:
-    pages = [{"page_number": 1, "content": "Capitulo I\nContenido general del pliego"}]
+def test_create_chunks_adds_unified_contract_fields() -> None:
+    blocks = [
+        {
+            "page_number": 1,
+            "block_type": "paragraph",
+            "content": "Capitulo I",
+            "source_order": 0,
+            "table_ref": None,
+            "heading_level": 1,
+        },
+        {
+            "page_number": 1,
+            "block_type": "paragraph",
+            "content": "Contenido general del pliego",
+            "source_order": 1,
+            "table_ref": None,
+        },
+    ]
 
-    chunks = create_chunks(pages, document_id="doc-legacy", correlation_id="corr-legacy", chunk_size=30, overlap=5)
+    chunks = create_chunks(blocks, document_id="doc-1", correlation_id="corr-1", chunk_size=30, overlap=5)
 
     assert chunks
     chunk = chunks[0]
-    assert chunk["section_key"] == "capitulos"
-    assert "section_path" in chunk
-    assert "section_level" in chunk
+    assert chunk["heading_path"] == ["Capitulo I"]
+    assert chunk["heading_level"] == 1
+    assert chunk["section_path"] == "Capitulo I"
     assert chunk["block_type"] == "paragraph"
     assert chunk["table_ref"] is None
 

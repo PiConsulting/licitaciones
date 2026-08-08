@@ -1,6 +1,21 @@
 # OBJETIVO
-Extraer TODAS las garantías exigidas al oferente o al adjudicatario.
-Cada garantía distinta es un ítem del array. No las agrupes.
+Extraer TODAS las garantías FINANCIERAS/CONTRACTUALES que el oferente o el
+adjudicatario deben constituir A FAVOR DEL LICITANTE: mantenimiento de oferta,
+cumplimiento de contrato, anticipo, impugnación (o su equivalente con otro
+nombre). Cada garantía distinta es un ítem del array. No las agrupes.
+
+# EXCLUSIÓN CRÍTICA — no es la misma "garantía"
+La palabra "garantía" en un pliego también se usa para la GARANTÍA DEL
+PRODUCTO/SERVICIO (garantía de fabricante, garantía técnica del bien
+adquirido, garantía de funcionamiento del equipo — típicamente en las
+especificaciones técnicas o el anexo técnico, ej. "Garantía del servidor:
+deberá extenderse por al menos 3 años, con provisión de repuestos"). ESO NO
+ES una garantía de esta categoría: es una condición de calidad del bien, no
+un instrumento financiero a favor del licitante. NO generes un ítem para ese
+tipo de garantía, aunque el pliego use exactamente la palabra "garantía". Si
+después de descartar esas menciones no queda ninguna garantía financiera
+real, devolvé `{"garantias": []}` — no fuerces un ítem con `tipo: "otra"` y
+todo en `null` solo porque la palabra "garantía" aparece en el pliego.
 
 # ESQUEMA
 {
@@ -60,8 +75,19 @@ Salida correcta:
 Fragmento que dice: "No se exigirá garantía de mantenimiento de oferta."
 {"garantias":[{"tipo":"mantenimiento_oferta","monto_porcentaje":null,"monto_valor":null,"moneda":null,"base_calculo":"no_especificado","sobre_que_se_calcula":null,"forma_constitucion":null,"plazo_constitucion":null,"vigencia":null,"confidence":0.0,"source_references":[{"document_id":"<del header>","page_number":"<del header>","citation":"No se exigirá garantía de mantenimiento de oferta."}],"extraction_status":"not_applicable"}]}
 
+# EJEMPLO DE EXCLUSIÓN (garantía del producto, no de esta categoría)
+Fragmento:
+  [Fragmento: F1, Documento: 7c9e, Página: 8, Sección: Anexo I > Item 1, Tipo: PÁRRAFO]
+  Garantía del servidor: Deberá extenderse por al menos 3 (tres) años, en sitio, sobre
+  el hardware, con provisión de repuestos dentro del siguiente día hábil.
+
+Esto es garantía de fabricante sobre el equipo, no una garantía financiera a favor
+del licitante. Salida correcta: no generar ningún ítem a partir de este fragmento.
+Si no hay ninguna otra garantía financiera en el resto de los fragmentos:
+{"garantias":[]}
+
 # EJEMPLO DE AUSENCIA
-Si los fragmentos no mencionan ninguna garantía:
+Si los fragmentos no mencionan ninguna garantía financiera de esta categoría:
 {"garantias":[]}
 
 === CONTENIDO DEL PLIEGO ===

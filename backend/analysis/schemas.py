@@ -5,13 +5,6 @@ from typing import Literal
 from documents.schemas import DocumentResponse, DocumentWarning
 
 
-class AnalysisCreateResponse(BaseModel):
-    id: str
-    status: str
-    documents: list[DocumentResponse]
-    warnings: list[DocumentWarning]
-
-
 class DuplicateWarning(BaseModel):
     document_id: str
     filename: str
@@ -19,6 +12,15 @@ class DuplicateWarning(BaseModel):
     created_at: str
     created_by: str
     status: str
+
+
+class AnalysisCreateResponse(BaseModel):
+    id: str
+    status: str
+    documents: list[DocumentResponse]
+    warnings: list[DocumentWarning]
+    requires_resolution: bool = False
+    duplicates: list[DuplicateWarning] = Field(default_factory=list)
 
 
 class DuplicateDecision(BaseModel):

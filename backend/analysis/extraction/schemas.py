@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, Field
 
@@ -9,6 +9,62 @@ class SourceReference(BaseModel):
     document_id: str
     page_number: int
     citation: str
+
+
+ConfidenceLevel = Literal["alta", "media", "baja"]
+
+
+class NarrativeSource(BaseModel):
+    """Fuente deduplicada que respalda uno o mas bloques de una CategoryNarrative."""
+
+    id: int
+    document_id: str
+    page_number: int
+    citation: str
+
+
+class NarrativeParagraphBlock(BaseModel):
+    type: Literal["paragraph"] = "paragraph"
+    text: str
+    confidence_level: ConfidenceLevel
+    source_ids: list[int] = Field(default_factory=list)
+
+
+class NarrativeBulletItem(BaseModel):
+    text: str
+    confidence_level: ConfidenceLevel
+    source_ids: list[int] = Field(default_factory=list)
+
+
+class NarrativeBulletListBlock(BaseModel):
+    type: Literal["bullet_list"] = "bullet_list"
+    items: list[NarrativeBulletItem] = Field(default_factory=list)
+
+
+class NarrativeTableRow(BaseModel):
+    cells: list[str] = Field(default_factory=list)
+    confidence_level: ConfidenceLevel
+    source_ids: list[int] = Field(default_factory=list)
+
+
+class NarrativeTableBlock(BaseModel):
+    type: Literal["table"] = "table"
+    headers: list[str] = Field(default_factory=list)
+    rows: list[NarrativeTableRow] = Field(default_factory=list)
+
+
+NarrativeBlock = Annotated[
+    Union[NarrativeParagraphBlock, NarrativeBulletListBlock, NarrativeTableBlock],
+    Field(discriminator="type"),
+]
+
+
+class CategoryNarrative(BaseModel):
+    """Respuesta de experto para una categoria: nunca metadata cruda, siempre
+    bloques en lenguaje natural con confianza y fuentes deduplicadas."""
+
+    blocks: list[NarrativeBlock] = Field(default_factory=list)
+    sources: list[NarrativeSource] = Field(default_factory=list)
 
 
 class ExtractedItem(BaseModel):
@@ -56,24 +112,30 @@ class ExtractedData(BaseModel):
     # Canonical UI categories
     objeto_alcance: list[GenericCategoryItem] = Field(default_factory=list)
     objeto_alcance_extraction_status: str = "unknown"
+    objeto_alcance_narrative: CategoryNarrative | None = None
 
     requisitos_admisibilidad: list[GenericCategoryItem] = Field(default_factory=list)
     requisitos_admisibilidad_extraction_status: str = "unknown"
+    requisitos_admisibilidad_narrative: CategoryNarrative | None = None
 
     plazos_clave: list[PlazoItem] = Field(default_factory=list)
     plazos_clave_extraction_status: str = "unknown"
+    plazos_clave_narrative: CategoryNarrative | None = None
 
     plazos: list[PlazoItem] = Field(default_factory=list)
     plazos_extraction_status: str = "unknown"
 
     garantias: list[GarantiaItem] = Field(default_factory=list)
     garantias_extraction_status: str = "unknown"
+    garantias_narrative: CategoryNarrative | None = None
 
     causales_rechazo: list[GenericCategoryItem] = Field(default_factory=list)
     causales_extraction_status: str = "unknown"
+    causales_rechazo_narrative: CategoryNarrative | None = None
 
     anexos_obligatorios: list[GenericCategoryItem] = Field(default_factory=list)
     anexos_extraction_status: str = "unknown"
+    anexos_obligatorios_narrative: CategoryNarrative | None = None
 
     datos_procedimiento: list[GenericCategoryItem] = Field(default_factory=list)
     datos_procedimiento_extraction_status: str = "unknown"
@@ -84,6 +146,7 @@ class ExtractedData(BaseModel):
 
     criterios_evaluacion: list[GenericCategoryItem] = Field(default_factory=list)
     criterios_extraction_status: str = "unknown"
+    criterios_evaluacion_narrative: CategoryNarrative | None = None
 
     restricciones_participacion: list[GenericCategoryItem] = Field(default_factory=list)
     restricciones_extraction_status: str = "unknown"

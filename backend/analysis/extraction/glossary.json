@@ -9,13 +9,23 @@
       "oferta parcial",
       "ofertas alternativas",
       "lugar de entrega",
-      "plazo de ejecucion"
+      "plazo de ejecucion",
+      "prestacion del servicio",
+      "provision",
+      "suministro"
     ],
     "aliases": [
       "objeto de la contratacion",
       "alcance de la contratacion",
       "objeto del llamado",
-      "descripcion del servicio"
+      "descripcion del servicio",
+      "objeto de la licitacion",
+      "bienes a proveer",
+      "servicios a prestar",
+      "obra a ejecutar",
+      "renglones",
+      "lotes",
+      "items a cotizar"
     ]
   },
   "requisitos_admisibilidad": {
@@ -25,13 +35,42 @@
       "requisitos habilitantes",
       "documentacion requerida",
       "subsanable",
-      "momento de presentacion"
+      "momento de presentacion",
+      "capacidad tecnica",
+      "capacidad financiera",
+      "inscripcion registro proveedores",
+      "antecedentes",
+      "certificaciones",
+      "habilitacion",
+      "constancia"
     ],
     "aliases": [
       "requisitos legales",
       "requisitos tecnicos",
       "requisitos economico financieros",
-      "requisitos administrativos"
+      "requisitos administrativos",
+      "documentacion a presentar",
+      "sobre A",
+      "sobre 1",
+      "condiciones de participacion",
+      "restricciones de participacion",
+      "impedimentos para contratar",
+      "habilitaciones",
+      "antecedentes exigidos",
+      "capacidad para contratar",
+      "requisitos minimos",
+      "requisitos tecnicos minimos",
+      "certificacion del fabricante",
+      "antecedentes de provision",
+      "experiencia comprobable",
+      "personal tecnico",
+      "soporte tecnico",
+      "debe acreditar",
+      "debera presentar",
+      "declaracion jurada",
+      "balance",
+      "estados contables",
+      "seguro de responsabilidad civil"
     ]
   },
   "garantias": {
@@ -42,12 +81,25 @@
       "cumplimiento de contrato",
       "anticipo",
       "caucion",
-      "fianza"
+      "fianza",
+      "monto garantia",
+      "porcentaje garantia",
+      "forma de constitucion"
     ],
     "aliases": [
       "poliza",
       "boleta de garantia",
-      "seriedad de la oferta"
+      "seriedad de la oferta",
+      "garantia de seriedad",
+      "garantia de mantenimiento",
+      "garantia de adjudicacion",
+      "contragarantia",
+      "seguro de caucion",
+      "aval bancario",
+      "deposito en garantia",
+      "pagare",
+      "fianza bancaria",
+      "garantia de impugnacion"
     ]
   },
   "plazos_clave": {
@@ -58,12 +110,25 @@
       "apertura",
       "adjudicacion",
       "firma de contrato",
-      "inicio de ejecucion"
+      "inicio de ejecucion",
+      "vencimiento",
+      "fecha de apertura",
+      "acto de apertura"
     ],
     "aliases": [
       "cronograma",
       "hitos",
-      "timeline"
+      "calendario",
+      "fecha de presentacion",
+      "cierre de recepcion",
+      "plazo de mantenimiento",
+      "periodo de consultas",
+      "visita de obra",
+      "visita obligatoria",
+      "plazo de impugnacion",
+      "entrega de ofertas",
+      "dias habiles",
+      "dias corridos"
     ]
   },
   "criterios_evaluacion": {
@@ -73,13 +138,23 @@
       "puntaje",
       "metodo de adjudicacion",
       "oferta economica",
-      "oferta tecnica"
+      "oferta tecnica",
+      "menor precio",
+      "precio mas bajo"
     ],
     "aliases": [
       "matriz de evaluacion",
       "metodologia de evaluacion",
       "factor de evaluacion",
-      "criterios de seleccion"
+      "criterios de seleccion",
+      "parametros de calificacion",
+      "puntaje ponderado",
+      "mejor relacion precio calidad",
+      "oferta mas conveniente",
+      "formula de evaluacion",
+      "coeficiente de ponderacion",
+      "puntaje tecnico minimo",
+      "orden de merito"
     ]
   },
   "causales_rechazo": {
@@ -88,12 +163,23 @@
       "desestimacion",
       "inhabilitacion",
       "descalificacion",
-      "sanciones"
+      "exclusion",
+      "rechazo de oferta",
+      "oferta inadmisible"
     ],
     "aliases": [
       "causales de exclusion",
       "motivos de rechazo",
-      "admisibilidad de ofertas"
+      "causales de desestimacion",
+      "defectos no subsanables",
+      "sera rechazada",
+      "no sera considerada",
+      "quedara excluida",
+      "sera desestimada",
+      "sin mas tramite",
+      "de pleno derecho",
+      "conducta anticompetitiva",
+      "informacion falsa"
     ]
   },
   "anexos_obligatorios": {
@@ -102,67 +188,48 @@
       "anexos obligatorios",
       "formulario",
       "debe completarse",
-      "debe firmarse"
+      "debe firmarse",
+      "planilla",
+      "modelo de nota"
     ],
     "aliases": [
       "apendice",
       "adjunto obligatorio",
-      "modelo de presentacion"
+      "modelo de presentacion",
+      "formulario oficial",
+      "declaracion jurada",
+      "nota de oferta",
+      "planilla de cotizacion",
+      "presupuesto detallado",
+      "documentacion tecnica obligatoria",
+      "constancia",
+      "certificado exigido"
     ]
   },
-  "datos_procedimiento": {
+  "identificacion_procedimiento": {
     "query_terms": [
       "organismo convocante",
       "numero de expediente",
       "numero de procedimiento",
       "tipo de procedimiento",
       "presupuesto oficial",
-      "jurisdiccion"
+      "jurisdiccion",
+      "licitacion publica",
+      "contratacion directa"
     ],
     "aliases": [
       "datos del llamado",
       "informacion del proceso",
-      "datos administrativos"
-    ]
-  },
-  "cronograma_proceso": {
-    "query_terms": [
-      "cronograma",
-      "etapas del proceso",
-      "fecha de publicacion",
-      "periodo de consultas",
-      "respuesta a consultas",
-      "acto de apertura",
-      "evaluacion de ofertas",
-      "preadjudicacion",
-      "adjudicacion",
-      "hora limite",
-      "calendario del llamado"
-    ],
-    "aliases": [
-      "hitos del proceso",
-      "timeline",
-      "agenda del llamado",
-      "fechas clave"
-    ]
-  },
-  "estimacion_presupuesto": {
-    "query_terms": [
-      "presupuesto oficial",
-      "monto estimado",
-      "valor de referencia",
-      "importe total estimado",
-      "credito presupuestario",
-      "forma de pago",
-      "condiciones de pago",
-      "redeterminacion de precios",
-      "ajuste de precios"
-    ],
-    "aliases": [
-      "monto del contrato",
-      "precio tope",
-      "presupuesto estimado",
-      "erogacion"
+      "datos administrativos",
+      "ente licitante",
+      "reparticion",
+      "ministerio",
+      "municipalidad",
+      "expediente administrativo",
+      "numero de licitacion",
+      "concurso de precios",
+      "subasta",
+      "licitacion privada"
     ]
   }
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -7,6 +8,7 @@ import pytest
 
 from analysis.extraction.extractors.anexos_obligatorios import extractor_anexos_obligatorios
 from analysis.extraction.extractors.base import (
+    CANONICAL_CATEGORY_PROMPT_MAP,
     CANONICAL_PROMPT_FILES,
     _normalize_item,
     _parse_json_response,
@@ -56,7 +58,11 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                     "valor": "Contratación de servicio de limpieza",
                     "confidence": 0.9,
                     "source_references": [
-                        {"document_id": "doc-1", "page_number": 2, "citation": "texto literal"}
+                        {
+                            "document_id": "doc-1",
+                            "page_number": 2,
+                            "citation": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
+                        }
                     ],
                     "extraction_status": "success",
                 }
@@ -70,7 +76,11 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                     "fecha": "2024-05-15",
                     "confidence": 0.95,
                     "source_references": [
-                        {"document_id": "doc-1", "page_number": 3, "citation": "texto literal"}
+                        {
+                            "document_id": "doc-1",
+                            "page_number": 3,
+                            "citation": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
+                        }
                     ],
                     "extraction_status": "success",
                 }
@@ -84,7 +94,11 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                     "monto_porcentaje": 1.0,
                     "confidence": 0.9,
                     "source_references": [
-                        {"document_id": "doc-1", "page_number": 5, "citation": "texto literal"}
+                        {
+                            "document_id": "doc-1",
+                            "page_number": 5,
+                            "citation": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
+                        }
                     ],
                     "extraction_status": "success",
                 }
@@ -98,7 +112,11 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                     "valor": "falta de certificado",
                     "confidence": 0.8,
                     "source_references": [
-                        {"document_id": "doc-1", "page_number": 7, "citation": "texto literal"}
+                        {
+                            "document_id": "doc-1",
+                            "page_number": 7,
+                            "citation": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
+                        }
                     ],
                     "extraction_status": "success",
                 }
@@ -112,7 +130,11 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                     "valor": "Certificado fiscal para contratar",
                     "confidence": 0.8,
                     "source_references": [
-                        {"document_id": "doc-1", "page_number": 8, "citation": "texto literal"}
+                        {
+                            "document_id": "doc-1",
+                            "page_number": 8,
+                            "citation": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
+                        }
                     ],
                     "extraction_status": "success",
                 }
@@ -126,7 +148,11 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                     "valor": "60%",
                     "confidence": 0.8,
                     "source_references": [
-                        {"document_id": "doc-1", "page_number": 9, "citation": "texto literal"}
+                        {
+                            "document_id": "doc-1",
+                            "page_number": 9,
+                            "citation": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
+                        }
                     ],
                     "extraction_status": "success",
                 }
@@ -140,7 +166,11 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                     "valor": "Anexo I - Formulario de oferta",
                     "confidence": 0.8,
                     "source_references": [
-                        {"document_id": "doc-1", "page_number": 13, "citation": "texto literal"}
+                        {
+                            "document_id": "doc-1",
+                            "page_number": 13,
+                            "citation": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
+                        }
                     ],
                     "extraction_status": "success",
                 }
@@ -228,6 +258,54 @@ def test_merge_node_detects_conflicts() -> None:
     result = merge_node(state)
     assert len(result["conflicts"]) > 0
     assert result["conflicts"][0]["category"] == "plazos"
+
+
+def test_merge_fusiona_plazos_duplicados_del_mismo_hecho() -> None:
+    """Bug real reportado: 'mantenimiento de oferta' aparecía dos veces en
+    Plazos Clave porque cada documento citaba el mismo plazo por separado y
+    nunca se fusionaban en un solo ítem (solo se comparaban para detectar
+    conflictos, nunca para deduplicar)."""
+    state = {
+        "analysis_id": "analysis-1",
+        "correlation_id": "corr-1",
+        "plazos": [
+            {
+                "tipo": "mantenimiento de la oferta",
+                "fecha": None,
+                "expresion_relativa": "30 días corridos desde la apertura",
+                "texto_original": "El oferente deberá mantener su oferta por 30 días corridos desde la apertura.",
+                "source_references": [{"document_id": "doc-1", "page_number": 4, "citation": "texto A"}],
+                "extraction_status": "success",
+                "confidence": 0.8,
+            },
+            {
+                "tipo": "garantía de mantenimiento de oferta",
+                "fecha": None,
+                "expresion_relativa": "30 días corridos desde la apertura",
+                "texto_original": "El oferente deberá mantener su oferta por 30 días corridos desde la apertura.",
+                "source_references": [{"document_id": "doc-2", "page_number": 7, "citation": "texto B"}],
+                "extraction_status": "success",
+                "confidence": 0.75,
+            },
+        ],
+        "garantias": [],
+        "causales": [],
+        "requisitos_admisibilidad": [],
+        "criterios": [],
+        "plazos_status": "success",
+        "garantias_status": "not_found",
+        "causales_status": "not_found",
+        "requisitos_admisibilidad_status": "not_found",
+        "criterios_status": "not_found",
+    }
+
+    result = merge_node(state)
+    plazos = result["extracted_data"]["plazos_clave"]
+
+    mantenimiento = [item for item in plazos if item["tipo"] == "mantenimiento_oferta"]
+    assert len(mantenimiento) == 1
+    assert len(mantenimiento[0]["source_references"]) == 2
+    assert result["conflicts"] == []
 
 
 def test_confidence_calculation() -> None:
@@ -342,33 +420,77 @@ def test_merge_exposes_ui_category_keys() -> None:
     assert data["requisitos_admisibilidad_extraction_status"] == "success"
 
 
+def test_merge_populates_datos_procedimiento_desde_identificacion() -> None:
+    """`datos_procedimiento` solía quedar hardcodeado en `[]` porque el
+    extractor de identificación nunca estaba conectado al grafo (bug real: el
+    organismo convocante nunca se mostraba ni en el listado ni en el detalle
+    de un análisis)."""
+    state = {
+        "analysis_id": "analysis-1",
+        "correlation_id": "corr-1",
+        "plazos": [],
+        "garantias": [],
+        "causales": [],
+        "requisitos_admisibilidad": [],
+        "criterios": [],
+        "identificacion": [
+            {
+                "tipo": "organismo_convocante",
+                "valor": "Municipalidad de Villa Nueva",
+                "confidence": 0.9,
+                "source_references": [{"document_id": "doc-1", "page_number": 1, "citation": "texto literal"}],
+                "extraction_status": "success",
+            }
+        ],
+        "identificacion_status": "success",
+    }
+
+    result = merge_node(state)
+    data = result["extracted_data"]
+
+    assert data["datos_procedimiento_extraction_status"] == "success"
+    assert len(data["datos_procedimiento"]) == 1
+    assert data["datos_procedimiento"][0]["tipo"] == "organismo_convocante"
+    assert data["datos_procedimiento"][0]["valor"] == "Municipalidad de Villa Nueva"
+
+
+def test_extract_identificacion_esta_conectado_al_grafo() -> None:
+    assert "extract_identificacion" in graph.get_graph().nodes
+
+
 def test_individual_extractors(mock_state: dict, mock_search: None, mock_llm: None) -> None:
-    assert extractor_objeto_alcance(dict(mock_state))["objeto_alcance_status"] in {"success", "not_found"}
-    assert extractor_plazos(dict(mock_state))["plazos_status"] in {"success", "not_found"}
-    assert extractor_garantias(dict(mock_state))["garantias_status"] in {"success", "not_found"}
-    assert extractor_causales(dict(mock_state))["causales_status"] in {"success", "not_found"}
-    assert extractor_anexos_obligatorios(dict(mock_state))["anexos_status"] in {"success", "not_found"}
+    assert extractor_objeto_alcance(dict(mock_state))["objeto_alcance_status"] in {"success", "not_found", "partial"}
+    assert extractor_plazos(dict(mock_state))["plazos_status"] in {"success", "not_found", "partial"}
+    assert extractor_garantias(dict(mock_state))["garantias_status"] in {"success", "not_found", "partial"}
+    assert extractor_causales(dict(mock_state))["causales_status"] in {"success", "not_found", "partial"}
+    assert extractor_anexos_obligatorios(dict(mock_state))["anexos_status"] in {"success", "not_found", "partial"}
     assert extractor_requisitos_admisibilidad(dict(mock_state))["requisitos_admisibilidad_status"] in {
         "success",
         "not_found",
+        "partial",
     }
-    assert extractor_criterios_evaluacion(dict(mock_state))["criterios_status"] in {"success", "not_found"}
+    assert extractor_criterios_evaluacion(dict(mock_state))["criterios_status"] in {"success", "not_found", "partial"}
 
 
-def test_extractor_uses_query_from_glossary(
+def test_extractor_usa_una_query_semantica_rica_sin_glosario(
     mock_state: dict,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Cada extractor manda una descripcion semantica rica del concepto
+    que busca, mas keywords del glossary para BM25."""
     captured_query = {"value": ""}
+    captured_keyword = {"value": ""}
 
-    def _fake_search_hybrid(*, query: str, analysis_id: str, top_k: int, section_key: str | None):
+    def _fake_search_hybrid(*, query: str, analysis_id: str, top_k: int, keyword_query: str | None = None):
         captured_query["value"] = query
+        captured_keyword["value"] = keyword_query or ""
         return []
 
     monkeypatch.setattr("analysis.extraction.extractors.base.search_hybrid", _fake_search_hybrid)
 
     extractor_criterios_evaluacion(mock_state)
-    assert "matriz de evaluacion" in captured_query["value"].lower()
+    assert "puntaje ponderado" in captured_keyword["value"].lower()
+    assert "criterios de evaluacion" in captured_keyword["value"].lower()
 
 
 def test_status_con_pipes_no_se_mapea_a_success() -> None:
@@ -377,8 +499,14 @@ def test_status_con_pipes_no_se_mapea_a_success() -> None:
 
 
 def test_confidence_invalida_se_deja_calcular_por_heuristica() -> None:
+    # confidence=0.0 ahora se acepta como valor valido (no se stripea)
     item = _normalize_item({"extraction_status": "success", "confidence": 0.0})
-    assert "confidence" not in item
+    assert item["confidence"] == 0.0
+    # Pero confidence invalida (>1.0, negativa, string) si se stripea
+    item2 = _normalize_item({"extraction_status": "success", "confidence": 1.5})
+    assert "confidence" not in item2
+    item3 = _normalize_item({"extraction_status": "success", "confidence": "invalid"})
+    assert "confidence" not in item3
 
 
 def test_parser_tolera_texto_antes_del_json() -> None:
@@ -387,7 +515,7 @@ def test_parser_tolera_texto_antes_del_json() -> None:
 
 
 def test_todos_los_prompts_referenciados_existen_y_tienen_placeholders() -> None:
-    base = Path("backend/analysis/extraction")
+    base = Path("analysis/extraction")
     extractor_files = [
         "objeto_alcance.py",
         "requisitos_admisibilidad.py",
@@ -439,3 +567,179 @@ def test_mapeo_categoria_prompt_canonico() -> None:
     validate_category_prompt_mapping("plazos_clave", "plazos_clave.txt")
     with pytest.raises(ValueError, match="debe usar"):
         validate_category_prompt_mapping("plazos_clave", "garantias.txt")
+
+
+def test_esquema_de_cada_prompt_usa_result_key_como_raiz() -> None:
+    """Bug real detectado: plazos_clave.txt y causales_rechazo.txt declaraban un
+    ESQUEMA con clave raiz "plazos"/"causales" en vez de "plazos_clave"/
+    "causales_rechazo". run_extractor lee `llm_result.get(result_key)`, asi que
+    ese desacople hace que el payload nunca se encuentre y la categoria quede
+    vacia SIEMPRE, en cualquier pliego. Este test evita que el desacople
+    reaparezca sin que ningun otro test lo note (los tests con LLM mockeado no
+    lo detectan porque el mock no valida el texto literal del prompt)."""
+    base = Path("analysis/extraction/prompts")
+
+    for category_key, prompt_file_name in CANONICAL_CATEGORY_PROMPT_MAP.items():
+        contenido = (base / prompt_file_name).read_text(encoding="utf-8")
+        clave_declarada = re.search(r'^\s*"([a-z_]+)":\s*\[', contenido, re.MULTILINE)
+        assert clave_declarada is not None, f"{prompt_file_name} no declara una clave raiz de ESQUEMA reconocible"
+        assert clave_declarada.group(1) == category_key, (
+            f"{prompt_file_name} declara la clave raiz '{clave_declarada.group(1)}' "
+            f"pero result_key es '{category_key}': el LLM va a responder con la clave "
+            f"equivocada y la categoria va a quedar vacia siempre"
+        )
+
+
+def _dedup_base_state() -> dict:
+    return {
+        "analysis_id": "analysis-1",
+        "correlation_id": "corr-1",
+        "plazos": [],
+        "garantias": [],
+        "objeto_alcance": [],
+        "requisitos_admisibilidad": [],
+        "causales": [],
+        "anexos": [],
+        "criterios": [],
+        "identificacion": [],
+    }
+
+
+def _anexo_item(valor: str, page_number: int, **overrides: object) -> dict:
+    item = {
+        "tipo": "anexo",
+        "valor": valor,
+        "confidence": 0.8,
+        "source_references": [{"document_id": "doc-1", "page_number": page_number, "citation": "cita"}],
+        "extraction_status": "success",
+    }
+    item.update(overrides)
+    return item
+
+
+def test_dedup_anexos_fusiona_duplicado_exacto() -> None:
+    state = _dedup_base_state()
+    state["anexos"] = [_anexo_item("Anexo I — Planilla de Cotización", 3), _anexo_item("Anexo I — Planilla de Cotización", 7)]
+
+    result = merge_node(state)
+    anexos = result["extracted_data"]["anexos_obligatorios"]
+
+    assert len(anexos) == 1
+    refs = anexos[0]["source_references"]
+    assert {ref["page_number"] for ref in refs} == {3, 7}
+
+
+def test_dedup_anexos_fusiona_con_espaciado_y_mayusculas_distintas() -> None:
+    state = _dedup_base_state()
+    state["anexos"] = [_anexo_item("Anexo I — Planilla", 3), _anexo_item("anexo i —  planilla", 7)]
+
+    result = merge_node(state)
+    anexos = result["extracted_data"]["anexos_obligatorios"]
+
+    assert len(anexos) == 1
+
+
+def test_dedup_anexos_no_fusiona_hechos_distintos() -> None:
+    state = _dedup_base_state()
+    state["anexos"] = [
+        _anexo_item("Anexo I — Planilla de Cotización", 3),
+        _anexo_item("Anexo II — Declaración Jurada", 7),
+    ]
+
+    result = merge_node(state)
+    anexos = result["extracted_data"]["anexos_obligatorios"]
+
+    assert len(anexos) == 2
+
+
+def test_dedup_causales_sin_campo_tipo_util_no_fusiona_hechos_distintos() -> None:
+    state = _dedup_base_state()
+    state["causales"] = [
+        {
+            "tipo": "causal_rechazo",
+            "valor": "No presentar la garantía de mantenimiento de oferta.",
+            "confidence": 0.9,
+            "source_references": [{"document_id": "doc-1", "page_number": 4, "citation": "cita"}],
+            "extraction_status": "success",
+        },
+        {
+            "tipo": "causal_rechazo",
+            "valor": "Presentar la oferta fuera del plazo establecido.",
+            "confidence": 0.9,
+            "source_references": [{"document_id": "doc-1", "page_number": 5, "citation": "cita"}],
+            "extraction_status": "success",
+        },
+    ]
+
+    result = merge_node(state)
+    causales = result["extracted_data"]["causales_rechazo"]
+
+    assert len(causales) == 2
+
+
+def test_dedup_causales_mismo_tipo_y_valor_se_fusiona() -> None:
+    state = _dedup_base_state()
+    state["causales"] = [
+        {
+            "tipo": "causal_rechazo",
+            "valor": "No presentar la garantía de mantenimiento de oferta.",
+            "confidence": 0.9,
+            "source_references": [{"document_id": "doc-1", "page_number": 4, "citation": "cita"}],
+            "extraction_status": "success",
+        },
+        {
+            "tipo": "causal_rechazo",
+            "valor": "no presentar la garantía de mantenimiento de oferta.",
+            "confidence": 0.85,
+            "source_references": [{"document_id": "doc-1", "page_number": 9, "citation": "cita"}],
+            "extraction_status": "success",
+        },
+    ]
+
+    result = merge_node(state)
+    causales = result["extracted_data"]["causales_rechazo"]
+
+    assert len(causales) == 1
+
+
+def test_dedup_no_cambia_comportamiento_de_plazos_y_garantias() -> None:
+    state = _dedup_base_state()
+    state["plazos"] = [
+        {
+            "tipo": "presentación ofertas",
+            "fecha": "2024-05-15",
+            "confidence": 0.9,
+            "source_references": [{"document_id": "doc-1", "page_number": 1, "citation": "a"}],
+            "extraction_status": "success",
+        },
+        {
+            "tipo": "presentación de ofertas",
+            "fecha": "2024-05-15",
+            "confidence": 0.8,
+            "source_references": [{"document_id": "doc-2", "page_number": 2, "citation": "b"}],
+            "extraction_status": "success",
+        },
+    ]
+    state["garantias"] = [
+        {
+            "tipo": "garantía de oferta",
+            "monto_porcentaje": 1.0,
+            "monto_valor": None,
+            "confidence": 0.9,
+            "source_references": [{"document_id": "doc-1", "page_number": 5, "citation": "a"}],
+            "extraction_status": "success",
+        },
+        {
+            "tipo": "mantenimiento de oferta",
+            "monto_porcentaje": 1.0,
+            "monto_valor": None,
+            "confidence": 0.85,
+            "source_references": [{"document_id": "doc-1", "page_number": 6, "citation": "b"}],
+            "extraction_status": "success",
+        },
+    ]
+
+    result = merge_node(state)
+
+    assert len(result["extracted_data"]["plazos_clave"]) == 1
+    assert len(result["extracted_data"]["garantias"]) == 1

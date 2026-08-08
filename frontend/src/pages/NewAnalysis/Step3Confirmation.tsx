@@ -1,9 +1,11 @@
 import { isAxiosError } from "axios";
 import { useState } from "react";
 
+import { DuplicateWarningModal } from "../../components/analysis/DuplicateWarningModal";
 import { Button } from "../../components/Button";
 import { UploadProgress } from "../../components/upload/UploadProgress";
 import { useDocumentUpload } from "../../hooks/useDocumentUpload";
+import type { DuplicateDecision, DuplicateWarning } from "../../types/analysis";
 import type { DocumentWarning } from "../../types/document";
 import type { UploadedFile } from "../../types/upload";
 
@@ -11,12 +13,14 @@ interface Step3ConfirmationProps {
   files: UploadedFile[];
   primaryIndex: number;
   onBack: () => void;
-  onContinueToStart: (analysisId: string) => void;
+  onContinueToStart: (analysisId: string, initialDecisions: DuplicateDecision[]) => void;
 }
 
 export function Step3Confirmation({ files, primaryIndex, onBack, onContinueToStart }: Step3ConfirmationProps) {
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<DocumentWarning[]>([]);
+  const [duplicates, setDuplicates] = useState<DuplicateWarning[]>([]);
+  const [pendingAnalysisId, setPendingAnalysisId] = useState<string | null>(null);
 
   const { mutateAsync, isPending } = useDocumentUpload();
 
@@ -28,7 +32,16 @@ export function Step3Confirmation({ files, primaryIndex, onBack, onContinueToSta
         primaryFileIndex: primaryIndex,
       });
       setWarnings(response.warnings);
-      onContinueToStart(response.id);
+
+      // Se detectan duplicados apenas se sube el archivo (ya está en blob y
+      // hasheado en este punto) — no hay que esperar al paso 4 para avisar.
+      if (response.requires_resolution) {
+        setDuplicates(response.duplicates);
+        setPendingAnalysisId(response.id);
+        return;
+      }
+
+      onContinueToStart(response.id, []);
     } catch (uploadError) {
       if (isAxiosError(uploadError)) {
         const message = uploadError.response?.data?.error?.message;
@@ -76,6 +89,19 @@ export function Step3Confirmation({ files, primaryIndex, onBack, onContinueToSta
           Continuar
         </Button>
       </div>
+
+      {pendingAnalysisId && duplicates.length > 0 ? (
+        <DuplicateWarningModal
+          duplicates={duplicates}
+          onCancel={() => {
+            setPendingAnalysisId(null);
+            setDuplicates([]);
+          }}
+          onConfirm={(decisions) => {
+            onContinueToStart(pendingAnalysisId, decisions);
+          }}
+        />
+      ) : null}
     </section>
   );
 }

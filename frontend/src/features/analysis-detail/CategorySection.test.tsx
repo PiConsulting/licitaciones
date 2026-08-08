@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { CategorySection } from "./CategorySection";
-import type { CategoryData, CategoryId, FieldItem } from "./types";
+import type { CategoryData, CategoryId, CategoryNarrative, FieldItem } from "./types";
 import { CATEGORY_ICONS } from "../../utils/categoryIcons";
 
 function createField(
@@ -22,12 +22,19 @@ function createField(
     citations:
       options?.citations ?? [
         {
-          text: `Cita de ${field_name}`,
+          text: `Cita de ${field_name} con suficiente longitud como para ser clickeable`,
           page: 2,
           document_id: "doc-1",
           document_name: "Pliego.pdf",
         },
       ],
+  };
+}
+
+function makeNarrative(text: string): CategoryNarrative {
+  return {
+    blocks: [{ type: "paragraph", text, confidence_level: "high", source_ids: [] }],
+    sources: [],
   };
 }
 
@@ -39,7 +46,7 @@ function createMockCategory(
     extractedCount?: number;
     notFoundCount?: number;
     summary?: string;
-    narrative?: string;
+    narrative?: CategoryNarrative;
     items?: FieldItem[];
   },
 ): CategoryData {
@@ -85,9 +92,9 @@ describe("CategorySection", () => {
   test("T1: Categoría crítica sin revisar muestra borde índigo y badge CRÍTICA", () => {
     const category = createMockCategory({ is_reviewed: false });
 
-    render(<CategorySection category={category} categoryId="plazos_clave" />);
+    render(<CategorySection category={category} categoryId="garantias" />);
 
-    const wrapper = document.getElementById("category-plazos_clave");
+    const wrapper = document.getElementById("category-garantias");
     expect(wrapper).toHaveClass("border-l-highlight");
     expect(screen.getByText(/CRÍTICA/i)).toBeInTheDocument();
   });
@@ -112,69 +119,57 @@ describe("CategorySection", () => {
     expect(screen.getByText("2 conflictos")).toHaveClass("bg-error-light", "text-error");
   });
 
-  test("T4: La sección siempre muestra el párrafo narrativo, sin necesidad de expandirla", () => {
-    const category = createMockCategory({ narrative: "Este pliego solicita una garantía del 5%." });
+  test("T4: La sección siempre muestra la narrativa del backend cuando está disponible", () => {
+    const category = createMockCategory({ narrative: makeNarrative("Este pliego solicita una garantía del 5%.") });
 
     render(<CategorySection category={category} categoryId="objeto_alcance" />);
 
     expect(screen.getByText("Este pliego solicita una garantía del 5%.")).toBeInTheDocument();
   });
 
-  test("T5: Solo los campos que necesitan acción se muestran como field-card, en orden de severidad", () => {
+  test("T5: Nunca muestra field_name: field_value crudo — solo la respuesta en bloques", () => {
     const fields: FieldItem[] = [
-      createField("field1", { state: "extraido", confidence: 0.9 }),
+      createField("field1", { state: "extraido", confidence: 0.9, value: "Valor uno" }),
       createField("field2", { state: "en_conflicto" }),
       createField("field3", { state: "no_encontrado" }),
-      createField("field4", { state: "extraido", confidence: 0.5 }),
-      createField("field5", { state: "extraido", confidence: 0.7 }),
     ];
 
     const category = createMockCategory({ items: fields });
 
     render(<CategorySection category={category} categoryId="garantias" />);
 
-    const fieldCards = screen.getAllByTestId("field-card");
-    expect(fieldCards).toHaveLength(4);
-    expect(fieldCards[0]).toHaveTextContent("field2");
-    expect(fieldCards[1]).toHaveTextContent("field3");
-    expect(fieldCards[2]).toHaveTextContent("field4");
-    expect(fieldCards[3]).toHaveTextContent("field5");
-
-    // field1 tiene confianza alta y no necesita acción: no aparece en "acciones recomendadas",
-    // pero sí queda en el detalle secundario por campo.
-    expect(screen.getAllByTestId("field-row")).toHaveLength(5);
+    expect(screen.queryByTestId("field-card")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("field-row")).not.toBeInTheDocument();
+    expect(screen.getByTestId("narrative-bullet-list")).toBeInTheDocument();
   });
 
-  test("T5b: Muestra bullets cuando la síntesis supera el umbral de legibilidad", () => {
+  test("T5b: Muestra bullet_list cuando hay más de un ítem", () => {
     const fields: FieldItem[] = [
       createField("criterio_1", { value: "Precio total de la oferta" }),
       createField("criterio_2", { value: "Experiencia en contratos similares" }),
       createField("criterio_3", { value: "Plan de trabajo propuesto" }),
-      createField("criterio_4", { value: "Plazo de entrega" }),
-      createField("criterio_5", { value: "Calidad técnica" }),
     ];
-    const category = createMockCategory({ items: fields, summary: "Se detectaron criterios de evaluación múltiples." });
+    const category = createMockCategory({ items: fields });
 
     render(<CategorySection category={category} categoryId="criterios_evaluacion" />);
 
-    const bullets = screen.getByTestId("narrative-bullets");
+    const bullets = screen.getByTestId("narrative-bullet-list");
     expect(bullets).toBeInTheDocument();
-    expect(bullets.querySelectorAll("li")).toHaveLength(5);
-    expect(screen.getByText("Se detectaron criterios de evaluación múltiples.")).toBeInTheDocument();
+    expect(screen.getAllByTestId("narrative-bullet-item")).toHaveLength(3);
   });
 
   test("T5c: Muestra fallback controlado cuando no hay extracción útil", () => {
     const category = createMockCategory({
-      items: [createField("garantia_anticipo", { state: "no_encontrado", value: null, confidence: 0 })],
+      items: [createField("garantia_anticipo", { state: "no_encontrado", value: null })],
     });
 
     render(<CategorySection category={category} categoryId="garantias" />);
 
-    expect(screen.getByText(/No se encontró información útil para garantías/i)).toBeInTheDocument();
-    expect(screen.queryByTestId("narrative-bullets")).not.toBeInTheDocument();
+    expect(screen.getByText(/No se encontró información sobre garantías/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("narrative-bullet-list")).not.toBeInTheDocument();
   });
 
-  test("T5d: Conserva fuente representativa en la síntesis narrativa", () => {
+  test("T5d: La fuente citada por un ítem aparece en Fuentes verificables", () => {
     const category = createMockCategory({
       items: [
         createField("objeto", {
@@ -193,8 +188,7 @@ describe("CategorySection", () => {
 
     render(<CategorySection category={category} categoryId="objeto_alcance" />);
 
-    expect(screen.getByTestId("narrative-source")).toBeInTheDocument();
-    expect(screen.getByText(/Pliego.pdf \(pag\. 8\)/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Pliego\.pdf · pág\. 8/i })).toBeInTheDocument();
   });
 
   test("T6: Muestra contadores como badges", () => {
@@ -204,7 +198,7 @@ describe("CategorySection", () => {
       conflictCount: 1,
     });
 
-    render(<CategorySection category={category} categoryId="plazos_clave" />);
+    render(<CategorySection category={category} categoryId="requisitos_admisibilidad" />);
 
     expect(screen.getByText("5 extraídos")).toHaveClass("bg-success-light", "text-success");
     expect(screen.getByText("2 no encontrados")).toHaveClass("bg-warning-light", "text-warning");
@@ -218,7 +212,7 @@ describe("CategorySection", () => {
       conflictCount: 0,
     });
 
-    render(<CategorySection category={category} categoryId="plazos_clave" />);
+    render(<CategorySection category={category} categoryId="requisitos_admisibilidad" />);
 
     expect(screen.queryByText(/extraídos/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/no encontrados/i)).not.toBeInTheDocument();
@@ -236,7 +230,7 @@ describe("CategorySection", () => {
   test("T7b: Categoría con extraction_status=not_applicable muestra badge NO APLICA", () => {
     const category = createMockCategory({ extraction_status: "not_applicable" });
 
-    render(<CategorySection category={category} categoryId="datos_procedimiento" />);
+    render(<CategorySection category={category} categoryId="anexos_obligatorios" />);
 
     expect(screen.getByText("NO APLICA")).toBeInTheDocument();
   });
@@ -316,5 +310,21 @@ describe("CategorySection", () => {
     expect(screen.getByTestId("category-sources-empty")).toBeInTheDocument();
     expect(screen.queryByText(/^REVISADA$/i)).not.toBeInTheDocument();
     expect(screen.getByText(/CRÍTICA/i)).toBeInTheDocument();
+  });
+
+  test("T11: Plazos Clave renderiza la línea de tiempo en vez de la respuesta narrativa", () => {
+    const category = createMockCategory({
+      items: [
+        {
+          ...createField("apertura", { value: "12/09/2026" }),
+          raw: { fecha: "2026-09-12", hora: null, expresion_relativa: null, texto_original: "12/09/2026", lugar: null },
+        },
+      ],
+    });
+
+    render(<CategorySection category={category} categoryId="plazos_clave" />);
+
+    expect(screen.getByTestId("plazos-timeline")).toBeInTheDocument();
+    expect(screen.queryByTestId("narrative-blocks")).not.toBeInTheDocument();
   });
 });

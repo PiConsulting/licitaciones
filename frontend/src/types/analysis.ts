@@ -1,12 +1,5 @@
 import type { DocumentSummary, DocumentWarning } from "./document";
 
-export interface AnalysisCreateResponse {
-  id: string;
-  status: string;
-  documents: DocumentSummary[];
-  warnings: DocumentWarning[];
-}
-
 export type DuplicateAction = "view_existing" | "analyze_again" | "cancel";
 
 export interface DuplicateWarning {
@@ -21,6 +14,15 @@ export interface DuplicateWarning {
 export interface DuplicateDecision {
   document_id: string;
   action: DuplicateAction;
+}
+
+export interface AnalysisCreateResponse {
+  id: string;
+  status: string;
+  documents: DocumentSummary[];
+  warnings: DocumentWarning[];
+  requires_resolution: boolean;
+  duplicates: DuplicateWarning[];
 }
 
 export interface AnalysisStartPayload {

@@ -11,10 +11,11 @@ import type { DuplicateDecision, DuplicateWarning } from "../../types/analysis";
 
 interface Step4StartAnalysisProps {
   analysisId: string;
+  initialDecisions?: DuplicateDecision[];
   onBack: () => void;
 }
 
-export function Step4StartAnalysis({ analysisId, onBack }: Step4StartAnalysisProps) {
+export function Step4StartAnalysis({ analysisId, initialDecisions = [], onBack }: Step4StartAnalysisProps) {
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [duplicates, setDuplicates] = useState<DuplicateWarning[]>([]);
@@ -81,7 +82,7 @@ export function Step4StartAnalysis({ analysisId, onBack }: Step4StartAnalysisPro
         </Button>
         <Button
           type="button"
-          onClick={() => startWithDecisions([])}
+          onClick={() => startWithDecisions(initialDecisions)}
           loading={startMutation.isPending}
           disabled={pollingEnabled}
         >

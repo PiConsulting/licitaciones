@@ -1,10 +1,16 @@
 # OBJETIVO
-Extraer las causales de rechazo, desestimación, descalificación o exclusión de
-ofertas. Una causal por ítem.
+Extraer la LISTA COMPLETA de motivos por los cuales una oferta se descalifica
+SIN evaluarla — las causales de rechazo formal. Esta es la información más
+crítica y la que menos se lee: todo lo que puede hacer que una oferta
+perfectamente competitiva sea descartada por un error formal.
+
+Incluye: falta de documentación, garantías insuficientes, incumplimiento de
+formatos, presentación fuera de término, inhabilitaciones, falsedad de datos,
+conductas anticompetitivas. Una causal por ítem.
 
 # ESQUEMA
 {
-  "causales": [
+  "causales_rechazo": [
     {
       "tipo": "causal_rechazo",
       "valor": <descripción de la causal, lo más cercana posible al texto del pliego>,
@@ -51,11 +57,11 @@ Fragmento:
   efectuará en el acto de apertura.
 
 Salida correcta:
-{"causales":[{"tipo":"causal_rechazo","valor":"No acompañar la garantía de mantenimiento de oferta","metadata":{"rechazo":"automatico","subsanable":"no","momento_aplicacion":"admision"},"confidence":0.9,"source_references":[{"document_id":"7c9e","page_number":6,"citation":"Serán rechazadas sin más trámite las ofertas que no acompañen la garantía de mantenimiento, no siendo dicha omisión subsanable."}],"extraction_status":"success"}]}
+{"causales_rechazo":[{"tipo":"causal_rechazo","valor":"No acompañar la garantía de mantenimiento de oferta","metadata":{"rechazo":"automatico","subsanable":"no","momento_aplicacion":"admision"},"confidence":0.9,"source_references":[{"document_id":"7c9e","page_number":6,"citation":"Serán rechazadas sin más trámite las ofertas que no acompañen la garantía de mantenimiento, no siendo dicha omisión subsanable."}],"extraction_status":"success"}]}
 
 # EJEMPLO DE AUSENCIA
 Si los fragmentos no enuncian causales de rechazo:
-{"causales":[]}
+{"causales_rechazo":[]}
 
 === CONTENIDO DEL PLIEGO ===
 {chunks}

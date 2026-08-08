@@ -1,6 +1,8 @@
 # OBJETIVO
-Extraer los anexos, formularios, planillas y declaraciones juradas que el pliego
-exige presentar. Un ítem por anexo.
+Extraer los formularios que hay que completar y presentar SÍ O SÍ: anexos,
+planillas de cotización, declaraciones juradas, modelos de nota, formularios
+oficiales que el pliego exige incluir en la oferta. Son los documentos que si
+no están, la oferta se cae por incompleta. Un ítem por anexo/formulario.
 
 # ESQUEMA
 {

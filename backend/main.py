@@ -177,6 +177,11 @@ def create_app() -> FastAPI:
     app.include_router(protected_router, prefix="/api/v1")
     app.include_router(analysis_router, prefix="/api/v1")
     app.include_router(documents_router, prefix="/api/v1")
+    
+    # 🔧 DEBUG - quitar antes de commitear
+    # from debug.chunks_viewer import debug_router
+    # app.include_router(debug_router, prefix="/api/debug")
+    
     return app
 
 

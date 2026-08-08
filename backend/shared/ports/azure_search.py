@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
-from pathlib import Path
 
 import structlog
 
@@ -15,35 +14,13 @@ SEARCH_CHUNK_SELECT_FIELDS = [
     "document_id",
     "page_number",
     "chunk_index",
-    "section_key",
+    "heading_path",
+    "heading_level",
     "section_path",
-    "section_level",
     "block_type",
     "table_ref",
     "content",
 ]
-
-# Mapa de categoria semantica -> secciones estructurales del chunker.
-# Se usa para boost de ranking, nunca como filtro excluyente.
-CATEGORY_SECTION_PREFERENCE: dict[str, list[str]] = {
-    "objeto_alcance": ["capitulos", "articulos"],
-    "plazos": ["articulos", "capitulos"],
-    "garantias": ["articulos", "capitulos"],
-    "causales_rechazo": ["articulos", "capitulos"],
-    "anexos_obligatorios": ["anexos", "articulos"],
-    "documentos_requeridos": ["articulos", "incisos"],
-    "restricciones_participacion": ["articulos", "incisos"],
-    "criterios_evaluacion": ["articulos", "capitulos"],
-    "cronograma_proceso": ["articulos", "capitulos"],
-    "estimacion_presupuesto": ["articulos", "capitulos"],
-    "identificacion_procedimiento": ["general", "capitulos"],
-}
-
-
-def _preferred_sections(section_key: str | None) -> list[str]:
-    if not section_key:
-        return []
-    return CATEGORY_SECTION_PREFERENCE.get(section_key, [])
 
 
 @lru_cache(maxsize=1)
@@ -76,104 +53,15 @@ def _deserialize_table_ref(raw_table_ref: object) -> dict | None:
         return None
 
 
-def _section_bonus(section_key: str, preferred_sections: list[str] | None) -> float:
-    if not preferred_sections:
-        return 0.0
-    return 0.4 if section_key in preferred_sections else 0.0
-
-
 def _token_overlap_score(query: str, content: str) -> float:
+    """Desempate menor entre chunks con el mismo score de relevancia nativo de
+    Azure -- nunca reemplaza ese score, solo rompe empates exactos."""
     query_terms = {term.lower() for term in query.split() if len(term) > 2}
     if not query_terms:
         return 0.0
     content_terms = set(content.lower().split())
     overlap = query_terms.intersection(content_terms)
     return len(overlap) / len(query_terms)
-
-
-def _search_local(
-    query: str,
-    analysis_id: str,
-    top_k: int,
-    section_key: str | None,
-) -> list[dict]:
-    settings = get_settings()
-    chroma_dir = Path(settings.chroma_persist_directory)
-    if not chroma_dir.exists():
-        logger.warning("chroma_dir_missing", path=str(chroma_dir), analysis_id=analysis_id)
-        return []
-
-    import chromadb
-    from sentence_transformers import SentenceTransformer
-
-    client = chromadb.PersistentClient(path=str(chroma_dir))
-    collection = client.get_or_create_collection(name="analysis_chunks")
-    model = SentenceTransformer(settings.sentence_transformers_model)
-    query_embedding = model.encode([query], normalize_embeddings=True)[0].tolist()
-
-    over_fetch = max(top_k * 3, 30)
-
-    result = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=over_fetch,
-        where={"analysis_id": analysis_id},
-        include=["metadatas", "documents", "distances"],
-    )
-
-    metadatas = result.get("metadatas", [[]])[0]
-    documents = result.get("documents", [[]])[0]
-    distances = result.get("distances", [[]])[0]
-
-    preferred = _preferred_sections(section_key)
-    scored: list[tuple[float, dict]] = []
-
-    for metadata, content, distance in zip(metadatas, documents, distances, strict=False):
-        table_ref = _deserialize_table_ref(metadata.get("table_ref"))
-        chunk_section = metadata.get("section_key", "general")
-        base_score = 1.0 - float(distance or 0.0)
-        score = (
-            base_score
-            + _section_bonus(chunk_section, preferred)
-            + (0.25 * _token_overlap_score(query, content or ""))
-        )
-
-        scored.append(
-            (
-                score,
-                {
-                    "analysis_id": metadata.get("analysis_id"),
-                    "document_id": metadata.get("document_id"),
-                    "page_number": int(metadata.get("page_number", 0)),
-                    "chunk_index": int(metadata.get("chunk_index", 0)),
-                    "section_key": chunk_section,
-                    "section_path": metadata.get("section_path", chunk_section),
-                    "section_level": int(metadata.get("section_level", 0) or 0),
-                    "block_type": metadata.get("block_type", "paragraph"),
-                    "table_ref": table_ref,
-                    "content": content,
-                },
-            )
-        )
-
-    scored.sort(key=lambda item: item[0], reverse=True)
-    chunks = [item[1] for item in scored[:top_k]]
-
-    if not chunks:
-        logger.warning(
-            "local_search_empty",
-            analysis_id=analysis_id,
-            section_key=section_key,
-            query=query[:120],
-        )
-    else:
-        logger.info(
-            "local_search_completed",
-            analysis_id=analysis_id,
-            section_key=section_key,
-            returned=len(chunks),
-            top_score=round(scored[0][0], 4),
-        )
-    return chunks
 
 
 def _embed_query_or_none(query: str) -> list[float] | None:
@@ -187,12 +75,7 @@ def _embed_query_or_none(query: str) -> list[float] | None:
         return None
 
 
-def _search_azure(
-    query: str,
-    analysis_id: str,
-    top_k: int,
-    section_key: str | None,
-) -> list[dict]:
+def _search_azure(query: str, analysis_id: str, top_k: int, keyword_query: str | None = None) -> list[dict]:
     settings = get_settings()
     from azure.core.credentials import AzureKeyCredential
     from azure.search.documents import SearchClient
@@ -205,6 +88,9 @@ def _search_azure(
 
     over_fetch = max(top_k * 3, 30)
     query_vector = _embed_query_or_none(query)
+    # BM25 usa keywords del glossary (discriminantes); vector usa la query
+    # descriptiva completa (semántica). Esto evita diluir BM25 con stopwords.
+    bm25_text = keyword_query if keyword_query else query
 
     def _run_query(filters: list[str], search_text: str, top: int) -> list[dict]:
         search_kwargs = {
@@ -217,8 +103,7 @@ def _search_azure(
             search_kwargs["select"] = select_fields
 
         # Búsqueda híbrida real: BM25 + vectorial fusionados por Azure (RRF).
-        # Sin esto sólo se recupera lo que coincide léxicamente, y un pliego que
-        # no usa las palabras del glosario queda invisible.
+        # BM25 recibe keywords del glossary; vector recibe la query semántica.
         if query_vector is not None:
             from azure.search.documents.models import VectorizedQuery
 
@@ -230,58 +115,39 @@ def _search_azure(
 
     analysis_filter = [f"analysis_id eq '{analysis_id}'"]
 
-    raw_results = _run_query(analysis_filter, query, top=over_fetch)
+    raw_results = _run_query(analysis_filter, bm25_text, top=over_fetch)
 
     if not raw_results:
-        logger.warning(
-            "azure_search_wildcard_fallback",
-            analysis_id=analysis_id,
-            section_key=section_key,
-            query=query[:120],
-        )
+        logger.warning("azure_search_wildcard_fallback", analysis_id=analysis_id, query=query[:120])
         raw_results = _run_query(analysis_filter, "*", top=over_fetch)
 
-    chunks: list[dict] = []
+    # Se ordena por el score de relevancia hibrida que Azure ya calculo
+    # (BM25 + vectorial fusionados por RRF) -- nunca se descarta ese score para
+    # reordenar solo con heuristica propia. El overlap lexico es apenas un
+    # desempate para scores exactamente iguales, no un segundo criterio con
+    # peso propio: sumarlo mezclaria dos escalas que no son comparables.
+    scored: list[tuple[float, float, dict]] = []
     for item in raw_results:
-        # `.get(key, default)` sólo aplica el default cuando la clave está AUSENTE.
-        # Azure Search devuelve la clave presente con valor None para chunks
-        # indexados antes de que el campo existiera en el esquema, así que acá
-        # hace falta `or` explícito para no propagar None a los extractores.
-        section_key = item.get("section_key") or "general"
-        chunks.append(
-            {
-                "analysis_id": item.get("analysis_id"),
-                "document_id": item.get("document_id"),
-                "page_number": int(item.get("page_number", 0)),
-                "chunk_index": int(item.get("chunk_index", 0)),
-                "section_key": section_key,
-                "section_path": item.get("section_path") or section_key,
-                "section_level": int(item.get("section_level") or 0),
-                "block_type": item.get("block_type") or "paragraph",
-                "table_ref": _deserialize_table_ref(item.get("table_ref")),
-                "content": item.get("content", ""),
-            }
-        )
-    preferred = _preferred_sections(section_key)
-    chunks.sort(
-        key=lambda c: (
-            _section_bonus(c.get("section_key", "general"), preferred)
-            + (0.25 * _token_overlap_score(query, c.get("content", "")))
-        ),
-        reverse=True,
-    )
-    return chunks[:top_k]
+        hybrid_score = float(item.get("@search.score") or 0.0)
+        chunk = {
+            "analysis_id": item.get("analysis_id"),
+            "document_id": item.get("document_id"),
+            "page_number": int(item.get("page_number", 0)),
+            "chunk_index": int(item.get("chunk_index", 0)),
+            "heading_path": list(item.get("heading_path") or []),
+            "heading_level": int(item.get("heading_level") or 0),
+            "section_path": item.get("section_path") or "general",
+            "block_type": item.get("block_type") or "paragraph",
+            "table_ref": _deserialize_table_ref(item.get("table_ref")),
+            "content": item.get("content", ""),
+        }
+        scored.append((hybrid_score, _token_overlap_score(query, chunk["content"]), chunk))
+
+    scored.sort(key=lambda triple: (triple[0], triple[1]), reverse=True)
+    return [chunk for _score, _overlap, chunk in scored[:top_k]]
 
 
-def search_hybrid(
-    query: str,
-    analysis_id: str,
-    top_k: int = 10,
-    section_key: str | None = None,
-) -> list[dict]:
-    """Recupera chunks para una categoría con filtro por analysis_id y sección."""
-    settings = get_settings()
-    if settings.is_development:
-        return _search_local(query=query, analysis_id=analysis_id, top_k=top_k, section_key=section_key)
-
-    return _search_azure(query=query, analysis_id=analysis_id, top_k=top_k, section_key=section_key)
+def search_hybrid(query: str, analysis_id: str, top_k: int = 10, keyword_query: str | None = None) -> list[dict]:
+    """Recupera chunks relevantes para una categoría, filtrados por analysis_id.
+    keyword_query se usa para BM25 (discriminante); query va al vector (semántico)."""
+    return _search_azure(query=query, analysis_id=analysis_id, top_k=top_k, keyword_query=keyword_query)

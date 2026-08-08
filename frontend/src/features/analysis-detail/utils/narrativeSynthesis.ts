@@ -1,31 +1,28 @@
-import { CATEGORY_NAMES } from "../../../utils/categoryIcons";
-import type { CategoryData, CategoryId, Citation, FieldItem } from "../types";
-
-const BULLET_ITEM_THRESHOLD = 4;
-const BULLET_TEXT_THRESHOLD = 280;
-const DEFAULT_CATEGORY_SUMMARY = "Sin datos extraídos todavía.";
-
-export interface NarrativeSynthesis {
-  text: string;
-  intro: string | null;
-  bullets: string[];
-  representativeCitation: Citation | null;
-  hasUsefulData: boolean;
-}
+import { CATEGORY_NAMES, CHECKLIST_CATEGORIES } from "../../../utils/categoryIcons";
+import { getConfidenceLevel } from "../../../utils/confidence";
+import type {
+  CategoryData,
+  CategoryId,
+  CategoryNarrative,
+  FieldItem,
+  NarrativeBulletItem,
+  NarrativeParagraphBlock,
+  NarrativeSource,
+} from "../types";
+import { dedupeNarrativeSources } from "./dedupeCitations";
 
 function normalizeText(value: string | null | undefined): string {
   return (value ?? "").trim();
 }
 
-function toNaturalSentence(field: FieldItem): string {
+/** Una oración natural por ítem — nunca `campo: valor` crudo, ya que
+ * `field_name`/`field_value` ya vienen humanizados desde `analysisApi.ts`. */
+function fieldSentence(field: FieldItem): string | null {
   const fieldLabel = field.field_name.trim();
   switch (field.field_state) {
     case "extraido": {
       const value = normalizeText(field.field_value);
-      if (!value) {
-        return `${fieldLabel}: sin valor registrado.`;
-      }
-      return `${fieldLabel}: ${value}.`;
+      return value ? `${fieldLabel}: ${value}.` : null;
     }
     case "no_encontrado":
       return `No se encontró información sobre ${fieldLabel.toLowerCase()}.`;
@@ -34,99 +31,118 @@ function toNaturalSentence(field: FieldItem): string {
     case "en_conflicto":
       return `${fieldLabel} presenta valores en conflicto entre documentos.`;
     default:
-      return "";
+      return null;
   }
 }
 
-function toBulletItem(field: FieldItem): string {
-  const fieldLabel = field.field_name.trim();
-  switch (field.field_state) {
-    case "extraido": {
-      const value = normalizeText(field.field_value);
-      return value ? `${fieldLabel}: ${value}` : `${fieldLabel}: sin valor registrado`;
+/** Junta las citas clickeables de un ítem en la lista de fuentes deduplicada,
+ * devolviendo los `source_ids` que le corresponden a ese ítem. */
+function collectSourceIds(
+  field: FieldItem,
+  sourceIndex: Map<string, number>,
+  sources: NarrativeSource[],
+): number[] {
+  const ids: number[] = [];
+  for (const citation of field.citations) {
+    if (!citation.document_id.trim() || citation.page <= 0 || !citation.text.trim()) {
+      continue;
     }
-    case "no_encontrado":
-      return `${fieldLabel}: no encontrado`;
-    case "no_aplica":
-      return `${fieldLabel}: no aplica`;
-    case "en_conflicto":
-      return `${fieldLabel}: conflicto entre documentos`;
-    default:
-      return fieldLabel;
+    const key = `${citation.document_id}|${citation.page}|${citation.text.trim().toLowerCase()}`;
+    let id = sourceIndex.get(key);
+    if (id === undefined) {
+      id = sources.length;
+      sourceIndex.set(key, id);
+      sources.push({
+        id,
+        document_id: citation.document_id,
+        document_name: citation.document_name,
+        page: citation.page,
+        text: citation.text,
+      });
+    }
+    ids.push(id);
   }
+  return ids;
 }
 
-function getRepresentativeCitation(items: FieldItem[]): Citation | null {
-  const extractedCitation = items
-    .filter((item) => item.field_state === "extraido")
-    .flatMap((item) => item.citations)
-    .find((citation) => normalizeText(citation.text) !== "");
-
-  if (extractedCitation) {
-    return extractedCitation;
-  }
-
-  return items
-    .flatMap((item) => item.citations)
-    .find((citation) => normalizeText(citation.text) !== "") ?? null;
+function fallbackBlock(categoryId: CategoryId): NarrativeParagraphBlock {
+  return {
+    type: "paragraph",
+    text: `No se encontró información sobre ${CATEGORY_NAMES[categoryId].toLowerCase()} en el pliego.`,
+    confidence_level: "low",
+    source_ids: [],
+  };
 }
 
-function resolveFallback(categoryId: CategoryId): string {
-  return `No se encontró información útil para ${CATEGORY_NAMES[categoryId].toLowerCase()}.`;
-}
-
-export function buildNarrativeSynthesis(category: CategoryData, categoryId: CategoryId): NarrativeSynthesis {
-  const summary = normalizeText(category.summary);
+/**
+ * Fallback de frontend para cuando el backend todavía no emitió `narrative`
+ * para una categoría (la síntesis por LLM no corrió o falló). Produce la
+ * misma forma de bloques que la síntesis del backend, para que el renderer
+ * (`NarrativeBlocks`) no necesite dos caminos distintos. A diferencia del
+ * backend, este fallback nunca arma un bloque `table` — esa decisión queda
+ * reservada al LLM, que es quien puede juzgar con criterio si el contenido de
+ * ese pliego puntual amerita una tabla.
+ */
+export function buildNarrativeBlocks(category: CategoryData, categoryId: CategoryId): CategoryNarrative {
   const items = category.items;
 
   if (items.length === 0) {
-    return {
-      text: resolveFallback(categoryId),
-      intro: null,
-      bullets: [],
-      representativeCitation: null,
-      hasUsefulData: false,
-    };
+    return { blocks: [fallbackBlock(categoryId)], sources: [] };
   }
 
-  const sentences = items.map(toNaturalSentence).filter(Boolean);
-  const text = sentences.join(" ");
-  const extractedItems = items.filter((item) => item.field_state === "extraido");
-  const hasUsefulData = extractedItems.some((item) => normalizeText(item.field_value) !== "");
-  const useBullets =
-    items.length >= BULLET_ITEM_THRESHOLD || text.length >= BULLET_TEXT_THRESHOLD;
-
+  const hasUsefulData = items.some(
+    (item) => item.field_state === "extraido" && normalizeText(item.field_value) !== "",
+  );
   if (!hasUsefulData) {
+    return { blocks: [fallbackBlock(categoryId)], sources: [] };
+  }
+
+  const sources: NarrativeSource[] = [];
+  const sourceIndex = new Map<string, number>();
+
+  // El formato no es fijo por categoría: varios hechos discretos e
+  // independientes van en lista, una idea única va en párrafo. Nunca se
+  // fuerza a juntar todo en un solo párrafo solo porque la categoría "suele"
+  // tener pocos datos -- eso llevaba a respuestas ilegibles cuando el pliego
+  // real tenía muchos hechos para esa categoría.
+  const useBulletList = CHECKLIST_CATEGORIES.has(categoryId) || items.length > 1;
+
+  if (!useBulletList) {
+    const [singleItem] = items;
+    const text = fieldSentence(singleItem) ?? fallbackBlock(categoryId).text;
     return {
-      text: resolveFallback(categoryId),
-      intro: null,
-      bullets: [],
-      representativeCitation: getRepresentativeCitation(items),
-      hasUsefulData: false,
+      blocks: [
+        {
+          type: "paragraph",
+          text,
+          confidence_level: getConfidenceLevel(singleItem.confidence),
+          source_ids: collectSourceIds(singleItem, sourceIndex, sources),
+        },
+      ],
+      sources: dedupeNarrativeSources(sources),
     };
   }
 
-  if (!useBullets) {
-    return {
-      text,
-      intro: null,
-      bullets: [],
-      representativeCitation: getRepresentativeCitation(items),
-      hasUsefulData: true,
-    };
-  }
+  const bulletItems = items
+    .map((item): NarrativeBulletItem | null => {
+      const text = fieldSentence(item);
+      if (!text) {
+        return null;
+      }
+      return {
+        text,
+        confidence_level: getConfidenceLevel(item.confidence),
+        source_ids: collectSourceIds(item, sourceIndex, sources),
+      };
+    })
+    .filter((entry): entry is NarrativeBulletItem => entry !== null);
 
-  const bullets = items.map(toBulletItem);
-  const intro =
-    summary && summary !== DEFAULT_CATEGORY_SUMMARY
-      ? summary
-      : `Se identificaron ${items.length} elementos relevantes en ${CATEGORY_NAMES[categoryId].toLowerCase()}.`;
+  if (bulletItems.length === 0) {
+    return { blocks: [fallbackBlock(categoryId)], sources: [] };
+  }
 
   return {
-    text,
-    intro,
-    bullets,
-    representativeCitation: getRepresentativeCitation(items),
-    hasUsefulData: true,
+    blocks: [{ type: "bullet_list", items: bulletItems }],
+    sources: dedupeNarrativeSources(sources),
   };
 }

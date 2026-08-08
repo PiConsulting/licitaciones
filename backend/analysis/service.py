@@ -113,7 +113,7 @@ def create_analysis_with_documents(
     user_id: str,
     files: list[IncomingUploadFile],
     primary_file_index: int,
-) -> tuple[Analysis, list[Document], list[DocumentWarning]]:
+) -> tuple[Analysis, list[Document], list[DocumentWarning], list[dict]]:
     if len(files) == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -187,7 +187,13 @@ def create_analysis_with_documents(
             event="analysis_created",
         )
 
-        return analysis, documents, warnings
+        # Detectar duplicados acá, apenas se suben los archivos, en vez de
+        # esperar a que el usuario le de a "iniciar análisis": el archivo ya
+        # está en blob y hasheado en este punto, no hay motivo para
+        # posponer el aviso.
+        duplicates = find_duplicates_for_analysis(db, analysis.id, user_id)
+
+        return analysis, documents, warnings, duplicates
     except Exception:
         db.rollback()
         for blob_name in uploaded_blob_names:
@@ -354,18 +360,24 @@ def _extract_organism(extracted_data: dict | None) -> str | None:
         return None
 
     datos_procedimiento = extracted_data.get("datos_procedimiento")
-    if isinstance(datos_procedimiento, dict):
-        items = datos_procedimiento.get("items")
-        if isinstance(items, list):
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
-                field_name = str(item.get("field_name", "")).lower()
-                if "organismo" not in field_name:
-                    continue
-                field_value = item.get("field_value")
-                if isinstance(field_value, str) and field_value.strip():
-                    return field_value.strip()
+
+    # Forma actual del pipeline: lista de GenericCategoryItem (`tipo`/`valor`).
+    items = datos_procedimiento if isinstance(datos_procedimiento, list) else None
+    if items is None and isinstance(datos_procedimiento, dict):
+        # Forma legada, por si algún análisis viejo quedó persistido así.
+        candidate = datos_procedimiento.get("items")
+        items = candidate if isinstance(candidate, list) else None
+
+    if items:
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("tipo") or item.get("field_name") or "").lower()
+            if "organismo" not in label:
+                continue
+            value = item.get("valor") if "valor" in item else item.get("field_value")
+            if isinstance(value, str) and value.strip():
+                return value.strip()
 
     for key, value in extracted_data.items():
         if "organismo" not in str(key).lower():

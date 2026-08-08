@@ -1,5 +1,8 @@
 # OBJETIVO
-Extraer el método de adjudicación y los criterios con los que se evalúan las ofertas.
+Extraer cómo se pondera precio vs. técnica para adjudicar: el método de
+adjudicación (menor precio, puntaje ponderado, etc.), los factores con sus
+pesos/porcentajes, y si hay un puntaje técnico mínimo para pasar. Esto es lo
+que un oferente necesita saber para decidir si compite por precio o por calidad.
 
 # ESQUEMA
 {

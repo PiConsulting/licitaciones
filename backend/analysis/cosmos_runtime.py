@@ -40,6 +40,7 @@ class CosmosAnalysisResult:
     analysis: dict
     documents: list[dict]
     warnings: list[DocumentWarning]
+    duplicates: list[dict]
 
 
 def _sanitize_filename(filename: str) -> str:
@@ -340,7 +341,11 @@ def create_analysis_with_documents_cosmos(
         for document in documents:
             container.upsert_item(document)
 
-        return CosmosAnalysisResult(analysis=analysis, documents=documents, warnings=warnings)
+        # Igual que en el camino SQL: se detectan duplicados apenas se sube el
+        # archivo, no recién cuando el usuario inicia el análisis.
+        duplicates = find_duplicates_for_analysis_cosmos(analysis_id, user_id, user_name)
+
+        return CosmosAnalysisResult(analysis=analysis, documents=documents, warnings=warnings, duplicates=duplicates)
     except Exception:
         for blob_name in uploaded_blob_names:
             blob_storage.delete(blob_name)

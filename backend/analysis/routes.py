@@ -246,11 +246,13 @@ async def create_analysis(
                 for document in result.documents
             ],
             warnings=result.warnings,
+            requires_resolution=bool(result.duplicates),
+            duplicates=[DuplicateWarning(**item) for item in result.duplicates],
         )
 
     db = SessionLocal()
     try:
-        analysis, documents, warnings = create_analysis_with_documents(
+        analysis, documents, warnings, duplicates = create_analysis_with_documents(
             db=db,
             user_id=current_user.id,
             files=incoming_files,
@@ -264,6 +266,8 @@ async def create_analysis(
         status=analysis.status,
         documents=[to_document_response(document) for document in documents],
         warnings=warnings,
+        requires_resolution=bool(duplicates),
+        duplicates=[DuplicateWarning(**item) for item in duplicates],
     )
 
 
