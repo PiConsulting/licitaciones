@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import structlog
 
+from analysis.extraction.extractors.base import validate_prompt_inventory
 from analysis.extraction.graph import graph
 from analysis.models import CurrentStage
 from analysis.progress import build_stage_progress, calculate_timeout_minutes
@@ -26,6 +27,7 @@ from extraction.ai_search import upload_chunks
 from extraction.chunking import create_chunks
 from extraction.document_intelligence import extract_text
 from extraction.embeddings import generate_embeddings
+from shared.config import get_settings
 from shared.cosmos_container import get_cosmos_container
 
 logger = structlog.get_logger(__name__)
@@ -636,6 +638,8 @@ def extract_and_index_cosmos(analysis_id: str) -> None:
         logger.error("analysis_not_found", analysis_id=analysis_id)
         return
 
+    settings = get_settings()
+    max_concurrency = int(settings.extraction_max_concurrency or 4)
     correlation_id = analysis.get("correlation_id")
     documents = _query_documents(analysis_id)
     blob_storage = _build_blob_storage()
@@ -704,15 +708,17 @@ def extract_and_index_cosmos(analysis_id: str) -> None:
         analysis["extraction_metadata"] = metadata
         _upsert_analysis(analysis, "analysis_processing")
 
+        validate_prompt_inventory()
+
         result = graph.invoke(
             {
                 "analysis_id": analysis_id,
                 "correlation_id": str(correlation_id),
                 "created_by": str(analysis.get("created_by")),
-                "max_concurrency": 4,
+                "max_concurrency": max_concurrency,
                 "extraction_metadata": {},
             },
-            config={"max_concurrency": 4},
+            config={"max_concurrency": max_concurrency},
         )
 
         extracted_data = result.get("extracted_data", {})

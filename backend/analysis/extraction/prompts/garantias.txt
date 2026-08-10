@@ -1,97 +1,194 @@
+# CONCEPTO DE LA CATEGORÍA
+
+Esta categoría extrae **garantías FINANCIERAS que el oferente debe constituir**.
+No confundir con garantías técnicas de productos (esas NO van acá).
+
+**Desde la perspectiva del oferente:** "¿Qué garantías tengo que poner? ¿Cuánto?
+¿Cuándo las constituyo? ¿Por cuánto tiempo?"
+
+**Qué incluye:**
+- Garantía de mantenimiento de oferta (o de seriedad)
+- Garantía de cumplimiento de contrato
+- Garantía de anticipo (si hay entrega de fondos anticipada)
+- Fondo de reparo o de garantía
+- Otras garantías financieras exigidas
+
+**Reconocimiento semántico:** El pliego puede no titular "Garantías". Buscá:
+- Capítulos sobre cauciones, pólizas, seguros de caución
+- Menciones de montos a garantizar
+- Frases sobre constitución de garantías
+- Referencias a vigencia de garantías
+
+**Frases típicas que indican garantías:**
+- "Deberá constituir garantía de..."
+- "Se exige garantía equivalente a..."
+- "La oferta deberá estar acompañada de..."
+- "Seguro de caución por..."
+- "Depósito en garantía"
+
+**Variaciones comunes:**
+- "Garantía de mantenimiento de oferta" = "Caución de oferta" = "Garantía de seriedad"
+- "Garantía de cumplimiento" = "Garantía de ejecución" = "Caución de contrato"
+- "Fondo de reparo" = "Fondo de garantía" = "Retención de garantía"
+
+---
+
+## ⚠️ EXCLUSIÓN CRÍTICA — Garantías Técnicas vs Financieras
+
+❌ **NO incluir garantías técnicas de productos:**
+- "Garantía del servidor por 3 años" → NO es garantía financiera
+- "Garantía de fábrica" → NO
+- "Garantía técnica del fabricante" → NO
+
+✅ **SÍ incluir garantías financieras:**
+- "Garantía de mantenimiento de oferta del 1% del presupuesto oficial" → SÍ
+- "Seguro de caución por cumplimiento de contrato" → SÍ
+
+**La diferencia:** Las garantías financieras son **dinero o pólizas** que el
+oferente deposita como respaldo. Las técnicas son promesas del fabricante sobre
+el producto.
+
+---
+
 # OBJETIVO
-Extraer TODAS las garantías FINANCIERAS/CONTRACTUALES que el oferente o el
-adjudicatario deben constituir A FAVOR DEL LICITANTE: mantenimiento de oferta,
-cumplimiento de contrato, anticipo, impugnación (o su equivalente con otro
-nombre). Cada garantía distinta es un ítem del array. No las agrupes.
+Extraer garantías FINANCIERAS que el oferente debe constituir. Un ítem por garantía.
 
-# EXCLUSIÓN CRÍTICA — no es la misma "garantía"
-La palabra "garantía" en un pliego también se usa para la GARANTÍA DEL
-PRODUCTO/SERVICIO (garantía de fabricante, garantía técnica del bien
-adquirido, garantía de funcionamiento del equipo — típicamente en las
-especificaciones técnicas o el anexo técnico, ej. "Garantía del servidor:
-deberá extenderse por al menos 3 años, con provisión de repuestos"). ESO NO
-ES una garantía de esta categoría: es una condición de calidad del bien, no
-un instrumento financiero a favor del licitante. NO generes un ítem para ese
-tipo de garantía, aunque el pliego use exactamente la palabra "garantía". Si
-después de descartar esas menciones no queda ninguna garantía financiera
-real, devolvé `{"garantias": []}` — no fuerces un ítem con `tipo: "otra"` y
-todo en `null` solo porque la palabra "garantía" aparece en el pliego.
+# ESTRUCTURA DE SALIDA
 
-# ESQUEMA
+Usá el schema `GarantiaItem` definido en `schemas_v3.py`.
+
+**Campos clave:**
+- `tipo`: Usa enum `TipoGarantia` (mantenimiento_oferta, cumplimiento_contrato, anticipo, etc.)
+- `monto_porcentaje` y `monto_valor`: **MUTUAMENTE EXCLUYENTES** (uno debe ser `None`)
+- `confidence`: [0.0-1.0] según el algoritmo de confianza
+- `source_references`: Siempre incluir cita literal del pliego (min 40 chars)
+
+**Cuando no hay garantías:** `{"garantias": []}`
+
+**Ejemplos:** Ver sección al final del prompt.
+
+---
+
+# REGLAS ESPECÍFICAS
+
+## 1. monto_porcentaje vs monto_valor
+
+**SON MUTUAMENTE EXCLUYENTES.** Solo uno puede tener valor, el otro debe ser `None`.
+
+**Ejemplos:**
+- "5% del presupuesto oficial" → `monto_porcentaje: 5.0, monto_valor: None`
+- "$100.000" → `monto_valor: 100000.0, monto_porcentaje: None`
+- "1% o $50.000" → **emití DOS ítems**, uno por cada opción
+
+## 2. Conservar texto literal
+
+Copiá el texto del pliego casi textual en `sobre_que_se_calcula`, `base_calculo`,
+`forma_constitucion`, `vigencia`.
+
+**Ejemplos:**
+- ✅ "sobre el monto total de la oferta"
+- ✅ "mediante póliza de seguro de caución"
+- ❌ "calculado sobre oferta" (no parafrasees)
+
+## 3. vigencia vs plazo_constitucion
+
+- `plazo_constitucion`: cuándo hay que entregarla (ej: "con la oferta")
+- `vigencia`: cuánto tiempo debe estar vigente (ej: "90 días desde apertura")
+
+## 4. Reconocimiento de tipos
+
+Usá enum `TipoGarantia`:
+- `mantenimiento_oferta`: para garantizar que no retira la oferta
+- `cumplimiento_contrato`: para garantizar cumplimiento si adjudican
+- `anticipo`: si hay entrega de fondos por adelantado
+- `fondo_reparo`: retención sobre pagos como garantía
+- `por_vicios_ocultos`: garantía post-entrega
+- `buen_uso_anticipo`: garantía sobre uso correcto del anticipo
+- `otra`: cualquier otra garantía no clasificable
+
+## 5. Sin especulación
+
+Si el pliego no menciona:
+- moneda → `None`
+- vigencia → `None`
+- forma_constitucion → `None`
+
+❌ No inferir "debe ser en pesos argentinos" si no lo dice.
+
+## 6. Confidence
+
+Usá el algoritmo del prompt base:
+- 0.9-1.0: dato explícito con monto y tipo claro
+- 0.7-0.8: dato completo pero con alguna ambigüedad menor
+- 0.5-0.6: dato parcial o inferido de contexto
+- 0.3-0.4: dato muy incompleto o muy ambiguo
+- 0.0-0.2: especulación (no emitir)
+
+---
+
+# EJEMPLO DE FORMA (no copiar contenido)
+
+**Fragmento:**
+```
+[Fragmento: F1, Documento: 7c9e, Página: 4, Sección: Capítulo 4 > Artículo 8°, Tipo: PÁRRAFO]
+Artículo 8° — Garantía de mantenimiento de oferta. Los oferentes deberán
+constituir una garantía equivalente al 1% (uno por ciento) del presupuesto
+oficial, mediante póliza de seguro de caución. Vigencia: 90 días corridos
+desde la fecha de apertura.
+```
+
+**Salida correcta:**
+```json
 {
   "garantias": [
     {
-      "tipo": "mantenimiento_oferta|cumplimiento_contrato|anticipo|impugnacion|otra",
-      "monto_porcentaje": <número o null>,
-      "monto_valor": <número o null>,
-      "moneda": "ARS|USD|EUR|otra" o null,
-      "base_calculo": "porcentaje|monto_fijo|no_especificado",
-      "sobre_que_se_calcula": "presupuesto_oficial|monto_ofertado|monto_adjudicado|otro" o null,
-      "forma_constitucion": "poliza_caucion|aval_bancario|deposito|cheque_certificado|pagare|titulos_publicos|otra" o null,
-      "plazo_constitucion": <texto literal del pliego o null>,
-      "vigencia": <texto literal del pliego o null>,
-      "confidence": <número calculado según la rúbrica del sistema>,
+      "tipo": "mantenimiento_oferta",
+      "monto_porcentaje": 1.0,
+      "monto_valor": null,
+      "moneda": null,
+      "base_calculo": "presupuesto oficial",
+      "sobre_que_se_calcula": "presupuesto oficial",
+      "forma_constitucion": "póliza de seguro de caución",
+      "plazo_constitucion": null,
+      "vigencia": "90 días corridos desde la fecha de apertura",
+      "confidence": 0.9,
       "source_references": [
         {
-          "document_id": <valor exacto del header del fragmento>,
-          "page_number": <valor exacto del header del fragmento>,
-          "citation": <subcadena literal del fragmento>
+          "document_id": "7c9e",
+          "page_number": 4,
+          "citation": "Los oferentes deberán constituir una garantía equivalente al 1% (uno por ciento) del presupuesto oficial, mediante póliza de seguro de caución. Vigencia: 90 días corridos desde la fecha de apertura."
         }
       ],
-      "extraction_status": "success|partial|not_applicable|not_found"
+      "extraction_status": "success"
     }
   ]
 }
+```
 
-# REGLAS ESPECÍFICAS
-- `monto_porcentaje` y `monto_valor` son excluyentes.
-  "5% del presupuesto oficial" → `monto_porcentaje: 5.0`, `monto_valor: null`,
-  `base_calculo: "porcentaje"`, `sobre_que_se_calcula: "presupuesto_oficial"`.
-  "$ 150.000" → `monto_valor: 150000.0`, `monto_porcentaje: null`,
-  `base_calculo: "monto_fijo"`, `moneda: "ARS"`.
-- Números: sin separador de miles, punto decimal. `AR$ 1.250.000,50` → `1250000.5`.
-- NO infieras moneda. Un porcentaje sin importe no tiene moneda → `null`.
-  Solo poné `"ARS"` si el pliego escribe `$`, `AR$`, `pesos` o `ARS`.
-- Sinónimos frecuentes de `mantenimiento_oferta`: garantía de oferta, seriedad de
-  la oferta, garantía de la propuesta, caución de oferta.
-- Si el pliego menciona la garantía pero no su monto → `extraction_status: "partial"`,
-  no `success`.
-- Si el pliego dice explícitamente que no se exige garantía (ej: "no se requerirá
-  garantía de mantenimiento de oferta"), emití el ítem con
-  `extraction_status: "not_applicable"` y la cita de esa frase.
-- `plazo_constitucion` y `vigencia` son texto literal, no fechas calculadas.
+---
 
-# EJEMPLO DE FORMA (no copiar contenido)
-Fragmento:
-  [Fragmento: F1, Documento: 7c9e, Página: 3, Sección: Capítulo 5 > Artículo 9°, Tipo: PÁRRAFO]
-  Artículo 9° — Los oferentes deberán constituir garantía de mantenimiento de oferta
-  equivalente al 3% del presupuesto oficial, mediante aval bancario, con vigencia de
-  60 días corridos contados desde la apertura.
+# EJEMPLO DE EXCLUSIÓN (garantía técnica, NO extraer)
 
-Salida correcta:
-{"garantias":[{"tipo":"mantenimiento_oferta","monto_porcentaje":3.0,"monto_valor":null,"moneda":null,"base_calculo":"porcentaje","sobre_que_se_calcula":"presupuesto_oficial","forma_constitucion":"aval_bancario","plazo_constitucion":null,"vigencia":"60 días corridos contados desde la apertura","confidence":0.9,"source_references":[{"document_id":"7c9e","page_number":3,"citation":"Los oferentes deberán constituir garantía de mantenimiento de oferta equivalente al 3% del presupuesto oficial, mediante aval bancario, con vigencia de 60 días corridos contados desde la apertura."}],"extraction_status":"success"}]}
+**Fragmento:**
+```
+"Los servidores deberán contar con garantía de fábrica de 3 años."
+```
 
-# EJEMPLO DE EXENCIÓN EXPLÍCITA
-Fragmento que dice: "No se exigirá garantía de mantenimiento de oferta."
-{"garantias":[{"tipo":"mantenimiento_oferta","monto_porcentaje":null,"monto_valor":null,"moneda":null,"base_calculo":"no_especificado","sobre_que_se_calcula":null,"forma_constitucion":null,"plazo_constitucion":null,"vigencia":null,"confidence":0.0,"source_references":[{"document_id":"<del header>","page_number":"<del header>","citation":"No se exigirá garantía de mantenimiento de oferta."}],"extraction_status":"not_applicable"}]}
+❌ **NO generar ítem.** Es garantía técnica del producto, no financiera del oferente.
 
-# EJEMPLO DE EXCLUSIÓN (garantía del producto, no de esta categoría)
-Fragmento:
-  [Fragmento: F1, Documento: 7c9e, Página: 8, Sección: Anexo I > Item 1, Tipo: PÁRRAFO]
-  Garantía del servidor: Deberá extenderse por al menos 3 (tres) años, en sitio, sobre
-  el hardware, con provisión de repuestos dentro del siguiente día hábil.
+Si no hay garantías financieras:
+```json
+{"garantias": []}
+```
 
-Esto es garantía de fabricante sobre el equipo, no una garantía financiera a favor
-del licitante. Salida correcta: no generar ningún ítem a partir de este fragmento.
-Si no hay ninguna otra garantía financiera en el resto de los fragmentos:
-{"garantias":[]}
-
-# EJEMPLO DE AUSENCIA
-Si los fragmentos no mencionan ninguna garantía financiera de esta categoría:
-{"garantias":[]}
+---
 
 === CONTENIDO DEL PLIEGO ===
 {chunks}
 === FIN DEL CONTENIDO ===
 
-Recordá: primera letra `{`. Porcentaje y monto fijo son excluyentes. No infieras moneda.
+**Recordatorio final:**
+- Devolvé JSON válido según schema `GarantiaItem` en `schemas_v3.py`
+- `monto_porcentaje` y `monto_valor` mutuamente excluyentes
+- Lista vacía `[]` si no hay garantías financieras
+- Excluí garantías técnicas de productos

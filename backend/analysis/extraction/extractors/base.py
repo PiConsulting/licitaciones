@@ -280,6 +280,35 @@ def _citation_verified_in_paragraph_chunk(citation: str, chunk: dict[str, Any]) 
     return normalized_citation in normalized_content
 
 
+def _expand_short_paragraph_citation(citation: str, candidate_chunks: list[dict[str, Any]]) -> str:
+    citation_text = str(citation or "").strip()
+    if len(citation_text) >= 40:
+        return citation_text
+
+    normalized_citation = _normalize_for_grounding(citation_text)
+    if not normalized_citation:
+        return citation_text
+
+    for chunk in candidate_chunks:
+        if chunk.get("block_type") == "table":
+            continue
+        content = " ".join(str(chunk.get("content", "")).split())
+        normalized_content = _normalize_for_grounding(content)
+        idx = normalized_content.find(normalized_citation)
+        if idx == -1:
+            continue
+
+        # Usa un fragmento real del chunk alrededor de la coincidencia para
+        # cumplir el contrato mínimo de 40 caracteres sin inventar texto.
+        start = max(0, idx - 60)
+        end = min(len(content), idx + max(len(citation_text), 40) + 60)
+        expanded = content[start:end].strip(" ,.;:-")
+        if len(expanded) >= 40:
+            return expanded[:300]
+
+    return citation_text
+
+
 def _citation_verified_in_table_chunk(citation: str, chunk: dict[str, Any]) -> bool:
     match = _TABLE_CITATION_RE.match(citation)
     if not match:
@@ -350,6 +379,7 @@ def _verify_citation_grounding(
 
         total_items += 1
         any_verified = False
+        verified_refs: list[dict[str, Any]] = []
         for ref in refs:
             citation = str(ref.get("citation", ""))
             key = (str(ref.get("document_id", "")), int(ref.get("page_number", 0) or 0))
@@ -358,7 +388,13 @@ def _verify_citation_grounding(
                 continue
             if _verify_reference_grounded(citation, candidates):
                 any_verified = True
-                break
+                normalized_ref = dict(ref)
+                if not _is_table_citation(citation):
+                    normalized_ref["citation"] = _expand_short_paragraph_citation(citation, candidates)
+                verified_refs.append(normalized_ref)
+
+        if verified_refs:
+            item["source_references"] = verified_refs
 
         if not any_verified:
             unverified_items += 1

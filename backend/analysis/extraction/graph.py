@@ -55,21 +55,15 @@ def _canonical_plazo_tipo(value: str) -> str:
     if "consulta" in text:
         return "consultas"
     if "visita" in text and "obra" in text:
-        return "visita_obra"
+        return "visita_lugar"
     if "apertura" in text:
-        return "apertura"
+        return "apertura_ofertas"
     if "mantenimiento" in text and "oferta" in text:
         return "mantenimiento_oferta"
     if "adjudic" in text:
         return "adjudicacion"
     if "firma" in text and "contrato" in text:
         return "firma_contrato"
-    if "inicio" in text and ("ejecucion" in text or "prestacion" in text):
-        return "inicio_ejecucion"
-    if "entrega" in text:
-        return "entrega"
-    if "garantia" in text and "tecnica" in text:
-        return "garantia_tecnica"
     if "impugn" in text:
         return "impugnacion"
     if (
@@ -92,8 +86,6 @@ def _canonical_garantia_tipo(value: str) -> str:
         return "cumplimiento_contrato"
     if "anticipo" in text:
         return "anticipo"
-    if "impugn" in text:
-        return "impugnacion"
     if (
         "mantenimiento" in text
         or "seriedad" in text
@@ -102,6 +94,24 @@ def _canonical_garantia_tipo(value: str) -> str:
         or ("fianza" in text and "oferta" in text)
     ):
         return "mantenimiento_oferta"
+    return "otra"
+
+
+def _canonical_causal_tipo(value: str) -> str:
+    text = _normalize_text(value)
+    if not text:
+        return "otra"
+
+    if any(term in text for term in ["formal", "document", "garantia", "presentacion", "termino"]):
+        return "formal"
+    if any(term in text for term in ["tecnic", "especificacion", "muestra"]):
+        return "tecnica"
+    if any(term in text for term in ["econom", "precio", "cotizacion"]):
+        return "economica"
+    if any(term in text for term in ["legal", "inhabilit", "registro", "juridic"]):
+        return "legal"
+    if any(term in text for term in ["etica", "conflicto", "corrup", "integridad"]):
+        return "etica"
     return "otra"
 
 
@@ -338,6 +348,8 @@ def merge_node(state: GraphState) -> GraphState:
     )
     # causales_rechazo: el único `tipo` posible es "causal_rechazo", así que
     # agrupar con ese campo no distingue nada — se deduplica solo por valor.
+    for causal in causales:
+        causal["tipo"] = _canonical_causal_tipo(str(causal.get("tipo", "")))
     causales = _merge_duplicate_items_by_key(causales, lambda item: (_normalized_valor_key(item),))
     anexos = _merge_duplicate_items_by_key(
         anexos, lambda item: (str(item.get("tipo", "")), _normalized_valor_key(item))

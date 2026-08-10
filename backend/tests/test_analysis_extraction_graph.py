@@ -12,6 +12,7 @@ from analysis.extraction.extractors.base import (
     CANONICAL_PROMPT_FILES,
     _normalize_item,
     _parse_json_response,
+    _verify_citation_grounding,
     validate_category_prompt_mapping,
     validate_prompt_inventory,
 )
@@ -274,7 +275,7 @@ def test_merge_fusiona_plazos_duplicados_del_mismo_hecho() -> None:
                 "fecha": None,
                 "expresion_relativa": "30 días corridos desde la apertura",
                 "texto_original": "El oferente deberá mantener su oferta por 30 días corridos desde la apertura.",
-                "source_references": [{"document_id": "doc-1", "page_number": 4, "citation": "texto A"}],
+                "source_references": [{"document_id": "doc-1", "page_number": 4, "citation": "El oferente deberá mantener su oferta por 30 días corridos desde la apertura del procedimiento."}],
                 "extraction_status": "success",
                 "confidence": 0.8,
             },
@@ -283,7 +284,7 @@ def test_merge_fusiona_plazos_duplicados_del_mismo_hecho() -> None:
                 "fecha": None,
                 "expresion_relativa": "30 días corridos desde la apertura",
                 "texto_original": "El oferente deberá mantener su oferta por 30 días corridos desde la apertura.",
-                "source_references": [{"document_id": "doc-2", "page_number": 7, "citation": "texto B"}],
+                "source_references": [{"document_id": "doc-2", "page_number": 7, "citation": "El oferente deberá mantener su oferta por 30 días corridos desde la apertura del procedimiento."}],
                 "extraction_status": "success",
                 "confidence": 0.75,
             },
@@ -383,6 +384,93 @@ def test_merge_preserves_table_citation_header_and_row() -> None:
     citation = result["extracted_data"]["plazos"][0]["source_references"][0]["citation"]
     assert "Encabezado:" in citation
     assert "Fila:" in citation
+
+
+def test_verify_citation_grounding_expands_short_verified_citation() -> None:
+    items = [
+        {
+            "tipo": "expediente",
+            "valor": "0100-EXP-2026",
+            "confidence": 0.9,
+            "source_references": [
+                {
+                    "document_id": "doc-1",
+                    "page_number": 2,
+                    "citation": "Expediente N 0100-EXP-2026.",
+                }
+            ],
+            "extraction_status": "success",
+        }
+    ]
+    chunks = [
+        {
+            "document_id": "doc-1",
+            "page_number": 2,
+            "block_type": "paragraph",
+            "content": (
+                "Organismo convocante: Municipalidad de Villa Nueva. "
+                "Expediente N 0100-EXP-2026. Procedimiento N 05/2026. "
+                "Tipo de procedimiento: Licitacion publica."
+            ),
+        }
+    ]
+
+    _verify_citation_grounding(items, chunks, category="identificacion_procedimiento", correlation_id="corr-1")
+
+    citation = items[0]["source_references"][0]["citation"]
+    assert len(citation) >= 40
+    assert "Expediente N 0100-EXP-2026" in citation
+
+
+def test_merge_node_maps_plazo_types_to_schema_contract() -> None:
+    state = {
+        "analysis_id": "analysis-1",
+        "correlation_id": "corr-1",
+        "plazos": [
+            {
+                "tipo": "apertura de ofertas",
+                "fecha": "2026-09-15",
+                "source_references": [
+                    {
+                        "document_id": "doc-1",
+                        "page_number": 1,
+                        "citation": "Apertura de ofertas: 15/09/2026 a las 11:00 hs en la Sala de Licitaciones del municipio.",
+                    }
+                ],
+                "extraction_status": "success",
+                "confidence": 0.8,
+            },
+            {
+                "tipo": "plazo de entrega",
+                "expresion_relativa": "90 dias corridos",
+                "source_references": [
+                    {
+                        "document_id": "doc-1",
+                        "page_number": 2,
+                        "citation": "El plazo de entrega de los productos sera como maximo de noventa dias corridos a partir de la recepcion de la orden de provision.",
+                    }
+                ],
+                "extraction_status": "success",
+                "confidence": 0.8,
+            },
+        ],
+        "garantias": [],
+        "causales": [],
+        "requisitos_admisibilidad": [],
+        "criterios": [],
+        "identificacion": [],
+        "plazos_status": "success",
+        "garantias_status": "not_found",
+        "causales_status": "not_found",
+        "requisitos_admisibilidad_status": "not_found",
+        "criterios_status": "not_found",
+        "identificacion_status": "not_found",
+    }
+
+    result = merge_node(state)
+    tipos = [item["tipo"] for item in result["extracted_data"]["plazos_clave"]]
+    assert "apertura_ofertas" in tipos
+    assert "otro" in tipos
 
 
 def test_merge_exposes_ui_category_keys() -> None:

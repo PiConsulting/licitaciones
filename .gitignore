@@ -76,3 +76,5 @@ docs/docu/
 
 .claude/
 
+backend/analysis/extraction/prompts/skill-prompt
+
