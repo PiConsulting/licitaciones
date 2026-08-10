@@ -102,6 +102,15 @@ def test_response_base_prompt_incluye_regla_de_formato_de_fecha() -> None:
     assert "formato argentino" in prompt
 
 
+def test_response_base_prompt_prioriza_checklist_breve() -> None:
+    from analysis.extraction.synthesis import _load_response_base_prompt
+
+    prompt = _load_response_base_prompt()
+
+    assert "Modo checklist breve" in prompt
+    assert "items de una sola idea" in prompt
+
+
 def test_run_synthesis_convierte_fecha_iso_a_formato_natural(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_call_llm(*, messages, correlation_id):
         prompt = messages[0][1]

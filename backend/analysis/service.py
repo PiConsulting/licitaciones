@@ -487,6 +487,7 @@ def list_analyses(
         normalized = f"%{search.strip().lower()}%"
         query = query.filter(
             or_(
+                func.lower(func.coalesce(Analysis.analysis_name, "")).like(normalized),
                 func.lower(func.coalesce(primary_document.filename, "")).like(normalized),
                 func.lower(func.coalesce(cast(AnalysisVersion.extracted_data, String), "")).like(normalized),
                 func.lower(func.coalesce(Analysis.id, "")).like(normalized),
@@ -512,10 +513,12 @@ def list_analyses(
         items.append(
             {
                 "id": analysis.id,
+                "analysis_name": analysis.analysis_name,
                 "status": analysis.status,
                 "current_stage": analysis.current_stage,
                 "stage_progress": stage_progress,
                 "progress_percentage": analysis.progress_percentage or 0,
+                "confidence_avg": calculate_confidence_avg(extracted_data),
                 "created_at": analysis.created_at,
                 "primary_document_name": primary_document_name,
                 "organismo": _extract_organism(extracted_data),

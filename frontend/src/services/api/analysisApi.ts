@@ -240,6 +240,11 @@ const FIELD_LABELS: Record<string, string> = {
   lugar_entrega: "Lugar de entrega",
   plazo_ejecucion: "Plazo de ejecución",
   presupuesto_oficial: "Presupuesto oficial",
+  organismo_convocante: "Organismo convocante",
+  expediente: "Expediente",
+  numero_procedimiento: "Procedimiento",
+  tipo_procedimiento: "Tipo de procedimiento",
+  jurisdiccion: "Jurisdicción",
   otro: "Otro",
   otra: "Otra",
 };

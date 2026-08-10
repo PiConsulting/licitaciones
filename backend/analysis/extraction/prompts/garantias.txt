@@ -50,6 +50,52 @@ el producto.
 
 ---
 
+## ❌ EJEMPLOS DE QUÉ NO EXTRAER
+
+### Caso 1: Garantías Técnicas de Productos
+**Input:** "Los equipos ofrecidos deberán contar con garantía de fábrica de al menos 3 años"
+
+**Correcto:** NO extraer (no es garantía financiera)
+
+**Incorrecto:** Extraer como garantía
+
+**Razón:** Es una característica técnica del producto, no una caución/póliza/depósito del oferente.
+
+---
+
+### Caso 2: Seguros de Responsabilidad (pueden ser ambiguos)
+**Input:** "El oferente deberá presentar seguro de responsabilidad civil vigente"
+
+**Correcto:** NO extraer (va en "requisitos_admisibilidad")
+
+**Incorrecto:** Extraer como garantía
+
+**Razón:** Es un requisito de admisibilidad (documento habilitante), no una caución que se constituye para garantizar oferta/contrato.
+
+---
+
+### Caso 3: Plazos de Garantías
+**Input:** "La garantía de mantenimiento de oferta tendrá vigencia por 30 días corridos"
+
+**Correcto:** SÍ extraer, pero el plazo NO va acá, va en "plazos_clave"
+
+**Razón:** La garantía sí se extrae, pero el plazo de vigencia se extrae en otra categoría.
+
+---
+
+## ⚠️ REGLA DE ORO
+
+Las garantías financieras SIEMPRE implican:
+- Dinero depositado
+- Póliza de seguro de caución
+- Aval bancario
+- Pagaré
+- Cheque
+
+Si dice "garantía" pero NO es dinero/póliza/aval → NO es garantía financiera.
+
+---
+
 # OBJETIVO
 Extraer garantías FINANCIERAS que el oferente debe constituir. Un ítem por garantía.
 

@@ -385,8 +385,141 @@ def _verify_reference_grounded(citation: str, candidate_chunks: list[dict[str, A
     if _is_table_citation(citation):
         table_chunks = [chunk for chunk in candidate_chunks if chunk.get("block_type") == "table"]
         return any(_citation_verified_in_table_chunk(citation, chunk) for chunk in table_chunks)
-    paragraph_chunks = [chunk for chunk in candidate_chunks if chunk.get("block_type") != "table"]
-    return any(_citation_verified_in_paragraph_chunk(citation, chunk) for chunk in paragraph_chunks)
+    # Si el LLM devuelve una cita textual "normal" para un dato que cayó en un
+    # chunk de tabla (caso frecuente en carátulas), también debe validarse.
+    return any(_citation_verified_in_paragraph_chunk(citation, chunk) for chunk in candidate_chunks)
+
+
+_PROCEDIMIENTO_CON_NUMERO_RE = re.compile(
+    r"(?P<tipo>licitaci[oó]n\s+p[úu]blica|licitaci[oó]n\s+privada|contrataci[oó]n\s+directa|concurso\s+de\s+precios|subasta\s+p[úu]blica)\s*"
+    r"(?:n[°ºo\.]?\s*)?(?P<numero>[A-Z0-9\-\/.]+)",
+    re.IGNORECASE,
+)
+_EXPEDIENTE_RE = re.compile(r"\bexpediente\b\s*[:\-]?\s*(?P<value>[A-Z0-9][A-Z0-9\-\/.]{4,})", re.IGNORECASE)
+_ORGANISMO_RE = re.compile(
+    r"\borganismo\b\s*[:\-]?\s*(?P<value>.+?)(?=\bprocedimiento\b|\bobjeto\b|\bpresupuesto\b|\bexpediente\b|$)",
+    re.IGNORECASE,
+)
+_PRESUPUESTO_RE = re.compile(
+    r"\bpresupuesto\s+oficial\b\s*[:\-]?\s*(?P<value>.+?)(?=\bexpediente\b|\bprocedimiento\b|\bobjeto\b|$)",
+    re.IGNORECASE,
+)
+
+
+def _normalized_identificacion_tipo(raw_tipo: str) -> str:
+    text = _normalize_for_grounding(raw_tipo)
+    if "organismo" in text:
+        return "organismo_convocante"
+    if "expediente" in text:
+        return "expediente"
+    if "numero" in text and "proced" in text:
+        return "numero_procedimiento"
+    if text in {"procedimiento", "procedimiento_nro", "procedimiento_numero"}:
+        return "numero_procedimiento"
+    if "tipo" in text and "proced" in text:
+        return "tipo_procedimiento"
+    if "jurisd" in text:
+        return "jurisdiccion"
+    if "presupuesto" in text:
+        return "presupuesto_oficial"
+    return raw_tipo.strip().lower() or "otro"
+
+
+def _build_context_citation(content: str, start: int, end: int) -> str:
+    text = " ".join(str(content or "").split())
+    if not text:
+        return ""
+
+    left = max(0, start)
+    right = min(len(text), end)
+    snippet = text[left:right].strip()
+
+    if len(snippet) < 40:
+        left = max(0, left - 100)
+        right = min(len(text), right + 140)
+        snippet = text[left:right].strip()
+
+    return snippet[:300]
+
+
+def _augment_identificacion_payload(payload: list[dict[str, Any]], chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    existing_tipos = {
+        _normalized_identificacion_tipo(str(item.get("tipo", "")))
+        for item in payload
+        if isinstance(item, dict)
+    }
+
+    additions: list[dict[str, Any]] = []
+
+    sorted_chunks = sorted(
+        chunks,
+        key=lambda chunk: (
+            int(chunk.get("page_number", 0) or 0),
+            str(chunk.get("document_id", "")),
+        ),
+    )
+
+    def add_if_missing(tipo: str, valor: str, chunk: dict[str, Any], match_span: tuple[int, int]) -> None:
+        canonical_tipo = _normalized_identificacion_tipo(tipo)
+        clean_valor = " ".join(str(valor or "").split()).strip(" .;:-")
+        if not clean_valor or canonical_tipo in existing_tipos:
+            return
+
+        citation = _build_context_citation(str(chunk.get("content", "")), match_span[0], match_span[1])
+        if len(citation) < 40:
+            citation = " ".join(str(chunk.get("content", "")).split())[:300]
+        if len(citation) < 40:
+            return
+
+        additions.append(
+            {
+                "tipo": canonical_tipo,
+                "valor": clean_valor,
+                "metadata": {},
+                "confidence": 0.78,
+                "source_references": [
+                    {
+                        "document_id": str(chunk.get("document_id", "")),
+                        "page_number": int(chunk.get("page_number", 0) or 0),
+                        "citation": citation,
+                    }
+                ],
+                "extraction_status": "success",
+            }
+        )
+        existing_tipos.add(canonical_tipo)
+
+    for chunk in sorted_chunks:
+        content = " ".join(str(chunk.get("content", "")).split())
+        if not content:
+            continue
+
+        if "organismo_convocante" not in existing_tipos:
+            match = _ORGANISMO_RE.search(content)
+            if match:
+                add_if_missing("organismo_convocante", match.group("value"), chunk, match.span())
+
+        if "expediente" not in existing_tipos:
+            match = _EXPEDIENTE_RE.search(content)
+            if match:
+                add_if_missing("expediente", match.group("value"), chunk, match.span("value"))
+
+        match = _PROCEDIMIENTO_CON_NUMERO_RE.search(content)
+        if match:
+            if "tipo_procedimiento" not in existing_tipos:
+                add_if_missing("tipo_procedimiento", match.group("tipo"), chunk, match.span("tipo"))
+            if "numero_procedimiento" not in existing_tipos:
+                numero_text = f"{match.group('tipo')} N° {match.group('numero')}"
+                add_if_missing("numero_procedimiento", numero_text, chunk, match.span())
+
+        if "presupuesto_oficial" not in existing_tipos:
+            match = _PRESUPUESTO_RE.search(content)
+            if match:
+                add_if_missing("presupuesto_oficial", match.group("value"), chunk, match.span("value"))
+
+    if not additions:
+        return payload
+    return [*payload, *additions]
 
 
 def _verify_citation_grounding(
@@ -508,8 +641,34 @@ def run_extractor(
             analysis_id=analysis_id,
             top_k=settings.extraction_top_k,
             keyword_query=keyword_query or None,
+            category_filter=result_key,  # Filtrar por categoría target
         )
         chunks = _truncate_to_token_budget(chunks, settings.extraction_max_context_tokens)
+
+        # Logging de distribución de categorías recuperadas
+        category_distribution: dict[str, int] = {}
+        for chunk in chunks:
+            primary = chunk.get("primary_category", "unknown")
+            category_distribution[primary] = category_distribution.get(primary, 0) + 1
+
+        # Métrica de pureza: % de chunks que pertenecen a la categoría target
+        target_chunks = sum(
+            1
+            for chunk in chunks
+            if chunk.get("primary_category") == result_key
+            or result_key in chunk.get("secondary_categories", [])
+        )
+        purity_rate = target_chunks / len(chunks) if chunks else 0.0
+
+        logger.info(
+            "retrieval_metrics",
+            correlation_id=correlation_id,
+            category=result_key,
+            retrieved_chunks=len(chunks),
+            category_distribution=category_distribution,
+            target_chunks=target_chunks,
+            purity_rate=round(purity_rate, 3),
+        )
 
         if not chunks:
             logger.error(
@@ -556,15 +715,43 @@ def run_extractor(
             if not isinstance(payload, list):
                 logger.warning("payload_no_es_lista", category=result_key, tipo=type(payload).__name__)
                 payload = []
+            if result_key == "identificacion_procedimiento":
+                payload = _augment_identificacion_payload(payload, chunks)
             delta[state_field] = [_normalize_item(item) for item in payload if isinstance(item, dict)]
 
         if is_object_result:
             _verify_citation_grounding(
                 [delta[state_field]], chunks, category=result_key, correlation_id=correlation_id
             )
+
+            # Detectar contaminación cruzada en objeto
+            from analysis.extraction.extractors.validators import detect_cross_contamination
+
+            contaminated = detect_cross_contamination([delta[state_field]], category=result_key)
+            if contaminated:
+                logger.warning(
+                    "cross_contamination_detected",
+                    correlation_id=correlation_id,
+                    category=result_key,
+                    contaminated_count=len(contaminated),
+                )
+
             delta[status_field] = str(delta[state_field].get("extraction_status", "not_found"))
         else:
             _verify_citation_grounding(delta[state_field], chunks, category=result_key, correlation_id=correlation_id)
+
+            # Detectar contaminación cruzada en lista
+            from analysis.extraction.extractors.validators import detect_cross_contamination
+
+            contaminated = detect_cross_contamination(delta[state_field], category=result_key)
+            if contaminated:
+                logger.warning(
+                    "cross_contamination_detected",
+                    correlation_id=correlation_id,
+                    category=result_key,
+                    contaminated_count=len(contaminated),
+                )
+
             delta[status_field] = _aggregate_status(delta[state_field])
         logger.info(
             "extractor_completed",

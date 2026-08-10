@@ -75,7 +75,13 @@ def _embed_query_or_none(query: str) -> list[float] | None:
         return None
 
 
-def _search_azure(query: str, analysis_id: str, top_k: int, keyword_query: str | None = None) -> list[dict]:
+def _search_azure(
+    query: str,
+    analysis_id: str,
+    top_k: int,
+    keyword_query: str | None = None,
+    category_filter: str | None = None,
+) -> list[dict]:
     settings = get_settings()
     from azure.core.credentials import AzureKeyCredential
     from azure.search.documents import SearchClient
@@ -115,6 +121,15 @@ def _search_azure(query: str, analysis_id: str, top_k: int, keyword_query: str |
 
     analysis_filter = [f"analysis_id eq '{analysis_id}'"]
 
+    # Filtro de categoría: busca en primary_category O en secondary_categories
+    if category_filter:
+        category_escaped = category_filter.replace("'", "''")
+        category_condition = (
+            f"(primary_category eq '{category_escaped}' or "
+            f"secondary_categories/any(c: c eq '{category_escaped}'))"
+        )
+        analysis_filter.append(category_condition)
+
     raw_results = _run_query(analysis_filter, bm25_text, top=over_fetch)
 
     if not raw_results:
@@ -147,7 +162,28 @@ def _search_azure(query: str, analysis_id: str, top_k: int, keyword_query: str |
     return [chunk for _score, _overlap, chunk in scored[:top_k]]
 
 
-def search_hybrid(query: str, analysis_id: str, top_k: int = 10, keyword_query: str | None = None) -> list[dict]:
+def search_hybrid(
+    query: str,
+    analysis_id: str,
+    top_k: int = 10,
+    keyword_query: str | None = None,
+    category_filter: str | None = None,
+) -> list[dict]:
     """Recupera chunks relevantes para una categoría, filtrados por analysis_id.
-    keyword_query se usa para BM25 (discriminante); query va al vector (semántico)."""
-    return _search_azure(query=query, analysis_id=analysis_id, top_k=top_k, keyword_query=keyword_query)
+
+    Args:
+        query: Query semántica para búsqueda vectorial
+        analysis_id: ID del análisis
+        top_k: Cantidad de chunks a retornar
+        keyword_query: Query de keywords para BM25 (discriminante)
+        category_filter: Si se especifica, filtra chunks donde:
+            primary_category eq '{category_filter}' OR
+            secondary_categories/any(c: c eq '{category_filter}')
+    """
+    return _search_azure(
+        query=query,
+        analysis_id=analysis_id,
+        top_k=top_k,
+        keyword_query=keyword_query,
+        category_filter=category_filter,
+    )

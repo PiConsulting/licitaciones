@@ -1,6 +1,6 @@
 import { isAxiosError } from "axios";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Trash2 } from "lucide-react";
 
@@ -29,10 +29,15 @@ export function Step4StartAnalysis({ analysisId, initialDecisions = [], onBack }
   const [showModal, setShowModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [pollingEnabled, setPollingEnabled] = useState(false);
+  const [analysisName, setAnalysisName] = useState("");
 
   const startMutation = useStartAnalysis();
   const deleteMutation = useDeleteAnalysis();
-  const polling = useAnalysisPolling(analysisId, pollingEnabled);
+  const handleAnalysisCompleted = useCallback(() => {
+    addToast("success", "El análisis terminó correctamente.");
+  }, [addToast]);
+
+  const polling = useAnalysisPolling(analysisId, pollingEnabled, { onCompleted: handleAnalysisCompleted });
   const canRetryAfterError = polling.data?.status === "error";
 
   const handleDeleteAnalysis = async () => {
@@ -55,12 +60,16 @@ export function Step4StartAnalysis({ analysisId, initialDecisions = [], onBack }
 
   const startWithDecisions = async (decisions: DuplicateDecision[]) => {
     setError(null);
+    const normalizedName = analysisName.trim();
     // Force a fresh polling cycle on every attempt.
     setPollingEnabled(false);
     try {
       const response = await startMutation.mutateAsync({
         analysisId,
-        payload: { decisions },
+        payload: {
+          decisions,
+          ...(normalizedName ? { analysis_name: normalizedName } : {}),
+        },
       });
 
       if (response.requires_resolution) {
@@ -107,7 +116,20 @@ export function Step4StartAnalysis({ analysisId, initialDecisions = [], onBack }
       <h2 className="text-lg font-semibold text-gray-900">Paso 4: Iniciar análisis</h2>
       <p className="text-sm text-gray-600">Confirmá el inicio. Si hay duplicados, vas a poder decidir por cada archivo.</p>
 
-      <p className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">Análisis ID: {analysisId}</p>
+      <div className="space-y-2">
+        <label htmlFor="analysis-name" className="text-sm font-medium text-gray-700">
+          Nombre del análisis (opcional)
+        </label>
+        <input
+          id="analysis-name"
+          type="text"
+          maxLength={160}
+          value={analysisName}
+          onChange={(event) => setAnalysisName(event.target.value)}
+          placeholder="Ej: Licitación mantenimiento edilicio 2026"
+          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+        />
+      </div>
 
       {polling.isLoading && pollingEnabled ? <p className="text-sm text-gray-600">Consultando estado...</p> : null}
       {polling.error instanceof Error ? <p className="text-sm text-error">{polling.error.message}</p> : null}

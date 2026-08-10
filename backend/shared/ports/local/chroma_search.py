@@ -18,6 +18,7 @@ def _search_local(
     analysis_id: str,
     top_k: int,
     section_key: str | None,
+    category_filter: str | None = None,
 ) -> list[dict]:
     settings = get_settings()
     from pathlib import Path
@@ -52,6 +53,17 @@ def _search_local(
     scored: list[tuple[float, dict]] = []
 
     for metadata, content, distance in zip(metadatas, documents, distances, strict=False):
+        # Filtro de categoría (en local, post-retrieval)
+        if category_filter:
+            primary_cat = metadata.get("primary_category")
+            secondary_cats = metadata.get("secondary_categories", [])
+            # secondary_categories puede ser string vacío en Chroma (no acepta None)
+            if isinstance(secondary_cats, str):
+                secondary_cats = [c.strip() for c in secondary_cats.split(",") if c.strip()]
+
+            if primary_cat != category_filter and category_filter not in secondary_cats:
+                continue
+
         table_ref = _deserialize_table_ref(metadata.get("table_ref"))
         chunk_section = metadata.get("section_key", "general")
         base_score = 1.0 - float(distance or 0.0)

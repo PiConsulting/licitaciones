@@ -55,6 +55,8 @@ describe("useAnalysisPolling", () => {
   });
 
   test("redirige cuando se completa", async () => {
+    const onCompleted = vi.fn();
+
     mockGetAnalysisStatus.mockResolvedValue({
       id: "analysis-2",
       status: "analyzed",
@@ -63,12 +65,13 @@ describe("useAnalysisPolling", () => {
       stage_progress: "Analizado",
     });
 
-    renderHook(() => useAnalysisPolling("analysis-2", true), {
+    renderHook(() => useAnalysisPolling("analysis-2", true, { onCompleted }), {
       wrapper: buildWrapper(),
     });
 
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith("/analysis/analysis-2");
     });
+    expect(onCompleted).toHaveBeenCalledTimes(1);
   });
 });

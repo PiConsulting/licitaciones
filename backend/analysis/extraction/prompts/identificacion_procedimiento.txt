@@ -13,6 +13,7 @@ Son los datos administrativos que identifican unívocamente el llamado.
 - Expediente administrativo (número de trámite interno)
 - Número de procedimiento (número de la licitación, contratación, concurso)
 - Tipo de procedimiento (licitación pública, contratación directa, etc.)
+- Presupuesto oficial (si está explícito en el pliego)
 - Jurisdicción (nacional, provincial, municipal)
 
 **Reconocimiento semántico:** Esta información suele estar en:
@@ -54,7 +55,7 @@ todo.
 Usá el schema `IdentificacionProcedimientoItem` definido en `schemas_v3.py`.
 
 **Campos clave:**
-- `tipo`: Usa enum `TipoIdentificacion` (organismo_convocante, expediente, numero_procedimiento, tipo_procedimiento, jurisdiccion)
+- `tipo`: Usa enum `TipoIdentificacion` (organismo_convocante, expediente, numero_procedimiento, tipo_procedimiento, presupuesto_oficial, jurisdiccion)
 - `valor`: Texto literal o casi literal del pliego
 - `metadata`: Diccionario vacío (reservado para futuros usos)
 - `confidence`: [0.0-1.0] según el algoritmo de confianza
@@ -125,19 +126,30 @@ El ámbito jurisdiccional o nivel de gobierno declarado EXPLÍCITAMENTE.
 ❌ No lo deduzcas del nombre del organismo si el pliego no lo declara aparte.  
 ✅ Solo si el pliego lo dice explícitamente.
 
-## 6. Un ítem por tipo
+## 6. presupuesto_oficial
+Si el pliego declara explícitamente un presupuesto oficial, extraelo como un
+ítem separado con `tipo = "presupuesto_oficial"`.
+
+**Ejemplos:**
+- "Presupuesto oficial: $ 3.850.000"
+- "Monto oficial estimado: ARS 12.000.000"
+
+Copiá el monto tal como aparece en el pliego (con moneda y separadores).
+
+## 7. Un ítem por tipo
 Emití como máximo un ítem por `tipo`.
 
 Si el mismo dato aparece repetido en varios fragmentos:
 - Consolidalo en un solo ítem
 - Sumá las citas
 
-## 7. TipoIdentificacion enum
+## 8. TipoIdentificacion enum
 Valores disponibles:
 - `organismo_convocante`
 - `expediente`
 - `numero_procedimiento`
 - `tipo_procedimiento`
+- `presupuesto_oficial`
 - `jurisdiccion`
 
 ---

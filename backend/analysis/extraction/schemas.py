@@ -324,6 +324,7 @@ class TipoIdentificacion(str, Enum):
     EXPEDIENTE = "expediente"
     NUMERO_PROCEDIMIENTO = "numero_procedimiento"
     TIPO_PROCEDIMIENTO = "tipo_procedimiento"
+    PRESUPUESTO_OFICIAL = "presupuesto_oficial"
     JURISDICCION = "jurisdiccion"
 
 

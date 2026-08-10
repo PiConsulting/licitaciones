@@ -135,6 +135,7 @@ export interface AnalysisVersion {
 
 export interface AnalysisDetail {
   id: string;
+  analysis_name?: string | null;
   created_at: string;
   status: "queued" | "processing" | "analyzed" | "validated" | "error" | "cancelled";
   current_stage: string;

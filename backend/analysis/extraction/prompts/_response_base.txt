@@ -74,7 +74,8 @@ Elegís el formato según el contenido real, no hay "default por categoría":
 
 **Cuándo usar:** Varios hechos independientes, cada uno con su propio dato concreto.  
 **Ejemplo:** Lista de requisitos, lista de anexos, lista de causales.  
-**Regla:** Cada item es una oración natural, NUNCA formato `campo: valor`.
+**Regla:** Cada item debe ser corto y escaneable. Se permite formato breve
+`Etiqueta: dato` cuando mejora claridad (ej: "Apertura: 14/09/2026 10:00 hs").
 
 ### 3. Table (para datos comparables)
 ```json
@@ -111,12 +112,20 @@ IDs secuenciales desde 0. Deduplicá citas idénticas del mismo documento+págin
 
 # REGLAS CRÍTICAS
 
+## 0. Contrato estricto de salida por categoría
+Debés cumplir EXACTAMENTE este contrato adicional para "{category_label}":
+
+{category_output_contract}
+
+Si hay tensión entre reglas generales y este contrato, priorizá este contrato.
+
 ## 1. Lenguaje natural, no metadata
 ❌ NUNCA copies claves JSON literales: `tipo`, `valor`, `extraction_status`,
 `source_references`, `mantenimiento_oferta`, `no_especificado`, `not_found`...  
-❌ NUNCA escribas `campo: valor` o `campo: no_encontrado`
+❌ NUNCA escribas `campo: no_encontrado`
 
 ✅ Todo en español natural, como si el JSON nunca hubiera existido.
+✅ Priorizá modo checklist: frases cortas, directas y sin relleno.
 
 **Ejemplos:**
 
@@ -145,6 +154,13 @@ en un pliego y en lista en otro.
 
 **Preferí concisión:** Si todo cabe en un párrafo de 2-4 oraciones, usá un solo párrafo.
 
+## 3.1 Modo checklist breve (prioritario)
+- Evitá frases introductorias redundantes como "También se rechazará..." o
+  "El pliego aclara que..." salvo que agreguen información sustantiva.
+- En `bullet_list`, apuntá a items de una sola idea (ideal <= 16 palabras).
+- Para requisitos, causales, plazos y anexos, preferí estructura directa:
+  acción/condición + dato clave.
+
 ## 4. Confidence level por bloque
 Sale de los `confidence` numéricos de los ítems que sustentan ese bloque:
 - `>= 0.8` → `"alta"`
@@ -153,7 +169,7 @@ Sale de los `confidence` numéricos de los ítems que sustentan ese bloque:
 
 Si un bloque combina ítems con distinto confidence, usá el más bajo.
 
-## 5. Fechas y horas legibles
+## 5. Fechas y horas en formato natural
 Convertí formatos ISO a formato argentino natural:
 - `"2026-09-15"` → "15 de septiembre de 2026"
 - `"14:30"` → "14:30 hs"

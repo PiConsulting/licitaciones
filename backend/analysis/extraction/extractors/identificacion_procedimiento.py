@@ -6,7 +6,7 @@ from analysis.extraction.state import GraphState
 _QUERY = (
     "Datos de identificación del procedimiento: organismo o jurisdicción convocante, número "
     "de expediente, número y tipo de procedimiento (licitación pública, privada, concurso, "
-    "contratación directa) y jurisdicción — típicamente en la carátula o los primeros "
+    "contratación directa), presupuesto oficial y jurisdicción — típicamente en la carátula o los primeros "
     "artículos del pliego."
 )
 

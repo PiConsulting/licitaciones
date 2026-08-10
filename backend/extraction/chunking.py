@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import re
+import unicodedata
 from collections import defaultdict
+from functools import lru_cache
 from uuid import UUID
 
 import structlog
@@ -9,6 +12,71 @@ logger = structlog.get_logger(__name__)
 
 _BOILERPLATE_MIN_PAGES = 3
 _BOILERPLATE_MIN_PAGE_FRACTION = 0.5
+
+# Patrones de títulos para clasificación de categorías
+CATEGORY_HEADING_PATTERNS = {
+    "objeto_alcance": [
+        "objeto",
+        "alcance",
+        "descripcion de la contratacion",
+        "alcance del servicio",
+        "modalidad",
+        "lugar de entrega",
+    ],
+    "requisitos_admisibilidad": [
+        "requisitos",
+        "admisibilidad",
+        "documentacion",
+        "antecedentes",
+        "habilitacion",
+        "condiciones de admision",
+        "requisitos habilitantes",
+    ],
+    "garantias": [
+        "garantias",
+        "cauciones",
+        "seguro de caucion",
+        "mantenimiento de oferta",
+        "cumplimiento de contrato",
+        "fianza",
+    ],
+    "plazos_clave": [
+        "plazos",
+        "cronograma",
+        "fechas",
+        "vencimientos",
+        "presentacion de ofertas",
+        "apertura",
+    ],
+    "criterios_evaluacion": [
+        "evaluacion",
+        "ponderacion",
+        "criterios",
+        "puntaje",
+        "adjudicacion",
+        "oferta mas conveniente",
+    ],
+    "causales_rechazo": [
+        "rechazo",
+        "descalificacion",
+        "inadmisibilidad",
+        "causales",
+        "motivos de rechazo",
+    ],
+    "anexos_obligatorios": [
+        "anexos",
+        "formularios",
+        "planillas",
+        "modelos",
+    ],
+    "identificacion_procedimiento": [
+        "carátula",
+        "expediente",
+        "organismo",
+        "procedimiento",
+        "licitacion",
+    ],
+}
 
 
 def _normalize_heading_value(text: str) -> str:
@@ -263,6 +331,126 @@ def _merge_intermediate_blocks(blocks: list[dict]) -> list[dict]:
     return merged
 
 
+def _normalize_for_matching(text: str) -> str:
+    """Normaliza texto para matching (lowercase, sin acentos, sin puntuación)"""
+    normalized = unicodedata.normalize("NFKD", text.lower())
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    # Remover puntuación, mantener espacios
+    normalized = re.sub(r"[^\w\s]", " ", normalized)
+    return " ".join(normalized.split())
+
+
+def _classify_by_heading(heading_path: list[str]) -> str | None:
+    """Clasifica chunk por título de sección"""
+    if not heading_path:
+        return None
+
+    heading_text = " ".join(heading_path).lower()
+    normalized = _normalize_for_matching(heading_text)
+
+    # Scoring por categoría
+    scores: dict[str, int] = {}
+    for category, patterns in CATEGORY_HEADING_PATTERNS.items():
+        score = sum(1 for pattern in patterns if _normalize_for_matching(pattern) in normalized)
+        if score > 0:
+            scores[category] = score
+
+    if not scores:
+        return None
+
+    # Retornar categoría con mayor score
+    return max(scores.items(), key=lambda x: x[1])[0]
+
+
+@lru_cache(maxsize=1)
+def _load_glossary() -> dict[str, dict]:
+    """Carga el glossary.json para clasificación por keywords"""
+    from pathlib import Path
+    import json
+
+    glossary_path = Path(__file__).resolve().parents[1] / "analysis" / "extraction" / "glossary.json"
+    if not glossary_path.exists():
+        return {}
+
+    with glossary_path.open("r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    return data if isinstance(data, dict) else {}
+
+
+def _classify_by_keywords(content: str, glossary: dict) -> dict[str, float]:
+    """Calcula score de cada categoría por matching de términos clave"""
+    normalized_content = _normalize_for_matching(content)
+    content_tokens = set(normalized_content.split())
+
+    category_scores: dict[str, float] = {}
+
+    for category, entry in glossary.items():
+        if not isinstance(entry, dict):
+            continue
+
+        query_terms = entry.get("query_terms", [])
+        aliases = entry.get("aliases", [])
+        all_terms = [*query_terms, *aliases]
+
+        # Contar términos que aparecen en el contenido
+        matches = 0
+        for term in all_terms:
+            normalized_term = _normalize_for_matching(str(term))
+            # Split multi-word terms
+            term_tokens = set(normalized_term.split())
+            if term_tokens.issubset(content_tokens):
+                matches += 1
+
+        if matches > 0:
+            # Score normalizado por cantidad de términos de la categoría
+            category_scores[category] = matches / len(all_terms) if all_terms else 0.0
+
+    return category_scores
+
+
+def classify_chunk_categories(chunk: dict) -> dict:
+    """Clasifica un chunk en categorías.
+
+    Returns:
+        {
+            "primary_category": str | None,
+            "secondary_categories": list[str],
+            "category_scores": dict[str, float]
+        }
+    """
+    glossary = _load_glossary()
+    heading_path = chunk.get("heading_path", [])
+    content = chunk.get("content", "")
+
+    # 1. Clasificación por título
+    heading_category = _classify_by_heading(heading_path)
+
+    # 2. Clasificación por keywords
+    keyword_scores = _classify_by_keywords(content, glossary)
+
+    # 3. Determinar categoría primary y secundarias
+    primary_category = heading_category  # El título tiene prioridad
+
+    # Si no hay título claro, usar keyword matching
+    if not primary_category and keyword_scores:
+        # La categoría con mayor score es la primary
+        primary_category = max(keyword_scores.items(), key=lambda x: x[1])[0]
+
+    # Categorías secundarias: cualquier score > threshold
+    SECONDARY_THRESHOLD = 0.15  # Al menos 15% de términos match
+    secondary_categories = [
+        cat
+        for cat, score in keyword_scores.items()
+        if score >= SECONDARY_THRESHOLD and cat != primary_category
+    ]
+
+    return {
+        "primary_category": primary_category,
+        "secondary_categories": secondary_categories,
+        "category_scores": keyword_scores,
+    }
+
+
 def create_chunks(
     blocks: list[dict],
     document_id: str | UUID,
@@ -306,20 +494,26 @@ def create_chunks(
                 row_tokens = _tokenize(full_content)
                 if not row_tokens:
                     continue
-                chunks.append(
-                    {
-                        "document_id": str(document_id),
-                        "page_number": page_number,
-                        "chunk_index": chunk_index,
-                        "content": full_content,
-                        "token_count": len(row_tokens),
-                        "heading_path": heading_path,
-                        "heading_level": len(heading_path),
-                        "section_path": section_path,
-                        "block_type": "table",
-                        "table_ref": block.get("table_ref"),
-                    }
-                )
+
+                chunk_dict = {
+                    "document_id": str(document_id),
+                    "page_number": page_number,
+                    "chunk_index": chunk_index,
+                    "content": full_content,
+                    "token_count": len(row_tokens),
+                    "heading_path": heading_path,
+                    "heading_level": len(heading_path),
+                    "section_path": section_path,
+                    "block_type": "table",
+                    "table_ref": block.get("table_ref"),
+                }
+
+                # Clasificar categorías del chunk
+                classification = classify_chunk_categories(chunk_dict)
+                chunk_dict["primary_category"] = classification["primary_category"]
+                chunk_dict["secondary_categories"] = classification["secondary_categories"]
+
+                chunks.append(chunk_dict)
                 chunk_index += 1
                 continue
 
@@ -341,20 +535,26 @@ def create_chunks(
             for chunk_content in content_pieces:
                 if not chunk_content.strip():
                     continue
-                chunks.append(
-                    {
-                        "document_id": str(document_id),
-                        "page_number": page_number,
-                        "chunk_index": chunk_index,
-                        "content": chunk_content,
-                        "token_count": len(_tokenize(chunk_content)),
-                        "heading_path": heading_path,
-                        "heading_level": len(heading_path),
-                        "section_path": section_path,
-                        "block_type": "paragraph",
-                        "table_ref": None,
-                    }
-                )
+
+                chunk_dict = {
+                    "document_id": str(document_id),
+                    "page_number": page_number,
+                    "chunk_index": chunk_index,
+                    "content": chunk_content,
+                    "token_count": len(_tokenize(chunk_content)),
+                    "heading_path": heading_path,
+                    "heading_level": len(heading_path),
+                    "section_path": section_path,
+                    "block_type": "paragraph",
+                    "table_ref": None,
+                }
+
+                # Clasificar categorías del chunk
+                classification = classify_chunk_categories(chunk_dict)
+                chunk_dict["primary_category"] = classification["primary_category"]
+                chunk_dict["secondary_categories"] = classification["secondary_categories"]
+
+                chunks.append(chunk_dict)
                 chunk_index += 1
         except Exception as exc:  # noqa: BLE001
             logger.warning(

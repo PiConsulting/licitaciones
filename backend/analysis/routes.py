@@ -59,6 +59,13 @@ from users.service import get_current_user, http_bearer
 analysis_router = APIRouter(prefix="/analyses", tags=["analyses"])
 
 
+def _normalize_analysis_name(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned[:160] if cleaned else None
+
+
 @analysis_router.get("", response_model=AnalysisListResponse)
 async def get_analyses(
     search: str | None = None,
@@ -168,6 +175,7 @@ async def get_analysis_detail(
 
         return AnalysisDetailResponse(
             id=analysis.id,
+            analysis_name=analysis.analysis_name,
             created_at=analysis.created_at,
             status=analysis.status,
             current_stage=analysis.current_stage,
@@ -289,12 +297,14 @@ async def start_analysis(
 
     if settings.persistence_mode_normalized() == "cosmos_only":
         decisions = [decision.model_dump() for decision in (payload.decisions if payload else [])]
+        analysis_name = _normalize_analysis_name(payload.analysis_name if payload else None)
         try:
             result = start_analysis_with_duplicates_cosmos(
                 analysis_id,
                 current_user.id,
                 created_by_label=current_user.name or current_user.email,
                 decisions=decisions,
+                analysis_name=analysis_name,
             )
         except ValueError as exc:
             raise HTTPException(
@@ -332,6 +342,7 @@ async def start_analysis(
     db = SessionLocal()
     try:
         analysis = validate_analysis_ownership(db, analysis_id, current_user.id)
+        analysis_name = _normalize_analysis_name(payload.analysis_name if payload else None)
         if analysis.status not in {"draft", "error"}:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -342,6 +353,9 @@ async def start_analysis(
                     }
                 },
             )
+
+        if analysis_name is not None:
+            analysis.analysis_name = analysis_name
 
         duplicates = find_duplicates_for_analysis(db, analysis.id, current_user.id)
 

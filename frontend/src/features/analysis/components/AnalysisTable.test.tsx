@@ -135,6 +135,26 @@ describe("AnalysisTable", () => {
     expect(onRetryAnalysis).toHaveBeenCalledWith("analysis-1");
   });
 
+  test("muestra icono iniciar y ejecuta callback cuando el estado es draft", () => {
+    const onStartAnalysis = vi.fn();
+
+    render(
+      <AnalysisTable
+        items={[buildItem({ status: "draft" })]}
+        sortBy="created_at"
+        sortOrder="desc"
+        onSort={() => undefined}
+        onRowClick={() => undefined}
+        onStartAnalysis={onStartAnalysis}
+        retryingAnalysisId={null}
+        deletingAnalysisId={null}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /iniciar análisis/i }));
+    expect(onStartAnalysis).toHaveBeenCalledWith("analysis-1");
+  });
+
   test("muestra icono eliminar cuando el análisis no está en curso", () => {
     render(
       <AnalysisTable

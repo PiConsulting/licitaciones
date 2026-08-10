@@ -27,6 +27,7 @@ export interface AnalysisCreateResponse {
 
 export interface AnalysisStartPayload {
   decisions: DuplicateDecision[];
+  analysis_name?: string;
 }
 
 export interface AnalysisStartResponse {
@@ -68,6 +69,7 @@ export interface AnalysisListFilters {
 
 export interface AnalysisListItem {
   id: string;
+  analysis_name?: string | null;
   status: string;
   current_stage: string;
   stage_progress?: string | null;

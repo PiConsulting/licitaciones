@@ -57,7 +57,9 @@ export function getAnalysisSummary(analysis: AnalysisDetail): AnalysisSummary {
     summary.notFound += counts.notFound;
     summary.conflict += counts.conflict;
     summary.notApplicable += counts.notApplicable;
-    if (counts.extracted > 0) {
+    const categoryCompleted =
+      counts.extracted > 0 || counts.notApplicable > 0 || category.extraction_status === "not_applicable";
+    if (categoryCompleted) {
       summary.extractedCategories += 1;
     }
 
