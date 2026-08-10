@@ -15,20 +15,35 @@ function sourceToCitation(source: NarrativeSource): Citation {
 }
 
 /**
+ * Filtra sources que no son verificables (marcadas con _unverified por el backend).
+ * Estas citations no pueden ser encontradas en el PDF y no deben mostrarse al usuario.
+ */
+function filterVerifiedSources(sources: NarrativeSource[]): NarrativeSource[] {
+  return sources.filter((source) => {
+    // Backend marca sources no verificadas con _unverified: true
+    // Estas no deben mostrarse porque no pueden ser resaltadas en el PDF
+    const sourceObj = source as unknown as Record<string, unknown>;
+    return !sourceObj._unverified;
+  });
+}
+
+/**
  * Renderiza la respuesta de experto de una categoría: siempre bloques en
  * lenguaje natural (párrafo/lista/tabla), nunca `field_name: field_value`
  * crudo — ni acá ni en ningún otro lugar de esta vista. Reemplaza el antiguo
  * "Detalle por campo" y "Acciones recomendadas".
  */
 export function NarrativeBlocks({ narrative, onViewSource }: NarrativeBlocksProps) {
-  const allCitations = narrative.sources.map(sourceToCitation);
+  // Filtrar sources no verificadas antes de mostrarlas
+  const verifiedSources = filterVerifiedSources(narrative.sources);
+  const allCitations = verifiedSources.map(sourceToCitation);
 
   const handleViewSource = (sourceIds: number[]) => {
     if (!onViewSource || sourceIds.length === 0) {
       return;
     }
     const citations = sourceIds
-      .map((id) => narrative.sources.find((source) => source.id === id))
+      .map((id) => verifiedSources.find((source) => source.id === id))
       .filter((source): source is NarrativeSource => source !== undefined)
       .map(sourceToCitation);
     if (citations.length === 0) {
@@ -95,9 +110,9 @@ export function NarrativeBlocks({ narrative, onViewSource }: NarrativeBlocksProp
 
       <div className="mt-3 rounded border border-gray-200 bg-white p-2" data-testid="category-sources">
         <h5 className="text-xs font-semibold uppercase tracking-wide text-gray-700">Fuentes verificables</h5>
-        {narrative.sources.length > 0 ? (
+        {verifiedSources.length > 0 ? (
           <ul className="mt-2 space-y-2" data-testid="category-sources-list">
-            {narrative.sources.map((source) => (
+            {verifiedSources.map((source) => (
               <li key={source.id}>
                 <button
                   type="button"

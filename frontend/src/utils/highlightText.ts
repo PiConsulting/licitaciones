@@ -1,14 +1,14 @@
 // react-pdf/pdfjs fragmenta cada línea en muchos spans de texto (a veces una
-// sola palabra). `isPartOfCitation` decide span por span, sin ninguna nocion
-// de posicion dentro de la pagina -- un span matchea si su texto aparece en
-// algun lugar de la cita, sin importar si ese span es realmente el fragmento
-// citado o una aparicion no relacionada de la misma palabra en otro parrafo.
-// Con un piso de 3 caracteres, articulos/preposiciones de 3 letras ("los",
-// "las", "del", "por", "con", "una") -- altisima frecuencia en un pliego --
-// matcheaban casi cualquier cita, resaltando palabras sueltas por toda la
-// pagina en vez de la frase citada. Subir el piso a 6 filtra ese ruido de
-// stopwords sin descartar palabras con contenido real ("oferta", "garantia").
-const MIN_MATCH_LENGTH = 6;
+// sola palabra). Para resaltar correctamente una frase completa, necesitamos
+// reconstruir el texto de múltiples spans y buscar la cita como frase continua.
+// Este algoritmo acumula spans hasta encontrar la frase completa o determinar
+// que no está presente en esa secuencia.
+
+// Buffer de contexto: cuántos spans consecutivos acumular para buscar la frase
+const SPAN_CONTEXT_WINDOW = 20;
+
+// Mínimo de longitud de palabra individual para considerar como parte de cita
+const MIN_WORD_LENGTH = 8;
 
 export function normalizeText(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
@@ -18,13 +18,88 @@ function escapeHtml(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-/** True when a PDF text-layer item is (approximately) part of one of the given citations. */
+/**
+ * Determina si un span de texto es parte de alguna citation.
+ * 
+ * ESTRATEGIA MEJORADA:
+ * 1. Si el span es largo (>= MIN_WORD_LENGTH), verificar si es palabra significativa de la cita
+ * 2. Mantener un buffer global de spans recientes para detectar frases completas
+ * 3. Solo marcar spans que sean parte de una frase verificable
+ * 
+ * NOTA: Esta función se llama span por span durante el render. Para mejorar
+ * la precisión, react-pdf necesitaría exponer el texto completo de la página,
+ * pero esa API no está disponible. Esta es la mejor aproximación dentro de
+ * las limitaciones de la biblioteca.
+ */
+
+// Buffer global para acumular texto entre llamadas consecutivas
+let spanBuffer: Array<{ text: string; normalized: string }> = [];
+let lastResetTime = Date.now();
+
 export function isPartOfCitation(itemText: string, citationTexts: string[]): boolean {
+  // Reset buffer si pasó mucho tiempo (indica nueva página/render)
+  if (Date.now() - lastResetTime > 1000) {
+    spanBuffer = [];
+  }
+  lastResetTime = Date.now();
+
   const normalizedItem = normalizeText(itemText);
-  if (normalizedItem.length < MIN_MATCH_LENGTH) {
+  if (!normalizedItem) {
     return false;
   }
-  return citationTexts.some((citationText) => normalizeText(citationText).includes(normalizedItem));
+
+  // Agregar span actual al buffer
+  spanBuffer.push({ text: itemText, normalized: normalizedItem });
+  if (spanBuffer.length > SPAN_CONTEXT_WINDOW) {
+    spanBuffer.shift();
+  }
+
+  // Reconstruir texto del buffer
+  const bufferedText = spanBuffer.map((s) => s.normalized).join(" ");
+
+  // Estrategia 1: Buscar la frase completa en el buffer
+  for (const citationText of citationTexts) {
+    const normalizedCitation = normalizeText(citationText);
+    
+    // Si encontramos la frase completa (o gran parte) en el buffer, este span es parte
+    if (bufferedText.includes(normalizedCitation)) {
+      return true;
+    }
+    
+    // Si la cita está contenida en el buffer con ligeras variaciones (75% match)
+    const citationWords = normalizedCitation.split(" ").filter((w) => w.length >= 4);
+    if (citationWords.length >= 3) {
+      const matchedWords = citationWords.filter((word) => bufferedText.includes(word));
+      if (matchedWords.length / citationWords.length >= 0.75) {
+        return true;
+      }
+    }
+  }
+
+  // Estrategia 2: Si el span es una palabra larga significativa de la cita
+  if (normalizedItem.length >= MIN_WORD_LENGTH) {
+    for (const citationText of citationTexts) {
+      const normalizedCitation = normalizeText(citationText);
+      // Solo marcar si es palabra significativa (no común) Y aparece en la cita
+      if (normalizedCitation.includes(normalizedItem)) {
+        // Verificar que no sea una palabra demasiado común
+        const commonWords = [
+          "documento",
+          "oferta",
+          "oferente",
+          "presentar",
+          "garantia",
+          "requisito",
+          "vigente",
+        ];
+        if (!commonWords.includes(normalizedItem)) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
 }
 
 /**

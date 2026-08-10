@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from typing import Callable
 import unicodedata
@@ -45,11 +46,47 @@ def _normalize_text(value: str) -> str:
     return " ".join(normalized.lower().strip().split())
 
 
-def _canonical_plazo_tipo(value: str) -> str:
+def _canonical_plazo_tipo(value: str, *, item: dict | None = None) -> str:
+    """Canonicaliza el tipo de plazo. Si el tipo original es ambiguo ('otro'),
+    intenta rescatar el tipo correcto buscando keywords en texto_original."""
     text = _normalize_text(value)
     if not text:
         return "otro"
 
+    # Intentar rescate por texto_original si tipo es "otro"
+    if text == "otro" and item:
+        # Buscar en texto_original y expresion_relativa
+        texto_completo = " ".join([
+            str(item.get("texto_original") or ""),
+            str(item.get("expresion_relativa") or ""),
+        ])
+        rescue_text = _normalize_text(texto_completo)
+        
+        # Aplicar misma lógica de reconocimiento pero sobre el texto completo
+        if "respuesta" in rescue_text and "consulta" in rescue_text:
+            return "respuesta_consultas"
+        if "consulta" in rescue_text:
+            return "consultas"
+        if "impugn" in rescue_text or "recurs" in rescue_text:
+            return "impugnacion"
+        if "visita" in rescue_text:
+            return "visita_lugar"
+        if "apertura" in rescue_text:
+            return "apertura_ofertas"
+        if "mantenimiento" in rescue_text and "oferta" in rescue_text:
+            return "mantenimiento_oferta"
+        if "adjudic" in rescue_text:
+            return "adjudicacion"
+        if "firma" in rescue_text and "contrato" in rescue_text:
+            return "firma_contrato"
+        if any(term in rescue_text for term in ["ejecucion", "entrega", "provision", "suministro"]):
+            return "plazo_ejecucion"
+        if any(term in rescue_text for term in ["presentacion", "recepcion"]):
+            return "presentacion_ofertas"
+        # Si no rescatamos nada, mantener "otro"
+        return "otro"
+
+    # Reconocimiento estándar por tipo
     if "respuesta" in text and "consulta" in text:
         return "respuesta_consultas"
     if "consulta" in text:
@@ -66,6 +103,9 @@ def _canonical_plazo_tipo(value: str) -> str:
         return "firma_contrato"
     if "impugn" in text:
         return "impugnacion"
+    # Plazo de ejecución/entrega (del contrato, no del procedimiento)
+    if any(term in text for term in ["ejecucion", "entrega", "provision", "suministro"]):
+        return "plazo_ejecucion"
     if (
         "presentacion de ofertas" in text
         or "cierre de recepcion de ofertas" in text
@@ -118,8 +158,17 @@ def _canonical_causal_tipo(value: str) -> str:
 def _plazo_dedup_value(item: dict) -> str:
     """Huella del "valor" de un plazo, para no fusionar dos plazos del mismo
     tipo que en realidad dicen cosas distintas (eso es un conflicto, no un
-    duplicado)."""
-    return str(item.get("fecha") or item.get("expresion_relativa") or item.get("texto_original") or "")
+    duplicado). Normaliza el texto para que variaciones menores se reconozcan
+    como duplicados (ej: '12 meses' vs '12 (doce) meses')."""
+    raw_value = str(item.get("fecha") or item.get("expresion_relativa") or item.get("texto_original") or "")
+    # Normalizar para que "12 meses desde..." y "12 (doce) meses contados desde..."
+    # se reconozcan como el mismo plazo
+    normalized = _normalize_text(raw_value)
+    # Eliminar paréntesis explicativos comunes: "12 (doce)" → "12"
+    normalized = re.sub(r'\(\w+\)', '', normalized).strip()
+    # Colapsar múltiples espacios
+    normalized = " ".join(normalized.split())
+    return normalized
 
 
 def _garantia_dedup_value(item: dict) -> str:
@@ -343,7 +392,7 @@ def merge_node(state: GraphState) -> GraphState:
     # distintos) suelen llegar con una redacción de `tipo` levemente distinta, y
     # solo se reconocen como el mismo hecho después de canonicalizar.
     for plazo in plazos:
-        plazo["tipo"] = _canonical_plazo_tipo(str(plazo.get("tipo", "")))
+        plazo["tipo"] = _canonical_plazo_tipo(str(plazo.get("tipo", "")), item=plazo)
     plazos = _merge_duplicate_typed_items(plazos, _plazo_dedup_value)
 
     for garantia in garantias:

@@ -290,7 +290,7 @@ def _expand_short_paragraph_citation(
     preferred_snippet: str | None = None,
 ) -> str:
     citation_text = str(citation or "").strip()
-    if len(citation_text) >= 40:
+    if len(citation_text) >= 25:
         return citation_text
 
     normalized_citation = _normalize_for_grounding(citation_text)
@@ -300,7 +300,7 @@ def _expand_short_paragraph_citation(
     preferred_text = str(preferred_snippet or "").strip()
     normalized_preferred = _normalize_for_grounding(preferred_text)
 
-    if len(preferred_text) >= 40 and normalized_preferred:
+    if len(preferred_text) >= 25 and normalized_preferred:
         for chunk in candidate_chunks:
             if chunk.get("block_type") == "table":
                 continue
@@ -320,7 +320,7 @@ def _candidate_rescue_snippets(item: dict[str, Any], *, category: str) -> list[s
         snippet = str(raw_value or "").strip()
         if not snippet:
             continue
-        if len(snippet) < 40 or len(snippet) > 300:
+        if len(snippet) < 25 or len(snippet) > 300:
             continue
         normalized = _normalize_for_grounding(snippet)
         if not normalized or normalized in seen:
@@ -378,9 +378,10 @@ def _verify_reference_grounded(citation: str, candidate_chunks: list[dict[str, A
     citation_text = str(citation or "").strip()
     if not citation_text:
         return False
-    # Contrato estricto v3: cita literal entre 40 y 300 caracteres.
-    # Evita validar palabras sueltas que producen anclajes ambiguos en UI.
-    if len(citation_text) < 40 or len(citation_text) > 300:
+    # Contrato relajado: cita literal entre 25 y 300 caracteres.
+    # 25 chars permite frases técnicas concisas ("15 días corridos desde apertura")
+    # mientras evita palabras sueltas ambiguas ("oferta", "garantia").
+    if len(citation_text) < 25 or len(citation_text) > 300:
         return False
     if _is_table_citation(citation):
         table_chunks = [chunk for chunk in candidate_chunks if chunk.get("block_type") == "table"]
@@ -434,7 +435,7 @@ def _build_context_citation(content: str, start: int, end: int) -> str:
     right = min(len(text), end)
     snippet = text[left:right].strip()
 
-    if len(snippet) < 40:
+    if len(snippet) < 25:
         left = max(0, left - 100)
         right = min(len(text), right + 140)
         snippet = text[left:right].strip()
@@ -466,9 +467,9 @@ def _augment_identificacion_payload(payload: list[dict[str, Any]], chunks: list[
             return
 
         citation = _build_context_citation(str(chunk.get("content", "")), match_span[0], match_span[1])
-        if len(citation) < 40:
+        if len(citation) < 25:
             citation = " ".join(str(chunk.get("content", "")).split())[:300]
-        if len(citation) < 40:
+        if len(citation) < 25:
             return
 
         additions.append(
@@ -559,7 +560,7 @@ def _verify_citation_grounding(
             if not candidates:
                 continue
             citation_for_verification = citation
-            if len(citation.strip()) < 40 and category == "plazos_clave":
+            if len(citation.strip()) < 25 and category == "plazos_clave":
                 preferred = str(item.get("texto_original") or "").strip()
                 if preferred and _verify_reference_grounded(preferred, candidates):
                     citation_for_verification = preferred
@@ -643,6 +644,23 @@ def run_extractor(
             keyword_query=keyword_query or None,
             category_filter=result_key,  # Filtrar por categoría target
         )
+        
+        # Fallback: si el filtro de categoría no encuentra chunks (porque muchos
+        # tienen primary_category=None), reintentar sin filtro para asegurar contexto
+        if not chunks:
+            logger.warning(
+                "category_filter_no_results_fallback",
+                correlation_id=correlation_id,
+                category=result_key,
+            )
+            chunks = search_hybrid(
+                query=query,
+                analysis_id=analysis_id,
+                top_k=settings.extraction_top_k,
+                keyword_query=keyword_query or None,
+                category_filter=None,  # Sin filtro
+            )
+        
         chunks = _truncate_to_token_budget(chunks, settings.extraction_max_context_tokens)
 
         # Logging de distribución de categorías recuperadas

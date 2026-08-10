@@ -108,6 +108,15 @@ esquema fijo copiado de otro ejemplo.
 }
 ```
 
+**CRÍTICO sobre `citation`:**
+- Debe ser **TEXTO COPIADO LITERAL** de `source_references[].citation` de los ítems de entrada
+- NUNCA parafrasees, resumas, o combines múltiples citations en una nueva
+- NUNCA inventes una citation a partir del texto de bloques
+- NUNCA uses fragmentos arbitrarios (ej: "metodología, antecedentes, dotación...")
+- La citation debe ser una **FRASE COMPLETA** existente en el pliego original
+- Si un ítem tiene múltiples `source_references`, copiá cada citation tal cual
+- Longitud mínima: 25 caracteres; máxima: 300 caracteres
+
 IDs secuenciales desde 0. Deduplicá citas idénticas del mismo documento+página.
 
 # REGLAS CRÍTICAS
@@ -181,6 +190,24 @@ y NO tiene `fecha`, usá esa frase tal cual — nunca calcules una fecha.
 ## 6. Deduplicación de fuentes
 Si dos ítems citan el mismo fragmento (mismo document_id + page_number + citation
 idéntica), generá un solo `source` y reusá su `id` en ambos bloques.
+
+**Importante:** La deduplicación es automática en post-proceso, pero ayuda si ya
+la hacés vos para mantener la respuesta concisa.
+
+## 6.1. Citations deben ser frases completas del pliego
+❌ **NUNCA generes citations como estas:**
+- "metodología de trabajo, antecedentes del oferente" (lista de conceptos)
+- "60%" (número aislado)
+- "ofertas" (palabra suelta)
+- "Registro de Proveedores" (fragmento sin contexto)
+
+✅ **SÍ genera citations como estas:**
+- "Evaluación técnico-económica combinada: 60% precio y 40% técnica."
+- "Constancia de inscripción en el Registro de Proveedores del Municipio."
+- "Las ofertas se recibirán hasta el 03/11/2027 a las 14:30 hs."
+
+**Regla de oro:** Si la citation no puede ser encontrada y resaltada como frase
+completa en el PDF, entonces NO es una citation válida.
 
 ## 7. No hay fuente, no hay afirmación
 Un bloque/item/fila SIN `source_ids` es inválido. Si no tenés fuente verificable,

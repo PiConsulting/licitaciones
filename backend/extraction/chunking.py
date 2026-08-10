@@ -435,9 +435,15 @@ def classify_chunk_categories(chunk: dict) -> dict:
     if not primary_category and keyword_scores:
         # La categoría con mayor score es la primary
         primary_category = max(keyword_scores.items(), key=lambda x: x[1])[0]
+    
+    # Fallback final: si aún no hay categoría, asignar "identificacion_procedimiento"
+    # como default genérico (es la categoría menos específica)
+    if not primary_category:
+        primary_category = "identificacion_procedimiento"
 
     # Categorías secundarias: cualquier score > threshold
-    SECONDARY_THRESHOLD = 0.15  # Al menos 15% de términos match
+    # Threshold aumentado de 15% a 25% para reducir asignaciones ambiguas
+    SECONDARY_THRESHOLD = 0.25  # Al menos 25% de términos match
     secondary_categories = [
         cat
         for cat, score in keyword_scores.items()

@@ -74,12 +74,28 @@ el producto.
 
 ---
 
-### Caso 3: Plazos de Garantías
-**Input:** "La garantía de mantenimiento de oferta tendrá vigencia por 30 días corridos"
+### Caso 3: Plazos de Garantías vs Garantías
+**Input A:** "La garantía de mantenimiento de oferta tendrá vigencia por 30 días corridos"
 
-**Correcto:** SÍ extraer, pero el plazo NO va acá, va en "plazos_clave"
+**Correcto:** SÍ extraer la garantía, pero el plazo (30 días) NO va acá, va en "plazos_clave"
 
-**Razón:** La garantía sí se extrae, pero el plazo de vigencia se extrae en otra categoría.
+**Input B:** "Plazo de mantenimiento de oferta: 15 días corridos desde la apertura"
+
+**Correcto:** NO extraer (es un plazo, va en "plazos_clave")
+
+**Razón:** "Plazo de mantenimiento de oferta" es el TIEMPO que la oferta debe ser válida.
+"Garantía de mantenimiento de oferta" es el DINERO/PÓLIZA que respalda esa oferta.
+
+---
+
+### Caso 4: Exenciones de Garantías
+**Input:** "Se exime a los oferentes de constituir garantía de mantenimiento de oferta cuando el monto no supere X"
+
+**Correcto:** Extraer como `extraction_status: "not_applicable"` con `tipo: "mantenimiento_oferta"` y `valor: "Exento - no se exige garantía cuando monto < X"`
+
+**Incorrecto:** No extraer nada
+
+**Razón:** La exención es información valiosa que el oferente necesita saber.
 
 ---
 
@@ -107,7 +123,7 @@ Usá el schema `GarantiaItem` definido en `schemas_v3.py`.
 - `tipo`: Usa enum `TipoGarantia` (mantenimiento_oferta, cumplimiento_contrato, anticipo, etc.)
 - `monto_porcentaje` y `monto_valor`: **MUTUAMENTE EXCLUYENTES** (uno debe ser `None`)
 - `confidence`: [0.0-1.0] según el algoritmo de confianza
-- `source_references`: Siempre incluir cita literal del pliego (min 40 chars)
+- `source_references`: Siempre incluir cita literal del pliego (min 25 chars)
 
 **Cuando no hay garantías:** `{"garantias": []}`
 

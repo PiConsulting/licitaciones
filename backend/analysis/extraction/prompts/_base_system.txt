@@ -50,7 +50,7 @@ No infieras, no deduzcas por contexto, no completes por analogía.
 Solo completás `fecha` cuando el pliego escribe una fecha calendaria explícita (DD/MM/AAAA).
 
 ## 3. Citations son subcadenas exactas
-`citation` debe ser texto copiado literal del fragmento (40-300 caracteres).
+`citation` debe ser texto copiado literal del fragmento (25-300 caracteres).
 - Una oración completa con sentido propio
 - Sin reescribir, sin corregir ortografía
 - NUNCA una palabra suelta o un número solo

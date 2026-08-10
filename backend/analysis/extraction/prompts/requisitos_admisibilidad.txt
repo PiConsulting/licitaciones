@@ -107,7 +107,7 @@ Usá el schema `RequisitoAdmisibilidadItem` definido en `schemas_v3.py`.
   - `momento_presentacion`: "con_la_oferta" | "previo_apertura" | "pre_adjudicacion" | "post_adjudicacion" | "no_especificado"
   - `subsanable`: "si" | "no" | "no_especificado"
 - `confidence`: [0.0-1.0] según el algoritmo de confianza
-- `source_references`: Siempre incluir cita literal del pliego (min 40 chars)
+- `source_references`: Siempre incluir cita literal del pliego (min 25 chars)
 
 **Cuando no hay requisitos:** `{"requisitos_admisibilidad": []}`
 

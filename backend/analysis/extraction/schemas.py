@@ -107,6 +107,7 @@ class TipoPlazo(str, Enum):
     RESPUESTA_CONSULTAS = "respuesta_consultas"
     VISITA_LUGAR = "visita_lugar"
     MANTENIMIENTO_OFERTA = "mantenimiento_oferta"
+    PLAZO_EJECUCION = "plazo_ejecucion"  # Plazo de entrega o ejecución del contrato
     ADJUDICACION = "adjudicacion"
     IMPUGNACION = "impugnacion"
     FIRMA_CONTRATO = "firma_contrato"

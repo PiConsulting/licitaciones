@@ -59,7 +59,7 @@ Usá el schema `IdentificacionProcedimientoItem` definido en `schemas_v3.py`.
 - `valor`: Texto literal o casi literal del pliego
 - `metadata`: Diccionario vacío (reservado para futuros usos)
 - `confidence`: [0.0-1.0] según el algoritmo de confianza
-- `source_references`: Siempre incluir cita literal del pliego (min 40 chars)
+- `source_references`: Siempre incluir cita literal del pliego (min 25 chars)
 
 **Cuando no hay datos:** `{"identificacion_procedimiento": []}`
 

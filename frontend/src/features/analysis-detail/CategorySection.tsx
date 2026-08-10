@@ -35,7 +35,8 @@ export function CategorySection({ categoryId, category, onViewSource }: Category
 
   const state = category.extraction_status === "failed"
     ? "error"
-    : category.extraction_status === "not_applicable"
+    // Solo marcar como "no_aplica" si NO hay items extraídos (para evitar badge inconsistente)
+    : categoryFullyNotApplicable
       ? "no_aplica"
       : counts.conflict > 0
         ? "con_conflictos"

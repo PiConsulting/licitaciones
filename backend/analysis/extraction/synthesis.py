@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import unicodedata
+from collections import defaultdict
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -74,6 +76,134 @@ NARRATIVE_CATEGORIES = tuple(CATEGORY_LABELS)
 _USABLE_STATUSES = {"success", "partial", "not_applicable"}
 
 
+def _normalize_text_for_comparison(text: str) -> str:
+    """Normaliza texto para comparación: elimina acentos, espacios múltiples, lowercase."""
+    normalized = unicodedata.normalize("NFKD", text or "")
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return " ".join(normalized.lower().strip().split())
+
+
+def _dedupe_narrative_sources(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Deduplica sources en narrative usando mismo criterio que graph.py:
+    mismo document_id + page_number + citation normalizada = misma fuente.
+    Mantiene el primer ID encontrado para cada fuente única."""
+    seen: dict[tuple[str, int, str], int] = {}
+    deduped: list[dict[str, Any]] = []
+    id_mapping: dict[int, int] = {}
+
+    for source in sources:
+        doc_id = str(source.get("document_id", ""))
+        page = int(source.get("page_number", 0) or 0)
+        citation = str(source.get("citation", ""))
+        normalized_citation = _normalize_text_for_comparison(citation)
+        
+        key = (doc_id, page, normalized_citation)
+        original_id = int(source.get("id", 0))
+        
+        if key in seen:
+            # Ya existe esta fuente, mapear el ID original al ID canónico
+            canonical_id = seen[key]
+            id_mapping[original_id] = canonical_id
+        else:
+            # Nueva fuente única
+            new_id = len(deduped)
+            seen[key] = new_id
+            id_mapping[original_id] = new_id
+            deduped.append({
+                "id": new_id,
+                "document_id": doc_id,
+                "page_number": page,
+                "citation": citation,
+            })
+    
+    return deduped, id_mapping
+
+
+def _verify_and_repair_narrative_citations(
+    narrative: CategoryNarrative,
+    items: list[dict[str, Any]],
+    *,
+    correlation_id: str,
+) -> CategoryNarrative:
+    """Verifica que cada citation en narrative.sources exista en los
+    source_references originales de items. Citations no verificables se marcan
+    pero no se eliminan automáticamente — el llamador decide si descartarlas.
+    
+    También deduplica sources y remapea source_ids en blocks."""
+    
+    # 1. Construir pool de citations verificables desde items originales
+    verified_citations: set[str] = set()
+    for item in items:
+        refs = item.get("source_references") or []
+        for ref in refs:
+            citation = str(ref.get("citation", "")).strip()
+            if citation and len(citation) >= 25:
+                verified_citations.add(_normalize_text_for_comparison(citation))
+    
+    # 2. Marcar sources en narrative según si son verificables
+    sources_with_validation = []
+    for source in narrative.sources:
+        source_dict = source.model_dump() if hasattr(source, "model_dump") else dict(source)
+        citation = str(source_dict.get("citation", "")).strip()
+        normalized = _normalize_text_for_comparison(citation)
+        
+        # Marcar si la citation no está verificada
+        is_verified = normalized in verified_citations
+        if not is_verified and len(citation) >= 25:
+            # Citation no verificable: agregar metadata interna para logging
+            logger.warning(
+                "narrative_citation_not_grounded",
+                correlation_id=correlation_id,
+                document_id=source_dict.get("document_id"),
+                page=source_dict.get("page_number"),
+                citation_preview=citation[:80],
+            )
+            source_dict["_unverified"] = True
+        
+        sources_with_validation.append(source_dict)
+    
+    # 3. Deduplicar sources
+    deduped_sources, id_mapping = _dedupe_narrative_sources(sources_with_validation)
+    
+    # 4. Remapear source_ids en todos los blocks usando el mapping
+    def remap_source_ids(block_data: dict[str, Any]) -> dict[str, Any]:
+        if "source_ids" in block_data and isinstance(block_data["source_ids"], list):
+            block_data["source_ids"] = [
+                id_mapping.get(sid, sid) for sid in block_data["source_ids"]
+            ]
+        if "items" in block_data and isinstance(block_data["items"], list):
+            for item in block_data["items"]:
+                if isinstance(item, dict):
+                    remap_source_ids(item)
+        if "rows" in block_data and isinstance(block_data["rows"], list):
+            for row in block_data["rows"]:
+                if isinstance(row, dict):
+                    remap_source_ids(row)
+        return block_data
+    
+    blocks_data = [block.model_dump() if hasattr(block, "model_dump") else dict(block) for block in narrative.blocks]
+    blocks_data = [remap_source_ids(block) for block in blocks_data]
+    
+    # 5. Reconstruir narrative con sources deduplicados y blocks remapeados
+    narrative_dict = narrative.model_dump() if hasattr(narrative, "model_dump") else dict(narrative)
+    narrative_dict["sources"] = deduped_sources
+    narrative_dict["blocks"] = blocks_data
+    
+    # Log resumen de deduplicación
+    original_count = len(sources_with_validation)
+    final_count = len(deduped_sources)
+    if original_count > final_count:
+        logger.info(
+            "narrative_sources_deduplicated",
+            correlation_id=correlation_id,
+            original=original_count,
+            deduplicated=final_count,
+            removed=original_count - final_count,
+        )
+    
+    return CategoryNarrative.model_validate(narrative_dict)
+
+
 @lru_cache(maxsize=1)
 def _load_response_base_prompt() -> str:
     prompt_path = Path(__file__).resolve().parent / "prompts" / RESPONSE_BASE_PROMPT_FILE
@@ -118,6 +248,13 @@ def run_synthesis(
 
         raw, token_usage = extractors_base._call_llm(messages=[("human", prompt)], correlation_id=correlation_id)
         narrative = CategoryNarrative.model_validate(raw)
+        
+        # Verificar citations contra items originales y deduplicar sources
+        narrative = _verify_and_repair_narrative_citations(
+            narrative,
+            items,
+            correlation_id=correlation_id,
+        )
 
         logger.info(
             "synthesis_completed",
