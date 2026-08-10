@@ -72,6 +72,14 @@ class FakeCosmosContainer:
         self.items[item["id"]] = item
         return item
 
+    def delete_item(self, item, partition_key=None):
+        stored = self.items.get(item)
+        if stored is None:
+            return
+        if partition_key is not None and stored.get("partition_key") != partition_key:
+            return
+        del self.items[item]
+
     def read_item(self, item, partition_key=None):
         from azure.cosmos.exceptions import CosmosResourceNotFoundError
 

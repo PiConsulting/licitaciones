@@ -740,6 +740,25 @@ def test_dedup_anexos_no_fusiona_hechos_distintos() -> None:
     assert len(anexos) == 2
 
 
+def test_merge_descarta_items_sin_fuentes_y_baja_categoria_a_partial() -> None:
+    state = _dedup_base_state()
+    state["objeto_alcance"] = [
+        {
+            "tipo": "objeto",
+            "valor": "Adquisición de servidores de aplicaciones y base de datos.",
+            "confidence": 0.9,
+            "source_references": [],
+            "extraction_status": "partial",
+        }
+    ]
+    state["objeto_alcance_status"] = "success"
+
+    result = merge_node(state)
+
+    assert result["extracted_data"]["objeto_alcance"] == []
+    assert result["extracted_data"]["objeto_alcance_extraction_status"] == "partial"
+
+
 def test_dedup_causales_sin_campo_tipo_util_no_fusiona_hechos_distintos() -> None:
     state = _dedup_base_state()
     state["causales"] = [

@@ -1,13 +1,18 @@
 import { isAxiosError } from "axios";
+import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Trash2 } from "lucide-react";
 
+import { AnalysisDeleteConfirmModal } from "../../components/analysis/AnalysisDeleteConfirmModal";
 import { DuplicateWarningModal } from "../../components/analysis/DuplicateWarningModal";
 import { AnalysisProgress } from "../../components/analysis/AnalysisProgress";
 import { Button } from "../../components/Button";
+import { useToast } from "../../components/ToastContainer";
 import { useAnalysisPolling } from "../../hooks/useAnalysisPolling";
+import { useDeleteAnalysis } from "../../hooks/useDeleteAnalysis";
 import { useStartAnalysis } from "../../hooks/useStartAnalysis";
-import type { DuplicateDecision, DuplicateWarning } from "../../types/analysis";
+import type { AnalysisStatusResponse, DuplicateDecision, DuplicateWarning } from "../../types/analysis";
 
 interface Step4StartAnalysisProps {
   analysisId: string;
@@ -17,16 +22,41 @@ interface Step4StartAnalysisProps {
 
 export function Step4StartAnalysis({ analysisId, initialDecisions = [], onBack }: Step4StartAnalysisProps) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { addToast } = useToast();
   const [error, setError] = useState<string | null>(null);
   const [duplicates, setDuplicates] = useState<DuplicateWarning[]>([]);
   const [showModal, setShowModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [pollingEnabled, setPollingEnabled] = useState(false);
 
   const startMutation = useStartAnalysis();
+  const deleteMutation = useDeleteAnalysis();
   const polling = useAnalysisPolling(analysisId, pollingEnabled);
+  const canRetryAfterError = polling.data?.status === "error";
+
+  const handleDeleteAnalysis = async () => {
+    try {
+      await deleteMutation.mutateAsync(analysisId);
+      addToast("success", "El análisis con error se eliminó definitivamente.");
+      await queryClient.invalidateQueries({ queryKey: ["analyses"] });
+      navigate("/dashboard");
+    } catch (requestError) {
+      if (isAxiosError(requestError)) {
+        const message = requestError.response?.data?.error?.message;
+        if (typeof message === "string") {
+          addToast("error", message);
+          return;
+        }
+      }
+      addToast("error", "No se pudo eliminar el análisis");
+    }
+  };
 
   const startWithDecisions = async (decisions: DuplicateDecision[]) => {
     setError(null);
+    // Force a fresh polling cycle on every attempt.
+    setPollingEnabled(false);
     try {
       const response = await startMutation.mutateAsync({
         analysisId,
@@ -48,6 +78,15 @@ export function Step4StartAnalysis({ analysisId, initialDecisions = [], onBack }
         response.status === "queued" ||
         response.status === "processing"
       ) {
+        const queuedStatus: AnalysisStatusResponse = {
+          id: analysisId,
+          status: "queued",
+          current_stage: "queued",
+          progress_percentage: 0,
+          stage_progress: "En cola",
+        };
+        queryClient.setQueryData(["analysis", analysisId, "status"], queuedStatus);
+
         setShowModal(false);
         setPollingEnabled(true);
       }
@@ -80,14 +119,28 @@ export function Step4StartAnalysis({ analysisId, initialDecisions = [], onBack }
         <Button type="button" variant="secondary" onClick={onBack} disabled={startMutation.isPending || pollingEnabled}>
           Volver
         </Button>
-        <Button
-          type="button"
-          onClick={() => startWithDecisions(initialDecisions)}
-          loading={startMutation.isPending}
-          disabled={pollingEnabled}
-        >
-          Iniciar análisis
-        </Button>
+        <div className="flex items-center gap-3">
+          {canRetryAfterError ? (
+            <button
+              type="button"
+              aria-label="Eliminar análisis"
+              title="Eliminar análisis"
+              className="rounded-md border border-gray-200 p-2 text-error transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={() => setShowDeleteModal(true)}
+              disabled={deleteMutation.isPending}
+            >
+              <Trash2 size={18} aria-hidden="true" />
+            </button>
+          ) : null}
+          <Button
+            type="button"
+            onClick={() => startWithDecisions(initialDecisions)}
+            loading={startMutation.isPending}
+            disabled={pollingEnabled && !canRetryAfterError}
+          >
+            {canRetryAfterError ? "Reintentar análisis" : "Iniciar análisis"}
+          </Button>
+        </div>
       </div>
 
       {showModal ? (
@@ -97,6 +150,18 @@ export function Step4StartAnalysis({ analysisId, initialDecisions = [], onBack }
           onCancel={() => setShowModal(false)}
           onConfirm={(decisions) => {
             void startWithDecisions(decisions);
+          }}
+        />
+      ) : null}
+
+      {showDeleteModal ? (
+        <AnalysisDeleteConfirmModal
+          analysisName={`Análisis ${analysisId.slice(0, 8)}`}
+          isErrorAnalysis
+          isSubmitting={deleteMutation.isPending}
+          onCancel={() => setShowDeleteModal(false)}
+          onConfirm={() => {
+            void handleDeleteAnalysis();
           }}
         />
       ) : null}

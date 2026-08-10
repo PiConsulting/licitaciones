@@ -282,6 +282,20 @@ def _category_confidence(items: list[dict]) -> float:
     return round(sum(with_confidence) / len(with_confidence), 2)
 
 
+def _drop_items_without_sources(items: list[dict], status: str) -> tuple[list[dict], str]:
+    """El contrato final exige al menos una fuente por item persistido.
+    Si el grounding dejó items sin citas verificables, se descartan y la
+    categoría baja a partial cuando antes figuraba como success."""
+    filtered = [item for item in items if list(item.get("source_references", []))]
+    dropped = len(items) - len(filtered)
+    normalized_status = str(status or "unknown")
+
+    if dropped and normalized_status in {"success", "unknown"}:
+        normalized_status = "partial"
+
+    return filtered, normalized_status
+
+
 def setup_node(state: GraphState) -> GraphState:
     logger.info("setup_node_started", correlation_id=state["correlation_id"], analysis_id=state["analysis_id"])
     state.update(
@@ -361,34 +375,52 @@ def merge_node(state: GraphState) -> GraphState:
         identificacion, lambda item: (str(item.get("tipo", "")), _normalized_valor_key(item))
     )
 
+    objeto_alcance, objeto_alcance_status = _drop_items_without_sources(
+        objeto_alcance,
+        str(state.get("objeto_alcance_status", "unknown")),
+    )
+    requisitos_admisibilidad, requisitos_admisibilidad_status = _drop_items_without_sources(
+        requisitos_admisibilidad,
+        str(state.get("requisitos_admisibilidad_status", "unknown")),
+    )
+    plazos, plazos_status = _drop_items_without_sources(plazos, str(state.get("plazos_status", "unknown")))
+    garantias, garantias_status = _drop_items_without_sources(garantias, str(state.get("garantias_status", "unknown")))
+    causales, causales_status = _drop_items_without_sources(causales, str(state.get("causales_status", "unknown")))
+    anexos, anexos_status = _drop_items_without_sources(anexos, str(state.get("anexos_status", "unknown")))
+    criterios, criterios_status = _drop_items_without_sources(criterios, str(state.get("criterios_status", "unknown")))
+    identificacion, identificacion_status = _drop_items_without_sources(
+        identificacion,
+        str(state.get("identificacion_status", "unknown")),
+    )
+
     extracted_data = {
         "objeto_alcance": objeto_alcance,
-        "objeto_alcance_extraction_status": state.get("objeto_alcance_status", "unknown"),
+        "objeto_alcance_extraction_status": objeto_alcance_status,
         "objeto_alcance_confidence": _category_confidence(objeto_alcance),
         "requisitos_admisibilidad": requisitos_admisibilidad,
-        "requisitos_admisibilidad_extraction_status": state.get("requisitos_admisibilidad_status", "unknown"),
+        "requisitos_admisibilidad_extraction_status": requisitos_admisibilidad_status,
         "requisitos_admisibilidad_confidence": _category_confidence(requisitos_admisibilidad),
         "plazos_clave": plazos,
-        "plazos_clave_extraction_status": state.get("plazos_status", "unknown"),
+        "plazos_clave_extraction_status": plazos_status,
         "plazos_clave_confidence": _category_confidence(plazos),
         "plazos": plazos,
-        "plazos_extraction_status": state.get("plazos_status", "unknown"),
+        "plazos_extraction_status": plazos_status,
         "garantias": garantias,
-        "garantias_extraction_status": state.get("garantias_status", "unknown"),
+        "garantias_extraction_status": garantias_status,
         "garantias_confidence": _category_confidence(garantias),
         "causales_rechazo": causales,
-        "causales_extraction_status": state.get("causales_status", "unknown"),
+        "causales_extraction_status": causales_status,
         "causales_rechazo_confidence": _category_confidence(causales),
         "anexos_obligatorios": anexos,
-        "anexos_extraction_status": state.get("anexos_status", "unknown"),
+        "anexos_extraction_status": anexos_status,
         "anexos_obligatorios_confidence": _category_confidence(anexos),
         "datos_procedimiento": identificacion,
-        "datos_procedimiento_extraction_status": state.get("identificacion_status", "unknown"),
+        "datos_procedimiento_extraction_status": identificacion_status,
         "datos_procedimiento_confidence": _category_confidence(identificacion),
         "documentos_requeridos": [],
         "documentos_extraction_status": "not_found",
         "criterios_evaluacion": criterios,
-        "criterios_extraction_status": state.get("criterios_status", "unknown"),
+        "criterios_extraction_status": criterios_status,
         "criterios_evaluacion_confidence": _category_confidence(criterios),
         "restricciones_participacion": [],
         "restricciones_extraction_status": "not_found",

@@ -1,5 +1,10 @@
+import { isAxiosError } from "axios";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 
+import { AnalysisDeleteConfirmModal } from "../components/analysis/AnalysisDeleteConfirmModal";
+import { useToast } from "../components/ToastContainer";
 import { AnalysisTable } from "../features/analysis/components/AnalysisTable";
 import { DateRangeFilter } from "../features/analysis/components/DateRangeFilter";
 import { EmptyState } from "../features/analysis/components/EmptyState";
@@ -7,9 +12,24 @@ import { SearchInput } from "../features/analysis/components/SearchInput";
 import { StatusFilter } from "../features/analysis/components/StatusFilter";
 import { useAnalysisFilters } from "../features/analysis/hooks/useAnalysisFilters";
 import { useAnalysesQuery } from "../features/analysis/hooks/useAnalysesQuery";
+import { useDeleteAnalysis } from "../hooks/useDeleteAnalysis";
+import { useStartAnalysis } from "../hooks/useStartAnalysis";
+import type { AnalysisListItem, AnalysisListResponse, AnalysisStatusResponse } from "../types/analysis";
+
+interface DeleteModalState {
+  id: string;
+  label: string;
+  isErrorAnalysis: boolean;
+}
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { addToast } = useToast();
+  const startMutation = useStartAnalysis();
+  const deleteMutation = useDeleteAnalysis();
+  const [retryingAnalysisId, setRetryingAnalysisId] = useState<string | null>(null);
+  const [deleteModalState, setDeleteModalState] = useState<DeleteModalState | null>(null);
   const {
     filters,
     searchInput,
@@ -40,6 +60,100 @@ export default function Dashboard() {
 
   const handleRowClick = (analysisId: string) => {
     navigate(`/analysis/${analysisId}`);
+  };
+
+  const handleRetryAnalysis = async (analysisId: string) => {
+    setRetryingAnalysisId(analysisId);
+    try {
+      const response = await startMutation.mutateAsync({
+        analysisId,
+        payload: { decisions: [] },
+      });
+
+      const queuedStatus: AnalysisStatusResponse = {
+        id: analysisId,
+        status: "queued",
+        current_stage: "queued",
+        progress_percentage: 0,
+        stage_progress: "En cola",
+      };
+      queryClient.setQueryData(["analysis", analysisId, "status"], queuedStatus);
+      queryClient.setQueriesData<AnalysisListResponse>({ queryKey: ["analyses"] }, (current) => {
+        if (!current) {
+          return current;
+        }
+        return {
+          ...current,
+          items: current.items.map((item) =>
+            item.id === analysisId
+              ? {
+                  ...item,
+                  status: "queued",
+                  current_stage: "queued",
+                  progress_percentage: 0,
+                  stage_progress: "En cola",
+                }
+              : item,
+          ),
+        };
+      });
+
+      if (response.redirect_analysis_id) {
+        addToast("success", "Redirigiendo al análisis existente");
+        navigate(`/analysis/${response.redirect_analysis_id}`);
+      } else {
+        addToast("success", "Reintento encolado. El análisis continuará en segundo plano.");
+      }
+
+      await queryClient.invalidateQueries({ queryKey: ["analyses"] });
+      await queryClient.invalidateQueries({ queryKey: ["analysis", analysisId, "status"] });
+    } catch (requestError) {
+      if (isAxiosError(requestError)) {
+        const message = requestError.response?.data?.error?.message;
+        if (typeof message === "string") {
+          addToast("error", message);
+          return;
+        }
+      }
+      addToast("error", "No se pudo reintentar el análisis");
+    } finally {
+      setRetryingAnalysisId(null);
+    }
+  };
+
+  const handleOpenDelete = (item: AnalysisListItem) => {
+    setDeleteModalState({
+      id: item.id,
+      label: item.primary_document_name ?? `Análisis ${item.id.slice(0, 8)}`,
+      isErrorAnalysis: item.status.toLowerCase() === "error",
+    });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteModalState) {
+      return;
+    }
+
+    try {
+      await deleteMutation.mutateAsync(deleteModalState.id);
+      setDeleteModalState(null);
+      addToast(
+        "success",
+        deleteModalState.isErrorAnalysis
+          ? "El análisis con error se eliminó definitivamente."
+          : "El análisis se eliminó del historial.",
+      );
+      await queryClient.invalidateQueries({ queryKey: ["analyses"] });
+    } catch (requestError) {
+      if (isAxiosError(requestError)) {
+        const message = requestError.response?.data?.error?.message;
+        if (typeof message === "string") {
+          addToast("error", message);
+          return;
+        }
+      }
+      addToast("error", "No se pudo eliminar el análisis");
+    }
   };
 
   const handlePrevious = () => {
@@ -83,7 +197,17 @@ export default function Dashboard() {
         <EmptyState />
       ) : (
         <>
-          <AnalysisTable items={items} sortBy={sortBy} sortOrder={sortOrder} onSort={setSort} onRowClick={handleRowClick} />
+          <AnalysisTable
+            items={items}
+            sortBy={sortBy}
+            sortOrder={sortOrder}
+            onSort={setSort}
+            onRowClick={handleRowClick}
+            onRetryAnalysis={handleRetryAnalysis}
+            onDeleteAnalysis={handleOpenDelete}
+            retryingAnalysisId={retryingAnalysisId}
+            deletingAnalysisId={deleteMutation.isPending ? deleteModalState?.id ?? null : null}
+          />
 
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3">
             <p className="text-sm text-gray-700">Mostrando {rangeStart}-{rangeEnd} de {total}</p>
@@ -111,6 +235,18 @@ export default function Dashboard() {
           </div>
         </>
       )}
+
+      {deleteModalState ? (
+        <AnalysisDeleteConfirmModal
+          analysisName={deleteModalState.label}
+          isErrorAnalysis={deleteModalState.isErrorAnalysis}
+          isSubmitting={deleteMutation.isPending}
+          onCancel={() => setDeleteModalState(null)}
+          onConfirm={() => {
+            void handleConfirmDelete();
+          }}
+        />
+      ) : null}
     </section>
   );
 }

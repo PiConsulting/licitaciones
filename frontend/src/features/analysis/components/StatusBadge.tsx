@@ -3,8 +3,10 @@ interface StatusBadgeProps {
 }
 
 const STATUS_STYLES: Record<string, string> = {
+  draft: "bg-gray-100 text-gray-500",
   validated: "bg-success-light text-success",
   analyzing: "bg-warning-light text-warning",
+  processing: "bg-warning-light text-warning",
   error: "bg-error-light text-error",
   queued: "bg-gray-100 text-gray-600",
   analyzed: "bg-info-light text-info",
@@ -12,8 +14,10 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 const STATUS_LABELS: Record<string, string> = {
+  draft: "Borrador",
   validated: "Validado",
   analyzing: "Analizando",
+  processing: "Procesando",
   error: "Error",
   queued: "En cola",
   analyzed: "Analizado",

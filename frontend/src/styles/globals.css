@@ -2,6 +2,20 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --color-primary: #2563EB;
+  --color-primary-dark: #1D4ED8;
+  --color-primary-light: #DBEAFE;
+  --color-primary-fg: #ffffff;
+}
+
+[data-theme="pi"] {
+  --color-primary: #FFF100;
+  --color-primary-dark: #e6d900;
+  --color-primary-light: rgba(255, 241, 0, 0.12);
+  --color-primary-fg: #101212;
+}
+
 @layer base {
   body {
     @apply bg-background text-gray-900 font-sans;

@@ -55,7 +55,7 @@ export function useAnalysisFilters() {
       date_from: dateFrom || undefined,
       date_to: dateTo || undefined,
       page,
-      per_page: 20,
+      per_page: 10,
       sort_by: sortBy,
       sort_order: sortOrder,
     }),
