@@ -48,3 +48,10 @@ class LocalChromaSearchAdapter(SearchClientPort):
             )
 
         collection.upsert(ids=ids, embeddings=embeddings, metadatas=metadatas, documents=contents)
+
+    def delete_analysis_chunks(self, analysis_id: str) -> None:
+        import chromadb
+
+        client = chromadb.PersistentClient(path=str(self._persist_dir))
+        collection = client.get_or_create_collection(name="analysis_chunks")
+        collection.delete(where={"analysis_id": analysis_id})

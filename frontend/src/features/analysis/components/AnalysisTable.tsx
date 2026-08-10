@@ -1,4 +1,5 @@
 import type { MouseEvent } from "react";
+import { RotateCcw, Trash2 } from "lucide-react";
 
 import type { AnalysisListItem, AnalysisListSortBy, AnalysisListSortOrder } from "../../../types/analysis";
 import { ProgressBar } from "./ProgressBar";
@@ -10,6 +11,10 @@ interface AnalysisTableProps {
   sortOrder: AnalysisListSortOrder;
   onSort: (column: AnalysisListSortBy) => void;
   onRowClick: (analysisId: string) => void;
+  onRetryAnalysis?: (analysisId: string) => void;
+  onDeleteAnalysis?: (item: AnalysisListItem) => void;
+  retryingAnalysisId?: string | null;
+  deletingAnalysisId?: string | null;
 }
 
 function formatDate(value: string): string {
@@ -32,13 +37,17 @@ function sortIndicator(active: boolean, sortOrder: AnalysisListSortOrder): strin
 }
 
 function isRunningStatus(status: string): boolean {
-  return status === "queued" || status === "analyzing";
+  return status === "queued" || status === "analyzing" || status === "processing";
+}
+
+function canDeleteStatus(status: string): boolean {
+  return !isRunningStatus(status);
 }
 
 const STAGE_LABELS: Record<string, string> = {
   queued: "En cola",
   extracting_text: "Extrayendo texto",
-  indexing: "Indexando",
+  indexing: "Preparando para análisis",
   analyzing: "Analizando",
   consolidating: "Consolidando",
   completed: "Completado",
@@ -48,7 +57,17 @@ function translateStage(stage: string): string {
   return STAGE_LABELS[stage] ?? stage;
 }
 
-export function AnalysisTable({ items, sortBy, sortOrder, onSort, onRowClick }: AnalysisTableProps) {
+export function AnalysisTable({
+  items,
+  sortBy,
+  sortOrder,
+  onSort,
+  onRowClick,
+  onRetryAnalysis,
+  onDeleteAnalysis,
+  retryingAnalysisId,
+  deletingAnalysisId,
+}: AnalysisTableProps) {
   const onRowSelect = (event: MouseEvent<HTMLTableRowElement>, analysisId: string) => {
     const element = event.target as HTMLElement;
     if (element.closest("[data-menu='true']")) {
@@ -110,13 +129,35 @@ export function AnalysisTable({ items, sortBy, sortOrder, onSort, onRowClick }: 
                 <td className="px-4 py-3 text-sm text-gray-700">{formatDate(item.created_at)}</td>
                 <td className="px-4 py-3 text-sm text-gray-700">{item.created_by_name ?? "Desconocido"}</td>
                 <td className="px-4 py-3 text-sm text-gray-700">
-                  <button
-                    type="button"
-                    data-menu="true"
-                    className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50"
-                  >
-                    Menú
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {item.status.toLowerCase() === "error" ? (
+                      <button
+                        type="button"
+                        data-menu="true"
+                        aria-label={retryingAnalysisId === item.id ? "Reintentando análisis" : "Reintentar análisis"}
+                        title={retryingAnalysisId === item.id ? "Reintentando análisis" : "Reintentar análisis"}
+                        className="rounded border border-gray-200 p-2 text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        onClick={() => onRetryAnalysis?.(item.id)}
+                        disabled={!onRetryAnalysis || retryingAnalysisId === item.id}
+                      >
+                        <RotateCcw size={16} aria-hidden="true" className={retryingAnalysisId === item.id ? "animate-spin" : undefined} />
+                      </button>
+                    ) : null}
+
+                    {canDeleteStatus(item.status) ? (
+                      <button
+                        type="button"
+                        data-menu="true"
+                        aria-label="Eliminar análisis"
+                        title="Eliminar análisis"
+                        className="rounded border border-gray-200 p-2 text-error hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        onClick={() => onDeleteAnalysis?.(item)}
+                        disabled={!onDeleteAnalysis || deletingAnalysisId === item.id}
+                      >
+                        <Trash2 size={16} aria-hidden="true" />
+                      </button>
+                    ) : null}
+                  </div>
                 </td>
               </tr>
             ))}

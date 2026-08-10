@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
+import { ToastProvider } from "../components/ToastContainer";
 import Dashboard from "./Dashboard";
 import { useAnalysesQuery } from "../features/analysis/hooks/useAnalysesQuery";
 import { useAnalysisFilters } from "../features/analysis/hooks/useAnalysisFilters";
@@ -30,9 +31,11 @@ describe("Dashboard", () => {
     const queryClient = new QueryClient();
     render(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter>
-          <Dashboard />
-        </MemoryRouter>
+        <ToastProvider>
+          <MemoryRouter>
+            <Dashboard />
+          </MemoryRouter>
+        </ToastProvider>
       </QueryClientProvider>,
     );
 

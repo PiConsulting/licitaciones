@@ -47,6 +47,10 @@ export async function cancelAnalysis(analysisId: string): Promise<AnalysisStatus
   return response.data;
 }
 
+export async function deleteAnalysis(analysisId: string): Promise<void> {
+  await apiClient.delete(`/analyses/${analysisId}`);
+}
+
 export async function fetchAnalyses(filters: AnalysisListFilters = {}): Promise<AnalysisListResponse> {
   const response = await apiClient.get<AnalysisListResponse>("/analyses", {
     params: {

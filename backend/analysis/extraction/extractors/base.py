@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from collections import defaultdict
 from functools import lru_cache
 from pathlib import Path
@@ -265,7 +266,9 @@ _TABLE_CITATION_RE = re.compile(
 
 
 def _normalize_for_grounding(text: Any) -> str:
-    return " ".join(str(text or "").split()).lower()
+    normalized = unicodedata.normalize("NFKD", str(text or ""))
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return " ".join(normalized.split()).lower()
 
 
 def _is_table_citation(citation: str) -> bool:
@@ -278,6 +281,66 @@ def _citation_verified_in_paragraph_chunk(citation: str, chunk: dict[str, Any]) 
         return False
     normalized_content = _normalize_for_grounding(chunk.get("content", ""))
     return normalized_citation in normalized_content
+
+
+def _expand_short_paragraph_citation(
+    citation: str,
+    candidate_chunks: list[dict[str, Any]],
+    *,
+    preferred_snippet: str | None = None,
+) -> str:
+    citation_text = str(citation or "").strip()
+    if len(citation_text) >= 40:
+        return citation_text
+
+    normalized_citation = _normalize_for_grounding(citation_text)
+    if not normalized_citation:
+        return citation_text
+
+    preferred_text = str(preferred_snippet or "").strip()
+    normalized_preferred = _normalize_for_grounding(preferred_text)
+
+    if len(preferred_text) >= 40 and normalized_preferred:
+        for chunk in candidate_chunks:
+            if chunk.get("block_type") == "table":
+                continue
+            normalized_content = _normalize_for_grounding(chunk.get("content", ""))
+            if normalized_preferred in normalized_content:
+                return preferred_text[:300]
+    # Política estricta: no expandir por match de palabra suelta. Si no hay
+    # ancla explícita válida, la cita se conserva y el ítem se penaliza luego.
+    return citation_text
+
+
+def _candidate_rescue_snippets(item: dict[str, Any], *, category: str) -> list[str]:
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    for raw_value in [item.get("texto_original") if category == "plazos_clave" else None, item.get("valor")]:
+        snippet = str(raw_value or "").strip()
+        if not snippet:
+            continue
+        if len(snippet) < 40 or len(snippet) > 300:
+            continue
+        normalized = _normalize_for_grounding(snippet)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        candidates.append(snippet)
+
+    return candidates
+
+
+def _rescue_paragraph_citation(
+    item: dict[str, Any],
+    candidate_chunks: list[dict[str, Any]],
+    *,
+    category: str,
+) -> str | None:
+    for snippet in _candidate_rescue_snippets(item, category=category):
+        if _verify_reference_grounded(snippet, candidate_chunks):
+            return snippet[:300]
+    return None
 
 
 def _citation_verified_in_table_chunk(citation: str, chunk: dict[str, Any]) -> bool:
@@ -312,7 +375,12 @@ def _citation_verified_in_table_chunk(citation: str, chunk: dict[str, Any]) -> b
 
 
 def _verify_reference_grounded(citation: str, candidate_chunks: list[dict[str, Any]]) -> bool:
-    if not str(citation or "").strip():
+    citation_text = str(citation or "").strip()
+    if not citation_text:
+        return False
+    # Contrato estricto v3: cita literal entre 40 y 300 caracteres.
+    # Evita validar palabras sueltas que producen anclajes ambiguos en UI.
+    if len(citation_text) < 40 or len(citation_text) > 300:
         return False
     if _is_table_citation(citation):
         table_chunks = [chunk for chunk in candidate_chunks if chunk.get("block_type") == "table"]
@@ -350,18 +418,50 @@ def _verify_citation_grounding(
 
         total_items += 1
         any_verified = False
+        verified_refs: list[dict[str, Any]] = []
         for ref in refs:
             citation = str(ref.get("citation", ""))
             key = (str(ref.get("document_id", "")), int(ref.get("page_number", 0) or 0))
             candidates = chunks_by_doc_page.get(key)
             if not candidates:
                 continue
-            if _verify_reference_grounded(citation, candidates):
+            citation_for_verification = citation
+            if len(citation.strip()) < 40 and category == "plazos_clave":
+                preferred = str(item.get("texto_original") or "").strip()
+                if preferred and _verify_reference_grounded(preferred, candidates):
+                    citation_for_verification = preferred
+
+            rescued_citation: str | None = None
+            if _verify_reference_grounded(citation_for_verification, candidates):
                 any_verified = True
-                break
+                normalized_ref = dict(ref)
+                if not _is_table_citation(citation):
+                    preferred_snippet = None
+                    if category == "plazos_clave":
+                        preferred_snippet = str(item.get("texto_original") or "").strip() or None
+                    normalized_ref["citation"] = _expand_short_paragraph_citation(
+                        citation_for_verification,
+                        candidates,
+                        preferred_snippet=preferred_snippet,
+                    )
+                verified_refs.append(normalized_ref)
+                continue
+
+            if not _is_table_citation(citation):
+                rescued_citation = _rescue_paragraph_citation(item, candidates, category=category)
+
+            if rescued_citation:
+                any_verified = True
+                normalized_ref = dict(ref)
+                normalized_ref["citation"] = rescued_citation
+                verified_refs.append(normalized_ref)
+
+        if verified_refs:
+            item["source_references"] = verified_refs
 
         if not any_verified:
             unverified_items += 1
+            item["source_references"] = []
             if status == "success":
                 item["extraction_status"] = "partial"
             item["_warning"] = "cita_no_verificada"

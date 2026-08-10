@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Eye, Maximize2, MapPin, X } from "lucide-react";
 
 import { getConfidenceLevel } from "../../../utils/confidence";
@@ -11,12 +11,10 @@ interface PlazosTimelineProps {
   onViewSource?: (payload: { citation: Citation; citations: Citation[] }) => void;
 }
 
-const COMPACT_DAY_WIDTH_PX = 28;
-const FULLSCREEN_DAY_WIDTH_PX = 56;
 const MIN_SPAN_DAYS = 14;
-const AXIS_PADDING_DAYS = 3;
-const COMPACT_HEIGHT_PX = 132;
-const FULLSCREEN_HEIGHT_PX = 220;
+const AXIS_PADDING_X_PX = 28;
+const COMPACT_HEIGHT_PX = 124;
+const FULLSCREEN_HEIGHT_PX = 164;
 
 interface DatedPlazo {
   item: FieldItem;
@@ -65,8 +63,12 @@ interface TimelineChartProps {
   activeIndex: number | null;
   onToggleActive: (index: number) => void;
   onViewSource: (item: FieldItem) => void;
-  dayWidthPx: number;
   heightPx: number;
+}
+
+interface TimelineDayGroup {
+  date: Date;
+  items: FieldItem[];
 }
 
 function TimelineChart({
@@ -75,70 +77,139 @@ function TimelineChart({
   activeIndex,
   onToggleActive,
   onViewSource,
-  dayWidthPx,
   heightPx,
 }: TimelineChartProps) {
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const [viewportWidth, setViewportWidth] = useState(0);
+
+  useEffect(() => {
+    const node = viewportRef.current;
+    if (!node) {
+      return;
+    }
+
+    const updateWidth = () => {
+      setViewportWidth(node.clientWidth);
+    };
+
+    updateWidth();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateWidth);
+      return () => window.removeEventListener("resize", updateWidth);
+    }
+
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(node);
+
+    return () => observer.disconnect();
+  }, []);
+
   const allDates = dated.length > 0 ? dated.map((entry) => entry.date.getTime()) : [today.getTime()];
   const rangeStart = startOfDay(new Date(Math.min(...allDates, today.getTime())));
   const rangeEnd = startOfDay(new Date(Math.max(...allDates, today.getTime())));
   const spanDays = Math.max(daysBetween(rangeStart, rangeEnd), MIN_SPAN_DAYS);
-  const axisWidth = (spanDays + AXIS_PADDING_DAYS * 2) * dayWidthPx;
+  const safeViewportWidth = Math.max(viewportWidth, AXIS_PADDING_X_PX * 2 + 1);
+  const axisWidth = safeViewportWidth;
+  const drawableWidth = Math.max(axisWidth - AXIS_PADDING_X_PX * 2, 1);
 
-  const positionFor = (date: Date): number => (daysBetween(rangeStart, date) + AXIS_PADDING_DAYS) * dayWidthPx;
+  const positionFor = (date: Date): number => {
+    const ratio = daysBetween(rangeStart, date) / spanDays;
+    return AXIS_PADDING_X_PX + ratio * drawableWidth;
+  };
 
-  const stackedByDay = new Map<string, number>();
-  const markers = dated.map(({ item, date }) => {
-    const key = date.toISOString();
-    const stackIndex = stackedByDay.get(key) ?? 0;
-    stackedByDay.set(key, stackIndex + 1);
-    return { item, date, left: positionFor(date), stackIndex };
-  });
+  const grouped = new Map<string, TimelineDayGroup>();
+  for (const entry of dated) {
+    const day = startOfDay(entry.date);
+    const key = day.toISOString();
+    const current = grouped.get(key);
+    if (current) {
+      current.items.push(entry.item);
+      continue;
+    }
+    grouped.set(key, { date: day, items: [entry.item] });
+  }
+
+  const dayGroups = Array.from(grouped.values()).sort((a, b) => a.date.getTime() - b.date.getTime());
+  const markers = dayGroups.map((group) => ({
+    ...group,
+    left: positionFor(group.date),
+    isPast: group.date.getTime() < today.getTime(),
+  }));
 
   const todayLeft = positionFor(today);
-  const axisTop = Math.round(heightPx / 2);
+  const axisTop = Math.round(heightPx * 0.52);
+  const activeMarker = activeIndex !== null ? markers[activeIndex] : null;
+  const activeItems = activeMarker?.items ?? [];
+  const activeDate = activeMarker?.date ?? null;
 
   return (
-    <div className="overflow-x-auto rounded-md border border-gray-200 bg-gray-50 pb-2">
-      <div className="relative" style={{ width: `${axisWidth}px`, minWidth: "100%", height: `${heightPx}px` }}>
-        <div className="absolute left-0 right-0 h-px bg-gray-300" style={{ top: `${axisTop}px` }} />
+    <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+      <div ref={viewportRef} className="relative w-full" style={{ height: `${heightPx}px` }}>
+        <div className="absolute inset-y-0 left-0 right-0 pointer-events-none" style={{ width: `${axisWidth}px` }}>
+          <div className="absolute left-0 right-0 h-px bg-gray-300" style={{ top: `${axisTop}px` }} />
 
-        <div
-          className="absolute top-0 bottom-0 border-l-2 border-dashed border-primary"
-          style={{ left: `${todayLeft}px` }}
-          data-testid="plazos-timeline-today"
-        >
-          <span className="absolute -top-1 left-1 whitespace-nowrap text-[10px] font-semibold text-primary">Hoy</span>
+          <div
+            className="absolute top-0 bottom-0 border-l-2 border-dashed border-primary"
+            style={{ left: `${todayLeft}px` }}
+            data-testid="plazos-timeline-today"
+          >
+            <span className="absolute -top-1 left-1 whitespace-nowrap text-[10px] font-semibold text-primary">Hoy</span>
+          </div>
         </div>
 
-        {markers.map(({ item, date, left, stackIndex }, index) => {
-          const confidenceLevel = getConfidenceLevel(item.confidence);
-          const isPast = date.getTime() < today.getTime();
+        <div className="pointer-events-none absolute left-0 right-0 text-[10px] text-gray-500" style={{ top: `${axisTop + 16}px` }}>
+          <span className="absolute -translate-x-1/2" style={{ left: `${AXIS_PADDING_X_PX}px` }}>
+            {formatDate(rangeStart)}
+          </span>
+          <span className="absolute -translate-x-1/2" style={{ left: `${axisWidth - AXIS_PADDING_X_PX}px` }}>
+            {formatDate(rangeEnd)}
+          </span>
+        </div>
+
+        {markers.map(({ date, left, isPast, items }, index) => {
+          const shortDate = date.toLocaleDateString("es-AR", { day: "2-digit", month: "short" });
           return (
             <div
-              key={`${item.field_name}-${index}`}
+              key={`${date.toISOString()}-${index}`}
               className="absolute"
-              style={{ left: `${left}px`, top: `${axisTop - stackIndex * 26}px` }}
+              style={{ left: `${left}px`, top: `${axisTop - 7}px` }}
             >
               <button
                 type="button"
-                className={`h-3 w-3 -translate-x-1/2 rounded-full border-2 border-white shadow ${
-                  isPast ? "bg-gray-400" : "bg-primary"
-                }`}
+                className={`relative h-4 w-4 -translate-x-1/2 rounded-full border-2 border-white shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ${isPast ? "bg-gray-400" : "bg-primary"}`}
                 onClick={() => onToggleActive(index)}
-                aria-label={`${item.field_name}: ${formatDate(date)}`}
+                aria-label={`Hitos del ${formatDate(date)} (${items.length})`}
                 data-testid="plazos-timeline-marker"
               />
-              <span className="absolute left-1/2 top-4 -translate-x-1/2 whitespace-nowrap text-[10px] text-gray-600">
-                {formatDate(date)}
+              <span className="pointer-events-none absolute left-1/2 top-6 -translate-x-1/2 whitespace-nowrap rounded bg-white px-1 text-[10px] text-gray-600 ring-1 ring-gray-100">
+                {shortDate}
               </span>
+              {items.length > 1 ? (
+                <span className="pointer-events-none absolute -right-3 -top-2 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-fg">
+                  {items.length}
+                </span>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
 
-              {activeIndex === index ? (
-                <div className="absolute left-1/2 top-8 z-10 w-56 -translate-x-1/2 rounded-md border border-gray-200 bg-white p-3 shadow-lg">
-                  <div className="mb-1 flex items-start justify-between gap-2">
-                    <p className="text-xs font-semibold text-gray-900">{item.field_name}</p>
+      {activeMarker && activeDate ? (
+        <div className="mt-3 rounded-md border border-gray-200 bg-white p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Detalle del día</p>
+          <p className="mt-0.5 text-sm font-semibold text-gray-900">{formatDate(activeDate)}</p>
+          <ul className="mt-2 space-y-2">
+            {activeItems.map((item, itemIndex) => {
+              const confidenceLevel = getConfidenceLevel(item.confidence);
+              const value = item.field_value ?? item.raw?.texto_original ?? item.raw?.expresion_relativa ?? "Sin detalle";
+              return (
+                <li key={`${item.field_name}-${itemIndex}`} className="rounded border border-gray-100 bg-gray-50 p-2.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-medium text-gray-900">{item.field_name}</p>
                     <FieldBadge level={confidenceLevel} />
                   </div>
-                  <p className="text-sm text-gray-800">{formatDate(date)}</p>
+                  <p className="mt-1 text-sm text-gray-700">{value}</p>
                   {item.raw?.lugar ? (
                     <p className="mt-1 flex items-center gap-1 text-xs text-gray-600">
                       <MapPin className="h-3 w-3" /> {item.raw.lugar}
@@ -149,27 +220,24 @@ function TimelineChart({
                       <ActionButton text="Ver fuente" icon={Eye} variant="ghost" onClick={() => onViewSource(item)} />
                     </div>
                   ) : null}
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : (
+        <p className="mt-3 text-sm text-gray-600">Seleccioná un punto para ver qué ocurre en ese día.</p>
+      )}
     </div>
   );
 }
 
 /**
- * Linea de tiempo horizontal con scroll para Plazos Clave. Solo ubica en el
+ * Línea de tiempo horizontal interactiva para Plazos Clave. Solo ubica en el
  * eje los plazos con `raw.fecha` (fecha calendaria literal) — nunca inventa
  * una fecha a partir de una expresion relativa ("10 dias habiles..."), esos
  * quedan listados aparte. El marcador de "Hoy" se calcula en cada render con
  * la fecha real del dispositivo, no la fecha en la que se corrio el analisis.
- *
- * Cuando hay muchos plazos el ancho real de la línea supera con margen el
- * panel donde vive esta tarjeta (~55-60% del viewport), así que además del
- * scroll horizontal se ofrece un modal de pantalla completa con más espacio y
- * marcadores más separados, en vez de forzar a leer fechas apretadas.
  */
 export function PlazosTimeline({ items, onViewSource }: PlazosTimelineProps) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -247,7 +315,6 @@ export function PlazosTimeline({ items, onViewSource }: PlazosTimelineProps) {
             activeIndex={activeIndex}
             onToggleActive={(index) => setActiveIndex(activeIndex === index ? null : index)}
             onViewSource={handleViewSource}
-            dayWidthPx={COMPACT_DAY_WIDTH_PX}
             heightPx={COMPACT_HEIGHT_PX}
           />
         </>
@@ -299,7 +366,6 @@ export function PlazosTimeline({ items, onViewSource }: PlazosTimelineProps) {
                 activeIndex={activeIndex}
                 onToggleActive={(index) => setActiveIndex(activeIndex === index ? null : index)}
                 onViewSource={handleViewSource}
-                dayWidthPx={FULLSCREEN_DAY_WIDTH_PX}
                 heightPx={FULLSCREEN_HEIGHT_PX}
               />
             </div>

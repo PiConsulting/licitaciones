@@ -16,6 +16,7 @@ from fastapi import (
 from analysis.cosmos_runtime import (
     cancel_analysis_cosmos,
     create_analysis_with_documents_cosmos,
+    delete_analysis_cosmos,
     extract_and_index_cosmos,
     get_analysis_detail_cosmos,
     get_analysis_status_cosmos,
@@ -41,6 +42,7 @@ from analysis.schemas import (
 from analysis.service import (
     IncomingUploadFile,
     create_analysis_with_documents,
+    delete_analysis,
     enqueue_analysis,
     find_duplicates_for_analysis,
     list_analyses,
@@ -539,3 +541,44 @@ async def cancel_analysis(
     finally:
         db.close()
     return response
+
+
+@analysis_router.delete("/{analysis_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_analysis(
+    analysis_id: str,
+    credentials=Depends(http_bearer),
+) -> None:
+    settings = get_settings()
+    current_user = get_current_user(credentials, None)
+
+    if settings.persistence_mode_normalized() == "cosmos_only":
+        try:
+            delete_analysis_cosmos(analysis_id, current_user.id)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": {"code": "ANALYSIS_NOT_FOUND", "message": "Análisis no encontrado"}},
+            ) from exc
+        except PermissionError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"error": {"code": "FORBIDDEN", "message": "No tenés permisos para este análisis"}},
+            ) from exc
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": {
+                        "code": "ANALYSIS_DELETE_NOT_ALLOWED",
+                        "message": "No podés eliminar un análisis en curso",
+                    }
+                },
+            ) from exc
+        return None
+
+    db = SessionLocal()
+    try:
+        delete_analysis(db, analysis_id, current_user.id)
+    finally:
+        db.close()
+    return None

@@ -17,6 +17,7 @@ from analysis.utils import calculate_confidence_avg
 from documents.models import Document
 from documents.schemas import DocumentResponse, DocumentWarning
 from documents.service import calculate_content_hash
+from extraction.ai_search import delete_analysis_chunks
 from extraction.runner import extract_and_index
 from shared.adapters.azure_blob_storage import AzureBlobStorageAdapter
 from shared.adapters.local_blob_storage import LocalBlobStorageAdapter
@@ -353,6 +354,42 @@ def request_cancellation(db: Session, analysis_id: str, user_id: str) -> Analysi
         event="analysis_cancelled",
     )
     return analysis
+
+
+def delete_analysis(db: Session, analysis_id: str, user_id: str) -> str:
+    analysis = validate_analysis_ownership(db, analysis_id, user_id)
+    current_status = analysis.status.lower()
+
+    if current_status in {"queued", "analyzing", "processing"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": {
+                    "code": "ANALYSIS_DELETE_NOT_ALLOWED",
+                    "message": "No podés eliminar un análisis en curso",
+                }
+            },
+        )
+
+    if current_status == "error":
+        blob_storage = _build_blob_storage()
+        documents = db.query(Document).filter(Document.analysis_id == analysis.id).all()
+        for document in documents:
+            blob_storage.delete(document.blob_name)
+        delete_analysis_chunks(analysis.id)
+        db.delete(analysis)
+        db.commit()
+        return "hard"
+
+    now = datetime.now(UTC)
+    analysis.deleted_at = now
+    (
+        db.query(Document)
+        .filter(Document.analysis_id == analysis.id, Document.deleted_at.is_(None))
+        .update({Document.deleted_at: now}, synchronize_session=False)
+    )
+    db.commit()
+    return "soft"
 
 
 def _extract_organism(extracted_data: dict | None) -> str | None:

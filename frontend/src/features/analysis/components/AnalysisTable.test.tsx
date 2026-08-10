@@ -27,6 +27,8 @@ describe("AnalysisTable", () => {
         sortOrder="desc"
         onSort={() => undefined}
         onRowClick={() => undefined}
+        onRetryAnalysis={() => undefined}
+        retryingAnalysisId={null}
       />,
     );
 
@@ -45,6 +47,8 @@ describe("AnalysisTable", () => {
         sortOrder="desc"
         onSort={onSort}
         onRowClick={() => undefined}
+        onRetryAnalysis={() => undefined}
+        retryingAnalysisId={null}
       />,
     );
 
@@ -60,6 +64,8 @@ describe("AnalysisTable", () => {
         sortOrder="desc"
         onSort={() => undefined}
         onRowClick={() => undefined}
+        onRetryAnalysis={() => undefined}
+        retryingAnalysisId={null}
       />,
     );
 
@@ -72,11 +78,13 @@ describe("AnalysisTable", () => {
 
     render(
       <AnalysisTable
-        items={[buildItem()]}
+        items={[buildItem({ status: "completed" })]}
         sortBy="created_at"
         sortOrder="desc"
         onSort={() => undefined}
         onRowClick={onRowClick}
+        onRetryAnalysis={() => undefined}
+        retryingAnalysisId={null}
       />,
     );
 
@@ -84,20 +92,80 @@ describe("AnalysisTable", () => {
     expect(onRowClick).toHaveBeenCalledWith("analysis-1");
   });
 
-  test("click en botón menú no navega", () => {
+  test("click en acción de eliminar no navega", () => {
     const onRowClick = vi.fn();
+    const onDeleteAnalysis = vi.fn();
 
     render(
       <AnalysisTable
-        items={[buildItem()]}
+        items={[buildItem({ status: "completed" })]}
         sortBy="created_at"
         sortOrder="desc"
         onSort={() => undefined}
         onRowClick={onRowClick}
+        onRetryAnalysis={() => undefined}
+        onDeleteAnalysis={onDeleteAnalysis}
+        retryingAnalysisId={null}
+        deletingAnalysisId={null}
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /menú/i }));
+    fireEvent.click(screen.getByRole("button", { name: /eliminar análisis/i }));
     expect(onRowClick).not.toHaveBeenCalled();
+    expect(onDeleteAnalysis).toHaveBeenCalled();
+  });
+
+  test("muestra icono reintentar y ejecuta callback cuando el estado es error", () => {
+    const onRetryAnalysis = vi.fn();
+
+    render(
+      <AnalysisTable
+        items={[buildItem({ status: "error" })]}
+        sortBy="created_at"
+        sortOrder="desc"
+        onSort={() => undefined}
+        onRowClick={() => undefined}
+        onRetryAnalysis={onRetryAnalysis}
+        retryingAnalysisId={null}
+        deletingAnalysisId={null}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /reintentar análisis/i }));
+    expect(onRetryAnalysis).toHaveBeenCalledWith("analysis-1");
+  });
+
+  test("muestra icono eliminar cuando el análisis no está en curso", () => {
+    render(
+      <AnalysisTable
+        items={[buildItem({ status: "analyzing" })]}
+        sortBy="created_at"
+        sortOrder="desc"
+        onSort={() => undefined}
+        onRowClick={() => undefined}
+        onRetryAnalysis={() => undefined}
+        retryingAnalysisId={null}
+        deletingAnalysisId={null}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /eliminar análisis/i })).not.toBeInTheDocument();
+  });
+
+  test("muestra icono eliminar para análisis completado", () => {
+    render(
+      <AnalysisTable
+        items={[buildItem({ status: "completed" })]}
+        sortBy="created_at"
+        sortOrder="desc"
+        onSort={() => undefined}
+        onRowClick={() => undefined}
+        onRetryAnalysis={() => undefined}
+        retryingAnalysisId={null}
+        deletingAnalysisId={null}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /eliminar análisis/i })).toBeInTheDocument();
   });
 });

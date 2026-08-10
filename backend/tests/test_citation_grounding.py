@@ -153,3 +153,71 @@ def test_no_aplica_chequeo_de_tabla_a_cita_de_parrafo() -> None:
 
     assert item["extraction_status"] == "success"
     assert "_warning" not in item
+
+
+def test_plazo_cita_corta_prioriza_texto_original_para_evitar_match_ambiguo() -> None:
+    chunks = [
+        _paragraph_chunk(
+            page_number=9,
+            content="La adjudicación se realizará por menor precio entre las ofertas admisibles.",
+        ),
+        _paragraph_chunk(
+            page_number=9,
+            content="Presentación de ofertas: 15/09/2026, 10:00 hs, en la Oficina de Compras.",
+        ),
+    ]
+    item = {
+        "tipo": "presentacion_ofertas",
+        "texto_original": "Presentación de ofertas: 15/09/2026, 10:00 hs, en la Oficina de Compras.",
+        "extraction_status": "success",
+        "source_references": [
+            {"document_id": "doc-1", "page_number": 9, "citation": "ofertas"},
+        ],
+    }
+
+    _verify_citation_grounding([item], chunks, category="plazos_clave", correlation_id="corr-1")
+
+    assert item["extraction_status"] == "success"
+    assert item["source_references"][0]["citation"] == item["texto_original"]
+
+
+def test_cita_de_una_palabra_no_pasa_grounding_estricto() -> None:
+    chunk = _paragraph_chunk(
+        content="La garantía de mantenimiento de oferta es del 5% del monto cotizado.",
+    )
+    item = {
+        "extraction_status": "success",
+        "source_references": [
+            {"document_id": "doc-1", "page_number": 3, "citation": "oferta"},
+        ],
+    }
+
+    _verify_citation_grounding([item], [chunk], category="garantias", correlation_id="corr-1")
+
+    # La palabra existe en el chunk, pero no cumple la política mínima de cita.
+    assert item["extraction_status"] == "partial"
+    assert item["_warning"] == "cita_no_verificada"
+    assert item["source_references"] == []
+
+
+def test_rescata_cita_desde_valor_literal_del_item_en_mismo_chunk() -> None:
+    chunk = _paragraph_chunk(
+        page_number=4,
+        content=(
+            "Constancia de inscripción en el Registro de Proveedores del Municipio, "
+            "debidamente vigente al momento de la apertura de sobres."
+        ),
+    )
+    item = {
+        "valor": "Constancia de inscripción en el Registro de Proveedores del Municipio, debidamente vigente al momento de la apertura de sobres.",
+        "extraction_status": "success",
+        "source_references": [
+            {"document_id": "doc-1", "page_number": 4, "citation": "Registro de Proveedores"},
+        ],
+    }
+
+    _verify_citation_grounding([item], [chunk], category="requisitos_admisibilidad", correlation_id="corr-1")
+
+    assert item["extraction_status"] == "success"
+    assert item["source_references"][0]["citation"] == item["valor"]
+    assert "_warning" not in item

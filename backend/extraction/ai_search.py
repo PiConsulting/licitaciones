@@ -53,6 +53,27 @@ class AzureSearchAdapter(SearchClientPort):
         if failed:
             raise TransientExtractionError(f"Fallaron {len(failed)} documentos en upload")
 
+    def delete_analysis_chunks(self, analysis_id: str) -> None:
+        from azure.search.documents import SearchClient
+
+        client = SearchClient(
+            endpoint=self._endpoint,
+            index_name=self._index_name,
+            credential=AzureKeyCredential(self._key),
+        )
+        escaped_analysis_id = analysis_id.replace("'", "''")
+        filter_expr = f"analysis_id eq '{escaped_analysis_id}'"
+
+        while True:
+            batch = [
+                {"id": doc_id}
+                for doc in client.search(search_text="*", top=500, select=["id"], filter=filter_expr)
+                if (doc_id := doc.get("id"))
+            ]
+            if not batch:
+                return
+            client.delete_documents(documents=batch)
+
 
 def _assert_index_contract(index, expected_dimensions: int) -> None:
     fields = {field.name: field for field in index.fields}
@@ -171,3 +192,8 @@ def upload_chunks(chunks_with_embeddings: list[dict], analysis_id: str | UUID, c
             if attempt >= retries:
                 raise TransientExtractionError(str(exc)) from exc
             sleep(backoff_seconds[min(attempt - 1, len(backoff_seconds) - 1)])
+
+
+def delete_analysis_chunks(analysis_id: str | UUID) -> None:
+    adapter = _build_adapter()
+    adapter.delete_analysis_chunks(str(analysis_id))

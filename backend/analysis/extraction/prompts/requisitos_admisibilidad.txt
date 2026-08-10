@@ -1,72 +1,209 @@
+# CONCEPTO DE LA CATEGORÍA
+
+Esta categoría extrae la **documentación OBLIGATORIA que el oferente debe presentar
+para que su oferta no sea rechazada de entrada** — antes de que se evalúe.
+
+**Desde la perspectiva del oferente:** "¿Qué papeles tengo que llevar el día de
+la presentación? ¿Qué pasa si me falta alguno? ¿Qué habilitaciones o
+certificados necesito?"
+
+El criterio clave: **"Si esto falta, la oferta se descarta sin evaluarla"**.
+
+**Qué incluye:**
+- Certificados y habilitaciones
+- Inscripciones en registros (proveedores, empresas, profesionales)
+- Constancias fiscales (AFIP, rentas provinciales)
+- Balances y estados contables
+- Declaraciones juradas
+- Capacidad técnica mínima (facturación, equipamiento, personal)
+- Experiencia mínima (contratos previos, certificados de obra)
+- Inhabilitaciones o incompatibilidades
+
+**Reconocimiento semántico:** El pliego puede no titular "Requisitos". Buscá:
+- Capítulos de "Documentación", "Antecedentes", "Habilitación"
+- Frases como "deberá presentar", "es obligatorio", "se exige"
+- Menciones de certificados, constancias, inscripciones
+- Listas de documentos a adjuntar
+
+**Frases típicas que indican requisitos:**
+- "Deberá presentar..."
+- "Es requisito de admisibilidad..."
+- "Documentación obligatoria a adjuntar..."
+- "Será condición de admisibilidad..."
+- "Se exigirá acreditar..."
+
+**Variaciones comunes:**
+- "Requisitos de admisibilidad" = "Requisitos formales" = "Documentación obligatoria" = "Antecedentes exigidos"
+- "Certificado fiscal" = "Constancia de situación fiscal" = "F572 web"
+- "Inscripción en el registro" = "Alta en el registro" = "Empadronamiento"
+- "Declaración jurada" = "DDJJ" = "Manifestación jurada"
+
+**No confundir con:**
+- **Anexos obligatorios**: formularios que el PLIEGO provee para completar (van en otra categoría)
+- **Causales de rechazo**: motivos de descalificación (van en otra categoría)
+- **Especificaciones técnicas**: características del bien/servicio (van en objeto/alcance)
+
+---
+
 # OBJETIVO
 Extraer la documentación OBLIGATORIA que el oferente debe presentar para que su
-oferta no sea rechazada de entrada — antes siquiera de que se evalúe. Esto
-incluye: habilitaciones, antecedentes, certificaciones, inscripciones en
-registros, constancias fiscales, capacidad técnica y financiera mínima.
+oferta no sea rechazada de entrada.
 
-El criterio clave es: "si esto falta, la oferta se descarta sin evaluarla".
-No incluyas especificaciones técnicas del bien/servicio — eso es objeto/alcance.
-No incluyas causales de rechazo — esas van en otra categoría.
+Un ítem por requisito. Si vienen en incisos, un ítem por inciso.
 
-Un ítem por requisito.
+# ESTRUCTURA DE SALIDA
 
-# ESQUEMA
+Usá el schema `RequisitoAdmisibilidadItem` definido en `schemas_v3.py`.
+
+**Campos clave:**
+- `tipo`: Usa enum `TipoRequisito` (documento, inhabilitacion, incompatibilidad, sancion_vigente, capacidad_minima, experiencia_minima, inscripcion_registro, otra)
+- `valor`: Descripción literal o casi literal del requisito
+- `metadata`: Diccionario con campos:
+  - `obligatorio`: "si" | "no" | "no_especificado"
+  - `momento_presentacion`: "con_la_oferta" | "previo_apertura" | "pre_adjudicacion" | "post_adjudicacion" | "no_especificado"
+  - `subsanable`: "si" | "no" | "no_especificado"
+- `confidence`: [0.0-1.0] según el algoritmo de confianza
+- `source_references`: Siempre incluir cita literal del pliego (min 40 chars)
+
+**Cuando no hay requisitos:** `{"requisitos_admisibilidad": []}`
+
+---
+
+# REGLAS ESPECÍFICAS
+
+## 1. Tipos de requisito
+
+### documento
+Certificados, formularios, balances, constancias o antecedentes que el pliego
+exige presentar.
+
+**Ejemplos:**
+- Certificado fiscal para contratar
+- Balance de los últimos 3 ejercicios
+- Constancia de inscripción
+- Declaración jurada de no encontrarse inhabilitado
+
+### inhabilitacion / incompatibilidad / sancion_vigente
+Condiciones que impiden participar.
+
+**Ejemplos:**
+- No estar inhabilitado por el organismo
+- No tener sanciones vigentes
+- No encontrarse en concurso o quiebra
+
+### capacidad_minima / experiencia_minima / inscripcion_registro
+Umbrales o condiciones habilitantes de elegibilidad.
+
+**Ejemplos:**
+- Facturación anual mínima de $X
+- Haber ejecutado al menos 2 contratos similares
+- Estar inscripto en el Registro de Proveedores
+
+## 2. Un ítem por requisito
+Aunque vengan en una sola oración con incisos a), b), c)... emití un ítem por inciso.
+
+## 3. Conservar montos y cantidades
+Si el requisito incluye montos, cantidades o umbrales, conservarlos tal como aparecen.
+
+**Ejemplo:**
+- "Facturación anual no inferior a $ 5.000.000" → conservar el monto literal
+
+## 4. metadata.obligatorio
+Solo `"si"` si hay lenguaje explícito: "debe", "deberá", "obligatorio", "se exige".
+
+❌ No inferir obligatoriedad solo porque está listado.
+
+## 5. metadata.momento_presentacion
+Solo si el pliego lo explicita para ese requisito específico.
+
+| Valor | Cuándo |
+|-------|--------|
+| `con_la_oferta` | Al momento de presentar la oferta |
+| `previo_apertura` | Antes del acto de apertura |
+| `pre_adjudicacion` | Después de evaluación, antes de adjudicar |
+| `post_adjudicacion` | Después de adjudicación, al firmar contrato |
+| `no_especificado` | El pliego no lo aclara |
+
+## 6. metadata.subsanable
+Solo si el pliego lo dice para ese requisito. No inferir.
+
+## 7. Sin evidencia verificable, no emitir
+Si no hay cita literal que respalde el requisito, no lo emitas.
+
+## 8. MomentoPresentacion enum
+El enum `MomentoPresentacion` define los valores válidos:
+- `con_la_oferta`
+- `previo_apertura`
+- `pre_adjudicacion`
+- `post_adjudicacion`
+- `no_especificado`
+
+---
+
+# EJEMPLO DE FORMA
+
+**Fragmento:**
+```
+[Fragmento: F1, Documento: 7c9e, Página: 3, Sección: Capítulo 2 > Artículo 2°, Tipo: PÁRRAFO]
+Artículo 2° — a) Constancia de inscripción en el Registro de Proveedores del
+Municipio. Requisito legal, obligatorio, a presentar con la oferta. b) Certificado
+fiscal para contratar. Requisito administrativo, obligatorio, a presentar con la
+oferta.
+```
+
+**Salida correcta (dos ítems, uno por inciso):**
+```json
 {
   "requisitos_admisibilidad": [
     {
-      "tipo": "documento|inhabilitacion|incompatibilidad|sancion_vigente|capacidad_minima|experiencia_minima|inscripcion_registro|otra",
-      "valor": <descripción literal o casi literal del requisito>,
+      "tipo": "documento",
+      "valor": "Constancia de inscripción en el Registro de Proveedores del Municipio",
       "metadata": {
-        "obligatorio": "si|no|no_especificado",
-        "momento_presentacion": "con_la_oferta|previo_apertura|pre_adjudicacion|post_adjudicacion|no_especificado",
-        "subsanable": "si|no|no_especificado"
+        "obligatorio": "si",
+        "momento_presentacion": "con_la_oferta",
+        "subsanable": "no_especificado"
       },
-      "confidence": <número calculado según la rúbrica del sistema>,
+      "confidence": 0.9,
       "source_references": [
         {
-          "document_id": <valor exacto del header del fragmento>,
-          "page_number": <valor exacto del header del fragmento>,
-          "citation": <subcadena literal del fragmento>
+          "document_id": "7c9e",
+          "page_number": 3,
+          "citation": "a) Constancia de inscripción en el Registro de Proveedores del Municipio. Requisito legal, obligatorio, a presentar con la oferta."
         }
       ],
-      "extraction_status": "success|partial|not_applicable|not_found"
+      "extraction_status": "success"
+    },
+    {
+      "tipo": "documento",
+      "valor": "Certificado fiscal para contratar",
+      "metadata": {
+        "obligatorio": "si",
+        "momento_presentacion": "con_la_oferta",
+        "subsanable": "no_especificado"
+      },
+      "confidence": 0.9,
+      "source_references": [
+        {
+          "document_id": "7c9e",
+          "page_number": 3,
+          "citation": "b) Certificado fiscal para contratar. Requisito administrativo, obligatorio, a presentar con la oferta."
+        }
+      ],
+      "extraction_status": "success"
     }
   ]
 }
-
-# REGLAS ESPECÍFICAS
-- `documento`: certificados, formularios, balances, constancias o antecedentes que
-  el pliego exige presentar.
-- `inhabilitacion` / `incompatibilidad` / `sancion_vigente`: condiciones que impiden
-  participar.
-- `capacidad_minima` / `experiencia_minima` / `inscripcion_registro`: umbrales o
-  condiciones habilitantes de elegibilidad.
-- Un ítem por requisito, aunque el texto venga en una sola oración con incisos.
-- Si el requisito incluye montos o cantidades, conservarlos tal como aparecen.
-- `obligatorio` es `si` solo con lenguaje explícito (debe, deberá, obligatorio).
-- `momento_presentacion` y `subsanable` solo si el pliego lo explicita para ese ítem.
-- Si no hay evidencia verificable, no emitas el ítem.
-
-# EJEMPLO DE FORMA (no copiar contenido)
-Fragmento:
-  [Fragmento: F1, Documento: 7c9e, Página: 3, Sección: Capítulo 2 > Artículo 2°, Tipo: PÁRRAFO]
-  Artículo 2° — a) Constancia de inscripción en el Registro de Proveedores del
-  Municipio. Requisito legal, obligatorio, a presentar con la oferta. b) Certificado
-  fiscal para contratar. Requisito administrativo, obligatorio, a presentar con la
-  oferta.
-
-Salida correcta (dos ítems, uno por inciso, aunque vengan en una sola oración):
-{"requisitos_admisibilidad":[
-{"tipo":"documento","valor":"Constancia de inscripción en el Registro de Proveedores del Municipio","metadata":{"obligatorio":"si","momento_presentacion":"con_la_oferta","subsanable":"no_especificado"},"confidence":0.9,"source_references":[{"document_id":"7c9e","page_number":3,"citation":"a) Constancia de inscripción en el Registro de Proveedores del Municipio. Requisito legal, obligatorio, a presentar con la oferta."}],"extraction_status":"success"},
-{"tipo":"documento","valor":"Certificado fiscal para contratar","metadata":{"obligatorio":"si","momento_presentacion":"con_la_oferta","subsanable":"no_especificado"},"confidence":0.9,"source_references":[{"document_id":"7c9e","page_number":3,"citation":"b) Certificado fiscal para contratar. Requisito administrativo, obligatorio, a presentar con la oferta."}],"extraction_status":"success"}
-]}
+```
 
 # EJEMPLO DE AUSENCIA
 Si los fragmentos no contienen requisitos de admisibilidad:
-{"requisitos_admisibilidad":[]}
+
+```json
+{"requisitos_admisibilidad": []}
+```
+
+---
 
 === CONTENIDO DEL PLIEGO ===
 {chunks}
 === FIN DEL CONTENIDO ===
-
-Recordá: primera letra `{`. Un requisito por ítem. Sin inferencias.

@@ -23,3 +23,8 @@ class LocalJsonSearchAdapter(SearchClientPort):
         with target.open("w", encoding="utf-8") as handle:
             for doc in documents:
                 handle.write(json.dumps(doc, ensure_ascii=True) + "\n")
+
+    def delete_analysis_chunks(self, analysis_id: str) -> None:
+        target = self._base_dir / f"{analysis_id}.jsonl"
+        if target.exists():
+            target.unlink()

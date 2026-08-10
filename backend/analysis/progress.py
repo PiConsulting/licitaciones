@@ -42,7 +42,7 @@ def build_stage_progress(stage: CurrentStage, *, done: int | None = None, total:
     if stage == CurrentStage.EXTRACTING_TEXT and done is not None and total is not None:
         return f"Extrayendo texto ({done} de {total} documentos)"
     if stage == CurrentStage.INDEXING:
-        return "Indexando (vector store activo)"
+        return "Preparando para análisis"
     if stage == CurrentStage.ANALYZING and done is not None and total is not None:
         return f"Analizando categorias ({done} de {total})"
     if stage == CurrentStage.CONSOLIDATING:

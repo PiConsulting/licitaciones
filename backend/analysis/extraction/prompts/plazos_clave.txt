@@ -1,74 +1,199 @@
+# CONCEPTO DE LA CATEGORÍA
+
+Esta categoría extrae los **hitos temporales críticos** que un oferente debe tener
+en su calendario para no perder la licitación por vencimiento.
+
+**Desde la perspectiva del oferente:** "¿Cuándo tengo que presentar? ¿Cuándo vence
+mi oferta? ¿Cuándo es la apertura? ¿Cuándo me adjudican?"
+
+Incluye:
+- Fecha/hora de presentación de ofertas
+- Fecha/hora de apertura
+- Plazo de mantenimiento de oferta (validez de la propuesta)
+- Plazos para consultas o impugnaciones
+- Plazos de ejecución o entrega
+- Cualquier otro vencimiento que afecte al oferente
+
+**Reconocimiento semántico:** El pliego puede no titular una sección "Plazos" y
+aún así contener fechas críticas. Buscá:
+- Fechas calendarias explícitas (DD/MM/AAAA, o escritas en palabras)
+- Expresiones relativas de tiempo ("dentro de X días", "hasta X días después de...")
+- Menciones de actos con fecha ("apertura", "presentación", "adjudicación")
+- Requisitos de vigencia ("la oferta debe mantenerse por X días")
+
+**Frases típicas que indican plazos:**
+- "Las ofertas se recibirán hasta..."
+- "El acto de apertura se realizará el..."
+- "La oferta deberá mantenerse por..."
+- "Plazo de ejecución: ..."
+- "Dentro de X días desde..."
+
+**Variaciones comunes:**
+- "Presentación de ofertas" = "Recepción de propuestas" = "Hasta el día X se recibirán"
+- "Apertura" = "Acto de apertura" = "Acto público de apertura de sobres"
+- "Mantenimiento de oferta" = "Validez de oferta" = "Vigencia de la propuesta"
+- "Plazo de ejecución" = "Plazo de entrega" = "Tiempo de provisión"
+
+---
+
 # OBJETIVO
 Extraer los plazos y fechas CLAVE del procedimiento licitatorio: fecha de
 apertura de ofertas, plazo de mantenimiento de oferta, plazo de entrega o
 ejecución, plazos para consultas o impugnaciones, fecha de presentación.
 
-Estos son los hitos que un oferente necesita tener en un calendario para no
-perder la licitación por vencimiento. Un ítem por plazo. Si el pliego da una
-fecha y una hora para el mismo hito, es un solo ítem con ambos campos.
+Un ítem por plazo. Si el pliego da fecha Y hora para el mismo hito, es un solo
+ítem con ambos campos completos.
 
-# ESQUEMA
+# ESTRUCTURA DE SALIDA
+
+Usá el schema `PlazoItem` definido en `schemas_v3.py`.
+
+**Campos clave:**
+- `tipo`: Usa enum `TipoPlazo` (presentacion_ofertas, apertura_ofertas, consultas, mantenimiento_oferta, etc.)
+- `fecha`: Formato ISO YYYY-MM-DD (solo si hay fecha calendaria explícita, sino `None`)
+- `hora`: Formato HH:MM en 24h (solo si se especifica, sino `None`)
+- `expresion_relativa`: Frase literal para plazos relativos ("10 días corridos desde...") - NO calcular fechas
+- `texto_original`: **OBLIGATORIO** - frase literal del pliego
+- `prorrogable`: "si" | "no" | "no_especificado"
+- `confidence`: [0.0-1.0] según el algoritmo de confianza
+- `source_references`: Siempre incluir cita literal del pliego (min 40 chars)
+
+**Cuando no hay plazos:** `{"plazos_clave": []}`
+
+---
+
+# REGLAS ESPECÍFICAS
+
+## 1. texto_original es OBLIGATORIO
+En todos los ítems, incluso `partial` y `not_applicable`. Es la frase literal del
+pliego, sin reescribir.
+
+## 2. NUNCA calcules fechas
+"Dentro de 10 días hábiles de la notificación" → va completo en `expresion_relativa`
+y en `texto_original`. Los campos `fecha` y `hora` quedan en `None`.
+
+Solo completás `fecha` cuando el pliego escribe una fecha calendaria explícita.
+
+## 3. Formato de fecha
+El pliego argentino usa DD/MM/AAAA. Convertí a ISO `YYYY-MM-DD`.
+
+**Ejemplos:**
+- `15/09/2026` → `"2026-09-15"`
+- `"quince de septiembre de 2026"` → `"2026-09-15"`
+
+**Fechas ambiguas:** Si el formato es ambiguo (ej: `03/04/2026`), asumí DD/MM/AAAA
+(formato argentino) pero bajá `confidence` en 0.2.
+
+## 4. Formato de hora
+Normalizá a 24 horas formato `HH:MM`:
+- `"10:00 hs"` → `"10:00"`
+- `"10 hs"` → `"10:00"`
+- `"14.30"` → `"14:30"`
+- `"2:30 PM"` → `"14:30"`
+
+## 5. Tipos de plazo frecuentes
+
+### mantenimiento_oferta
+El plazo de validez/vigencia de la oferta. Casi siempre es relativo:
+"60 días corridos desde la apertura" → va en `expresion_relativa`, no en `fecha`.
+
+### presentacion_ofertas vs apertura_ofertas
+Son hitos DISTINTOS aunque compartan día. Emití dos ítems separados.
+
+**Ejemplo:**
+```
+"Las ofertas se recibirán hasta el 15/10 a las 14 hs. La apertura será el mismo día a las 15 hs."
+```
+→ 2 ítems: uno `presentacion_ofertas` (14:00), otro `apertura_ofertas` (15:00).
+
+## 6. prorrogable
+Solo `"si"` o `"no"` si el pliego lo dice explícitamente para ese plazo.  
+En cualquier otro caso: `"no_especificado"`.
+
+No lo infieras de una cláusula genérica de prórroga en otro artículo.
+
+## 7. lugar
+Lugar físico del acto (presentación, apertura, visita). Si el pliego lo menciona, copialo.
+
+**Ejemplo:** `"Mesa de Entradas"`, `"Salón B del edificio municipal"`.
+
+## 8. Fragmentos de tabla
+Si el plazo viene de una tabla de cronograma, `citation` usa formato especial:  
+`Encabezado: <columna> | Fila: <fila> | Valor: <valor>`
+
+## 9. Sin especulación
+Si el pliego no menciona:
+- fecha → `None`
+- hora → `None`  
+- expresion_relativa → `None`
+- lugar → `None`
+
+❌ No inferir fechas ni calcular vencimientos.
+
+---
+
+# EJEMPLO DE FORMA
+
+**Fragmento:**
+```
+[Fragmento: F1, Documento: 7c9e, Página: 4, Sección: Capítulo 4 > Artículo 7°, Tipo: PÁRRAFO]
+Artículo 7° — Las ofertas se recibirán hasta el 03/11/2027 a las 14.30 hs en Mesa
+de Entradas. El acto de apertura se realizará el mismo día a las 15 hs en el Salón B.
+```
+
+**Salida correcta:**
+```json
 {
   "plazos_clave": [
     {
-      "tipo": "consultas|respuesta_consultas|visita_obra|presentacion_ofertas|apertura|mantenimiento_oferta|adjudicacion|firma_contrato|inicio_ejecucion|entrega|garantia_tecnica|impugnacion|otro",
-      "fecha": <"YYYY-MM-DD" solo si el pliego escribe una fecha calendaria, si no null>,
-      "hora": <"HH:MM" en 24h solo si el pliego la escribe, si no null>,
-      "expresion_relativa": <frase literal del plazo relativo, o null>,
-      "texto_original": <texto literal del pliego — OBLIGATORIO en todo ítem>,
-      "prorrogable": "si|no|no_especificado",
-      "lugar": <lugar de presentación o del acto, o null>,
-      "confidence": <número calculado según la rúbrica del sistema>,
+      "tipo": "presentacion_ofertas",
+      "fecha": "2027-11-03",
+      "hora": "14:30",
+      "expresion_relativa": null,
+      "texto_original": "Las ofertas se recibirán hasta el 03/11/2027 a las 14.30 hs en Mesa de Entradas.",
+      "prorrogable": "no_especificado",
+      "lugar": "Mesa de Entradas",
+      "confidence": 0.9,
       "source_references": [
         {
-          "document_id": <valor exacto del header del fragmento>,
-          "page_number": <valor exacto del header del fragmento>,
-          "citation": <subcadena literal del fragmento>
+          "document_id": "7c9e",
+          "page_number": 4,
+          "citation": "Las ofertas se recibirán hasta el 03/11/2027 a las 14.30 hs en Mesa de Entradas."
         }
       ],
-      "extraction_status": "success|partial|not_applicable|not_found"
+      "extraction_status": "success"
+    },
+    {
+      "tipo": "apertura_ofertas",
+      "fecha": "2027-11-03",
+      "hora": "15:00",
+      "expresion_relativa": null,
+      "texto_original": "El acto de apertura se realizará el mismo día a las 15 hs en el Salón B.",
+      "prorrogable": "no_especificado",
+      "lugar": "Salón B",
+      "confidence": 0.85,
+      "source_references": [
+        {
+          "document_id": "7c9e",
+          "page_number": 4,
+          "citation": "El acto de apertura se realizará el mismo día a las 15 hs en el Salón B."
+        }
+      ],
+      "extraction_status": "success"
     }
   ]
 }
-
-# REGLAS ESPECÍFICAS
-- `texto_original` es OBLIGATORIO en todos los ítems, incluso en `partial` y en
-  `not_applicable`. Es la frase del pliego, sin reescribir.
-- NUNCA calcules una fecha. "Dentro de los 10 días hábiles de la notificación" va
-  completo en `expresion_relativa` y `texto_original`; `fecha` y `hora` en `null`.
-- Formato de fecha: el pliego argentino escribe DD/MM/AAAA. Convertí a
-  `"YYYY-MM-DD"`. `15/09/2026` → `"2026-09-15"`. Si el formato es ambiguo
-  (ej: `03/04/2026`), asumí DD/MM y bajá `confidence` en 0.2.
-- Formato de hora: `"10:00 hs"` → `"10:00"`. `"10 hs"` → `"10:00"`.
-  `"14.30"` → `"14:30"`.
-- `mantenimiento_oferta`: el plazo de validez de la oferta. Casi siempre es
-  relativo ("60 días corridos desde la apertura") → va en `expresion_relativa`.
-- `presentacion_ofertas` vs `apertura`: son hitos distintos aunque compartan día.
-  Emití dos ítems.
-- `prorrogable`: solo `"si"` o `"no"` si el pliego lo dice. En cualquier otro caso
-  `"no_especificado"`. No lo infieras de la existencia de una cláusula de prórroga
-  genérica.
-- Si el plazo viene de una tabla de cronograma, `citation` con formato
-  `Encabezado: <col> | Fila: <fila> | Valor: <valor>`.
-
-# EJEMPLO DE FORMA (no copiar contenido)
-Fragmento:
-  [Fragmento: F1, Documento: 7c9e, Página: 4, Sección: Capítulo 4 > Artículo 7°, Tipo: PÁRRAFO]
-  Artículo 7° — Las ofertas se recibirán hasta el 03/11/2027 a las 14.30 hs en Mesa
-  de Entradas. El acto de apertura se realizará el mismo día a las 15 hs en el Salón B.
-
-Salida correcta:
-{"plazos_clave":[
-{"tipo":"presentacion_ofertas","fecha":"2027-11-03","hora":"14:30","expresion_relativa":null,"texto_original":"Las ofertas se recibirán hasta el 03/11/2027 a las 14.30 hs en Mesa de Entradas.","prorrogable":"no_especificado","lugar":"Mesa de Entradas","confidence":0.9,"source_references":[{"document_id":"7c9e","page_number":4,"citation":"Las ofertas se recibirán hasta el 03/11/2027 a las 14.30 hs en Mesa de Entradas."}],"extraction_status":"success"},
-{"tipo":"apertura","fecha":"2027-11-03","hora":"15:00","expresion_relativa":null,"texto_original":"El acto de apertura se realizará el mismo día a las 15 hs en el Salón B.","prorrogable":"no_especificado","lugar":"Salón B","confidence":0.85,"source_references":[{"document_id":"7c9e","page_number":4,"citation":"El acto de apertura se realizará el mismo día a las 15 hs en el Salón B."}],"extraction_status":"success"}
-]}
+```
 
 # EJEMPLO DE AUSENCIA
 Si los fragmentos no contienen ningún plazo:
-{"plazos_clave":[]}
+
+```json
+{"plazos_clave": []}
+```
+
+---
 
 === CONTENIDO DEL PLIEGO ===
 {chunks}
 === FIN DEL CONTENIDO ===
-
-Recordá: primera letra `{`. `texto_original` siempre presente. Nunca calcules fechas.

@@ -1,74 +1,249 @@
-# OBJETIVO
-Extraer cómo se pondera precio vs. técnica para adjudicar: el método de
-adjudicación (menor precio, puntaje ponderado, etc.), los factores con sus
-pesos/porcentajes, y si hay un puntaje técnico mínimo para pasar. Esto es lo
-que un oferente necesita saber para decidir si compite por precio o por calidad.
+# CONCEPTO DE LA CATEGORÍA
 
-# ESQUEMA
+Esta categoría extrae **cómo se pondera precio vs. técnica para adjudicar**: el
+método de adjudicación y los factores de evaluación con sus pesos.
+
+**Desde la perspectiva del oferente:** "¿Me conviene competir por precio o por
+calidad técnica? ¿Cómo se decide quién gana? ¿Hay puntaje mínimo para pasar?"
+
+Esto es lo que determina la ESTRATEGIA de oferta: si enfocarse en precio bajo o
+en propuesta técnica robusta.
+
+**Qué incluye:**
+- Método de adjudicación (menor precio, puntaje ponderado, etc.)
+- Factores evaluados (precio, técnica, experiencia, plazo, etc.)
+- Ponderación de cada factor (porcentajes o puntajes)
+- Fórmulas de cálculo si las hay
+- Puntaje técnico mínimo para pasar
+
+**Reconocimiento semántico:** El pliego puede no titular "Criterios de Evaluación".
+Buscá:
+- Capítulos de "Adjudicación", "Evaluación de Ofertas", "Puntaje"
+- Frases sobre cómo se determina el ganador
+- Menciones de ponderaciones, porcentajes, puntajes
+- Descripciones de factores considerados
+
+**Frases típicas que indican criterios:**
+- "La adjudicación recaerá en..."
+- "Se adjudicará por menor precio"
+- "Se evaluará según los siguientes criterios..."
+- "Ponderación: Precio (X%) y Técnica (Y%)"
+- "Oferta más conveniente"
+- "Mejor relación precio-calidad"
+
+**Variaciones comunes:**
+- "Menor precio" = "Precio más bajo" = "Oferta más conveniente por precio"
+- "Puntaje ponderado" = "Sistema de puntos" = "Evaluación por puntaje"
+- "Mejor relación precio-calidad" = "Oferta económicamente más ventajosa"
+- "Antecedentes" = "Experiencia" = "Capacidad técnica" = "Referencias"
+
+**Métodos típicos en Argentina:**
+- **Menor precio**: gana la oferta más barata entre las admisibles
+- **Puntaje ponderado**: se asignan puntos a precio y otros factores, gana el mayor puntaje
+- **Mejor relación precio-calidad**: evaluación técnica + económica con ponderación
+
+---
+
+# OBJETIVO
+Extraer cómo se adjudica: método de adjudicación, factores evaluados con sus pesos,
+y puntaje técnico mínimo si existe.
+
+Un ítem `metodo` describiendo cómo se adjudica, y un ítem `criterio` por cada
+factor evaluado.
+
+# ESTRUCTURA DE SALIDA
+
+Usá el schema `CriterioEvaluacionItem` definido en `schemas_v3.py`.
+
+**Campos clave:**
+- `tipo`: Literal "metodo" o "criterio"
+- `valor`: Nombre del método o del criterio
+- `metadata`: Diccionario con campos:
+  - `metodo`: enum `MetodoAdjudicacion` (solo para tipo="metodo")
+  - `tipo_criterio`: enum `TipoCriterio` (solo para tipo="criterio")
+  - `ponderacion_porcentaje`: número o null
+  - `formula`: texto literal o null
+  - `puntaje_tecnico_minimo`: texto o null
+- `confidence`: [0.0-1.0] según el algoritmo de confianza
+- `source_references`: Siempre incluir cita literal del pliego (min 40 chars)
+
+**Cuando no hay criterios:** `{"criterios_evaluacion": []}`
+
+---
+
+# REGLAS ESPECÍFICAS
+
+## 1. Estructura de ítems
+
+Emití:
+1. **UN ítem con `tipo: "metodo"`** que describa cómo se adjudica en general
+2. **Un ítem con `tipo: "criterio"`** por cada factor evaluado (si los hay)
+
+### Item metodo
+- `metadata.metodo` → lleva el enum del método
+- `metadata.tipo_criterio` → `"no_especificado"`
+- Puede incluir `puntaje_tecnico_minimo` si el pliego lo menciona
+
+### Items criterio
+- `metadata.metodo` → `"no_especificado"`
+- `metadata.tipo_criterio` → lleva el enum del tipo de criterio
+- Puede incluir `ponderacion_porcentaje` si el pliego lo especifica
+
+## 2. Métodos de adjudicación (enum MetodoAdjudicacion)
+
+### menor_precio
+El pliego adjudica a la oferta más barata entre las admisibles.
+
+**Frases típicas:**
+- "Se adjudicará por menor precio"
+- "Oferta más conveniente por precio"
+- "Precio más bajo"
+
+### puntaje_ponderado
+Hay puntajes y pesos asignados a distintos criterios.
+
+**Frases típicas:**
+- "Sistema de puntaje"
+- "Ponderación de criterios"
+- "Se asignará puntaje a..."
+
+### mejor_relacion_precio_calidad
+El pliego usa esa expresión o "oferta económicamente más ventajosa" con evaluación
+técnica.
+
+### Otros métodos
+- `por_renglon`: adjudicación separada por ítem
+- `sobre_cerrado`: doble sobre (técnica y económica)
+- `subasta_inversa`: puja electrónica
+- `otro`: cualquier otro que el pliego nombre
+
+## 3. Tipos de criterio (enum TipoCriterio)
+
+Valores disponibles:
+- `precio`: factor económico
+- `tecnico`: calidad técnica de la propuesta
+- `experiencia`: antecedentes del oferente
+- `plazo`: tiempo de entrega/ejecución
+- `sustentabilidad`: criterios ambientales/sociales
+- `otro`: cualquier otro
+- `no_especificado`: default
+
+## 4. ponderacion_porcentaje
+Solo el número, sin el símbolo `%`.
+
+**Ejemplos:**
+- "Precio (60%)" → `60.0`
+- "Técnica: 40%" → `40.0`
+
+❌ Si el pliego NO asigna porcentaje → `null`  
+❌ NUNCA repartas porcentajes vos mismo
+
+## 5. formula
+Copia literal de la fórmula. No la reescribas en notación propia.
+
+**Ejemplo:**
+```
+"Puntaje final = (Precio × 0.6) + (Técnica × 0.4)"
+```
+
+Si no hay fórmula escrita → `null`
+
+## 6. Fragmentos de tabla
+Si las ponderaciones vienen en tabla, un ítem por fila con `citation` en formato:  
+`Encabezado: <col> | Fila: <fila> | Valor: <valor>`
+
+## 7. Sin criterios individuales
+Si el pliego describe el método pero NO los criterios individuales, emití solo el
+ítem `metodo`. No inventes criterios.
+
+---
+
+# EJEMPLO DE FORMA
+
+**Fragmento:**
+```
+[Fragmento: F1, Documento: 7c9e, Página: 5, Sección: Capítulo 6 > Artículo 11°, Tipo: PÁRRAFO]
+Artículo 11° — La adjudicación recaerá en la oferta que obtenga mayor puntaje, ponderando
+Precio (60%) y Antecedentes (40%). Se exige un puntaje técnico mínimo de 70 puntos.
+```
+
+**Salida correcta (3 ítems: 1 metodo + 2 criterios):**
+```json
 {
   "criterios_evaluacion": [
     {
-      "tipo": "metodo|criterio",
-      "valor": <nombre del método o del criterio>,
+      "tipo": "metodo",
+      "valor": "Puntaje ponderado",
       "metadata": {
-        "metodo": "menor_precio|puntaje_ponderado|mejor_relacion_precio_calidad|por_renglon|sobre_cerrado|subasta_inversa|otro|no_especificado",
-        "ponderacion_porcentaje": <número o null>,
-        "formula": <texto literal de la fórmula o null>,
-        "puntaje_tecnico_minimo": <texto o null>,
-        "tipo_criterio": "precio|tecnico|experiencia|plazo|sustentabilidad|otro|no_especificado"
+        "metodo": "puntaje_ponderado",
+        "ponderacion_porcentaje": null,
+        "formula": null,
+        "puntaje_tecnico_minimo": "70 puntos",
+        "tipo_criterio": "no_especificado"
       },
-      "confidence": <número calculado según la rúbrica del sistema>,
+      "confidence": 0.9,
       "source_references": [
         {
-          "document_id": <valor exacto del header del fragmento>,
-          "page_number": <valor exacto del header del fragmento>,
-          "citation": <subcadena literal del fragmento>
+          "document_id": "7c9e",
+          "page_number": 5,
+          "citation": "La adjudicación recaerá en la oferta que obtenga mayor puntaje, ponderando Precio (60%) y Antecedentes (40%). Se exige un puntaje técnico mínimo de 70 puntos."
         }
       ],
-      "extraction_status": "success|partial|not_applicable|not_found"
+      "extraction_status": "success"
+    },
+    {
+      "tipo": "criterio",
+      "valor": "Precio",
+      "metadata": {
+        "metodo": "no_especificado",
+        "ponderacion_porcentaje": 60.0,
+        "formula": null,
+        "puntaje_tecnico_minimo": null,
+        "tipo_criterio": "precio"
+      },
+      "confidence": 0.85,
+      "source_references": [
+        {
+          "document_id": "7c9e",
+          "page_number": 5,
+          "citation": "ponderando Precio (60%) y Antecedentes (40%)"
+        }
+      ],
+      "extraction_status": "success"
+    },
+    {
+      "tipo": "criterio",
+      "valor": "Antecedentes",
+      "metadata": {
+        "metodo": "no_especificado",
+        "ponderacion_porcentaje": 40.0,
+        "formula": null,
+        "puntaje_tecnico_minimo": null,
+        "tipo_criterio": "experiencia"
+      },
+      "confidence": 0.85,
+      "source_references": [
+        {
+          "document_id": "7c9e",
+          "page_number": 5,
+          "citation": "ponderando Precio (60%) y Antecedentes (40%)"
+        }
+      ],
+      "extraction_status": "success"
     }
   ]
 }
-
-# REGLAS ESPECÍFICAS
-- Emití UN ítem con `tipo: "metodo"` que describa cómo se adjudica en general, y
-  luego un ítem con `tipo: "criterio"` por cada factor evaluado.
-- En el ítem `metodo`, `metadata.metodo` lleva el enum y `tipo_criterio` va en
-  `"no_especificado"`. En los ítems `criterio`, al revés: `metodo` en
-  `"no_especificado"` y `tipo_criterio` con el enum.
-- `menor_precio`: el pliego adjudica a la oferta más barata entre las admisibles.
-  Frases: "menor precio", "oferta más conveniente por precio", "precio más bajo".
-- `puntaje_ponderado`: hay puntajes y pesos por criterio.
-- `mejor_relacion_precio_calidad`: el pliego usa esa expresión o "oferta económicamente
-  más ventajosa" con evaluación técnica.
-- `ponderacion_porcentaje`: solo el número, sin el símbolo. "40%" → `40.0`.
-  Si el pliego no asigna porcentaje → `null`. NUNCA repartas porcentajes vos.
-- `formula`: copia literal de la fórmula. No la reescribas en notación propia.
-  Si no hay fórmula escrita → `null`.
-- Si las ponderaciones vienen en tabla, un ítem por fila con `citation` en formato
-  `Encabezado: <col> | Fila: <fila> | Valor: <valor>`.
-- Si el pliego describe el método pero no los criterios individuales, emití solo el
-  ítem `metodo`. No inventes criterios.
-
-# EJEMPLO DE FORMA (no copiar contenido)
-Fragmento:
-  [Fragmento: F1, Documento: 7c9e, Página: 5, Sección: Capítulo 6 > Artículo 11°, Tipo: PÁRRAFO]
-  Artículo 11° — La adjudicación recaerá en la oferta que obtenga mayor puntaje, ponderando
-  Precio (60%) y Antecedentes (40%). Se exige un puntaje técnico mínimo de 70 puntos.
-
-Salida correcta:
-{"criterios_evaluacion":[
-{"tipo":"metodo","valor":"Puntaje ponderado","metadata":{"metodo":"puntaje_ponderado","ponderacion_porcentaje":null,"formula":null,"puntaje_tecnico_minimo":"70 puntos","tipo_criterio":"no_especificado"},"confidence":0.9,"source_references":[{"document_id":"7c9e","page_number":5,"citation":"La adjudicación recaerá en la oferta que obtenga mayor puntaje, ponderando Precio (60%) y Antecedentes (40%). Se exige un puntaje técnico mínimo de 70 puntos."}],"extraction_status":"success"},
-{"tipo":"criterio","valor":"Precio","metadata":{"metodo":"no_especificado","ponderacion_porcentaje":60.0,"formula":null,"puntaje_tecnico_minimo":null,"tipo_criterio":"precio"},"confidence":0.85,"source_references":[{"document_id":"7c9e","page_number":5,"citation":"ponderando Precio (60%) y Antecedentes (40%)"}],"extraction_status":"success"},
-{"tipo":"criterio","valor":"Antecedentes","metadata":{"metodo":"no_especificado","ponderacion_porcentaje":40.0,"formula":null,"puntaje_tecnico_minimo":null,"tipo_criterio":"experiencia"},"confidence":0.85,"source_references":[{"document_id":"7c9e","page_number":5,"citation":"ponderando Precio (60%) y Antecedentes (40%)"}],"extraction_status":"success"}
-]}
+```
 
 # EJEMPLO DE AUSENCIA
-Si los fragmentos no describen el método de evaluación:
-{"criterios_evaluacion":[]}
+Si los fragmentos no mencionan método ni criterios:
+
+```json
+{"criterios_evaluacion": []}
+```
+
+---
 
 === CONTENIDO DEL PLIEGO ===
 {chunks}
 === FIN DEL CONTENIDO ===
-
-Recordá: primera letra `{`. Nunca repartas ponderaciones que el pliego no escribe.

@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 import logging
 
+from azure.core.exceptions import ResourceNotFoundError
 from azure.storage.blob import BlobSasPermissions, BlobServiceClient, generate_blob_sas
 from azure.core.exceptions import HttpResponseError, ResourceExistsError
 
@@ -36,7 +37,10 @@ class AzureBlobStorageAdapter(BlobStoragePort):
 
     def delete(self, blob_name: str) -> None:
         blob_client = self.container_client.get_blob_client(blob_name)
-        blob_client.delete_blob(delete_snapshots="include")
+        try:
+            blob_client.delete_blob(delete_snapshots="include")
+        except ResourceNotFoundError:
+            logger.warning("blob_delete_skipped_missing_blob", extra={"blob_name": blob_name})
 
     def generate_download_url(self, blob_name: str) -> str:
         blob_client = self.container_client.get_blob_client(blob_name)

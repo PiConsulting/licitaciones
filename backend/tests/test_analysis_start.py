@@ -250,3 +250,100 @@ def test_start_status_endpoint(client: TestClient, auth_token: str) -> None:
     assert payload["progress_percentage"] == 45
 
     db.close()
+
+
+def test_delete_error_analysis_hard_deletes_records(client: TestClient, auth_token: str, monkeypatch) -> None:
+    deleted_blobs: list[str] = []
+    deleted_indexes: list[str] = []
+
+    class _FakeBlobStorage:
+        def delete(self, blob_name: str) -> None:
+            deleted_blobs.append(blob_name)
+
+    monkeypatch.setattr("analysis.service._build_blob_storage", lambda: _FakeBlobStorage())
+    monkeypatch.setattr("analysis.service.delete_analysis_chunks", lambda analysis_id: deleted_indexes.append(analysis_id))
+
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == "test@cedia.com").first()
+    assert user is not None
+
+    analysis = Analysis(created_by=user.id, status="error", correlation_id=str(uuid4()))
+    db.add(analysis)
+    db.flush()
+    db.add(
+        Document(
+            analysis_id=analysis.id,
+            filename="fallido.pdf",
+            blob_name=f"{analysis.id}/fallido.pdf",
+            file_size_bytes=100,
+            page_count=1,
+            is_primary=True,
+            sha256_hash="f" * 64,
+            content_hash="hash-error",
+            created_by=user.id,
+        )
+    )
+    analysis_id = analysis.id
+    db.commit()
+    db.close()
+
+    response = client.delete(
+        f"/api/v1/analyses/{analysis_id}",
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+
+    assert response.status_code == 204
+    assert deleted_blobs == [f"{analysis_id}/fallido.pdf"]
+    assert deleted_indexes == [analysis_id]
+
+    db = SessionLocal()
+    assert db.query(Analysis).filter(Analysis.id == analysis_id).first() is None
+    assert db.query(Document).filter(Document.analysis_id == analysis_id).count() == 0
+    db.close()
+
+
+def test_delete_completed_analysis_soft_deletes_records(client: TestClient, auth_token: str, monkeypatch) -> None:
+    deleted_indexes: list[str] = []
+    monkeypatch.setattr("analysis.service.delete_analysis_chunks", lambda analysis_id: deleted_indexes.append(analysis_id))
+
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == "test@cedia.com").first()
+    assert user is not None
+
+    analysis = Analysis(created_by=user.id, status="completed", correlation_id=str(uuid4()))
+    db.add(analysis)
+    db.flush()
+    document = Document(
+        analysis_id=analysis.id,
+        filename="ok.pdf",
+        blob_name=f"{analysis.id}/ok.pdf",
+        file_size_bytes=100,
+        page_count=1,
+        is_primary=True,
+        sha256_hash="a" * 64,
+        content_hash="hash-completed",
+        created_by=user.id,
+    )
+    db.add(document)
+    db.flush()
+    analysis_id = analysis.id
+    document_id = document.id
+    db.commit()
+    db.close()
+
+    response = client.delete(
+        f"/api/v1/analyses/{analysis_id}",
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+
+    assert response.status_code == 204
+    assert deleted_indexes == []
+
+    db = SessionLocal()
+    stored_analysis = db.query(Analysis).filter(Analysis.id == analysis_id).first()
+    stored_document = db.query(Document).filter(Document.id == document_id).first()
+    assert stored_analysis is not None
+    assert stored_analysis.deleted_at is not None
+    assert stored_document is not None
+    assert stored_document.deleted_at is not None
+    db.close()

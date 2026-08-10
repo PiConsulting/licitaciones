@@ -1,70 +1,265 @@
+# CONCEPTO DE LA CATEGORÍA
+
+Esta categoría extrae la **lista completa de motivos por los cuales una oferta se
+descalifica SIN evaluarla** — las causales de rechazo formal.
+
+**Desde la perspectiva del oferente:** "¿Por qué razones mi oferta puede ser
+descartada automáticamente, incluso si es la más conveniente en precio o técnica?"
+
+Esta es la información MÁS CRÍTICA y la que MENOS SE LEE. Un error formal puede
+hacer que una oferta perfectamente competitiva sea rechazada antes de ser evaluada.
+
+**Qué incluye:**
+- Falta de documentación obligatoria
+- Garantías insuficientes o ausentes
+- Incumplimiento de formatos o requisitos formales
+- Presentación fuera de término
+- Inhabilitaciones del oferente
+- Falsedad de datos o documentos
+- Conductas anticompetitivas
+- Cualquier defecto que el pliego declare como causal de rechazo
+
+**Reconocimiento semántico:** El pliego puede no usar el término exacto "causal de
+rechazo". Buscá construcciones equivalentes:
+
+**Frases típicas que indican causal de rechazo:**
+- "Será rechazada sin más trámite"
+- "Será desestimada"
+- "No será considerada"
+- "Se descalificará de pleno derecho"
+- "Causal de inadmisibilidad"
+- "La falta de X implicará el rechazo"
+- "No se admitirá la oferta que..."
+- "Quedará excluida"
+- "Será causa de descalificación"
+
+**Variaciones comunes:**
+- "Causal de rechazo" = "Inadmisibilidad" = "Descalificación" = "Exclusión"
+- "Sin más trámite" = "De pleno derecho" = "Automáticamente"
+
+**No confundir con:**
+- Requisitos de admisibilidad (esos van en otra categoría)
+- Criterios de evaluación (esos ponderan ofertas admitidas)
+
+La diferencia: Un requisito dice "qué hay que presentar". Una causal dice "si no
+lo presentás, te rechazan".
+
+---
+
 # OBJETIVO
 Extraer la LISTA COMPLETA de motivos por los cuales una oferta se descalifica
-SIN evaluarla — las causales de rechazo formal. Esta es la información más
-crítica y la que menos se lee: todo lo que puede hacer que una oferta
-perfectamente competitiva sea descartada por un error formal.
+SIN evaluarla — las causales de rechazo formal.
 
-Incluye: falta de documentación, garantías insuficientes, incumplimiento de
-formatos, presentación fuera de término, inhabilitaciones, falsedad de datos,
-conductas anticompetitivas. Una causal por ítem.
+Una causal por ítem. Si el pliego lista incisos a), b), c)... emití un ítem por inciso.
 
-# ESQUEMA
+# ESTRUCTURA DE SALIDA
+
+Usá el schema `CausalRechazoItem` definido en `schemas_v3.py`.
+
+**Campos clave:**
+- `tipo`: Usa enum `TipoCausal` (formal, tecnica, economica, legal, etica, otra)
+- `valor`: Descripción de la causal, lo más cercana posible al texto del pliego
+- `metadata`: Diccionario con campos:
+  - `es_descalificante`: "si" | "no" | "no_especificado"
+  - `es_subsanable`: "si" | "no" | "no_especificado"
+- `confidence`: [0.0-1.0] según el algoritmo de confianza
+- `source_references`: Siempre incluir cita literal del pliego (min 40 chars)
+
+**Cuando no hay causales:** `{"causales_rechazo": []}`
+
+---
+
+# REGLAS ESPECÍFICAS
+
+## 1. Una causal por ítem
+Si el pliego lista múltiples causales en incisos (a, b, c...), emití un ítem separado
+por cada inciso. No las agrupes.
+
+## 2. Tipos de causal (enum TipoCausal)
+
+### formal
+Incumplimientos formales o administrativos:
+- Falta de firma
+- Documentación incompleta
+- Presentación fuera de término
+- Formato incorrecto
+
+### tecnica
+Incumplimientos de especificaciones técnicas:
+- No cumplir requisitos técnicos mínimos
+- Productos no homologados
+- Especificaciones insuficientes
+
+### economica
+Incumplimientos económicos:
+- Precio por debajo del costo
+- Precio vil
+- Garantía insuficiente
+
+### legal
+Incumplimientos legales:
+- Inhabilitaciones
+- Incompatibilidades
+- Sanciones vigentes
+
+### etica
+Conductas antiéticas:
+- Falsedad de datos
+- Colusión
+- Conflicto de interés
+
+### otra
+Cualquier otra no clasificable
+
+## 3. metadata.es_descalificante
+Solo `"si"` si el pliego usa lenguaje imperativo sin margen de discrecionalidad:
+- "será rechazada sin más trámite"
+- "de pleno derecho"
+- "causal de rechazo automático"
+- "no será considerada"
+
+Si dice que hay discrecionalidad del organismo:
+- "podrá ser desestimada" → `"no"` o `"no_especificado"`
+
+## 4. metadata.es_subsanable
+Solo `"si"` o `"no"` si el pliego lo dice de **esa causal en particular**.
+
+Una cláusula general de subsanación en otro artículo NO alcanza para marcar una
+causal específica como subsanable → `"no_especificado"`.
+
+**Ejemplo correcto de es_subsanable="no":**
+```
+"La falta de garantía de mantenimiento será causal de rechazo, no siendo dicha omisión subsanable."
+```
+
+## 5. No conviertas un requisito en causal
+**Requisito:** "Debe presentar certificado fiscal" (va en requisitos de admisibilidad)  
+**Causal:** "La falta de certificado fiscal será causal de rechazo" (va acá)
+
+Si el pliego solo lista requisitos sin decir explícitamente que su falta causa rechazo,
+no emitas causales. Esperá a que el pliego lo declare.
+
+## 6. valor: descripción de la causal
+Mantené el texto lo más cercano posible al pliego.
+
+**Ejemplos:**
+- ❌ "No presentar garantía" (muy genérico)
+- ✅ "No acompañar la garantía de mantenimiento de oferta" (más específico)
+
+---
+
+# EJEMPLO DE FORMA
+
+**Fragmento:**
+```
+[Fragmento: F1, Documento: 7c9e, Página: 6, Sección: Capítulo 8 > Artículo 14°, Tipo: PÁRRAFO]
+Artículo 14° — Serán rechazadas sin más trámite las ofertas que no acompañen la
+garantía de mantenimiento, no siendo dicha omisión subsanable. El control se
+efectuará en el acto de apertura.
+```
+
+**Salida correcta:**
+```json
 {
   "causales_rechazo": [
     {
-      "tipo": "causal_rechazo",
-      "valor": <descripción de la causal, lo más cercana posible al texto del pliego>,
+      "tipo": "formal",
+      "valor": "No acompañar la garantía de mantenimiento de oferta",
       "metadata": {
-        "rechazo": "automatico|sujeta_a_evaluacion|no_especificado",
-        "subsanable": "si|no|no_especificado",
-        "momento_aplicacion": "admision|evaluacion|adjudicacion|no_especificado"
+        "es_descalificante": "si",
+        "es_subsanable": "no"
       },
-      "confidence": <número calculado según la rúbrica del sistema>,
+      "confidence": 0.9,
       "source_references": [
         {
-          "document_id": <valor exacto del header del fragmento>,
-          "page_number": <valor exacto del header del fragmento>,
-          "citation": <subcadena literal del fragmento>
+          "document_id": "7c9e",
+          "page_number": 6,
+          "citation": "Serán rechazadas sin más trámite las ofertas que no acompañen la garantía de mantenimiento, no siendo dicha omisión subsanable."
         }
       ],
-      "extraction_status": "success|partial|not_applicable|not_found"
+      "extraction_status": "success"
     }
   ]
 }
+```
 
-# REGLAS ESPECÍFICAS
-- Una causal por ítem. Si el pliego lista incisos a), b), c), emití un ítem por inciso.
-- `rechazo: "automatico"` solo si el pliego usa lenguaje imperativo sin margen de
-  discrecionalidad: "será rechazada sin más trámite", "de pleno derecho",
-  "causal de rechazo automático", "no será considerada".
-  Si dice "podrá ser desestimada", "el organismo evaluará" → `"sujeta_a_evaluacion"`.
-  Si no queda claro → `"no_especificado"`. NO lo infieras del tono.
-- `subsanable`: solo `"si"` o `"no"` si el pliego lo dice de esa causal en
-  particular. Una cláusula general de subsanación en otro artículo NO alcanza para
-  marcar una causal específica como subsanable → `"no_especificado"`.
-- `momento_aplicacion`: `admision` (apertura / control formal), `evaluacion`
-  (análisis técnico-económico), `adjudicacion` (previo a adjudicar).
-  Sin indicación explícita → `"no_especificado"`.
-- No conviertas un requisito en causal. "Debe presentar certificado fiscal" es un
-  requisito (va en otra categoría). "La falta de certificado fiscal será causal de
-  rechazo" sí es una causal.
+# EJEMPLO CON MÚLTIPLES INCISOS
 
-# EJEMPLO DE FORMA (no copiar contenido)
-Fragmento:
-  [Fragmento: F1, Documento: 7c9e, Página: 6, Sección: Capítulo 8 > Artículo 14°, Tipo: PÁRRAFO]
-  Artículo 14° — Serán rechazadas sin más trámite las ofertas que no acompañen la
-  garantía de mantenimiento, no siendo dicha omisión subsanable. El control se
-  efectuará en el acto de apertura.
+**Fragmento:**
+```
+[Fragmento: F2, Documento: 8d4f, Página: 7, Sección: Art. 15, Tipo: PÁRRAFO]
+Artículo 15 — Serán causales de rechazo: a) Falta de firma del representante legal.
+b) Presentación fuera del plazo establecido. c) Garantía insuficiente.
+```
 
-Salida correcta:
-{"causales_rechazo":[{"tipo":"causal_rechazo","valor":"No acompañar la garantía de mantenimiento de oferta","metadata":{"rechazo":"automatico","subsanable":"no","momento_aplicacion":"admision"},"confidence":0.9,"source_references":[{"document_id":"7c9e","page_number":6,"citation":"Serán rechazadas sin más trámite las ofertas que no acompañen la garantía de mantenimiento, no siendo dicha omisión subsanable."}],"extraction_status":"success"}]}
+**Salida correcta (3 ítems):**
+```json
+{
+  "causales_rechazo": [
+    {
+      "tipo": "formal",
+      "valor": "Falta de firma del representante legal",
+      "metadata": {
+        "es_descalificante": "no_especificado",
+        "es_subsanable": "no_especificado"
+      },
+      "confidence": 0.8,
+      "source_references": [
+        {
+          "document_id": "8d4f",
+          "page_number": 7,
+          "citation": "Artículo 15 — Serán causales de rechazo: a) Falta de firma del representante legal."
+        }
+      ],
+      "extraction_status": "success"
+    },
+    {
+      "tipo": "formal",
+      "valor": "Presentación fuera del plazo establecido",
+      "metadata": {
+        "es_descalificante": "no_especificado",
+        "es_subsanable": "no_especificado"
+      },
+      "confidence": 0.8,
+      "source_references": [
+        {
+          "document_id": "8d4f",
+          "page_number": 7,
+          "citation": "Artículo 15 — Serán causales de rechazo: b) Presentación fuera del plazo establecido."
+        }
+      ],
+      "extraction_status": "success"
+    },
+    {
+      "tipo": "economica",
+      "valor": "Garantía insuficiente",
+      "metadata": {
+        "es_descalificante": "no_especificado",
+        "es_subsanable": "no_especificado"
+      },
+      "confidence": 0.8,
+      "source_references": [
+        {
+          "document_id": "8d4f",
+          "page_number": 7,
+          "citation": "Artículo 15 — Serán causales de rechazo: c) Garantía insuficiente."
+        }
+      ],
+      "extraction_status": "success"
+    }
+  ]
+}
+```
 
 # EJEMPLO DE AUSENCIA
-Si los fragmentos no enuncian causales de rechazo:
-{"causales_rechazo":[]}
+Si los fragmentos no contienen causales de rechazo:
+
+```json
+{"causales_rechazo": []}
+```
+
+---
 
 === CONTENIDO DEL PLIEGO ===
 {chunks}
 === FIN DEL CONTENIDO ===
-
-Recordá: primera letra `{`. Una causal por ítem. No confundas requisito con causal.

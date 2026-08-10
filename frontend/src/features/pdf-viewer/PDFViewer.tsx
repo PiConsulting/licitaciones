@@ -141,7 +141,7 @@ export function PDFViewer({ documentId, documentName, citations, documents, focu
           <p className="text-sm text-error">{error}</p>
           <button
             type="button"
-            className="mt-3 rounded bg-primary px-3 py-2 text-xs font-semibold text-white"
+            className="mt-3 rounded bg-primary px-3 py-2 text-xs font-semibold text-primary-fg"
             onClick={() => {
               setError(null);
               void refetch();

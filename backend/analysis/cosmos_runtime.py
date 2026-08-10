@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import structlog
 
+from analysis.extraction.extractors.base import validate_prompt_inventory
 from analysis.extraction.graph import graph
 from analysis.models import CurrentStage
 from analysis.progress import build_stage_progress, calculate_timeout_minutes
@@ -22,10 +23,13 @@ from analysis.service import (
 from analysis.utils import calculate_confidence_avg
 from documents.schemas import DocumentWarning
 from documents.service import calculate_content_hash
+from extraction.ai_search import delete_analysis_chunks
 from extraction.ai_search import upload_chunks
 from extraction.chunking import create_chunks
 from extraction.document_intelligence import extract_text
 from extraction.embeddings import generate_embeddings
+from extraction.errors import DocumentTextExtractionError
+from shared.config import get_settings
 from shared.cosmos_container import get_cosmos_container
 
 logger = structlog.get_logger(__name__)
@@ -84,7 +88,10 @@ def _load_analysis_or_none(analysis_id: str) -> dict | None:
     item_id = _analysis_item_id(analysis_id)
     for partition_key in _analysis_partition_key_candidates(analysis_id):
         try:
-            return container.read_item(item=item_id, partition_key=partition_key)
+            analysis = container.read_item(item=item_id, partition_key=partition_key)
+            if analysis.get("deleted"):
+                return None
+            return analysis
         except Exception:  # noqa: BLE001
             logger.debug(
                 "cosmos_analysis_read_fallback_failed",
@@ -101,6 +108,8 @@ def _load_analysis_or_none(analysis_id: str) -> dict | None:
         )
     )
     if rows:
+        if rows[0].get("deleted"):
+            return None
         return rows[0]
     return None
 
@@ -192,7 +201,10 @@ def list_analyses_cosmos(
 ) -> tuple[list[dict], int]:
     container = get_cosmos_container()
 
-    query = "SELECT * FROM c WHERE c.type = 'analysis' AND c.created_by = @user_id"
+    query = (
+        "SELECT * FROM c WHERE c.type = 'analysis' AND c.created_by = @user_id "
+        "AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+    )
     parameters: list[dict] = [{"name": "@user_id", "value": user_id}]
 
     if status_filter:
@@ -296,6 +308,7 @@ def create_analysis_with_documents_cosmos(
         "timeout_at": None,
         "timeout_warning_at": None,
         "extraction_metadata": {},
+        "deleted": False,
         "created_at": now,
         "updated_at": now,
     }
@@ -443,6 +456,59 @@ def _soft_delete_documents_cosmos(analysis_id: str, document_ids: set[str]) -> N
         document["deleted"] = True
         document["deleted_at"] = now
         container.upsert_item(document)
+
+
+def _mark_analysis_documents_deleted_cosmos(analysis_id: str) -> None:
+    container = get_cosmos_container()
+    now = datetime.now(UTC).isoformat()
+    for document in _query_documents(analysis_id, include_deleted=True):
+        if document.get("deleted"):
+            continue
+        document["deleted"] = True
+        document["deleted_at"] = now
+        container.upsert_item(document)
+
+
+def _delete_analysis_items_cosmos(analysis_id: str) -> None:
+    container = get_cosmos_container()
+    items = list(
+        container.query_items(
+            query="SELECT c.id, c.partition_key FROM c WHERE c.analysis_id = @analysis_id",
+            parameters=[{"name": "@analysis_id", "value": analysis_id}],
+            partition_key=analysis_id,
+        )
+    )
+    for item in items:
+        container.delete_item(item=item["id"], partition_key=item["partition_key"])
+
+
+def delete_analysis_cosmos(analysis_id: str, user_id: str) -> str:
+    analysis = _load_analysis_or_none(analysis_id)
+    if analysis is None:
+        raise ValueError("ANALYSIS_NOT_FOUND")
+    if analysis.get("created_by") != user_id:
+        raise PermissionError("FORBIDDEN")
+
+    current_status = str(analysis.get("status") or "draft")
+    if current_status in {"queued", "analyzing", "processing"}:
+        raise RuntimeError("ANALYSIS_DELETE_NOT_ALLOWED")
+
+    if current_status == "error":
+        blob_storage = _build_blob_storage()
+        for document in _query_documents(analysis_id, include_deleted=True):
+            blob_name = document.get("blob_name")
+            if isinstance(blob_name, str) and blob_name:
+                blob_storage.delete(blob_name)
+        delete_analysis_chunks(analysis_id)
+        _delete_analysis_items_cosmos(analysis_id)
+        return "hard"
+
+    now = datetime.now(UTC).isoformat()
+    analysis["deleted"] = True
+    analysis["deleted_at"] = now
+    _upsert_analysis(analysis, "analysis_deleted")
+    _mark_analysis_documents_deleted_cosmos(analysis_id)
+    return "soft"
 
 
 def start_analysis_cosmos(analysis_id: str, user_id: str) -> dict:
@@ -636,6 +702,8 @@ def extract_and_index_cosmos(analysis_id: str) -> None:
         logger.error("analysis_not_found", analysis_id=analysis_id)
         return
 
+    settings = get_settings()
+    max_concurrency = int(settings.extraction_max_concurrency or 4)
     correlation_id = analysis.get("correlation_id")
     documents = _query_documents(analysis_id)
     blob_storage = _build_blob_storage()
@@ -683,7 +751,14 @@ def extract_and_index_cosmos(analysis_id: str) -> None:
             _upsert_analysis(analysis, "analysis_processing")
 
             blob_url = blob_storage.generate_download_url(str(document["blob_name"]))
-            pages = extract_text(blob_url, str(document["document_id"]), str(correlation_id))
+            try:
+                pages = extract_text(blob_url, str(document["document_id"]), str(correlation_id))
+            except DocumentTextExtractionError as exc:
+                analysis["status"] = "error"
+                analysis["current_stage"] = CurrentStage.COMPLETED.value
+                analysis["error_message"] = f"No se pudo leer el texto de {document['filename']}: {str(exc)}"
+                _upsert_analysis(analysis, "analysis_error")
+                return
             chunks = create_chunks(pages, str(document["document_id"]), str(correlation_id))
             all_chunks.extend(chunks)
 
@@ -704,15 +779,17 @@ def extract_and_index_cosmos(analysis_id: str) -> None:
         analysis["extraction_metadata"] = metadata
         _upsert_analysis(analysis, "analysis_processing")
 
+        validate_prompt_inventory()
+
         result = graph.invoke(
             {
                 "analysis_id": analysis_id,
                 "correlation_id": str(correlation_id),
                 "created_by": str(analysis.get("created_by")),
-                "max_concurrency": 4,
+                "max_concurrency": max_concurrency,
                 "extraction_metadata": {},
             },
-            config={"max_concurrency": 4},
+            config={"max_concurrency": max_concurrency},
         )
 
         extracted_data = result.get("extracted_data", {})
