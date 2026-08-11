@@ -10,7 +10,16 @@ from typing import Any
 import structlog
 
 from analysis.extraction.extractors import base as extractors_base
-from analysis.extraction.schemas import CategoryNarrative
+from analysis.extraction.schemas import CITATION_MIN_CHARS, CategoryNarrative, RawCategoryNarrative, CONFIDENCE_NO_EVIDENCE
+
+# FIX CRÍTICO (2026-08): Import del módulo de highlight pre-computado
+try:
+    from analysis.extraction.highlight import compute_highlights_for_sources
+    HIGHLIGHT_AVAILABLE = True
+except ImportError:
+    # PyMuPDF no instalado - highlight no disponible pero el sistema funciona
+    HIGHLIGHT_AVAILABLE = False
+    compute_highlights_for_sources = None  # type: ignore[assignment]
 
 logger = structlog.get_logger(__name__)
 
@@ -109,99 +118,189 @@ def _dedupe_narrative_sources(sources: list[dict[str, Any]]) -> list[dict[str, A
             new_id = len(deduped)
             seen[key] = new_id
             id_mapping[original_id] = new_id
-            deduped.append({
+            deduped_source: dict[str, Any] = {
                 "id": new_id,
                 "document_id": doc_id,
                 "page_number": page,
                 "citation": citation,
-            })
+            }
+            # La marca de cita no verificada se pierde si se reconstruye el dict
+            # desde cero: la fuente llegaba al usuario sin ninguna señal de que
+            # no se pudo respaldar contra los chunks.
+            if source.get("unverified"):
+                deduped_source["unverified"] = True
+            deduped.append(deduped_source)
     
     return deduped, id_mapping
 
 
-def _verify_and_repair_narrative_citations(
-    narrative: CategoryNarrative,
+def _item_source_stubs(item: dict[str, Any]) -> list[dict[str, Any]]:
+    """Los `source_references` propios de UN item, normalizados a la forma
+    minima que necesita el pool de sources. Nunca texto inventado: siempre una
+    copia de lo que el item ya trae verificado desde la extraccion -- esta es
+    la unica fuente de verdad para lo que puede llegar a `sources`."""
+    stubs: list[dict[str, Any]] = []
+    for ref in item.get("source_references") or []:
+        citation = str(ref.get("citation", "")).strip()
+        if len(citation) < CITATION_MIN_CHARS:
+            continue
+        stubs.append(
+            {
+                "document_id": str(ref.get("document_id", "")),
+                "page_number": int(ref.get("page_number", 0) or 0),
+                "citation": citation,
+            }
+        )
+    return stubs
+
+
+def _resolve_narrative_sources(
+    raw: RawCategoryNarrative,
     items: list[dict[str, Any]],
     *,
     correlation_id: str,
 ) -> CategoryNarrative:
-    """Verifica que cada citation en narrative.sources exista en los
-    source_references originales de items. Citations no verificables se marcan
-    pero no se eliminan automáticamente — el llamador decide si descartarlas.
-    
-    También deduplica sources y remapea source_ids en blocks."""
-    
-    # 1. Construir pool de citations verificables desde items originales
-    verified_citations: set[str] = set()
-    for item in items:
-        refs = item.get("source_references") or []
-        for ref in refs:
-            citation = str(ref.get("citation", "")).strip()
-            if citation and len(citation) >= 25:
-                verified_citations.add(_normalize_text_for_comparison(citation))
-    
-    # 2. Marcar sources en narrative según si son verificables
-    sources_with_validation = []
-    for source in narrative.sources:
-        source_dict = source.model_dump() if hasattr(source, "model_dump") else dict(source)
-        citation = str(source_dict.get("citation", "")).strip()
-        normalized = _normalize_text_for_comparison(citation)
-        
-        # Marcar si la citation no está verificada
-        is_verified = normalized in verified_citations
-        if not is_verified and len(citation) >= 25:
-            # Citation no verificable: agregar metadata interna para logging
+    """Traduce la salida cruda del LLM (bloques con `item_refs`) a un
+    `CategoryNarrative` (bloques con `source_ids` + `sources`), resolviendo
+    cada referencia contra los `source_references` PROPIOS del item apuntado.
+
+    Esto es lo que hace estructuralmente imposible que la fuente de un bloque
+    sea la evidencia de un item distinto: `sources` solo se puede poblar desde
+    `item_stubs[i]` para los indices `i` que el LLM efectivamente referencio,
+    nunca desde un pool global de la categoria. Un bloque/bullet/fila cuyos
+    `item_refs` no resuelven a ningun source valido se descarta entero — "no
+    hay fuente, no hay afirmacion" aplicado en codigo, no delegado al prompt."""
+    item_stubs = [_item_source_stubs(item) for item in items]
+    all_stubs: list[dict[str, Any]] = []
+
+    def resolve(item_refs: list[int], *, context: str) -> list[int] | None:
+        valid_indexes = [i for i in item_refs if 0 <= i < len(items)]
+        invalid_indexes = [i for i in item_refs if i not in valid_indexes]
+        if invalid_indexes:
             logger.warning(
-                "narrative_citation_not_grounded",
+                "narrative_item_ref_out_of_range",
                 correlation_id=correlation_id,
-                document_id=source_dict.get("document_id"),
-                page=source_dict.get("page_number"),
-                citation_preview=citation[:80],
+                context=context,
+                invalid_refs=invalid_indexes,
+                item_count=len(items),
             )
-            source_dict["_unverified"] = True
-        
-        sources_with_validation.append(source_dict)
-    
-    # 3. Deduplicar sources
-    deduped_sources, id_mapping = _dedupe_narrative_sources(sources_with_validation)
-    
-    # 4. Remapear source_ids en todos los blocks usando el mapping
-    def remap_source_ids(block_data: dict[str, Any]) -> dict[str, Any]:
-        if "source_ids" in block_data and isinstance(block_data["source_ids"], list):
-            block_data["source_ids"] = [
-                id_mapping.get(sid, sid) for sid in block_data["source_ids"]
-            ]
-        if "items" in block_data and isinstance(block_data["items"], list):
-            for item in block_data["items"]:
-                if isinstance(item, dict):
-                    remap_source_ids(item)
-        if "rows" in block_data and isinstance(block_data["rows"], list):
-            for row in block_data["rows"]:
-                if isinstance(row, dict):
-                    remap_source_ids(row)
+
+        temp_ids: list[int] = []
+        seen: set[tuple[str, int, str]] = set()
+        for index in valid_indexes:
+            for stub in item_stubs[index]:
+                key = (
+                    stub["document_id"],
+                    stub["page_number"],
+                    _normalize_text_for_comparison(stub["citation"]),
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                stub_with_id = {**stub, "id": len(all_stubs)}
+                all_stubs.append(stub_with_id)
+                temp_ids.append(stub_with_id["id"])
+
+        if not temp_ids:
+            logger.info(
+                "narrative_element_dropped_no_evidence",
+                correlation_id=correlation_id,
+                context=context,
+            )
+            return None
+        return temp_ids
+
+    retained_blocks: list[dict[str, Any]] = []
+    for block in raw.blocks:
+        if block.type == "paragraph":
+            source_ids = resolve(block.item_refs, context="paragraph")
+            if source_ids is None:
+                continue
+            retained_blocks.append(
+                {
+                    "type": "paragraph",
+                    "text": block.text,
+                    "confidence_level": block.confidence_level,
+                    "source_ids": source_ids,
+                }
+            )
+        elif block.type == "bullet_list":
+            kept_items: list[dict[str, Any]] = []
+            for bullet in block.items:
+                source_ids = resolve(bullet.item_refs, context="bullet_item")
+                if source_ids is None:
+                    continue
+                kept_items.append(
+                    {
+                        "text": bullet.text,
+                        "confidence_level": bullet.confidence_level,
+                        "source_ids": source_ids,
+                    }
+                )
+            if kept_items:
+                retained_blocks.append({"type": "bullet_list", "items": kept_items})
+        elif block.type == "table":
+            kept_rows: list[dict[str, Any]] = []
+            for row in block.rows:
+                source_ids = resolve(row.item_refs, context="table_row")
+                if source_ids is None:
+                    continue
+                kept_rows.append(
+                    {
+                        "cells": row.cells,
+                        "confidence_level": row.confidence_level,
+                        "source_ids": source_ids,
+                    }
+                )
+            if kept_rows:
+                retained_blocks.append({"type": "table", "headers": block.headers, "rows": kept_rows})
+
+    # Dedup final: misma clave que ya usa el resto del pipeline (documento +
+    # pagina + cita normalizada). Dos items distintos que citan literalmente
+    # el mismo fragmento colapsan a una sola source referenciada por ambos.
+    deduped_sources, id_mapping = _dedupe_narrative_sources(all_stubs)
+
+    def remap(block_data: dict[str, Any]) -> dict[str, Any]:
+        if isinstance(block_data.get("source_ids"), list):
+            block_data["source_ids"] = [id_mapping.get(sid, sid) for sid in block_data["source_ids"]]
+        for key in ("items", "rows"):
+            nested = block_data.get(key)
+            if isinstance(nested, list):
+                block_data[key] = [remap(entry) for entry in nested]
         return block_data
-    
-    blocks_data = [block.model_dump() if hasattr(block, "model_dump") else dict(block) for block in narrative.blocks]
-    blocks_data = [remap_source_ids(block) for block in blocks_data]
-    
-    # 5. Reconstruir narrative con sources deduplicados y blocks remapeados
-    narrative_dict = narrative.model_dump() if hasattr(narrative, "model_dump") else dict(narrative)
-    narrative_dict["sources"] = deduped_sources
-    narrative_dict["blocks"] = blocks_data
-    
-    # Log resumen de deduplicación
-    original_count = len(sources_with_validation)
-    final_count = len(deduped_sources)
-    if original_count > final_count:
+
+    blocks_data = [remap(block) for block in retained_blocks]
+
+    if len(all_stubs) > len(deduped_sources):
         logger.info(
             "narrative_sources_deduplicated",
             correlation_id=correlation_id,
-            original=original_count,
-            deduplicated=final_count,
-            removed=original_count - final_count,
+            original=len(all_stubs),
+            deduplicated=len(deduped_sources),
+            removed=len(all_stubs) - len(deduped_sources),
         )
-    
-    return CategoryNarrative.model_validate(narrative_dict)
+
+    return CategoryNarrative.model_validate({"blocks": blocks_data, "sources": deduped_sources})
+
+
+def _empty_category_narrative(category_label: str) -> CategoryNarrative:
+    """Mensaje canonico de "sin evidencia" para una categoria, armado en
+    codigo -- nunca por el LLM. Cierra el loophole por el que un bloque sin
+    fuentes reales podia llegar disfrazado de la excepcion "sin contenido
+    util" que antes autorizaba el prompt."""
+    return CategoryNarrative.model_validate(
+        {
+            "blocks": [
+                {
+                    "type": "paragraph",
+                    "text": f"No se encontró información sobre {category_label} en los documentos del pliego.",
+                    "confidence_level": CONFIDENCE_NO_EVIDENCE,  # Constante desde schemas
+                    "source_ids": [],
+                }
+            ],
+            "sources": [],
+        }
+    )
 
 
 @lru_cache(maxsize=1)
@@ -211,7 +310,12 @@ def _load_response_base_prompt() -> str:
 
 
 def _serialize_items(items: list[dict[str, Any]]) -> str:
-    return json.dumps(items, ensure_ascii=False, indent=2, default=str)
+    """Serializa los items para el prompt, exponiendo `item_index` (posicion
+    0-based) explicitamente: es el unico identificador que el LLM puede usar
+    en `item_refs`, y depender de que cuente bien la posicion en un array es
+    mas fragil que dárselo ya resuelto."""
+    indexed = [{"item_index": position, **item} for position, item in enumerate(items)]
+    return json.dumps(indexed, ensure_ascii=False, indent=2, default=str)
 
 
 def _has_usable_content(items: list[dict[str, Any]]) -> bool:
@@ -247,14 +351,13 @@ def run_synthesis(
         )
 
         raw, token_usage = extractors_base._call_llm(messages=[("human", prompt)], correlation_id=correlation_id)
-        narrative = CategoryNarrative.model_validate(raw)
-        
-        # Verificar citations contra items originales y deduplicar sources
-        narrative = _verify_and_repair_narrative_citations(
-            narrative,
-            items,
-            correlation_id=correlation_id,
-        )
+        raw_narrative = RawCategoryNarrative.model_validate(raw)
+
+        # Resuelve item_refs -> source_references propios de cada item. Nunca
+        # confia en texto o ids que el LLM haya podido inventar.
+        narrative = _resolve_narrative_sources(raw_narrative, items, correlation_id=correlation_id)
+        if not narrative.blocks:
+            narrative = _empty_category_narrative(category_label)
 
         logger.info(
             "synthesis_completed",
@@ -272,3 +375,65 @@ def run_synthesis(
             error=str(exc),
         )
         return None
+
+
+def enrich_narrative_with_highlights(
+    narrative: CategoryNarrative,
+    document_id_to_blob_path: dict[str, str],
+    correlation_id: str,
+) -> CategoryNarrative:
+    """Enriquece una CategoryNarrative con coordenadas de highlight pre-computadas.
+    
+    FIX CRÍTICO (2026-08): Resuelve el problema de highlight frágil identificado
+    en la auditoría RAG. En lugar de usar heurísticas de matching en el frontend,
+    pre-computamos las coordenadas exactas usando PyMuPDF.
+    
+    Args:
+        narrative: CategoryNarrative ya construida (output de run_synthesis)
+        document_id_to_blob_path: Mapeo document_id → ruta absoluta del PDF
+        correlation_id: ID para logging
+    
+    Returns:
+        CategoryNarrative con sources enriquecidas (highlight_regions poblado)
+    
+    Note:
+        Si PyMuPDF no está disponible o falla el cálculo, las sources conservan
+        highlight_regions=[] (lista vacía) y el sistema funciona normalmente sin
+        highlights. El frontend debe manejar este caso gracefully.
+    """
+    if not HIGHLIGHT_AVAILABLE:
+        logger.info(
+            "highlight_skipped_not_available",
+            correlation_id=correlation_id,
+            message="PyMuPDF no instalado - highlights no disponibles",
+        )
+        return narrative
+    
+    if not narrative.sources:
+        return narrative
+    
+    try:
+        # Convertir sources a dict para modificar
+        sources_data = [source.model_dump() for source in narrative.sources]
+        
+        # Enriquecer con highlights
+        enriched_sources_data = compute_highlights_for_sources(
+            sources=sources_data,
+            document_id_to_blob_path=document_id_to_blob_path,
+            correlation_id=correlation_id,
+        )
+        
+        # Reconstruir narrative con sources enriquecidas
+        narrative_data = narrative.model_dump()
+        narrative_data["sources"] = enriched_sources_data
+        
+        return CategoryNarrative.model_validate(narrative_data)
+        
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "highlight_enrichment_failed",
+            correlation_id=correlation_id,
+            error=str(exc),
+            message="Highlights no disponibles - narrative devuelta sin modificar",
+        )
+        return narrative

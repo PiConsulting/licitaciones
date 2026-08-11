@@ -23,36 +23,6 @@ def get_pdf_metadata(content: bytes) -> tuple[int, bool]:
         doc.close()
 
 
-def extract_text_with_markitdown(file_path: str | Path) -> str:
-    try:
-        from markitdown import MarkItDown
-    except Exception as exc:  # pragma: no cover - dependency guard
-        raise RuntimeError(
-            "MarkItDown no está disponible. Instalá markitdown[pdf] para procesar archivos PDF."
-        ) from exc
-
-    converter = MarkItDown()
-    result = converter.convert(str(file_path))
-    content = (getattr(result, "text_content", "") or "").strip()
-    if not content:
-        raise ValueError("No se detectó texto útil en el documento")
-    return content
-
-
 def calculate_content_hash_from_pdf(content: bytes) -> str:
-    """Hash normalized markdown/text extracted by MarkItDown, with binary fallback."""
-    from tempfile import NamedTemporaryFile
-
-    try:
-        with NamedTemporaryFile(suffix=".pdf") as tmp:
-            tmp.write(content)
-            tmp.flush()
-            extracted = extract_text_with_markitdown(tmp.name)
-    except Exception:
-        return sha256(content).hexdigest()
-
-    normalized = " ".join(extracted.lower().split()).strip()
-    if not normalized:
-        return sha256(content).hexdigest()
-
-    return sha256(normalized.encode("utf-8")).hexdigest()
+    """Calculate SHA-256 hash from PDF binary content."""
+    return sha256(content).hexdigest()

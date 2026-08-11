@@ -88,14 +88,50 @@ el producto.
 
 ---
 
-### Caso 4: Exenciones de Garantías
-**Input:** "Se exime a los oferentes de constituir garantía de mantenimiento de oferta cuando el monto no supere X"
+### Caso 4: El pliego habla de garantías pero no exige ninguna
 
-**Correcto:** Extraer como `extraction_status: "not_applicable"` con `tipo: "mantenimiento_oferta"` y `valor: "Exento - no se exige garantía cuando monto < X"`
+Esto cubre TRES situaciones distintas que se resuelven igual:
 
-**Incorrecto:** No extraer nada
+**4.a — Exención explícita**
+"Se exime a los oferentes de constituir garantía de mantenimiento de oferta cuando el monto no supere X"
 
-**Razón:** La exención es información valiosa que el oferente necesita saber.
+**4.b — Garantía condicional, sin obligación concreta**
+"En caso de corresponder, el importe de las garantías deberá ajustarse cada vez que
+se verifique un incremento igual o mayor al 20% en la cotización de la moneda"
+→ El pliego regula cómo se ajustarían garantías hipotéticas, pero no establece ninguna.
+
+**4.c — Solo hay garantías técnicas del producto**
+"Garantía del servidor: 3 años en sitio" y nada más en todo el pliego.
+
+**Correcto en los tres casos:** devolver UN ítem con
+`extraction_status: "not_applicable"`, el `tipo` que corresponda
+(`mantenimiento_oferta`, `cumplimiento_contrato` u `otra`), un `valor` que
+explique la situación en una línea, y **cita literal obligatoria** del texto que
+respalda esa lectura.
+
+Ejemplos de `valor`:
+- 4.a → "Exento: no se exige garantía cuando el monto no supera 100 módulos"
+- 4.b → "No se exige garantía; el pliego sólo regula su ajuste en caso de corresponder"
+- 4.c → "El pliego sólo prevé garantía técnica del equipamiento, ninguna financiera"
+
+**Devolvé UN SOLO ítem `not_applicable`, no uno por cada tipo de garantía.**
+
+⛔ **La cita de un ítem `not_applicable` tiene que ser texto que hable de
+GARANTÍAS.** Nunca uses como respaldo un plazo de mantenimiento de oferta: eso
+es un plazo (Caso 3), y citarlo acá reintroduce justamente la confusión que ese
+caso prohíbe. Si el único texto que encontrás sobre "mantenimiento de oferta" es
+un plazo, ese no es evidencia de garantía: no lo cites.
+
+**Incorrecto:** devolver la lista vacía.
+
+**Razón:** una lista vacía se persiste como `not_found`, que le dice al oferente
+"el pliego no habla de garantías". Eso es falso y es una información distinta de
+"el pliego habla de garantías y no exige ninguna". La segunda es un dato que el
+oferente necesita, y con cita puede verificarlo.
+
+**Cuándo SÍ devolver lista vacía:** cuando los fragmentos recuperados no
+mencionan garantías de ninguna clase. Sin evidencia no hay `not_applicable`,
+porque `not_applicable` exige cita.
 
 ---
 
@@ -123,9 +159,14 @@ Usá el schema `GarantiaItem` definido en `schemas_v3.py`.
 - `tipo`: Usa enum `TipoGarantia` (mantenimiento_oferta, cumplimiento_contrato, anticipo, etc.)
 - `monto_porcentaje` y `monto_valor`: **MUTUAMENTE EXCLUYENTES** (uno debe ser `None`)
 - `confidence`: [0.0-1.0] según el algoritmo de confianza
-- `source_references`: Siempre incluir cita literal del pliego (min 25 chars)
+- `source_references`: Siempre incluir cita literal del pliego
 
-**Cuando no hay garantías:** `{"garantias": []}`
+**Cuando el pliego no exige ninguna garantía pero SÍ habla del tema:** un ítem
+con `extraction_status: "not_applicable"` + cita (ver Caso 4).
+En ese ítem, `valor` es **OBLIGATORIO**: es el único texto que le explica al
+oferente por qué no hay garantía. Un `not_applicable` con `valor: null` no sirve.
+
+**Cuando los fragmentos no mencionan garantías de ninguna clase:** `{"garantias": []}`
 
 **Ejemplos:** Ver sección al final del prompt.
 
@@ -229,19 +270,43 @@ desde la fecha de apertura.
 
 ---
 
-# EJEMPLO DE EXCLUSIÓN (garantía técnica, NO extraer)
+# EJEMPLO: el pliego sólo tiene garantías técnicas
 
 **Fragmento:**
 ```
 "Los servidores deberán contar con garantía de fábrica de 3 años."
 ```
 
-❌ **NO generar ítem.** Es garantía técnica del producto, no financiera del oferente.
+❌ **NO generar un ítem de garantía financiera con esos 3 años.** Es garantía
+técnica del producto, no del oferente.
 
-Si no hay garantías financieras:
+✅ **Pero tampoco devolver lista vacía:** el pliego habla de garantías. Devolvé
+un ítem `not_applicable` que lo deje explícito (Caso 4.c):
+
 ```json
-{"garantias": []}
+{
+  "garantias": [
+    {
+      "tipo": "otra",
+      "valor": "El pliego sólo prevé garantía técnica del equipamiento, ninguna financiera",
+      "monto_porcentaje": null,
+      "monto_valor": null,
+      "confidence": 0.7,
+      "source_references": [
+        {
+          "document_id": "<id>",
+          "page_number": 8,
+          "citation": "Los servidores deberán contar con garantía de fábrica de 3 años."
+        }
+      ],
+      "extraction_status": "not_applicable"
+    }
+  ]
+}
 ```
+
+Lista vacía `{"garantias": []}` SOLO si los fragmentos no mencionan garantías de
+ninguna clase.
 
 ---
 
@@ -252,5 +317,6 @@ Si no hay garantías financieras:
 **Recordatorio final:**
 - Devolvé JSON válido según schema `GarantiaItem` en `schemas_v3.py`
 - `monto_porcentaje` y `monto_valor` mutuamente excluyentes
-- Lista vacía `[]` si no hay garantías financieras
-- Excluí garantías técnicas de productos
+- Si el pliego habla de garantías pero no exige ninguna → ítem `not_applicable` con cita
+- Lista vacía `[]` SOLO si los fragmentos no mencionan garantías de ninguna clase
+- Excluí garantías técnicas de productos como ítems financieros

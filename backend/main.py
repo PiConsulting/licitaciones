@@ -34,16 +34,6 @@ def _database_health() -> tuple[str, str]:
         return "error", "Error inesperado verificando base de datos"
 
 
-def _local_storage_health(local_path: str) -> tuple[str, str]:
-    try:
-        target = Path(local_path)
-        target.mkdir(parents=True, exist_ok=True)
-        return "ok", "Storage local disponible"
-    except OSError as exc:
-        logger.warning("Healthcheck: local storage unavailable", exc_info=exc)
-        return "error", "Storage local no disponible"
-
-
 def _azure_config_health() -> tuple[str, str, list[str]]:
     settings = get_settings()
     mode = settings.persistence_mode_normalized()
@@ -56,6 +46,19 @@ def _azure_config_health() -> tuple[str, str, list[str]]:
     return "ok", "Configuración de Azure presente", []
 
 
+def _pymupdf_health() -> tuple[str, str]:
+    """FIX MEDIUM (#9): Validar que PyMuPDF esté disponible para highlights."""
+    try:
+        import fitz  # PyMuPDF
+        version = fitz.VersionBind
+        return "ok", f"PyMuPDF disponible (versión {version})"
+    except ImportError:
+        return "error", "PyMuPDF no está instalado - highlights no funcionarán"
+    except Exception as exc:
+        logger.warning("Healthcheck: PyMuPDF check failed unexpectedly", exc_info=exc)
+        return "warning", f"PyMuPDF check falló: {str(exc)[:100]}"
+
+
 def _run_health_checks() -> tuple[int, dict[str, Any]]:
     settings = get_settings()
     timestamp = datetime.now(UTC).isoformat()
@@ -65,28 +68,29 @@ def _run_health_checks() -> tuple[int, dict[str, Any]]:
         db_status, db_message = "skipped", f"Chequeo de base SQL omitido en modo {mode}"
     else:
         db_status, db_message = _database_health()
+    
+    # FIX MEDIUM (#9): Validar PyMuPDF disponible
+    pymupdf_status, pymupdf_message = _pymupdf_health()
+    
     checks: dict[str, dict[str, Any]] = {
         "database": {
             "status": db_status,
             "message": db_message,
         },
+        "pymupdf": {
+            "status": pymupdf_status,
+            "message": pymupdf_message,
+        },
     }
 
-    if settings.is_development:
-        storage_status, storage_message = _local_storage_health(settings.local_blob_storage_path)
-        checks["adapters"] = {
-            "status": storage_status,
-            "mode": "development",
-            "message": storage_message,
-        }
-    else:
-        azure_status, azure_message, missing = _azure_config_health()
-        checks["adapters"] = {
-            "status": azure_status,
-            "mode": "production",
-            "message": azure_message,
-            "missing": missing,
-        }
+    # Verificar solo configuración de Azure (eliminados adaptadores locales)
+    azure_status, azure_message, missing = _azure_config_health()
+    checks["adapters"] = {
+        "status": azure_status,
+        "mode": "cloud",
+        "message": azure_message,
+        "missing": missing,
+    }
 
     has_errors = any(item["status"] == "error" for item in checks.values())
     status_code = 503 if has_errors else 200

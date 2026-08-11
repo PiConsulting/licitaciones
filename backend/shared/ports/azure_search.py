@@ -19,6 +19,8 @@ SEARCH_CHUNK_SELECT_FIELDS = [
     "section_path",
     "block_type",
     "table_ref",
+    "primary_category",
+    "secondary_categories",
     "content",
 ]
 
@@ -132,9 +134,26 @@ def _search_azure(
 
     raw_results = _run_query(analysis_filter, bm25_text, top=over_fetch)
 
-    if not raw_results:
-        logger.warning("azure_search_wildcard_fallback", analysis_id=analysis_id, query=query[:120])
+    # FIX MEDIUM (#13): Limitar fallback wildcard para evitar chunks irrelevantes.
+    # Solo hacer fallback si no hay filtro de categoría — si ya se filtró por
+    # categoría y no hay resultados, retornar vacío es más seguro que retornar
+    # chunks aleatorios que el LLM podría usar para "extraer" información incorrecta.
+    if not raw_results and not category_filter:
+        logger.warning(
+            "azure_search_wildcard_fallback",
+            analysis_id=analysis_id,
+            query=query[:120],
+            reason="no results without category filter - trying wildcard",
+        )
         raw_results = _run_query(analysis_filter, "*", top=over_fetch)
+    elif not raw_results and category_filter:
+        logger.info(
+            "azure_search_no_results_with_category",
+            analysis_id=analysis_id,
+            category=category_filter,
+            query=query[:120],
+            reason="no results with category filter - returning empty (safer than wildcard)",
+        )
 
     # Se ordena por el score de relevancia hibrida que Azure ya calculo
     # (BM25 + vectorial fusionados por RRF) -- nunca se descarta ese score para
@@ -154,6 +173,12 @@ def _search_azure(
             "section_path": item.get("section_path") or "general",
             "block_type": item.get("block_type") or "paragraph",
             "table_ref": _deserialize_table_ref(item.get("table_ref")),
+            # Sin estos dos campos, `retrieval_metrics.purity_rate` en
+            # run_extractor daba 0.0 siempre y la distribución de categorías
+            # reportaba "unknown" para todo, dejando ciega la telemetría que
+            # justamente serviría para detectar este problema.
+            "primary_category": item.get("primary_category"),
+            "secondary_categories": list(item.get("secondary_categories") or []),
             "content": item.get("content", ""),
         }
         scored.append((hybrid_score, _token_overlap_score(query, chunk["content"]), chunk))

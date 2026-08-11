@@ -59,3 +59,25 @@ def build_prompt_glossary_block(category_key: str) -> str:
         return ""
     lines = [f"- {term}" for term in terms]
     return "\n".join(lines)
+
+
+def get_category_top_k(category_key: str, default: int = 25) -> int:
+    """FIX MEDIUM (#14): Obtiene el top_k configurado para una categoría en glossary.json.
+    
+    Si la categoría tiene un campo "top_k" definido, lo usa. Sino, retorna el default.
+    Esto permite que categorías con información dispersa (ej. causales_rechazo) puedan
+    recuperar más chunks que el default global.
+    
+    Args:
+        category_key: Clave de la categoría (ej. "objeto_alcance")
+        default: Valor default si no está configurado en el glossary
+    
+    Returns:
+        top_k configurado o default
+    """
+    glossary = _load_glossary()
+    entry = glossary.get(category_key, {})
+    if not isinstance(entry, dict):
+        return default
+    top_k = entry.get("top_k", default)
+    return int(top_k) if isinstance(top_k, (int, float, str)) and str(top_k).isdigit() else default

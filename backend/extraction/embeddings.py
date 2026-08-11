@@ -4,6 +4,7 @@ from time import sleep
 from uuid import UUID
 
 import structlog
+from openai import APIError, APITimeoutError, RateLimitError
 
 from extraction.errors import TransientExtractionError
 from extraction.ports.embeddings_port import EmbeddingsPort
@@ -33,10 +34,6 @@ class AzureEmbeddingsAdapter(EmbeddingsPort):
 
 def _build_adapter() -> EmbeddingsPort:
     settings = get_settings()
-    if settings.is_development:
-        from extraction.local.sentence_transformers_embeddings import LocalEmbeddingsAdapter
-
-        return LocalEmbeddingsAdapter(model_name=settings.sentence_transformers_model)
 
     missing: list[str] = []
     if not settings.azure_openai_endpoint.strip():
@@ -63,6 +60,34 @@ def embed_query(text: str) -> list[float]:
     return _build_adapter().generate_embeddings([text])[0]
 
 
+def _calculate_dynamic_batch_size(chunks: list[dict], max_tokens_per_batch: int = 20000) -> int:
+    """Calcula batch_size dinámico basado en token_count real de chunks.
+    
+    Evita exceder límites de API cuando hay chunks muy largos (tablas extensas,
+    párrafos densos). Usa promedio de los primeros 100 chunks como estimador.
+    
+    Args:
+        chunks: Lista de chunks con campo 'token_count'
+        max_tokens_per_batch: Máximo tokens por request a Azure OpenAI
+    
+    Returns:
+        Batch size óptimo (mínimo 1, máximo configurado)
+    """
+    if not chunks:
+        return 16  # Default si no hay chunks
+    
+    # Estimar promedio de tokens usando primeros 100 chunks (o todos si hay menos)
+    sample = chunks[:min(len(chunks), 100)]
+    avg_tokens = sum(c.get("token_count", 700) for c in sample) / len(sample)
+    
+    # Calcular batch_size que no exceda max_tokens_per_batch
+    dynamic_size = max(1, int(max_tokens_per_batch / avg_tokens))
+    
+    # No exceder el configured max
+    settings = get_settings()
+    return min(dynamic_size, settings.azure_openai_embeddings_batch_size)
+
+
 def generate_embeddings(chunks: list[dict], correlation_id: str | UUID) -> list[dict]:
     settings = get_settings()
     adapter = _build_adapter()
@@ -75,8 +100,16 @@ def generate_embeddings(chunks: list[dict], correlation_id: str | UUID) -> list[
     )
 
     retries = settings.azure_openai_retry_attempts
-    backoff_seconds = [1, 5, 15]
-    batch_size = settings.azure_openai_embeddings_batch_size
+    
+    # Calcular batch_size dinámico basado en token_count de chunks
+    batch_size = _calculate_dynamic_batch_size(chunks)
+    logger.info(
+        "embedding_batch_size_calculated",
+        correlation_id=str(correlation_id),
+        batch_size=batch_size,
+        configured_max=settings.azure_openai_embeddings_batch_size,
+    )
+    
     chunks_with_embeddings: list[dict] = []
 
     for batch_start in range(0, len(chunks), batch_size):
@@ -86,14 +119,26 @@ def generate_embeddings(chunks: list[dict], correlation_id: str | UUID) -> list[
         for attempt in range(1, retries + 1):
             try:
                 embeddings = adapter.generate_embeddings(texts)
+                
+                # Validar dimensiones de embeddings generados
+                expected_dims = settings.azure_search_embedding_dimensions
+                for i, embedding in enumerate(embeddings):
+                    if len(embedding) != expected_dims:
+                        raise RuntimeError(
+                            f"Embedding dimension mismatch for chunk {batch_start + i}: "
+                            f"got {len(embedding)}, expected {expected_dims}"
+                        )
+                
+                # Añadir embeddings a chunks
                 for chunk, embedding in zip(batch, embeddings, strict=True):
                     chunk_copy = chunk.copy()
                     chunk_copy["embedding"] = embedding
                     chunks_with_embeddings.append(chunk_copy)
                 break
-            except Exception as exc:
+            # FIX LOW (#10): Separar Azure errors específicos para mejor handling
+            except RateLimitError as exc:
                 logger.warning(
-                    "embedding_batch_failed",
+                    "embedding_rate_limit",
                     correlation_id=str(correlation_id),
                     batch_start=batch_start,
                     attempt=attempt,
@@ -101,12 +146,55 @@ def generate_embeddings(chunks: list[dict], correlation_id: str | UUID) -> list[
                     error=sanitize_error_message(str(exc)),
                 )
                 if attempt >= retries:
-                    raise TransientExtractionError(str(exc)) from exc
+                    raise TransientExtractionError(f"Rate limit exceeded after {retries} attempts") from exc
+                # Para rate limits, esperar más tiempo antes de reintentar
+                sleep(backoff_seconds[min(attempt - 1, len(backoff_seconds) - 1)] * 2)
+            except APITimeoutError as exc:
+                logger.warning(
+                    "embedding_timeout",
+                    correlation_id=str(correlation_id),
+                    batch_start=batch_start,
+                    attempt=attempt,
+                    retries=retries,
+                    error=sanitize_error_message(str(exc)),
+                )
+                if attempt >= retries:
+                    raise TransientExtractionError(f"Timeout after {retries} attempts") from exc
+                sleep(backoff_seconds[min(attempt - 1, len(backoff_seconds) - 1)])
+            except APIError as exc:
+                logger.warning(
+                    "embedding_api_error",
+                    correlation_id=str(correlation_id),
+                    batch_start=batch_start,
+                    attempt=attempt,
+                    retries=retries,
+                    error=sanitize_error_message(str(exc)),
+                    error_type=type(exc).__name__,
+                )
+                if attempt >= retries:
+                    raise TransientExtractionError(f"API error after {retries} attempts: {exc}") from exc
+                sleep(backoff_seconds[min(attempt - 1, len(backoff_seconds) - 1)])
+            except Exception as exc:
+                # Errores inesperados (bugs de código, etc.) - loggear más detalles
+                logger.error(
+                    "embedding_unexpected_error",
+                    correlation_id=str(correlation_id),
+                    batch_start=batch_start,
+                    attempt=attempt,
+                    retries=retries,
+                    error=sanitize_error_message(str(exc)),
+                    error_type=type(exc).__name__,
+                    exc_info=True,
+                )
+                if attempt >= retries:
+                    raise TransientExtractionError(f"Unexpected error after {retries} attempts: {exc}") from exc
                 sleep(backoff_seconds[min(attempt - 1, len(backoff_seconds) - 1)])
 
     logger.info(
         "embedding_generation_completed",
         correlation_id=str(correlation_id),
         total_embeddings=len(chunks_with_embeddings),
+        batches_processed=len(range(0, len(chunks), batch_size)),
+        avg_batch_size=len(chunks_with_embeddings) / max(len(range(0, len(chunks), batch_size)), 1),
     )
     return chunks_with_embeddings

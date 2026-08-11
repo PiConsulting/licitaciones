@@ -73,6 +73,9 @@ class AzureSearchAdapter(SearchClientPort):
             if not batch:
                 return
             client.delete_documents(documents=batch)
+            # Rate limiting: 100ms entre batches previene exceder límites de Azure Search
+            # con análisis muy grandes (50k+ chunks = 100+ batches)
+            sleep(0.1)
 
 
 def _assert_index_contract(index, expected_dimensions: int) -> None:
@@ -107,19 +110,12 @@ def _validate_index_contract_cached(index_key: str) -> bool:
 
 def validate_index_contract() -> None:
     settings = get_settings()
-    if settings.is_development:
-        return
-
     index_key = f"{settings.azure_search_endpoint}:{settings.azure_search_index_name}:{settings.azure_search_embedding_dimensions}"
     _validate_index_contract_cached(index_key)
 
 
 def _build_adapter() -> SearchClientPort:
     settings = get_settings()
-    if settings.is_development:
-        from extraction.local.chroma_upload import LocalChromaSearchAdapter
-
-        return LocalChromaSearchAdapter(settings.chroma_persist_directory)
     return AzureSearchAdapter(
         endpoint=settings.azure_search_endpoint,
         key=settings.azure_search_key,
@@ -138,12 +134,19 @@ def upload_chunks(chunks_with_embeddings: list[dict], analysis_id: str | UUID, c
         correlation_id=str(correlation_id),
         analysis_id=str(analysis_id),
         total_chunks=len(chunks_with_embeddings),
-        mode="development" if settings.is_development else "production",
     )
 
     documents: list[dict] = []
     for chunk in chunks_with_embeddings:
-        chunk_id = f"{analysis_id}_{chunk['document_id']}_{chunk['chunk_index']}"
+        # Validar que chunk tiene embedding antes de construir documento
+        if "embedding" not in chunk:
+            raise ValueError(
+                f"Chunk missing 'embedding' field: document_id={chunk.get('document_id')}, "
+                f"chunk_index={chunk.get('chunk_index')}"
+            )
+        
+        # Usar '::' como separador (menos ambiguo que '_' si document_id contiene underscores)
+        chunk_id = f"{analysis_id}::{chunk['document_id']}::{chunk['chunk_index']}"
         table_ref = chunk.get("table_ref")
         documents.append(
             {
@@ -160,6 +163,14 @@ def upload_chunks(chunks_with_embeddings: list[dict], analysis_id: str | UUID, c
                 # (Edm.String) como la metadata de Chroma requieren texto plano,
                 # nunca un dict crudo.
                 "table_ref": json.dumps(table_ref, ensure_ascii=True) if table_ref is not None else None,
+                # `create_chunks` ya clasifica cada chunk, pero estos dos campos
+                # no se subían al índice: quedaban en null para el 100% de los
+                # chunks, el filtro por categoría del retrieval no matcheaba
+                # nunca y toda extracción caía al fallback sin filtro.
+                # `_to_index_document` descarta lo que el índice no declare, así
+                # que incluirlos es seguro aunque el índice no esté migrado.
+                "primary_category": chunk.get("primary_category"),
+                "secondary_categories": list(chunk.get("secondary_categories") or []),
                 "content": chunk["content"],
                 "embedding": chunk["embedding"],
             }

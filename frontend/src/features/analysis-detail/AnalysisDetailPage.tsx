@@ -5,7 +5,7 @@ import { AnalysisSummaryStrip } from "./AnalysisSummaryStrip";
 import { CategoryList } from "./CategoryList";
 import { PDFViewer } from "../pdf-viewer/PDFViewer";
 import { useAnalysisDetail } from "./hooks/useAnalysisDetail";
-import type { Citation } from "./types";
+import type { Citation, NarrativeSource } from "./types";
 
 interface AnalysisDetailPageProps {
   analysisId: string;
@@ -15,6 +15,7 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
   const query = useAnalysisDetail(analysisId);
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
   const [selectedCitations, setSelectedCitations] = useState<Citation[]>([]);
+  const [selectedSources, setSelectedSources] = useState<NarrativeSource[]>([]);
   const documentsById = useMemo(() => {
     return new Map((query.data?.documents ?? []).map((document) => [document.id, document]));
   }, [query.data?.documents]);
@@ -49,9 +50,10 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
           <AnalysisSummaryStrip analysis={query.data} />
           <CategoryList
             analysis={query.data}
-            onViewSource={({ citation, citations }) => {
+            onViewSource={({ citation, citations, sources }) => {
               setSelectedCitation(citation);
               setSelectedCitations(citations);
+              setSelectedSources(sources);
             }}
           />
         </div>
@@ -68,6 +70,7 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
               citations={activeCitations}
               documents={query.data.documents}
               focusCitation={selectedCitation}
+              sources={selectedSources}
             />
           ) : (
             <p className="p-4">No hay documentos disponibles para este análisis.</p>

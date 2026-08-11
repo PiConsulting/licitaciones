@@ -1,6 +1,6 @@
 import { CATEGORY_ORDER } from "../../utils/categoryIcons";
 import { CategorySection } from "./CategorySection";
-import type { AnalysisDetail, CategoryData, CategoryId, Citation } from "./types";
+import type { AnalysisDetail, CategoryData, CategoryId, Citation, NarrativeSource } from "./types";
 
 const EMPTY_CATEGORY: CategoryData = {
   items: [],
@@ -13,7 +13,7 @@ const EMPTY_CATEGORY: CategoryData = {
 
 interface CategoryListProps {
   analysis: AnalysisDetail;
-  onViewSource?: (payload: { citation: Citation; citations: Citation[] }) => void;
+  onViewSource?: (payload: { citation: Citation; citations: Citation[]; sources: NarrativeSource[] }) => void;
 }
 
 export function CategoryList({ analysis, onViewSource }: CategoryListProps) {

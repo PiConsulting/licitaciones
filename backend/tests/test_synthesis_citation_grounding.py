@@ -1,13 +1,12 @@
-"""Tests para verificación y deduplicación de citations en síntesis."""
+"""Tests para deduplicacion de citations y resolucion deterministica de
+fuentes en sintesis."""
 from __future__ import annotations
 
-import pytest
-
-from analysis.extraction.schemas import CategoryNarrative
+from analysis.extraction.schemas import RawCategoryNarrative
 from analysis.extraction.synthesis import (
     _dedupe_narrative_sources,
     _normalize_text_for_comparison,
-    _verify_and_repair_narrative_citations,
+    _resolve_narrative_sources,
 )
 
 
@@ -24,13 +23,13 @@ def test_dedupe_narrative_sources_duplicados_exactos() -> None:
         {"id": 1, "document_id": "doc-1", "page_number": 1, "citation": "Primera cita literal"},
         {"id": 2, "document_id": "doc-1", "page_number": 2, "citation": "Segunda cita"},
     ]
-    
+
     deduped, id_mapping = _dedupe_narrative_sources(sources)
-    
+
     assert len(deduped) == 2
     assert deduped[0]["citation"] == "Primera cita literal"
     assert deduped[1]["citation"] == "Segunda cita"
-    
+
     # Mapping debe redirigir el ID 1 al 0
     assert id_mapping[0] == 0
     assert id_mapping[1] == 0
@@ -43,9 +42,9 @@ def test_dedupe_narrative_sources_con_variaciones_de_espacios() -> None:
         {"id": 1, "document_id": "doc-1", "page_number": 1, "citation": "cita con espacios"},
         {"id": 2, "document_id": "doc-1", "page_number": 1, "citation": "cita  con   espacios"},
     ]
-    
+
     deduped, id_mapping = _dedupe_narrative_sources(sources)
-    
+
     assert len(deduped) == 1
     assert id_mapping[0] == 0
     assert id_mapping[1] == 0
@@ -57,9 +56,9 @@ def test_dedupe_narrative_sources_diferentes_documentos() -> None:
         {"id": 0, "document_id": "doc-1", "page_number": 1, "citation": "misma cita"},
         {"id": 1, "document_id": "doc-2", "page_number": 1, "citation": "misma cita"},
     ]
-    
+
     deduped, id_mapping = _dedupe_narrative_sources(sources)
-    
+
     # Mismo texto pero diferentes documentos = fuentes distintas
     assert len(deduped) == 2
     assert id_mapping[0] == 0
@@ -71,198 +70,188 @@ def test_dedupe_narrative_sources_diferentes_paginas() -> None:
         {"id": 0, "document_id": "doc-1", "page_number": 1, "citation": "misma cita"},
         {"id": 1, "document_id": "doc-1", "page_number": 2, "citation": "misma cita"},
     ]
-    
+
     deduped, id_mapping = _dedupe_narrative_sources(sources)
-    
+
     # Mismo texto pero diferentes páginas = fuentes distintas
     assert len(deduped) == 2
     assert id_mapping[0] == 0
     assert id_mapping[1] == 1
 
 
-def test_verify_and_repair_narrative_citations_marca_no_verificadas(caplog: pytest.LogCaptureFixture) -> None:
-    items = [
+# ---------------------------------------------------------------------------
+# _resolve_narrative_sources: traduccion deterministica item_refs -> sources
+# ---------------------------------------------------------------------------
+
+
+def _items(*citations: str) -> list[dict]:
+    return [
         {
-            "extraction_status": "success",
             "source_references": [
+                {"document_id": "doc-1", "page_number": i + 1, "citation": citation}
+            ]
+        }
+        for i, citation in enumerate(citations)
+    ]
+
+
+def test_resolve_item_refs_validos_producen_source_ids_y_sources_correctos() -> None:
+    items = _items(
+        "Anexo I - Formulario de oferta económica presentado con la oferta.",
+        "Constancia de inscripción en el Registro de Proveedores del Municipio.",
+    )
+    raw = RawCategoryNarrative.model_validate(
+        {
+            "blocks": [
                 {
-                    "document_id": "doc-1",
-                    "page_number": 1,
-                    "citation": "Esta es la cita original verificable del pliego",
+                    "type": "bullet_list",
+                    "items": [
+                        {"text": "Presentar Anexo I.", "confidence_level": "alta", "item_refs": [0]},
+                        {"text": "Presentar constancia RUP.", "confidence_level": "alta", "item_refs": [1]},
+                    ],
                 }
-            ],
+            ]
         }
-    ]
-    
-    narrative_data = {
-        "blocks": [
-            {
-                "type": "paragraph",
-                "text": "Texto del análisis",
-                "confidence_level": "alta",
-                "source_ids": [0, 1],
-            }
-        ],
-        "sources": [
-            {
-                "id": 0,
-                "document_id": "doc-1",
-                "page_number": 1,
-                "citation": "Esta es la cita original verificable del pliego",
-            },
-            {
-                "id": 1,
-                "document_id": "doc-1",
-                "page_number": 1,
-                "citation": "Esta cita fue inventada por el LLM y no existe",
-            },
-        ],
-    }
-    
-    narrative = CategoryNarrative.model_validate(narrative_data)
-    result = _verify_and_repair_narrative_citations(
-        narrative,
-        items,
-        correlation_id="test-corr-id",
     )
-    
-    # La fuente no verificada debe tener marca interna
-    sources_dict = [s.model_dump() if hasattr(s, "model_dump") else dict(s) for s in result.sources]
-    verified_source = next((s for s in sources_dict if "verificable" in s.get("citation", "")), None)
-    unverified_source = next((s for s in sources_dict if "inventada" in s.get("citation", "")), None)
-    
-    assert verified_source is not None
-    assert "_unverified" not in verified_source
-    
-    assert unverified_source is not None
-    assert unverified_source.get("_unverified") is True
-    
-    # Debe loggear warning
-    assert "narrative_citation_not_grounded" in caplog.text
+
+    narrative = _resolve_narrative_sources(raw, items, correlation_id="corr")
+
+    assert len(narrative.sources) == 2
+    bullets = narrative.blocks[0].items
+    assert bullets[0].source_ids == [0]
+    assert bullets[1].source_ids == [1]
+    assert narrative.sources[0].citation == items[0]["source_references"][0]["citation"]
+    assert narrative.sources[1].citation == items[1]["source_references"][0]["citation"]
 
 
-def test_verify_and_repair_deduplica_y_remapea_ids() -> None:
-    items = [
+def test_resolve_indice_fuera_de_rango_no_tumba_los_indices_validos_del_mismo_bloque() -> None:
+    items = _items("Cita valida y suficientemente larga para pasar el minimo.")
+    raw = RawCategoryNarrative.model_validate(
         {
-            "extraction_status": "success",
-            "source_references": [
+            "blocks": [
                 {
-                    "document_id": "doc-1",
-                    "page_number": 1,
-                    "citation": "Cita duplicada en items de entrada",
+                    "type": "paragraph",
+                    "text": "Texto.",
+                    "confidence_level": "alta",
+                    "item_refs": [0, 99],
                 }
-            ],
+            ]
         }
-    ]
-    
-    narrative_data = {
-        "blocks": [
-            {
-                "type": "bullet_list",
-                "items": [
-                    {"text": "Item 1", "confidence_level": "alta", "source_ids": [0]},
-                    {"text": "Item 2", "confidence_level": "alta", "source_ids": [1]},
-                    {"text": "Item 3", "confidence_level": "alta", "source_ids": [2]},
-                ],
-            }
-        ],
-        "sources": [
-            {
-                "id": 0,
-                "document_id": "doc-1",
-                "page_number": 1,
-                "citation": "Cita duplicada en items de entrada",
-            },
-            {
-                "id": 1,
-                "document_id": "doc-1",
-                "page_number": 1,
-                "citation": "Cita duplicada en items de entrada",
-            },
-            {
-                "id": 2,
-                "document_id": "doc-1",
-                "page_number": 1,
-                "citation": "Cita duplicada en items de entrada",
-            },
-        ],
-    }
-    
-    narrative = CategoryNarrative.model_validate(narrative_data)
-    result = _verify_and_repair_narrative_citations(
-        narrative,
-        items,
-        correlation_id="test-corr-id",
     )
-    
-    # Debe haber solo 1 source después de deduplicar
-    assert len(result.sources) == 1
-    
-    # Todos los source_ids deben apuntar al mismo ID canónico (0)
-    block_data = result.blocks[0].model_dump() if hasattr(result.blocks[0], "model_dump") else dict(result.blocks[0])
-    assert all(item["source_ids"] == [0] for item in block_data["items"])
+
+    narrative = _resolve_narrative_sources(raw, items, correlation_id="corr")
+
+    assert len(narrative.blocks) == 1
+    assert narrative.blocks[0].source_ids == [0]
+    assert len(narrative.sources) == 1
 
 
-def test_verify_and_repair_preserva_structure_compleja() -> None:
-    """Verifica que la función preserve correctamente estructuras complejas
-    con bullet_list y table, remapeando source_ids en todos los niveles."""
-    items = [
+def test_resolve_item_refs_vacio_descarta_el_bullet_y_el_bloque_si_era_el_unico() -> None:
+    items = _items("Cita valida y suficientemente larga para pasar el minimo.")
+    raw = RawCategoryNarrative.model_validate(
         {
-            "extraction_status": "success",
-            "source_references": [
-                {"document_id": "doc-1", "page_number": 1, "citation": "A" * 30},
-            ],
+            "blocks": [
+                {
+                    "type": "bullet_list",
+                    "items": [
+                        {"text": "Sin evidencia.", "confidence_level": "alta", "item_refs": []},
+                    ],
+                }
+            ]
         }
-    ]
-    
-    narrative_data = {
-        "blocks": [
-            {
-                "type": "paragraph",
-                "text": "Párrafo",
-                "confidence_level": "alta",
-                "source_ids": [0],
-            },
-            {
-                "type": "bullet_list",
-                "items": [
-                    {"text": "Item A", "confidence_level": "alta", "source_ids": [0]},
-                    {"text": "Item B", "confidence_level": "alta", "source_ids": [1]},
-                ],
-            },
-            {
-                "type": "table",
-                "headers": ["Col1", "Col2"],
-                "rows": [
-                    {"cells": ["a", "b"], "confidence_level": "alta", "source_ids": [0, 1]},
-                ],
-            },
-        ],
-        "sources": [
-            {"id": 0, "document_id": "doc-1", "page_number": 1, "citation": "A" * 30},
-            {"id": 1, "document_id": "doc-1", "page_number": 1, "citation": "A" * 30},
-        ],
-    }
-    
-    narrative = CategoryNarrative.model_validate(narrative_data)
-    result = _verify_and_repair_narrative_citations(
-        narrative,
-        items,
-        correlation_id="test-corr-id",
     )
-    
-    # Debe deduplicar a 1 source
-    assert len(result.sources) == 1
-    
-    # Verificar remapeo en cada tipo de bloque
-    blocks_data = [b.model_dump() if hasattr(b, "model_dump") else dict(b) for b in result.blocks]
-    
-    # Párrafo
-    assert blocks_data[0]["source_ids"] == [0]
-    
-    # Bullet list items
-    assert blocks_data[1]["items"][0]["source_ids"] == [0]
-    assert blocks_data[1]["items"][1]["source_ids"] == [0]
-    
-    # Table rows
-    assert blocks_data[2]["rows"][0]["source_ids"] == [0, 0]
+
+    narrative = _resolve_narrative_sources(raw, items, correlation_id="corr")
+
+    assert narrative.blocks == []
+    assert narrative.sources == []
+
+
+def test_resolve_no_puede_mezclar_evidencia_de_otro_item() -> None:
+    """El bug reportado: un bloque sobre el item 1 nunca puede terminar con la
+    cita del item 0, aunque ambos esten en la misma categoria/lista."""
+    items = _items(
+        "Anexo I - Formulario de oferta económica presentado con la oferta.",
+        "Anexo II - Declaración jurada de aptitud para contratar según pliego.",
+    )
+    raw = RawCategoryNarrative.model_validate(
+        {
+            "blocks": [
+                {
+                    "type": "bullet_list",
+                    "items": [
+                        {"text": "Presentar Anexo I.", "confidence_level": "alta", "item_refs": [0]},
+                        {"text": "Presentar Anexo II.", "confidence_level": "alta", "item_refs": [1]},
+                    ],
+                }
+            ]
+        }
+    )
+
+    narrative = _resolve_narrative_sources(raw, items, correlation_id="corr")
+
+    bullets = narrative.blocks[0].items
+    anexo_i_source = next(s for s in narrative.sources if s.id == bullets[0].source_ids[0])
+    anexo_ii_source = next(s for s in narrative.sources if s.id == bullets[1].source_ids[0])
+
+    assert "Anexo I" in anexo_i_source.citation
+    assert "Anexo II" in anexo_ii_source.citation
+    assert anexo_i_source.citation != anexo_ii_source.citation
+
+
+def test_resolve_misma_cita_en_dos_items_dedupea_y_queda_referenciada_por_ambos() -> None:
+    items = _items(
+        "Cita compartida idéntica en ambos ítems del pliego.",
+        "Cita compartida idéntica en ambos ítems del pliego.",
+    )
+    # Forzar mismo document_id/page_number para que el dedup los reconozca como
+    # la misma fuente (por defecto _items les da paginas distintas).
+    items[1]["source_references"][0]["page_number"] = 1
+
+    raw = RawCategoryNarrative.model_validate(
+        {
+            "blocks": [
+                {
+                    "type": "bullet_list",
+                    "items": [
+                        {"text": "Elemento A.", "confidence_level": "alta", "item_refs": [0]},
+                        {"text": "Elemento B.", "confidence_level": "alta", "item_refs": [1]},
+                    ],
+                }
+            ]
+        }
+    )
+
+    narrative = _resolve_narrative_sources(raw, items, correlation_id="corr")
+
+    assert len(narrative.sources) == 1
+    bullets = narrative.blocks[0].items
+    assert bullets[0].source_ids == bullets[1].source_ids == [narrative.sources[0].id]
+
+
+def test_resolve_ningun_source_queda_huerfano() -> None:
+    items = _items(
+        "Primera cita valida y suficientemente larga para el minimo.",
+        "Segunda cita valida y suficientemente larga para el minimo.",
+        "Tercera cita valida y suficientemente larga para el minimo.",
+    )
+    raw = RawCategoryNarrative.model_validate(
+        {
+            "blocks": [
+                {
+                    "type": "bullet_list",
+                    "items": [
+                        {"text": "Con evidencia valida.", "confidence_level": "alta", "item_refs": [0]},
+                        {"text": "Sin evidencia.", "confidence_level": "alta", "item_refs": []},
+                        {"text": "Con indice invalido.", "confidence_level": "alta", "item_refs": [42]},
+                    ],
+                }
+            ]
+        }
+    )
+
+    narrative = _resolve_narrative_sources(raw, items, correlation_id="corr")
+
+    referenced_ids = {sid for bullet in narrative.blocks[0].items for sid in bullet.source_ids}
+    source_ids = {s.id for s in narrative.sources}
+    assert referenced_ids == source_ids

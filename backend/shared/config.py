@@ -31,7 +31,6 @@ class Settings(BaseSettings):
     )
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
     jwt_expiration_hours: int = Field(default=24, alias="JWT_EXPIRATION_HOURS")
-    use_local_adapters: bool = Field(default=True, alias="USE_LOCAL_ADAPTERS")
     local_blob_storage_path: str = Field(
         default=_DEFAULT_LOCAL_BLOB_STORAGE_PATH,
         alias="LOCAL_BLOB_STORAGE_PATH",
@@ -58,20 +57,17 @@ class Settings(BaseSettings):
     azure_openai_api_version: str = Field(default="", alias="AZURE_OPENAI_API_VERSION")
     azure_openai_embeddings_batch_size: int = Field(default=16, alias="AZURE_OPENAI_EMBEDDINGS_BATCH_SIZE")
     azure_openai_retry_attempts: int = Field(default=3, alias="AZURE_OPENAI_RETRY_ATTEMPTS")
-
-    cohere_api_key: str = Field(default="", alias="COHERE_API_KEY")
-    cohere_model: str = Field(default="command-r-plus", alias="COHERE_MODEL")
-
-    sentence_transformers_model: str = Field(default="BAAI/bge-m3", alias="SENTENCE_TRANSFORMERS_MODEL")
-    chroma_persist_directory: str = Field(
-        default=str(_PROJECT_ROOT / "local_blob_storage" / "chroma"),
-        alias="CHROMA_PERSIST_DIRECTORY",
+    
+    # Highlight configuration
+    highlight_citation_min_length: int = Field(
+        default=3,
+        alias="HIGHLIGHT_CITATION_MIN_LENGTH",
+        description="Longitud mínima de citation para calcular highlights (caracteres)",
     )
 
-    markitdown_enabled: bool = Field(default=True, alias="MARKITDOWN_ENABLED")
-    extraction_max_concurrency: int = Field(default=4, alias="EXTRACTION_MAX_CONCURRENCY")
-    extraction_top_k: int = Field(default=25, alias="EXTRACTION_TOP_K")
-    extraction_max_context_tokens: int = Field(default=12000, alias="EXTRACTION_MAX_CONTEXT_TOKENS")
+    # FIX: Dead code eliminado (#1, #2, #3) - campos legacy de adaptadores locales:
+    # - cohere_api_key, cohere_model (solo para CohereAdapter local)
+    # - sentence_transformers_model, chroma_persist_directory (solo para Chroma local)
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     azure_sdk_log_level: str = Field(default="WARNING", alias="AZURE_SDK_LOG_LEVEL")
     persistence_mode: str = Field(default="sql", alias="PERSISTENCE_MODE")
@@ -86,17 +82,9 @@ class Settings(BaseSettings):
         if self.app_env.strip().lower() in {"development", "dev"}:
             return True
         if self.app_env.strip().lower() == "production":
-            return False
-        return self.use_local_adapters
-
-    @property
-    def is_production(self) -> bool:
-        return not self.is_development
-
-    def persistence_mode_normalized(self) -> str:
-        return (self.persistence_mode or "sql").strip().lower()
-
-    def is_cosmos_temporal_mode(self) -> bool:
+           production(self) -> bool:
+        """Production mode: cloud resources only."""
+        return self.app_env.strip().lower() == "production"-> bool:
         return self.persistence_mode_normalized() == "cosmos_temporal"
 
     def is_cosmos_only_mode(self) -> bool:

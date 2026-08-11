@@ -50,10 +50,12 @@ No infieras, no deduzcas por contexto, no completes por analogía.
 Solo completás `fecha` cuando el pliego escribe una fecha calendaria explícita (DD/MM/AAAA).
 
 ## 3. Citations son subcadenas exactas
-`citation` debe ser texto copiado literal del fragmento (25-300 caracteres).
-- Una oración completa con sentido propio
-- Sin reescribir, sin corregir ortografía
-- NUNCA una palabra suelta o un número solo
+`citation` debe ser texto copiado literal del fragmento.
+- Una oración completa con sentido propio, aunque sea larga
+- Sin reescribir, sin corregir ortografía, sin recortar por longitud
+- NUNCA una palabra suelta o un número solo (mínimo 12 caracteres)
+- Si la oración que respalda el dato es larga, copiala entera: el sistema la
+  recorta al persistir. Nunca la parafrasees ni la acortes vos.
 
 **Para fragmentos TABLA**, formato especial:  
 `Encabezado: <columna> | Fila: <fila> | Valor: <valor>`

@@ -15,7 +15,7 @@ import { buildNarrativeBlocks } from "./utils/narrativeSynthesis";
 interface CategorySectionProps {
   categoryId: CategoryId;
   category: CategoryData;
-  onViewSource?: (payload: { citation: Citation; citations: Citation[] }) => void;
+  onViewSource?: (payload: { citation: Citation; citations: Citation[]; sources: NarrativeSource[] }) => void;
 }
 
 export function CategorySection({ categoryId, category, onViewSource }: CategorySectionProps) {
