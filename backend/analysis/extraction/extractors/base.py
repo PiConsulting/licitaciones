@@ -539,6 +539,18 @@ def _augment_identificacion_payload(payload: list[dict[str, Any]], chunks: list[
         if len(citation) < CITATION_MIN_CHARS:
             return
 
+        # Extraer block_id del chunk (de source.blocks o merged_blocks)
+        block_id = None
+        source_data = chunk.get("source", {})
+        if isinstance(source_data, dict):
+            blocks = source_data.get("blocks", [])
+            if blocks and isinstance(blocks, list) and blocks[0]:
+                block_id = str(blocks[0].get("block_id") or blocks[0].get("para_id", ""))
+        
+        if not block_id:
+            # Fallback: usar para_id directo del chunk (formato legacy)
+            block_id = str(chunk.get("para_id", "")) if chunk.get("para_id") else None
+        
         additions.append(
             {
                 "tipo": canonical_tipo,
@@ -550,6 +562,7 @@ def _augment_identificacion_payload(payload: list[dict[str, Any]], chunks: list[
                         "document_id": str(chunk.get("document_id", "")),
                         "page_number": int(chunk.get("page_number", 0) or 0),
                         "citation": citation,
+                        "block_id": block_id,
                     }
                 ],
                 "extraction_status": "success",

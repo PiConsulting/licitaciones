@@ -93,9 +93,15 @@ def _normalize_text_for_comparison(text: str) -> str:
 
 
 def _dedupe_narrative_sources(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Deduplica sources en narrative usando mismo criterio que graph.py:
-    mismo document_id + page_number + citation normalizada = misma fuente.
-    Mantiene el primer ID encontrado para cada fuente única."""
+    """Deduplica sources en narrative agrupando por párrafo.
+    
+    FIX (2026-08-11): Agrupa múltiples citations del MISMO párrafo en una sola source.
+    - Múltiples citations del mismo block_id → 1 source con citation combinada
+    - Citation de otro block_id → source separada
+    
+    Clave de agrupación: (document_id, page_number, block_id)
+    Si block_id no está disponible, usa citation normalizada (comportamiento legacy).
+    """
     seen: dict[tuple[str, int, str], int] = {}
     deduped: list[dict[str, Any]] = []
     id_mapping: dict[int, int] = {}
@@ -105,14 +111,33 @@ def _dedupe_narrative_sources(sources: list[dict[str, Any]]) -> list[dict[str, A
         page = int(source.get("page_number", 0) or 0)
         citation = str(source.get("citation", ""))
         normalized_citation = _normalize_text_for_comparison(citation)
+        block_id = str(source.get("block_id", "")) if source.get("block_id") else None
         
-        key = (doc_id, page, normalized_citation)
+        # FIX: Agrupar por block_id si está disponible, sino por citation
+        if block_id:
+            key = (doc_id, page, block_id)
+        else:
+            # Fallback legacy: agrupar por citation normalizada
+            key = (doc_id, page, normalized_citation)
+        
         original_id = int(source.get("id", 0))
         
         if key in seen:
-            # Ya existe esta fuente, mapear el ID original al ID canónico
+            # Ya existe una source de este párrafo
             canonical_id = seen[key]
             id_mapping[original_id] = canonical_id
+            
+            # FIX: Si es el mismo block_id, combinar citations
+            if block_id:
+                existing_source = deduped[canonical_id]
+                existing_citation = existing_source.get("citation", "")
+                # Solo agregar si es citation diferente (no duplicar texto)
+                if normalized_citation not in _normalize_text_for_comparison(existing_citation):
+                    combined_citation = f"{existing_citation} [...] {citation}"
+                    # Limitar longitud total
+                    if len(combined_citation) > 500:
+                        combined_citation = combined_citation[:497] + "..."
+                    existing_source["citation"] = combined_citation
         else:
             # Nueva fuente única
             new_id = len(deduped)
@@ -123,6 +148,7 @@ def _dedupe_narrative_sources(sources: list[dict[str, Any]]) -> list[dict[str, A
                 "document_id": doc_id,
                 "page_number": page,
                 "citation": citation,
+                "block_id": block_id,
             }
             # La marca de cita no verificada se pierde si se reconstruye el dict
             # desde cero: la fuente llegaba al usuario sin ninguna señal de que
@@ -144,13 +170,16 @@ def _item_source_stubs(item: dict[str, Any]) -> list[dict[str, Any]]:
         citation = str(ref.get("citation", "")).strip()
         if len(citation) < CITATION_MIN_CHARS:
             continue
-        stubs.append(
-            {
-                "document_id": str(ref.get("document_id", "")),
-                "page_number": int(ref.get("page_number", 0) or 0),
-                "citation": citation,
-            }
-        )
+        stub = {
+            "document_id": str(ref.get("document_id", "")),
+            "page_number": int(ref.get("page_number", 0) or 0),
+            "citation": citation,
+        }
+        # FIX (2026-08-11): Incluir block_id si está disponible
+        block_id = ref.get("block_id")
+        if block_id:
+            stub["block_id"] = str(block_id)
+        stubs.append(stub)
     return stubs
 
 
@@ -381,17 +410,21 @@ def enrich_narrative_with_highlights(
     narrative: CategoryNarrative,
     document_id_to_blob_path: dict[str, str],
     correlation_id: str,
+    *,
+    category_key: str | None = None,
 ) -> CategoryNarrative:
     """Enriquece una CategoryNarrative con coordenadas de highlight pre-computadas.
     
     FIX CRÍTICO (2026-08): Resuelve el problema de highlight frágil identificado
     en la auditoría RAG. En lugar de usar heurísticas de matching en el frontend,
-    pre-computamos las coordenadas exactas usando PyMuPDF.
+    pre-computamos las coordenadas exactas usando PyMuPDF con disambiguación
+    basada en categoría.
     
     Args:
         narrative: CategoryNarrative ya construida (output de run_synthesis)
         document_id_to_blob_path: Mapeo document_id → ruta absoluta del PDF
         correlation_id: ID para logging
+        category_key: Clave de categoría para section_hint (ej: "objeto_alcance")
     
     Returns:
         CategoryNarrative con sources enriquecidas (highlight_regions poblado)
@@ -421,6 +454,7 @@ def enrich_narrative_with_highlights(
             sources=sources_data,
             document_id_to_blob_path=document_id_to_blob_path,
             correlation_id=correlation_id,
+            category_key=category_key,
         )
         
         # Reconstruir narrative con sources enriquecidas

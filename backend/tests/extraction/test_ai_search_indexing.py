@@ -230,10 +230,10 @@ class TestUploadChunks:
     @patch("extraction.ai_search._build_adapter")
     @patch("extraction.ai_search.get_settings")
     @patch("extraction.ai_search.validate_index_contract")
-    def test_upload_chunks_uses_double_colon_separator(
+    def test_upload_chunks_uses_double_dash_separator(
         self, mock_validate, mock_settings, mock_adapter
     ):
-        """chunk_id usa '::' como separador (menos ambiguo que '_')."""
+        """chunk_id usa '--' como separador (permitido por Azure Search)."""
         mock_settings.return_value.is_production = True
         mock_settings.return_value.is_development = False
         mock_settings.return_value.azure_search_upload_batch_size = 100
@@ -252,14 +252,14 @@ class TestUploadChunks:
         
         upload_chunks(chunks, analysis_id="analysis-123", correlation_id="test-123")
         
-        # Verificar que chunk_id usa '::'
+        # Verificar que chunk_id usa '--'
         call_args = mock_adapter_instance.upload_chunks.call_args
         documents = call_args[0][0]
         chunk_id = documents[0]["id"]
         
-        # chunk_id debe ser: "analysis-123::doc_with_underscores::5"
-        assert "::" in chunk_id
-        assert chunk_id == "analysis-123::doc_with_underscores::5"
+        # chunk_id debe ser: "analysis-123--doc_with_underscores--5"
+        assert "--" in chunk_id
+        assert chunk_id == "analysis-123--doc_with_underscores--5"
 
     @patch("extraction.ai_search._build_adapter")
     @patch("extraction.ai_search.get_settings")
@@ -334,13 +334,13 @@ class TestUploadChunks:
 @pytest.mark.parametrize(
     "analysis_id,document_id,chunk_index,expected_chunk_id",
     [
-        ("analysis-1", "doc-a", 0, "analysis-1::doc-a::0"),
-        ("analysis-2", "doc_with_underscores", 5, "analysis-2::doc_with_underscores::5"),
-        ("analysis-3", "doc::with::colons", 10, "analysis-3::doc::with::colons::10"),
+        ("analysis-1", "doc-a", 0, "analysis-1--doc-a--0"),
+        ("analysis-2", "doc_with_underscores", 5, "analysis-2--doc_with_underscores--5"),
+        ("analysis-3", "doc-with-dashes", 10, "analysis-3--doc-with-dashes--10"),
     ],
 )
 def test_chunk_id_format_parametrized(analysis_id, document_id, chunk_index, expected_chunk_id):
     """Tests parametrizados para formato de chunk_id con diferentes IDs."""
     # Simular construcción de chunk_id
-    chunk_id = f"{analysis_id}::{document_id}::{chunk_index}"
+    chunk_id = f"{analysis_id}--{document_id}--{chunk_index}"
     assert chunk_id == expected_chunk_id

@@ -58,6 +58,30 @@ class Settings(BaseSettings):
     azure_openai_embeddings_batch_size: int = Field(default=16, alias="AZURE_OPENAI_EMBEDDINGS_BATCH_SIZE")
     azure_openai_retry_attempts: int = Field(default=3, alias="AZURE_OPENAI_RETRY_ATTEMPTS")
     
+    # Extraction configuration
+    extraction_max_concurrency: int = Field(
+        default=4,
+        alias="EXTRACTION_MAX_CONCURRENCY",
+        description="Máxima concurrencia para extracción de páginas",
+    )
+    extraction_top_k: int = Field(
+        default=25,
+        alias="EXTRACTION_TOP_K",
+        description="Número de chunks a recuperar por categoría (default si glossary no especifica)",
+    )
+    extraction_max_context_tokens: int = Field(
+        default=8000,
+        alias="EXTRACTION_MAX_CONTEXT_TOKENS",
+        description="Límite de tokens de contexto para extracción (aproximado por palabras)",
+    )
+    
+    # Chunking configuration
+    chunking_max_table_tokens: int = Field(
+        default=500,
+        alias="CHUNKING_MAX_TABLE_TOKENS",
+        description="Máximo de tokens por chunk de tabla (aprox). Tablas más grandes se dividen en múltiples chunks.",
+    )
+    
     # Highlight configuration
     highlight_citation_min_length: int = Field(
         default=3,
@@ -79,15 +103,23 @@ class Settings(BaseSettings):
     @property
     def is_development(self) -> bool:
         """Development profile: local machine execution for testing."""
-        if self.app_env.strip().lower() in {"development", "dev"}:
-            return True
-        if self.app_env.strip().lower() == "production":
-           production(self) -> bool:
+        return self.app_env.strip().lower() in {"development", "dev"}
+
+    @property
+    def is_production(self) -> bool:
         """Production mode: cloud resources only."""
-        return self.app_env.strip().lower() == "production"-> bool:
+        return self.app_env.strip().lower() == "production"
+
+    def persistence_mode_normalized(self) -> str:
+        """Returns normalized persistence mode value."""
+        return self.persistence_mode.strip().lower()
+
+    def is_cosmos_temporal_mode(self) -> bool:
+        """Check if running in cosmos_temporal mode."""
         return self.persistence_mode_normalized() == "cosmos_temporal"
 
     def is_cosmos_only_mode(self) -> bool:
+        """Check if running in cosmos_only mode."""
         return self.persistence_mode_normalized() == "cosmos_only"
 
     def cloud_required_variables(self) -> dict[str, str]:

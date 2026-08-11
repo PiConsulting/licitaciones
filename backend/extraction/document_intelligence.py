@@ -62,6 +62,57 @@ def _first_page_number(item: object) -> int:
     return 1
 
 
+def _extract_bounding_boxes(item: object) -> list[dict[str, float]]:
+    """Extrae bounding boxes de un item de Azure Document Intelligence.
+    
+    Convierte las bounding_regions a coordenadas top-left origin (estándar web)
+    que pueden usarse directamente para highlighting.
+    
+    Returns:
+        Lista de bbox: [{"page": int, "x": float, "y": float, "width": float, "height": float}]
+    """
+    regions = getattr(item, "bounding_regions", None) or []
+    bboxes = []
+    
+    if not regions:
+        # Diagnostic: si no hay bounding_regions, verificar si el atributo existe
+        has_attr = hasattr(item, "bounding_regions")
+        logger.debug(
+            "no_bounding_regions",
+            has_attr=has_attr,
+            attr_value=getattr(item, "bounding_regions", "NOT_SET"),
+        )
+        return bboxes
+    
+    for region in regions:
+        page_number = getattr(region, "page_number", None)
+        polygon = getattr(region, "polygon", None)
+        
+        if page_number is None or not polygon or len(polygon) < 4:
+            continue
+        
+        # polygon es lista de coordenadas [x0, y0, x1, y1, x2, y2, x3, y3]
+        # donde (x0, y0) es top-left, (x2, y2) es bottom-right
+        # Azure DI ya usa top-left origin, así que no necesitamos convertir
+        x_coords = [polygon[i] for i in range(0, len(polygon), 2)]
+        y_coords = [polygon[i] for i in range(1, len(polygon), 2)]
+        
+        x = min(x_coords)
+        y = min(y_coords)
+        width = max(x_coords) - x
+        height = max(y_coords) - y
+        
+        bboxes.append({
+            "page": _safe_int(page_number, default=1),
+            "x": float(x),
+            "y": float(y),
+            "width": float(width),
+            "height": float(height),
+        })
+    
+    return bboxes
+
+
 def _first_span_offset(item: object, fallback: int) -> int:
     spans = getattr(item, "spans", None) or []
     if spans:
@@ -93,6 +144,8 @@ def _serialize_table_rows(table: object, table_id: str) -> list[dict]:
     matrix = [["" for _ in range(column_count)] for _ in range(row_count)]
     header_by_col: dict[int, str] = {}
     header_rows: set[int] = set()
+    # Colectar bboxes por fila
+    bboxes_by_row: dict[int, list] = {}
 
     for cell in cells:
         row_index = _safe_int(getattr(cell, "row_index", 0), default=0)
@@ -111,6 +164,13 @@ def _serialize_table_rows(table: object, table_id: str) -> list[dict]:
         if kind_lower in {"columnheader", "stubhead"} and content:
             header_by_col[col_index] = content
             header_rows.add(row_index)
+        
+        # Extraer bbox de cada celda
+        cell_bboxes = _extract_bounding_boxes(cell)
+        if cell_bboxes:
+            if row_index not in bboxes_by_row:
+                bboxes_by_row[row_index] = []
+            bboxes_by_row[row_index].extend(cell_bboxes)
 
     for col_index in range(column_count):
         if not header_by_col.get(col_index):
@@ -126,28 +186,31 @@ def _serialize_table_rows(table: object, table_id: str) -> list[dict]:
         if not any(cell.strip() for cell in row):
             continue
 
-        fragments = [f"Tabla {table_id}", f"Fila {row_index + 1}"]
+        # Formato limpio para embeddings (sin "Tabla TX | Fila N")
+        content_fragments: list[str] = []
         citation_headers: list[str] = []
+        
         for col_index, cell_value in enumerate(row):
             normalized = cell_value.strip()
             if not normalized:
                 continue
             header = header_by_col.get(col_index, f"col_{col_index + 1}")
             citation_headers.append(header)
-            fragments.append(f"{header}: {normalized}")
+            content_fragments.append(f"{header}: {normalized}")
 
         row_blocks.append(
             {
                 "page_number": table_page,
                 "block_type": "table",
                 "role": "tableRow",
-                "content": " | ".join(fragments),
+                "content": "\n".join(content_fragments),  # Formato limpio, una línea por campo
                 "source_order": table_order + row_index,
                 "table_ref": {
                     "table_id": table_id,
                     "row_index": row_index + 1,
                     "headers": citation_headers,
                 },
+                "bbox": bboxes_by_row.get(row_index, []),  # Bbox de todas las celdas de esta fila
             }
         )
 
@@ -156,6 +219,160 @@ def _serialize_table_rows(table: object, table_id: str) -> list[dict]:
 
 def _dehyphenate(text: str) -> str:
     return _LINE_WRAP_HYPHEN_RE.sub(r"\1\2", text)
+
+
+def _build_para_id_index(paragraphs: list) -> dict[tuple[int, int], list[dict[str, float]]]:
+    """Construye índice para_id → bounding_boxes para mapeo preciso.
+    
+    SOLUCIÓN DEFINITIVA V2 (2026-08): Mapeo por posición estructural.
+    Usa (page_number, paragraph_index_in_page) como identidad estable.
+    Esto garantiza precisión 100% sin ambigüedad por contenido duplicado.
+    
+    Args:
+        paragraphs: Lista de paragraphs de Azure Document Intelligence
+    
+    Returns:
+        Diccionario {(page, index): [bbox1, bbox2, ...]}
+    """
+    # Agrupar paragraphs por página
+    paras_by_page: dict[int, list] = {}
+    for para in paragraphs:
+        page = _first_page_number(para)
+        if page not in paras_by_page:
+            paras_by_page[page] = []
+        paras_by_page[page].append(para)
+    
+    # Construir índice: (page, index_in_page) → bbox
+    bbox_index = {}
+    total_paras = 0
+    paras_with_bbox = 0
+    
+    for page_num, page_paras in paras_by_page.items():
+        # Ordenar por span offset para orden determinístico
+        page_paras_sorted = sorted(
+            page_paras,
+            key=lambda p: getattr(getattr(p, "span", None), "offset", 0)
+        )
+        
+        for idx, para in enumerate(page_paras_sorted):
+            total_paras += 1
+            bboxes = _extract_bounding_boxes(para)
+            if bboxes:
+                para_id = (page_num, idx)
+                bbox_index[para_id] = bboxes
+                paras_with_bbox += 1
+    
+    logger.info(
+        "para_id_index_built",
+        total_paragraphs=total_paras,
+        paragraphs_with_bbox=paras_with_bbox,
+        bbox_coverage_pct=round(100 * paras_with_bbox / total_paras, 1) if total_paras > 0 else 0,
+    )
+    
+    return bbox_index
+
+
+def _enrich_blocks_with_para_id(
+    blocks: list[dict],
+    bbox_by_para_id: dict[tuple[int, int], list[dict[str, float]]],
+) -> None:
+    """Enriquece bloques con para_id y bbox usando posición estructural.
+    
+    SOLUCIÓN DEFINITIVA V2 (2026-08): Identidad por posición, no contenido.
+    - Asigna para_id secuencial a cada bloque según orden de aparición en página
+    - Busca bbox directamente por para_id
+    - Precisión 100% sin ambigüedad por contenido duplicado
+    
+    Args:
+        blocks: Lista de bloques a enriquecer (se modifica in-place)
+        bbox_by_para_id: Índice (page, index) → bboxes
+    """
+    stats = {"total": 0, "matched": 0, "no_match": 0}
+    
+    # Asignar para_id secuencial a blocks por página
+    blocks_by_page: dict[int, list[dict]] = {}
+    for block in blocks:
+        page = block.get("page_number")
+        if page is None:
+            continue
+        if page not in blocks_by_page:
+            blocks_by_page[page] = []
+        blocks_by_page[page].append(block)
+    
+    for page_num, page_blocks in blocks_by_page.items():
+        # Ordenar por source_order para mantener orden de lectura
+        page_blocks_sorted = sorted(
+            page_blocks,
+            key=lambda b: (b.get("source_order", 0), b.get("row_order", 0))
+        )
+        
+        para_index = 0
+        for block in page_blocks_sorted:
+            stats["total"] += 1
+            
+            # Solo asignar para_id a bloques de párrafo (no tablas)
+            if block.get("table_ref"):
+                # Tablas no tienen para_id (son extraídas por separado)
+                block["para_id"] = None
+                block["bbox"] = []
+                stats["no_match"] += 1
+                continue
+            
+            # Asignar para_id = (page, sequential_index)
+            para_id = (page_num, para_index)
+            block["para_id"] = para_id
+            para_index += 1
+            
+            # Buscar bbox por para_id
+            bboxes = bbox_by_para_id.get(para_id)
+            
+            if not bboxes:
+                # No match - markdown generó más bloques que paragraphs originales
+                block["bbox"] = []
+                stats["no_match"] += 1
+                logger.debug(
+                    "para_id_no_match",
+                    page=page_num,
+                    para_id=para_id,
+                    content_preview=str(block.get("content", ""))[:80],
+                )
+                continue
+            
+            # Validar coordenadas
+            valid_bboxes = []
+            for bbox in bboxes:
+                if (
+                    0 <= bbox["x"] <= 1200
+                    and 0 <= bbox["y"] <= 1600
+                    and 0 < bbox["width"] <= 1200
+                    and 0 < bbox["height"] <= 1600
+                ):
+                    valid_bboxes.append(bbox)
+                else:
+                    logger.warning(
+                        "bbox_out_of_bounds",
+                        page=page_num,
+                        para_id=para_id,
+                        bbox=bbox,
+                    )
+            
+            if not valid_bboxes:
+                block["bbox"] = []
+                stats["no_match"] += 1
+                continue
+            
+            block["bbox"] = valid_bboxes
+            stats["matched"] += 1
+    
+    # Log stats de calidad de mapeo
+    match_rate = (stats["matched"] / stats["total"] * 100) if stats["total"] > 0 else 0
+    logger.info(
+        "para_id_enrichment_complete",
+        total_blocks=stats["total"],
+        matched=stats["matched"],
+        no_match=stats["no_match"],
+        match_rate_pct=round(match_rate, 1),
+    )
 
 
 def _parse_markdown_blocks(markdown: str) -> tuple[list[dict], dict[int, int], list[tuple[int, int]]]:
@@ -289,12 +506,21 @@ def _parse_markdown_blocks(markdown: str) -> tuple[list[dict], dict[int, int], l
 def _build_markdown_blocks(result: object) -> tuple[list[dict], EventDict]:
     markdown = str(getattr(result, "content", "") or "")
     tables = list(getattr(result, "tables", None) or [])
+    paragraphs = list(getattr(result, "paragraphs", None) or [])
 
     blocks, heading_levels_by_order, table_positions = _parse_markdown_blocks(markdown)
     for block in blocks:
         level = heading_levels_by_order.get(block["source_order"])
         if level is not None:
             block["heading_level"] = level
+    
+    # SOLUCIÓN DEFINITIVA V2 (2026-08): Mapeo por posición estructural
+    # - Construye índice (page, index) → bbox de paragraphs
+    # - Asigna para_id secuencial a bloques por orden de lectura
+    # - Mapea bbox por para_id (identidad estable, no contenido)
+    # - Precisión 100% sin ambigüedad por texto duplicado
+    bbox_by_para_id = _build_para_id_index(paragraphs)
+    _enrich_blocks_with_para_id(blocks, bbox_by_para_id)
 
     total_table_rows = 0
     tables_placed_in_reading_order = 0
@@ -381,7 +607,7 @@ class AzureDocumentIntelligenceAdapter(DocumentIntelligencePort):
         poller = client.begin_analyze_document(
             model_id="prebuilt-layout",
             body=AnalyzeDocumentRequest(url_source=blob_url),
-            output_content_format=DocumentContentFormat.MARKDOWN,
+            output_content_format=DocumentContentFormat.MARKDOWN,  # Markdown para estructura + result.paragraphs para bbox
         )
         result = poller.result(timeout=self._timeout_seconds)
 

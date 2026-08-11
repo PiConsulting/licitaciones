@@ -43,7 +43,6 @@ def mock_search(monkeypatch: pytest.MonkeyPatch) -> None:
                 "document_id": "doc-1",
                 "page_number": 3,
                 "content": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
-                "section_key": "plazos",
             }
         ],
     )

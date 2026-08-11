@@ -171,7 +171,6 @@ def test_search_index_contract_validator_detects_invalid_dimensions(monkeypatch:
             self.fields = [
                 _Field("id"),
                 _Field("analysis_id", filterable=True),
-                _Field("section_key", filterable=True),
                 _Field("content"),
                 _Field("document_id"),
                 _Field("page_number"),

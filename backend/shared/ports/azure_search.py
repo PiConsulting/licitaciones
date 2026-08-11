@@ -21,6 +21,7 @@ SEARCH_CHUNK_SELECT_FIELDS = [
     "table_ref",
     "primary_category",
     "secondary_categories",
+    "blocks",  # DEFINITIVO V2: Trazabilidad completa chunk → blocks → bbox
     "content",
 ]
 
@@ -51,6 +52,23 @@ def _deserialize_table_ref(raw_table_ref: object) -> dict | None:
         return None
     try:
         return json.loads(raw_table_ref)
+    except json.JSONDecodeError:
+        return None
+
+
+def _deserialize_blocks(raw_blocks: object) -> list[dict] | None:
+    """Deserializa blocks de JSON string a lista de dicts.
+    
+    DEFINITIVO V2 (2026-08): Blocks con para_id + bbox para trazabilidad precisa
+    chunk → block → bbox sin ambigüedad.
+    """
+    if not isinstance(raw_blocks, str) or not raw_blocks:
+        return None
+    try:
+        blocks_list = json.loads(raw_blocks)
+        if isinstance(blocks_list, list):
+            return blocks_list
+        return None
     except json.JSONDecodeError:
         return None
 
@@ -173,6 +191,7 @@ def _search_azure(
             "section_path": item.get("section_path") or "general",
             "block_type": item.get("block_type") or "paragraph",
             "table_ref": _deserialize_table_ref(item.get("table_ref")),
+            "blocks": _deserialize_blocks(item.get("blocks")),  # DEFINITIVO V2: Trazabilidad completa
             # Sin estos dos campos, `retrieval_metrics.purity_rate` en
             # run_extractor daba 0.0 siempre y la distribución de categorías
             # reportaba "unknown" para todo, dejando ciega la telemetría que

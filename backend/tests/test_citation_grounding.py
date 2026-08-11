@@ -7,7 +7,7 @@ def _paragraph_chunk(**overrides: object) -> dict:
     base = {
         "document_id": "doc-1",
         "page_number": 3,
-        "section_key": "garantias",
+
         "block_type": "paragraph",
         "table_ref": None,
         "content": "La garantía de mantenimiento de oferta es del 5% del monto cotizado.",
@@ -20,7 +20,7 @@ def _table_chunk(**overrides: object) -> dict:
     base = {
         "document_id": "doc-1",
         "page_number": 3,
-        "section_key": "criterios",
+
         "block_type": "table",
         "content": "Tabla T1 | Fila 2 | Criterio: Experiencia | Ponderacion: 40%",
         "table_ref": {"table_id": "T1", "row_index": 2, "headers": ["Criterio", "Ponderacion"]},
@@ -113,7 +113,6 @@ def test_cita_de_tabla_alucinada() -> None:
 def test_cita_textual_larga_en_chunk_tabla_tambien_valida() -> None:
     chunk = _table_chunk(
         page_number=1,
-        section_key="caratula",
         content=(
             "Organismo: Municipalidad de San Martín de los Andes | "
             "Procedimiento: Contratación Directa N° 014/2026 | "

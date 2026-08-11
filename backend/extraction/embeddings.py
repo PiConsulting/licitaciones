@@ -114,7 +114,19 @@ def generate_embeddings(chunks: list[dict], correlation_id: str | UUID) -> list[
 
     for batch_start in range(0, len(chunks), batch_size):
         batch = chunks[batch_start : batch_start + batch_size]
-        texts = [chunk["content"] for chunk in batch]
+        
+        # RAG ARCHITECTURE (2026-08-11): Embedding usa title + content para contexto,
+        # pero el chunk almacenado mantiene content puro.
+        #
+        # ANTES: texts = [chunk["content"]]  → content ya incluía heading
+        # AHORA: texts = [title + "\n\n" + content]  → contexto explícito para embedding
+        texts = []
+        for chunk in batch:
+            title = chunk.get("title")
+            content = chunk["content"]
+            # Concatenar title si existe (para contexto semántico)
+            embedding_input = f"{title}\n\n{content}" if title else content
+            texts.append(embedding_input)
 
         for attempt in range(1, retries + 1):
             try:

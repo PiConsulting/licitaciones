@@ -145,9 +145,10 @@ def upload_chunks(chunks_with_embeddings: list[dict], analysis_id: str | UUID, c
                 f"chunk_index={chunk.get('chunk_index')}"
             )
         
-        # Usar '::' como separador (menos ambiguo que '_' si document_id contiene underscores)
-        chunk_id = f"{analysis_id}::{chunk['document_id']}::{chunk['chunk_index']}"
+        # Usar '--' como separador (permitido por Azure Search, menos ambiguo que '_')
+        chunk_id = f"{analysis_id}--{chunk['document_id']}--{chunk['chunk_index']}"
         table_ref = chunk.get("table_ref")
+        source = chunk.get("source")  # RAG PHASE 3: Metadata estructurada para highlighting
         documents.append(
             {
                 "id": chunk_id,
@@ -158,11 +159,18 @@ def upload_chunks(chunks_with_embeddings: list[dict], analysis_id: str | UUID, c
                 "heading_path": list(chunk.get("heading_path") or []),
                 "heading_level": int(chunk.get("heading_level", 0) or 0),
                 "section_path": chunk.get("section_path", "general"),
+                # RAG ARCHITECTURE (2026-08-11): Campo title explícito
+                # Usado para contexto semántico en embeddings pero separado de content
+                "title": chunk.get("title"),  # None si no hay título (ej: contenido top-level)
                 "block_type": chunk.get("block_type", "paragraph"),
                 # Serializado una sola vez acá: tanto el índice de Azure Search
                 # (Edm.String) como la metadata de Chroma requieren texto plano,
                 # nunca un dict crudo.
                 "table_ref": json.dumps(table_ref, ensure_ascii=True) if table_ref is not None else None,
+                # RAG PHASE 3 (2026-08-11): Source estructurado para highlighting
+                # Separa claramente metadata para localizar fuente vs metadata para highlighting
+                # Contiene: page, block_type, blocks[{block_id, bbox, text}]
+                "source": json.dumps(source, ensure_ascii=True) if source is not None else None,
                 # `create_chunks` ya clasifica cada chunk, pero estos dos campos
                 # no se subían al índice: quedaban en null para el 100% de los
                 # chunks, el filtro por categoría del retrieval no matcheaba
@@ -171,6 +179,11 @@ def upload_chunks(chunks_with_embeddings: list[dict], analysis_id: str | UUID, c
                 # que incluirlos es seguro aunque el índice no esté migrado.
                 "primary_category": chunk.get("primary_category"),
                 "secondary_categories": list(chunk.get("secondary_categories") or []),
+                # LEGACY V2 (2026-08): Blocks con para_id + bbox - mantener por compatibilidad
+                # RAG PHASE 3: Usar campo 'source' en su lugar (más estructurado)
+                "blocks": json.dumps(chunk.get("blocks", []), ensure_ascii=True) if chunk.get("blocks") else None,
+                # RAG ARCHITECTURE: content es PURO (sin títulos)
+                # Embedding ya fue generado con contexto (title + content)
                 "content": chunk["content"],
                 "embedding": chunk["embedding"],
             }

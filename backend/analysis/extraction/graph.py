@@ -124,36 +124,84 @@ def _build_document_mapping(analysis_id: str, db_session: Any) -> dict[str, str]
     
     Args:
         analysis_id: ID del análisis
-        db_session: Sesión de SQLAlchemy (puede ser None en contexto de tests)
+        db_session: Sesión de SQLAlchemy (puede ser None en cosmos_only_mode o tests)
     
     Returns:
         Diccionario document_id → ruta absoluta del PDF
-        (vacío si db_session es None)
+        (vacío si db_session es None en development/test)
     
     Raises:
-        RuntimeError: Si db_session es None en contexto de producción
+        RuntimeError: Si db_session es None en producción sin cosmos_only_mode
     
     Note:
         En Azure, descarga PDFs a /tmp/highlights-{analysis_id}/. Estos archivos
         deben limpiarse manualmente después de calcular highlights.
     """
-    if db_session is None:
-        from shared.config import get_settings
-        settings = get_settings()
-        
-        # En producción, db_session None es un error crítico
-        if settings.is_production:
-            logger.error(
-                "build_document_mapping_failed_no_session",
+    from shared.config import get_settings
+    settings = get_settings()
+    
+    # Obtener documentos según el modo de persistencia
+    documents = []
+    
+    if db_session is not None:
+        # Path normal: PostgreSQL
+        from documents.models import Document
+        documents = (
+            db_session.query(Document)
+            .filter(Document.analysis_id == analysis_id, Document.deleted_at.is_(None))
+            .all()
+        )
+        # Convertir a formato común (lista de objetos con .id y .blob_name)
+        # SQLAlchemy models ya tienen estos atributos
+    elif settings.is_cosmos_only_mode():
+        # Path Cosmos: obtener documentos desde Cosmos DB
+        try:
+            from analysis.cosmos_runtime import get_cosmos_container
+            
+            container = get_cosmos_container()
+            query = (
+                "SELECT c.document_id, c.blob_name FROM c "
+                "WHERE c.type = 'document' AND c.analysis_id = @analysis_id AND c.deleted = false"
+            )
+            items = container.query_items(
+                query=query,
+                parameters=[{"name": "@analysis_id", "value": analysis_id}],
+                partition_key=analysis_id,
+            )
+            
+            # Convertir a objetos simples con .id y .blob_name para compatibilidad
+            class DocumentDTO:
+                def __init__(self, doc_id: str, blob_name: str):
+                    self.id = doc_id
+                    self.blob_name = blob_name
+            
+            documents = [DocumentDTO(item["document_id"], item["blob_name"]) for item in items]
+            
+            logger.info(
+                "build_document_mapping_cosmos_source",
                 analysis_id=analysis_id,
-                reason="db_session is None in production context",
+                documents_found=len(documents),
             )
-            raise RuntimeError(
-                f"Cannot build document mapping for analysis {analysis_id}: "
-                "db_session is required in production for highlight computation"
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "build_document_mapping_cosmos_query_failed",
+                analysis_id=analysis_id,
+                error=str(exc),
             )
-        
-        # En desarrollo/test, solo advertir
+            return {}
+    elif settings.is_production:
+        # Producción sin db_session ni cosmos_only_mode: error
+        logger.error(
+            "build_document_mapping_failed_no_session",
+            analysis_id=analysis_id,
+            reason="db_session is None in production context without cosmos_only_mode",
+        )
+        raise RuntimeError(
+            f"Cannot build document mapping for analysis {analysis_id}: "
+            "db_session is required in production for highlight computation"
+        )
+    else:
+        # Development/test sin db_session: solo advertir
         logger.warning(
             "build_document_mapping_skipped",
             analysis_id=analysis_id,
@@ -161,23 +209,14 @@ def _build_document_mapping(analysis_id: str, db_session: Any) -> dict[str, str]
         )
         return {}
     
+    # Construir mapeo con los documentos obtenidos (PostgreSQL o Cosmos)
     try:
-        from documents.models import Document
         from shared.adapters.azure_blob_storage import AzureBlobStorageAdapter
-        from shared.config import get_settings
-        
-        settings = get_settings()
         
         # Usar solo Azure Blob Storage
         blob_storage = AzureBlobStorageAdapter(
             settings.azure_blob_connection_string,
             settings.azure_blob_container_name,
-        )
-        
-        documents = (
-            db_session.query(Document)
-            .filter(Document.analysis_id == analysis_id, Document.deleted_at.is_(None))
-            .all()
         )
         
         mapping = {}
@@ -990,6 +1029,7 @@ def synthesize_node(state: GraphState) -> GraphState:
                 narrative=narrative,
                 document_id_to_blob_path=document_mapping,
                 correlation_id=correlation_id,
+                category_key=category_key,
             )
         
         extracted_data[f"{category_key}_narrative"] = narrative.model_dump()

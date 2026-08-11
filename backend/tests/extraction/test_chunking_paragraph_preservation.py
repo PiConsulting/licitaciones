@@ -171,7 +171,7 @@ class TestHeadingPrefixInChunks:
     """Tests para verificar que cada chunk incluye heading_prefix."""
 
     def test_heading_prefix_included_in_content(self):
-        """Cada chunk debe incluir heading_prefix al inicio."""
+        """RAG ARCHITECTURE: content puro (sin títulos), title en metadata."""
         blocks = [
             {"heading_level": 1, "content": "ARTÍCULO 10", "page_number": 1, "source_order": 0},
             {"heading_level": 2, "content": "GARANTÍAS", "page_number": 1, "source_order": 1},
@@ -183,13 +183,19 @@ class TestHeadingPrefixInChunks:
         # Debe haber múltiples chunks por el contenido largo
         assert len(chunks) >= 2
         
-        # TODOS los chunks deben empezar con heading_prefix
+        # RAG: Content es PURO (sin ningún título)
         for chunk in chunks:
             content = chunk["content"]
-            assert content.startswith("ARTÍCULO 10\nGARANTÍAS\n\n")
+            assert content.startswith("Contenido extenso")
+            # Ningún título debe estar en content
+            assert "ARTÍCULO 10" not in content
+            assert "GARANTÍAS" not in content
+            # Metadata SÍ incluye todo
+            assert chunk["heading_path"] == ["ARTÍCULO 10", "GARANTÍAS"]
+            assert chunk["title"] == "GARANTÍAS"
 
     def test_heading_path_metadata_matches_content(self):
-        """heading_path en metadata debe matchear el prefix en content."""
+        """RAG: heading_path completo en metadata, content puro."""
         blocks = [
             {"heading_level": 1, "content": "TÍTULO A", "page_number": 1, "source_order": 0},
             {"heading_level": 2, "content": "SUBTÍTULO B", "page_number": 1, "source_order": 1},
@@ -201,11 +207,16 @@ class TestHeadingPrefixInChunks:
         assert len(chunks) == 1
         chunk = chunks[0]
         
-        # Metadata heading_path
+        # Metadata heading_path COMPLETO
         assert chunk["heading_path"] == ["TÍTULO A", "SUBTÍTULO B"]
         
-        # Content debe empezar con esos títulos
-        assert chunk["content"].startswith("TÍTULO A\nSUBTÍTULO B\n\n")
+        # Title explícito (último nivel)
+        assert chunk["title"] == "SUBTÍTULO B"
+        
+        # RAG: Content PURO (solo párrafo, sin títulos)
+        assert chunk["content"] == "Contenido."
+        assert "TÍTULO A" not in chunk["content"]
+        assert "SUBTÍTULO B" not in chunk["content"]
 
 
 class TestTableContext:
@@ -236,7 +247,7 @@ class TestTableContext:
         assert "siguiente tabla" in table_block["table_context"]
 
     def test_table_chunks_include_context(self):
-        """Chunks de tabla deben incluir heading_path + table_context + row."""
+        """RAG: Tabla con table_context + row (sin heading)."""
         blocks = [
             {"heading_level": 1, "content": "TÍTULO", "page_number": 1, "source_order": 0},
             {"content": "Introducción de tabla.", "page_number": 1, "source_order": 1},
@@ -255,10 +266,122 @@ class TestTableContext:
         table_chunk = next(c for c in chunks if c.get("block_type") == "table")
         
         content = table_chunk["content"]
-        # Debe incluir: heading + context + row
-        assert "TÍTULO" in content
+        # RAG: Content NO incluye heading (está en metadata)
+        assert "TÍTULO" not in content
+        # Metadata SÍ lo incluye
+        assert table_chunk["heading_path"] == ["TÍTULO"]
+        assert table_chunk["title"] == "TÍTULO"
+        # Content incluye: context + row
         assert "Introducción de tabla" in content
         assert "Tabla T1" in content
+
+    def test_table_rows_consolidated(self):
+        """RAG PHASE 3: Filas consecutivas de misma tabla se consolidan en un chunk."""
+        blocks = [
+            {"heading_level": 1, "content": "DATOS", "page_number": 1, "source_order": 0},
+            {"content": "Información de la contratación:", "page_number": 1, "source_order": 1},
+            {
+                "block_type": "table",
+                "content": "Tabla T1 | Fila 1 | Organismo: Municipalidad",
+                "page_number": 1,
+                "source_order": 2,
+                "table_ref": {"table_id": "T1", "row_index": 1, "headers": ["Campo", "Valor"]},
+                "para_id": "para_1",
+                "bbox": [[0, 0, 100, 20]],
+            },
+            {
+                "block_type": "table",
+                "content": "Tabla T1 | Fila 2 | Procedimiento: CD 014/2026",
+                "page_number": 1,
+                "source_order": 3,
+                "table_ref": {"table_id": "T1", "row_index": 2, "headers": ["Campo", "Valor"]},
+                "para_id": "para_2",
+                "bbox": [[0, 20, 100, 40]],
+            },
+            {
+                "block_type": "table",
+                "content": "Tabla T1 | Fila 3 | Presupuesto: $3.850.000",
+                "page_number": 1,
+                "source_order": 4,
+                "table_ref": {"table_id": "T1", "row_index": 3, "headers": ["Campo", "Valor"]},
+                "para_id": "para_3",
+                "bbox": [[0, 40, 100, 60]],
+            },
+        ]
+        
+        chunks = create_chunks(blocks, document_id="test-doc", correlation_id="test-corr")
+        
+        # Buscar chunks de tabla
+        table_chunks = [c for c in chunks if c.get("block_type") == "table"]
+        
+        # FASE 3: Debe haber UN SOLO chunk (todas las filas consolidadas)
+        assert len(table_chunks) == 1, f"Expected 1 table chunk, got {len(table_chunks)}"
+        
+        table_chunk = table_chunks[0]
+        content = table_chunk["content"]
+        
+        # Content debe incluir TODAS las filas
+        assert "Organismo: Municipalidad" in content
+        assert "Procedimiento: CD 014/2026" in content
+        assert "Presupuesto: $3.850.000" in content
+        
+        # Source debe tener todos los blocks originales
+        source = table_chunk.get("source", {})
+        blocks_in_source = source.get("blocks", [])
+        assert len(blocks_in_source) == 3, f"Expected 3 blocks in source, got {len(blocks_in_source)}"
+        
+        # Cada block debe tener su bbox original
+        assert blocks_in_source[0]["para_id"] == "para_1"
+        assert blocks_in_source[1]["para_id"] == "para_2"
+        assert blocks_in_source[2]["para_id"] == "para_3"
+
+    def test_large_table_split_by_size_limit(self):
+        """RAG PHASE 3 V2: Tablas grandes se dividen en múltiples chunks según límite de tamaño."""
+        # Crear tabla con 10 filas, cada una con ~200 caracteres (~50 tokens)
+        # Total: ~500 tokens (debe exceder límite default de 500)
+        blocks = [
+            {"heading_level": 1, "content": "ANEXO I - PLANILLA", "page_number": 1, "source_order": 0},
+        ]
+        
+        # Crear 10 filas de tabla, cada una ~200 chars
+        for i in range(1, 11):
+            row_content = f"Renglón {i}: " + " ".join(["descripción detallada"] * 12)  # ~200 chars
+            blocks.append({
+                "block_type": "table",
+                "content": row_content,
+                "page_number": 1,
+                "source_order": i,
+                "table_ref": {"table_id": "T1", "row_index": i, "headers": ["Renglón", "Descripción"]},
+                "para_id": f"para_{i}",
+                "bbox": [[0, i*20, 100, (i+1)*20]],
+            })
+        
+        # Usar chunk_size grande para no interferir con el límite de tabla
+        chunks = create_chunks(blocks, document_id="test-doc", correlation_id="test-corr", chunk_size=2000)
+        
+        # Buscar chunks de tabla
+        table_chunks = [c for c in chunks if c.get("block_type") == "table"]
+        
+        # Debe haber MÚLTIPLES chunks (tabla dividida por tamaño)
+        assert len(table_chunks) > 1, f"Expected multiple table chunks due to size limit, got {len(table_chunks)}"
+        
+        # Cada chunk debe tener contexto de la tabla (mismo heading_path)
+        for chunk in table_chunks:
+            assert "ANEXO I - PLANILLA" in chunk.get("heading_path", [])
+            # Debe tener source con blocks
+            source = chunk.get("source", {})
+            assert source.get("blocks"), "Each table chunk should have source.blocks"
+        
+        # Verificar que entre todos los chunks se cubren todas las filas
+        all_para_ids = set()
+        for chunk in table_chunks:
+            source = chunk.get("source", {})
+            for block in source.get("blocks", []):
+                if block.get("para_id"):
+                    all_para_ids.add(block["para_id"])
+        
+        expected_para_ids = {f"para_{i}" for i in range(1, 11)}
+        assert all_para_ids == expected_para_ids, "All table rows should be present across chunks"
 
 
 class TestCategoryClassification:

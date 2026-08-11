@@ -373,6 +373,97 @@ def _strip_boilerplate_fragments(heading: str, boilerplate: set[str]) -> str:
     return current
 
 
+def _normalize_numbered_heading_levels(blocks: list[dict]) -> list[dict]:
+    """Normaliza los niveles de headings con patron numerico consecutivo
+    (1. OBJETO, 2. REQUISITOS, 3. GARANTÍAS...) para que sean hermanos
+    en lugar de hijos, independientemente de lo que Azure DI detectó.
+    
+    Azure DI a veces detecta niveles diferentes (## vs ###) para headings
+    que son semanticamente del mismo nivel (secciones numeradas consecutivas).
+    """
+    import re
+    
+    logger.info(
+        "normalize_function_called",
+        total_blocks=len(blocks),
+    )
+    
+    # Patron para detectar headings numerados: "1. TITULO", "2. TITULO", etc.
+    # IMPORTANTE: El .* al final permite cualquier texto después de la mayúscula inicial
+    numbered_pattern = re.compile(r'^(\d+)\.\s+[A-ZÁÉÍÓÚÑ].*', re.IGNORECASE)
+    
+    # Log para debugging
+    headings_found = [
+        (i, block.get("heading_level"), block.get("content", "")[:60])
+        for i, block in enumerate(blocks)
+        if block.get("heading_level") is not None
+    ]
+    if headings_found:
+        logger.info("normalize_scan_start", total_headings=len(headings_found))
+        # Log el contenido de cada heading para diagnosticar
+        for idx, level, content in headings_found[:10]:
+            logger.info("heading_content", index=idx, level=level, content=content)
+    
+    # Agrupar headings por secuencias numericas consecutivas
+    sequences: list[list[int]] = []  # indices de blocks que forman secuencia
+    current_sequence: list[int] = []
+    expected_number = 1
+    
+    for i, block in enumerate(blocks):
+        level = block.get("heading_level")
+        if level is None:
+            # No es heading, CONTINUAR sin resetear (permite párrafos entre headings numerados)
+            continue
+            
+        content = str(block.get("content", "")).strip()
+        match = numbered_pattern.match(content)
+        
+        if match:
+            number = int(match.group(1))
+            if number == expected_number:
+                current_sequence.append(i)
+                expected_number += 1
+                logger.info("sequence_item_added", index=i, number=number, content=content[:60])
+            else:
+                # Número no consecutivo, guardar secuencia actual si existe
+                if len(current_sequence) >= 2:
+                    sequences.append(current_sequence)
+                    logger.info("sequence_completed_non_consecutive", length=len(current_sequence))
+                # Empezar nueva secuencia si es "1.", sino descartar
+                current_sequence = [i] if number == 1 else []
+                expected_number = 2 if number == 1 else 1
+        else:
+            # Heading no numerado, guardar secuencia actual y resetear
+            if len(current_sequence) >= 2:
+                sequences.append(current_sequence)
+                logger.info("sequence_completed_non_numbered", length=len(current_sequence))
+            current_sequence = []
+            expected_number = 1
+    
+    # Capturar última secuencia si quedó pendiente
+    if len(current_sequence) >= 2:
+        sequences.append(current_sequence)
+    
+    # Normalizar niveles dentro de cada secuencia al mínimo nivel
+    normalized = blocks.copy()
+    for sequence_indices in sequences:
+        # Encontrar el nivel mínimo (más alto en jerarquía) de la secuencia
+        min_level = min(normalized[i]["heading_level"] for i in sequence_indices)
+        
+        # Normalizar todos al mismo nivel
+        for i in sequence_indices:
+            normalized[i] = {**normalized[i], "heading_level": min_level}
+            
+        logger.info(
+            "normalized_heading_sequence",
+            indices=sequence_indices,
+            target_level=min_level,
+            headings=[normalized[i]["content"][:50] for i in sequence_indices[:5]],
+        )
+    
+    return normalized
+
+
 def _to_intermediate_blocks(blocks: list[dict]) -> list[dict]:
     """Recorre los bloques de Document Intelligence (encabezado si trae
     `heading_level`, parrafo o fila de tabla si no) en orden de lectura y les
@@ -391,6 +482,7 @@ def _to_intermediate_blocks(blocks: list[dict]) -> list[dict]:
             int(item.get("row_order", 0)),
         ),
     )
+    ordered = _normalize_numbered_heading_levels(ordered)
     ordered = _promote_run_in_headings(ordered)
     boilerplate = _detect_repeated_heading_boilerplate(ordered)
 
@@ -432,6 +524,15 @@ def _to_intermediate_blocks(blocks: list[dict]) -> list[dict]:
             normalized = _strip_boilerplate_fragments(normalized, boilerplate)
             if not normalized:
                 continue
+            
+            logger.debug(
+                "heading_detected",
+                page=last_page,
+                level=level,
+                text=normalized[:80],
+                current_stack=[h for h, _ in heading_stack],
+            )
+            
             pop_to_level(int(level), last_page)
             heading_stack.append((normalized, int(level)))
             heading_has_body.append(False)
@@ -448,6 +549,8 @@ def _to_intermediate_blocks(blocks: list[dict]) -> list[dict]:
                 "table_ref": block.get("table_ref"),
                 "heading_path": current_path(),
                 "is_heading": False,
+                "para_id": block.get("para_id"),  # DEFINITIVO V2: Propagar para_id
+                "bbox": block.get("bbox", []),
             }
         )
 
@@ -485,12 +588,29 @@ def _preceding_table_context(merged: list[dict], table_block: dict) -> str | Non
 
 
 def _merge_intermediate_blocks(blocks: list[dict]) -> list[dict]:
-    """Junta parrafos consecutivos que comparten el mismo heading_path en un
-    solo bloque, para que un encabezado nunca quede separado del texto que lo
-    desarrolla y para que parrafos cortos seguidos de la misma seccion no
-    generen chunks diminutos. Las tablas nunca se mezclan entre si (se
-    mantienen atomicas fila por fila), pero reciben el parrafo que las
-    introduce via `_preceding_table_context`."""
+    """Junta bloques consecutivos que comparten el mismo heading_path en un
+    solo bloque semántico para RAG.
+    
+    FASE 3 RAG (2026-08-11): Ahora también consolida filas consecutivas de la
+    misma tabla en un único chunk semántico. Esto permite que una búsqueda de
+    "presupuesto oficial" recupere el contexto completo de la tabla en lugar
+    de solo una fila.
+    
+    Párrafos: se fusionan si comparten heading_path y página.
+    Tablas: se fusionan si comparten table_id (filas de la misma tabla), pero
+            con límite de tamaño para evitar chunks gigantes.
+    
+    FIX (2026-08): Mantiene lista completa de blocks mergeados con sus para_id/bbox
+    para trazabilidad precisa en highlighting.
+    
+    V4 (2026-08-11): Agregado límite de tamaño para tablas grandes. Si una tabla
+    excede CHUNKING_MAX_TABLE_TOKENS, se divide en múltiples chunks manteniendo
+    contexto de la tabla en cada uno.
+    """
+    from shared.config import get_settings
+    settings = get_settings()
+    max_table_tokens = settings.chunking_max_table_tokens
+    
     merged: list[dict] = []
 
     for raw_block in blocks:
@@ -500,10 +620,77 @@ def _merge_intermediate_blocks(blocks: list[dict]) -> list[dict]:
             context = _preceding_table_context(merged, block)
             if context:
                 block["table_context"] = context
+            
+            # FASE 3: Consolidar filas consecutivas de la misma tabla
+            if merged:
+                previous = merged[-1]
+                previous_ref = previous.get("table_ref") or {}
+                current_ref = block.get("table_ref") or {}
+                
+                # Mergear si es la misma tabla (mismo table_id)
+                same_table = (
+                    previous.get("block_type") == "table"
+                    and previous_ref.get("table_id") is not None
+                    and previous_ref.get("table_id") == current_ref.get("table_id")
+                )
+                
+                if same_table:
+                    # Inicializar merged_blocks si no existe
+                    if "merged_blocks" not in previous:
+                        original_content = previous["content"]
+                        previous["merged_blocks"] = [{
+                            "para_id": previous.get("para_id"),
+                            "bbox": previous.get("bbox", []),
+                            "content": original_content,
+                        }]
+                    
+                    # Verificar límite de tamaño antes de mergear
+                    # Aproximación: 1 token ≈ 4 caracteres
+                    combined_content = f"{previous['content']}\n{block['content']}"
+                    approx_tokens = len(combined_content) / 4
+                    
+                    if approx_tokens > max_table_tokens:
+                        # Tabla excede límite - crear nuevo chunk
+                        # Mantener metadata de tabla para contexto
+                        block["table_context"] = previous.get("table_context", "")
+                        block["merged_blocks"] = [{
+                            "para_id": block.get("para_id"),
+                            "bbox": block.get("bbox", []),
+                            "content": block.get("content", ""),
+                        }]
+                        merged.append(block)
+                        continue
+                    
+                    # Agregar fila actual (dentro del límite)
+                    previous["merged_blocks"].append({
+                        "para_id": block.get("para_id"),
+                        "bbox": block.get("bbox", []),
+                        "content": block.get("content", ""),
+                    })
+                    
+                    # Concatenar contenido (filas de tabla)
+                    previous["content"] = combined_content
+                    
+                    # Actualizar row_index al último (para metadata)
+                    if "table_ref" in previous and "row_index" in current_ref:
+                        previous["table_ref"]["row_index"] = current_ref["row_index"]
+                    
+                    continue  # No agregar block actual, ya está mergeado
+            
+            # Primera fila de tabla o tabla no consecutiva
+            if "merged_blocks" not in block:
+                block["merged_blocks"] = [{
+                    "para_id": block.get("para_id"),
+                    "bbox": block.get("bbox", []),
+                    "content": block.get("content", ""),
+                }]
             merged.append(block)
             continue
 
         if block.get("is_heading"):
+            # Headings no tienen bbox (no son contenido a subrayar)
+            if "merged_blocks" not in block:
+                block["merged_blocks"] = []
             merged.append(block)
             continue
 
@@ -516,9 +703,32 @@ def _merge_intermediate_blocks(blocks: list[dict]) -> list[dict]:
                 and previous.get("heading_path") == block.get("heading_path")
             )
             if can_merge:
+                # FIX: Agregar block actual a la lista de blocks mergeados
+                if "merged_blocks" not in previous:
+                    # Inicializar con el block original del previous (contenido antes de mergear)
+                    original_content = previous["content"]
+                    previous["merged_blocks"] = [{
+                        "para_id": previous.get("para_id"),
+                        "bbox": previous.get("bbox", []),
+                        "content": original_content,
+                    }]
+                # Agregar el block actual
+                previous["merged_blocks"].append({
+                    "para_id": block.get("para_id"),
+                    "bbox": block.get("bbox", []),
+                    "content": block.get("content", ""),
+                })
+                # Actualizar contenido mergeado
                 previous["content"] = f"{previous['content']}\n\n{block['content']}"
                 continue
 
+        # Block nuevo que no se puede mergear
+        if "merged_blocks" not in block:
+            block["merged_blocks"] = [{
+                "para_id": block.get("para_id"),
+                "bbox": block.get("bbox", []),
+                "content": block.get("content", ""),
+            }]
         merged.append(block)
 
     return merged
@@ -711,28 +921,69 @@ def create_chunks(
             page_number = int(block["page_number"])
             block_type = str(block.get("block_type", "paragraph"))
             heading_path = list(block.get("heading_path") or [])
-            heading_prefix = "\n".join(heading_path)
+            
+            # RAG ARCHITECTURE FIX (2026-08-11): Separar metadata de content.
+            # 
+            # ANTES: heading_prefix se inyectaba en content → duplicación innecesaria
+            # AHORA: 
+            #   - heading_path completo → metadata (section_path, title)
+            #   - content → SOLO el párrafo/tabla puro
+            #   - embedding → se genera con contexto (title + content) en embeddings.py
+            #
+            # Esto previene false positives en retrieval y permite highlighting preciso.
             section_path = " > ".join(heading_path) if heading_path else "general"
+            title = heading_path[-1] if heading_path else None  # Último nivel = título de sección
+            
+            # Para embeddings: se usará title + content (ver embeddings.py)
+            # Para storage: solo content puro
 
             if block_type == "table":
                 row_content = str(block["content"])
-                context_parts = [part for part in (heading_prefix, block.get("table_context"), row_content) if part]
-                full_content = "\n\n".join(context_parts)
+                # Tablas: mantener table_context (párrafo introductorio) pero NO heading
+                context_parts = [block.get("table_context"), row_content]
+                full_content = "\n\n".join([p for p in context_parts if p])
                 row_tokens = _tokenize(full_content)
                 if not row_tokens:
                     continue
+
+                # FIX V3 (2026-08): Usar merged_blocks para trazabilidad completa
+                merged_blocks = block.get("merged_blocks", [])
+                blocks_data = [
+                    {
+                        "para_id": mb.get("para_id"),
+                        "page": page_number,
+                        "bbox": mb.get("bbox", []),
+                        "content": mb.get("content", ""),  # Contenido original del block
+                    }
+                    for mb in merged_blocks
+                ] if merged_blocks else [{
+                    "para_id": block.get("para_id"),
+                    "page": page_number,
+                    "bbox": block.get("bbox", []),
+                    "content": block.get("content", ""),
+                }]
+
+                # RAG ARCHITECTURE: Campo source estructurado para highlighting
+                source = {
+                    "page": page_number,
+                    "block_type": "table",
+                    "blocks": blocks_data,
+                }
 
                 chunk_dict = {
                     "document_id": str(document_id),
                     "page_number": page_number,
                     "chunk_index": chunk_index,
-                    "content": full_content,
+                    "content": full_content,  # SOLO table_context + rows (sin heading)
                     "token_count": len(row_tokens),
                     "heading_path": heading_path,
                     "heading_level": len(heading_path),
                     "section_path": section_path,
+                    "title": title,  # RAG: Campo explícito para embedding
                     "block_type": "table",
                     "table_ref": block.get("table_ref"),
+                    "source": source,  # RAG PHASE 3: Metadata estructurada para highlighting
+                    "blocks": blocks_data,  # LEGACY: Mantener por compatibilidad
                 }
 
                 # Clasificar categorías del chunk
@@ -747,33 +998,54 @@ def create_chunks(
             body = "" if block.get("is_heading") else str(block["content"]).strip()
 
             if body:
-                heading_tokens = len(_tokenize(heading_prefix)) if heading_prefix else 0
-                effective_chunk_size = max(chunk_size - heading_tokens, 1)
-                effective_overlap = min(overlap, max(effective_chunk_size - 1, 0))
-                content_pieces = [
-                    f"{heading_prefix}\n\n{piece}" if heading_prefix else piece
-                    for piece in _split_block_into_chunks(body, effective_chunk_size, effective_overlap)
-                ]
-            elif heading_prefix:
-                content_pieces = [heading_prefix]
+                # RAG: NO inyectar heading en content → será agregado solo para embedding
+                content_pieces = _split_block_into_chunks(body, chunk_size, overlap)
             else:
+                # Heading sin body → crear chunk vacío con metadata (poco común)
                 content_pieces = []
 
             for chunk_content in content_pieces:
                 if not chunk_content.strip():
                     continue
 
+                # FIX V3 (2026-08): Usar merged_blocks para trazabilidad completa
+                merged_blocks = block.get("merged_blocks", [])
+                blocks_data = [
+                    {
+                        "para_id": mb.get("para_id"),
+                        "page": page_number,
+                        "bbox": mb.get("bbox", []),
+                        "content": mb.get("content", ""),  # Contenido original del block
+                    }
+                    for mb in merged_blocks
+                ] if merged_blocks else [{
+                    "para_id": block.get("para_id"),
+                    "page": page_number,
+                    "bbox": block.get("bbox", []),
+                    "content": block.get("content", ""),
+                }]
+
+                # RAG ARCHITECTURE: Campo source estructurado para highlighting
+                source = {
+                    "page": page_number,
+                    "block_type": "paragraph",
+                    "blocks": blocks_data,
+                }
+
                 chunk_dict = {
                     "document_id": str(document_id),
                     "page_number": page_number,
                     "chunk_index": chunk_index,
-                    "content": chunk_content,
+                    "content": chunk_content,  # SOLO el párrafo puro (sin heading)
                     "token_count": len(_tokenize(chunk_content)),
                     "heading_path": heading_path,
                     "heading_level": len(heading_path),
                     "section_path": section_path,
+                    "title": title,  # RAG: Campo explícito para embedding
                     "block_type": "paragraph",
                     "table_ref": None,
+                    "source": source,  # RAG PHASE 3: Metadata estructurada para highlighting
+                    "blocks": blocks_data,  # LEGACY: Mantener por compatibilidad
                 }
 
                 # Clasificar categorías del chunk

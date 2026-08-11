@@ -44,7 +44,8 @@ Antes de instalar, tene a mano las credenciales de:
 5. (Opcional) Crear usuario de prueba:
    - `.venv\Scripts\python.exe backend/seed.py`
 6. Ejecutar backend:
-   - `.venv\Scripts\python.exe -m uvicorn main:app --reload --app-dir backend`
+   - **VSCode**: `Ctrl+Shift+P` > "Tasks: Run Task" > "Run Backend"
+   - **Comando manual**: `.venv\Scripts\python.exe -m uvicorn main:app --reload --app-dir backend`
 
 
 ## Frontend
@@ -54,7 +55,8 @@ Antes de instalar, tene a mano las credenciales de:
 2. Configurar variables de entorno:
    - `VITE_API_BASE_URL` se toma del `.env` en la raiz (ver `.env.example`).
 3. Ejecutar frontend:
-   - `npm run dev`
+   - **VSCode**: `Ctrl+Shift+P` > "Tasks: Run Task" > "Run Frontend"
+   - **Comando manual**: `npm run dev` (en carpeta `frontend`)
 
 ## Testing
 

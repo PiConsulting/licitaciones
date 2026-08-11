@@ -52,6 +52,10 @@ class SourceReference(BaseModel):
     document_id: str
     page_number: int
     citation: str = Field(min_length=CITATION_MIN_CHARS, max_length=CITATION_MAX_CHARS)
+    block_id: str | None = Field(
+        default=None,
+        description="ID del bloque/párrafo fuente. Usado para agrupar múltiples citations del mismo párrafo."
+    )
 
 
 ConfidenceLevel = Literal["alta", "media", "baja"]

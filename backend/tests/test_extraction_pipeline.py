@@ -117,7 +117,6 @@ def test_format_chunks_marks_table_context() -> None:
             {
                 "document_id": "doc-1",
                 "page_number": 3,
-                "section_key": "criterios",
                 "section_path": "Titulo > Criterios",
                 "block_type": "table",
                 "table_ref": {"table_id": "T2", "row_index": 4},
@@ -178,7 +177,6 @@ def test_upload_chunks_local_writes_metadata(monkeypatch, tmp_path: Path) -> Non
             "document_id": "doc-1",
             "page_number": 1,
             "chunk_index": 0,
-            "section_key": "general",
             "content": "contenido",
             "embedding": [0.1, 0.2],
         }
@@ -207,9 +205,7 @@ def test_upload_chunks_local_serializes_table_ref_as_json_string(monkeypatch, tm
             "document_id": "doc-1",
             "page_number": 3,
             "chunk_index": 0,
-            "section_key": "anexos",
             "section_path": "Anexo I",
-            "section_level": 1,
             "block_type": "table",
             "table_ref": {"table_id": "T1", "row_index": 1, "headers": ["Cantidad"]},
             "content": "Tabla T1 | Fila 1 | Cantidad: 200",
@@ -219,7 +215,6 @@ def test_upload_chunks_local_serializes_table_ref_as_json_string(monkeypatch, tm
             "document_id": "doc-1",
             "page_number": 1,
             "chunk_index": 1,
-            "section_key": "general",
             "content": "contenido sin tabla",
             "embedding": [0.3, 0.4],
         },
@@ -293,7 +288,6 @@ def test_extract_and_index_transitions_to_analyzing(monkeypatch, tmp_path: Path)
                 "chunk_index": 0,
                 "content": "contenido pagina",
                 "token_count": 2,
-                "section_key": "general",
             }
         ],
     )
