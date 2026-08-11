@@ -9,8 +9,7 @@ os.environ["DATABASE_URL"] = "sqlite:///./test_backend.db"
 os.environ["SECRET_KEY"] = "this-is-a-long-test-secret-key-32bytes"
 os.environ["JWT_ALGORITHM"] = "HS256"
 os.environ["JWT_EXPIRATION_HOURS"] = "24"
-os.environ["APP_ENV"] = "development"
-os.environ["USE_LOCAL_ADAPTERS"] = "true"
+os.environ["APP_ENV"] = "production"
 os.environ["PERSISTENCE_MODE"] = "sql"
 
 import users.service as users_service

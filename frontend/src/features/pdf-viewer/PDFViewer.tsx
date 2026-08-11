@@ -12,6 +12,7 @@ import { PDFPage } from "./PDFPage";
 import { useContainerWidth } from "./hooks/useContainerWidth";
 import { useSASUrl } from "./hooks/useSASUrl";
 import type { Citation, ViewerDocument } from "./types";
+import type { NarrativeSource } from "../analysis-detail/types";
 import { normalizeText } from "../../utils/highlightText";
 
 const PAGE_ZOOM_STEP = 0.25;
@@ -34,6 +35,10 @@ interface PDFViewerProps {
    * Determina en qué cita del conjunto arranca el visor — sin esto, siempre
    * arrancaba en la primera cita de `citations`, sin importar cuál se clickeó. */
   focusCitation?: Citation | null;
+  /** FIX CRÍTICO (2026-08): Sources con coordenadas pre-computadas para highlight.
+   * Si está presente, PDFPage usa highlight basado en coordenadas en lugar de
+   * heurísticas frágiles. */
+  sources?: NarrativeSource[];
 }
 
 /** Misma cita: mismo documento, página, y texto igual o uno subcadena del
@@ -68,7 +73,7 @@ function isForbiddenError(error: unknown): boolean {
   return message.toLowerCase().includes("forbidden") || message.toLowerCase().includes("403");
 }
 
-export function PDFViewer({ documentId, documentName, citations, documents, focusCitation }: PDFViewerProps) {
+export function PDFViewer({ documentId, documentName, citations, documents, focusCitation, sources }: PDFViewerProps) {
   const [activeDocumentId, setActiveDocumentId] = useState(documentId);
   const initialIndex = findFocusIndex(citations, focusCitation);
   const [currentCitationIndex, setCurrentCitationIndex] = useState(initialIndex);
@@ -232,6 +237,7 @@ export function PDFViewer({ documentId, documentName, citations, documents, focu
                   : undefined
               }
               citationTexts={activeCitation && activeCitation.page === page ? [activeCitation.text] : []}
+              sources={sources}
               onScaleResolved={setDisplayScale}
             />
           ))}

@@ -60,23 +60,30 @@ export function AnalysisDetailHeader({ analysis }: AnalysisDetailHeaderProps) {
 
   const organismo = getFieldValue(analysis, "datos_procedimiento", "Organismo convocante");
   const expediente = getFieldValue(analysis, "datos_procedimiento", "Expediente");
+  const procedimiento = getFieldValue(analysis, "datos_procedimiento", "Procedimiento");
+  const tipoProcedimiento = getFieldValue(analysis, "datos_procedimiento", "Tipo de procedimiento");
+  const presupuestoOficial = getFieldValue(analysis, "datos_procedimiento", "Presupuesto oficial");
   const objeto = getFieldValue(analysis, "objeto_alcance", "Objeto");
 
   const title = objeto ?? primaryDocument?.filename ?? `Análisis ${analysis.id}`;
   const subtitle = [organismo, expediente].filter(Boolean).join(" · ");
+  const procedureLine = [tipoProcedimiento, procedimiento].filter(Boolean).join(" · ");
+  const breadcrumbLabel = analysis.analysis_name ?? primaryDocument?.filename ?? expediente ?? analysis.id;
 
   return (
     <header className="mb-6">
       <nav className="mb-2 flex items-center text-xs text-gray-500" aria-label="Ruta de navegación">
         <span>Análisis IA</span>
         <ChevronRight className="mx-1 h-3.5 w-3.5" aria-hidden="true" />
-        <span className="font-medium text-gray-900">{primaryDocument?.filename ?? expediente ?? analysis.id}</span>
+        <span className="font-medium text-gray-900">{breadcrumbLabel}</span>
       </nav>
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-xl font-bold text-gray-900">{title}</h1>
           {subtitle ? <p className="mt-1 text-sm text-gray-600">{subtitle}</p> : null}
+          {procedureLine ? <p className="mt-1 text-sm text-gray-600">{procedureLine}</p> : null}
+          {presupuestoOficial ? <p className="mt-1 text-sm text-gray-600">{`Presupuesto oficial: ${presupuestoOficial}`}</p> : null}
         </div>
 
         {/*

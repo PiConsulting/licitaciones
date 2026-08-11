@@ -8,12 +8,8 @@ from shared.config import get_settings
 
 
 def get_azure_openai_client() -> Any:
-    """Retorna cliente LLM de extracción según perfil (development|production)."""
+    """Retorna cliente LLM de Azure OpenAI para extracción."""
     settings = get_settings()
-    if settings.is_development:
-        from shared.ports.local.cohere_chat import get_cohere_chat_client
-
-        return get_cohere_chat_client()
 
     missing: list[str] = []
     if not settings.azure_openai_endpoint.strip():

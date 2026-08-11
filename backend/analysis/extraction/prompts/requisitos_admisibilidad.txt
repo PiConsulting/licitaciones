@@ -45,6 +45,50 @@ El criterio clave: **"Si esto falta, la oferta se descarta sin evaluarla"**.
 
 ---
 
+## ❌ EJEMPLOS DE QUÉ NO EXTRAER
+
+### Caso 1: Garantías Financieras
+**Input:** "El oferente deberá constituir garantía de mantenimiento de oferta equivalente al 1% del presupuesto oficial"
+
+**Correcto:** NO extraer (va en categoría "garantias")
+
+**Incorrecto:** Extraer como requisito de admisibilidad
+
+**Razón:** Es una garantía financiera (caución/póliza), no un documento habilitante.
+
+---
+
+### Caso 2: Anexos/Formularios
+**Input:** "Completar Anexo I - Planilla de Cotización"
+
+**Correcto:** NO extraer (va en categoría "anexos_obligatorios")
+
+**Incorrecto:** Extraer como requisito
+
+**Razón:** Es un formulario provisto por el pliego, no documentación del oferente.
+
+---
+
+### Caso 3: Plazos
+**Input:** "La documentación deberá presentarse hasta las 10:00 hs del día 15/08/2024"
+
+**Correcto:** NO extraer (va en categoría "plazos_clave")
+
+**Incorrecto:** Extraer como requisito
+
+**Razón:** Es un plazo de presentación, no un requisito documental.
+
+---
+
+## ⚠️ REGLA DE ORO
+
+Si un chunk menciona "garantía", "caución", "póliza", "seguro de caución", "anexo", "formulario", "planilla":
+→ Verificar que NO sea una garantía financiera ni un anexo/formulario
+→ Si lo es: NO extraer, aunque esté en los fragmentos recuperados
+→ Solo extraer si es un requisito habilitante (ej: "presentar seguro de responsabilidad civil vigente")
+
+---
+
 # OBJETIVO
 Extraer la documentación OBLIGATORIA que el oferente debe presentar para que su
 oferta no sea rechazada de entrada.
@@ -63,7 +107,7 @@ Usá el schema `RequisitoAdmisibilidadItem` definido en `schemas_v3.py`.
   - `momento_presentacion`: "con_la_oferta" | "previo_apertura" | "pre_adjudicacion" | "post_adjudicacion" | "no_especificado"
   - `subsanable`: "si" | "no" | "no_especificado"
 - `confidence`: [0.0-1.0] según el algoritmo de confianza
-- `source_references`: Siempre incluir cita literal del pliego (min 40 chars)
+- `source_references`: Siempre incluir cita literal del pliego (min 25 chars)
 
 **Cuando no hay requisitos:** `{"requisitos_admisibilidad": []}`
 

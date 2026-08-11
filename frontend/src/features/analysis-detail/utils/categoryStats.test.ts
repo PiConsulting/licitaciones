@@ -100,4 +100,16 @@ describe("getAnalysisSummary", () => {
     expect(summary.totalFields).toBe(0);
     expect(summary.categoriesNeedingReview).toEqual([]);
   });
+
+  test("cuenta categoría not_applicable como categoría completa", () => {
+    const summary = getAnalysisSummary(
+      analysisWith({
+        garantias: category([], { extraction_status: "not_applicable" }),
+      }),
+    );
+
+    expect(summary.totalCategories).toBe(1);
+    expect(summary.extractedCategories).toBe(1);
+    expect(summary.notApplicable).toBe(0);
+  });
 });

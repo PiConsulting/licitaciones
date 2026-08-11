@@ -3,18 +3,22 @@
 Esta categoría extrae **qué se licita exactamente**: el objeto y alcance de la
 contratación, explicado de forma concisa y práctica.
 
-**Desde la perspectiva del oferente:** "¿Qué estoy cotizando? ¿Es un bien, un
-servicio, una obra? ¿Dónde lo entrego y en qué plazo?"
+**Desde la perspectiva del oferente:** "¿Qué estoy cotizando exactamente?"
 
 La respuesta completa debe poder resumirse en 2-3 líneas. No es un inventario
 técnico detallado sino una síntesis del QUÉ se contrata.
 
-**Qué incluye:**
-- Descripción general del objeto (el "qué")
-- Modalidad de contratación (bienes, servicios, obra, etc.)
-- Si se admiten ofertas parciales o alternativas
-- Lugar de entrega o prestación
-- Plazo de ejecución del contrato (NO confundir con plazos del procedimiento)
+**Qué incluye (en esta versión):**
+- SOLO la descripción general del objeto (el "qué se licita")
+- Alcance global (renglones/lotes de alto nivel, sin detalle técnico exhaustivo)
+
+**Qué NO incluye (va en otras categorías):**
+- Requisitos de admisibilidad
+- Garantías
+- Plazos clave del procedimiento
+- Criterios de evaluación
+- Causales de rechazo
+- Anexos obligatorios
 
 **Reconocimiento semántico:** El pliego puede no titular "Objeto". Buscá:
 - Capítulos o artículos iniciales que describen la contratación
@@ -41,25 +45,24 @@ técnico detallado sino una síntesis del QUÉ se contrata.
 
 # OBJETIVO
 Extraer qué se licita: el objeto y alcance de la contratación en forma concisa.
-Qué se contrata, bajo qué modalidad, dónde se entrega/presta y en qué plazo de
-ejecución.
+Debe quedar en una síntesis breve apta para mostrarse en 2-3 líneas.
 
-Cada aspecto distinto es un ítem separado. Un resumen breve, no un inventario
-técnico completo.
+Emitir SOLO un ítem `resumen_objeto`. No devolver modalidad, lugar de entrega,
+plazo de ejecución, oferta parcial ni oferta alternativa en esta categoría.
 
 # ESTRUCTURA DE SALIDA
 
-Usá el schema `ObjetoAlcanceItem` definido en `schemas_v3.py`.
+Usá el schema `ObjetoAlcanceItem` definido en `schemas.py`.
 
 **Campos clave:**
-- `tipo`: Usa enum `TipoObjetoAlcance` (resumen_objeto, modalidad, item, oferta_parcial, oferta_alternativa, lugar_entrega, plazo_ejecucion)
+- `tipo`: SIEMPRE `resumen_objeto`
 - `valor`: Texto literal o casi literal del pliego
 - `metadata`: Diccionario con campos opcionales:
   - `cantidad`: número (si aplica)
   - `unidad_medida`: texto (si aplica)
   - `renglon`: identificador (si aplica)
 - `confidence`: [0.0-1.0] según el algoritmo de confianza
-- `source_references`: Siempre incluir cita literal del pliego (min 40 chars)
+- `source_references`: Siempre incluir cita literal del pliego (min 25 chars)
 
 **Cuando no hay datos:** `{"objeto_alcance": []}`
 
@@ -75,45 +78,10 @@ Emitir exactamente UNO con descripción concisa. Máximo 2 oraciones.
 - ✅ "Contratación del servicio de limpieza de edificios públicos por 12 meses"
 - ❌ "Provisión de servidores Dell PowerEdge R740 con procesador Intel Xeon, 32GB RAM..." (demasiado detalle técnico)
 
-## 2. modalidad
-Copiá el término que el pliego usa: "bienes", "servicios", "obra pública",
-"suministro", "locación", u otro. No lo normalices.
-
-## 3. item
-SOLO emitir si hay pocos renglones (≤5 items distintos).
-
-❌ Si el pliego tiene tabla con 20+ renglones técnicos, NO emitas uno por fila.
-Eso es especificación técnica, no alcance.
-
-✅ En ese caso, el `resumen_objeto` ya cubre qué se licita.
-
-## 4. oferta_parcial / oferta_alternativa
-El `valor` debe ser `"si"` o `"no"` (texto, no booleano).
-
-**Ejemplos:**
-- "No se admiten ofertas parciales" → `valor: "no"`, status `success`
-- "Se admiten ofertas por renglón" → `valor: "si"`, status `success`
-- Si el pliego no lo menciona → status `not_found`
-
-## 5. plazo_ejecucion
-El plazo de prestación o entrega del OBJETO CONTRATADO.
-
-❌ NO confundir con plazos del procedimiento (presentación, apertura).  
-❌ Esos van en la categoría "plazos clave".
-
-**Ejemplos:**
-- ✅ "Plazo de entrega: 30 días corridos desde la adjudicación"
-- ✅ "Duración del servicio: 12 meses"
-- ❌ "Plazo de presentación de ofertas" (eso NO es plazo de ejecución)
-
-## 6. lugar_entrega
-Dirección o dependencia donde se entrega o presta. Copiá la dirección completa
-tal como figura.
-
-## 7. Sin especificaciones técnicas detalladas
+## 2. Sin especificaciones técnicas detalladas
 Solo el alcance general va acá. Las specs técnicas NO van en esta categoría.
 
-## 8. metadata
+## 3. metadata
 Usá `metadata` para campos secundarios:
 - `cantidad` y `unidad_medida`: si el objeto menciona cantidades
 - `renglon`: si hay identificador de renglón
@@ -160,34 +128,6 @@ Artículo 1° — Objeto. La presente contratación tiene por objeto la provisi�
           "document_id": "7c9e",
           "page_number": 2,
           "citation": "La presente contratación tiene por objeto la provisión de 200 (doscientas) resmas de papel A4."
-        }
-      ],
-      "extraction_status": "success"
-    },
-    {
-      "tipo": "modalidad",
-      "valor": "bienes",
-      "metadata": {},
-      "confidence": 0.85,
-      "source_references": [
-        {
-          "document_id": "7c9e",
-          "page_number": 2,
-          "citation": "Modalidad: bienes. No se admiten ofertas alternativas."
-        }
-      ],
-      "extraction_status": "success"
-    },
-    {
-      "tipo": "oferta_alternativa",
-      "valor": "no",
-      "metadata": {},
-      "confidence": 0.9,
-      "source_references": [
-        {
-          "document_id": "7c9e",
-          "page_number": 2,
-          "citation": "Modalidad: bienes. No se admiten ofertas alternativas."
         }
       ],
       "extraction_status": "success"

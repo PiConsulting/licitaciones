@@ -4,9 +4,9 @@ from analysis.extraction.extractors.base import run_extractor
 from analysis.extraction.state import GraphState
 
 _QUERY = (
-    "Qué se licita: objeto de la contratación, modalidad (bienes, servicios, obra), "
-    "lugar de entrega o prestación, plazo de ejecución, si se admiten ofertas parciales "
-    "o alternativas."
+    "Qué se licita exactamente: objeto principal de la contratación y alcance general "
+    "en síntesis breve (2-3 líneas), sin incluir plazos, garantías, causales de rechazo, "
+    "criterios de evaluación ni requisitos formales."
 )
 
 

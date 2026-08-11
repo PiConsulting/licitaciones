@@ -2,7 +2,7 @@ import type { CategoryNarrative, Citation, NarrativeSource } from "../types";
 
 interface NarrativeBlocksProps {
   narrative: CategoryNarrative;
-  onViewSource?: (payload: { citation: Citation; citations: Citation[] }) => void;
+  onViewSource?: (payload: { citation: Citation; citations: Citation[]; sources: NarrativeSource[] }) => void;
 }
 
 function sourceToCitation(source: NarrativeSource): Citation {
@@ -15,27 +15,71 @@ function sourceToCitation(source: NarrativeSource): Citation {
 }
 
 /**
+ * Filtra sources que no son verificables (marcadas por el backend con
+ * `unverified: true`). Estas citations no pueden ser encontradas en el PDF y
+ * no deben mostrarse al usuario.
+ */
+function filterVerifiedSources(sources: NarrativeSource[]): NarrativeSource[] {
+  return sources.filter((source) => !source.unverified);
+}
+
+/** Unión de todos los `source_ids` que efectivamente usa algún bloque/bullet/
+ * fila renderizado. Una fuente que ningún elemento referencia no puede
+ * aparecer en "Fuentes verificables": mostrarla ahí sugiere una trazabilidad
+ * que no existe — el punto entero de este panel es que cada fuente listada
+ * respalda algo puntual que el usuario puede ver arriba. */
+function collectReferencedSourceIds(narrative: CategoryNarrative): Set<number> {
+  const ids = new Set<number>();
+  for (const block of narrative.blocks) {
+    if (block.type === "paragraph") {
+      block.source_ids.forEach((id) => ids.add(id));
+    } else if (block.type === "bullet_list") {
+      block.items.forEach((item) => item.source_ids.forEach((id) => ids.add(id)));
+    } else {
+      block.rows.forEach((row) => row.source_ids.forEach((id) => ids.add(id)));
+    }
+  }
+  return ids;
+}
+
+/**
  * Renderiza la respuesta de experto de una categoría: siempre bloques en
  * lenguaje natural (párrafo/lista/tabla), nunca `field_name: field_value`
  * crudo — ni acá ni en ningún otro lugar de esta vista. Reemplaza el antiguo
  * "Detalle por campo" y "Acciones recomendadas".
+ *
+ * Cada párrafo/bullet/fila queda conectado a SUS propias fuentes (no a las de
+ * la categoría entera): clickearlo dispara `onViewSource` solo con la
+ * evidencia que respalda ESE elemento puntual.
  */
 export function NarrativeBlocks({ narrative, onViewSource }: NarrativeBlocksProps) {
-  const allCitations = narrative.sources.map(sourceToCitation);
+  // Filtrar sources no verificadas, y luego a las que algún elemento
+  // realmente referencia — nunca se muestra una fuente "suelta".
+  const referencedSourceIds = collectReferencedSourceIds(narrative);
+  const verifiedSources = filterVerifiedSources(narrative.sources).filter((source) =>
+    referencedSourceIds.has(source.id),
+  );
+  const sourceById = new Map(verifiedSources.map((source) => [source.id, source]));
+  const allCitations = verifiedSources.map(sourceToCitation);
 
   const handleViewSource = (sourceIds: number[]) => {
     if (!onViewSource || sourceIds.length === 0) {
       return;
     }
     const citations = sourceIds
-      .map((id) => narrative.sources.find((source) => source.id === id))
+      .map((id) => sourceById.get(id))
       .filter((source): source is NarrativeSource => source !== undefined)
       .map(sourceToCitation);
     if (citations.length === 0) {
       return;
     }
-    onViewSource({ citation: citations[0], citations: allCitations });
+    onViewSource({ citation: citations[0], citations: allCitations, sources: verifiedSources });
   };
+
+  // Botones individuales "Ver fuente" eliminados - ahora solo se usa la lista de fuentes al final
+  function renderElementSourceButton(_sourceIds: number[]) {
+    return null;
+  }
 
   return (
     <section className="mt-3 rounded-md border border-gray-200 bg-gray-50 p-3" data-testid="narrative-blocks">
@@ -47,6 +91,7 @@ export function NarrativeBlocks({ narrative, onViewSource }: NarrativeBlocksProp
             return (
               <div key={index} className="flex items-start gap-2" data-testid="narrative-paragraph">
                 <p className="flex-1 text-sm leading-relaxed text-gray-800">{block.text}</p>
+                {renderElementSourceButton(block.source_ids)}
               </div>
             );
           }
@@ -58,6 +103,7 @@ export function NarrativeBlocks({ narrative, onViewSource }: NarrativeBlocksProp
                   <li key={itemIndex} className="flex items-start gap-2" data-testid="narrative-bullet-item">
                     <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-gray-400" aria-hidden="true" />
                     <span className="flex-1 text-sm leading-relaxed text-gray-800">{item.text}</span>
+                    {renderElementSourceButton(item.source_ids)}
                   </li>
                 ))}
               </ul>
@@ -74,6 +120,7 @@ export function NarrativeBlocks({ narrative, onViewSource }: NarrativeBlocksProp
                         {header}
                       </th>
                     ))}
+                    <th className="border-b border-gray-200 px-2 py-1" aria-hidden="true" />
                   </tr>
                 </thead>
                 <tbody>
@@ -84,6 +131,7 @@ export function NarrativeBlocks({ narrative, onViewSource }: NarrativeBlocksProp
                           {cell}
                         </td>
                       ))}
+                      <td className="px-2 py-1.5">{renderElementSourceButton(row.source_ids)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -95,13 +143,13 @@ export function NarrativeBlocks({ narrative, onViewSource }: NarrativeBlocksProp
 
       <div className="mt-3 rounded border border-gray-200 bg-white p-2" data-testid="category-sources">
         <h5 className="text-xs font-semibold uppercase tracking-wide text-gray-700">Fuentes verificables</h5>
-        {narrative.sources.length > 0 ? (
+        {verifiedSources.length > 0 ? (
           <ul className="mt-2 space-y-2" data-testid="category-sources-list">
-            {narrative.sources.map((source) => (
+            {verifiedSources.map((source) => (
               <li key={source.id}>
                 <button
                   type="button"
-                  className="w-full rounded border border-gray-200 px-2 py-1 text-left text-xs text-primary hover:border-primary"
+                  className="w-full rounded border border-gray-200 px-2 py-1 text-left text-xs text-blue-500 hover:border-primary"
                   onClick={() => handleViewSource([source.id])}
                 >
                   <span className="font-semibold">{source.document_name}</span>

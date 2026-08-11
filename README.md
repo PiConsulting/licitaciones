@@ -13,7 +13,7 @@ Monorepo base para CedIA - Sistema de Analisis Automatico de Pliegos.
   - Azure AI Search
   - Azure OpenAI (chat + embeddings)
 
-Este proyecto corre contra el ecosistema de Azure (`APP_ENV=production`). El perfil local (ChromaDB, Cohere, Sentence Transformers) es solo un modo de desarrollo offline opcional — ver [Perfiles de ejecucion](#perfiles-de-ejecucion).
+Este proyecto corre contra el ecosistema de Azure (`APP_ENV=production`).
 
 ## Servicios de Azure requeridos
 
@@ -38,7 +38,7 @@ Antes de instalar, tene a mano las credenciales de:
    - Copiar `.env.example` a `.env` en la raiz del repo.
    - Setear `APP_ENV=production` y `USE_LOCAL_ADAPTERS=false`.
    - Completar todas las credenciales de Azure listadas en [Variables de entorno relevantes](#variables-de-entorno-relevantes-story-25).
-   - `DATABASE_URL` debe apuntar a la instancia de Azure Database for PostgreSQL (no `localhost`; el arranque en `production` rechaza hosts locales salvo en modo `cosmos_temporal`/`cosmos_only`).
+   - `DATABASE_URL` debe apuntar a la instancia de Azure Database for PostgreSQL.
 4. Aplicar migraciones (desde `backend`, contra la base de Azure):
    - `cd backend && ..\.venv\Scripts\python.exe -m alembic upgrade head`
 5. (Opcional) Crear usuario de prueba:
@@ -111,10 +111,9 @@ Otras:
 - `LOG_LEVEL=INFO`
 - `AZURE_SDK_LOG_LEVEL=WARNING`
 
-## Perfiles de ejecucion
+## Configuración
 
-- **Production (Azure, recomendado)**: `APP_ENV=production`. Azure Document Intelligence + chunking estructural + Azure OpenAI Embeddings + Azure AI Search + Azure OpenAI. Requiere todas las credenciales de Azure listadas arriba; se valida al arrancar (`validate_cloud_configuration`).
-- **Development (local, opcional)**: `APP_ENV=development` / `USE_LOCAL_ADAPTERS=true`. Usa MarkItDown + Sentence Transformers (BAAI/bge-m3) + ChromaDB + Cohere en lugar de los servicios de Azure. Util solo para desarrollo offline sin credenciales de Azure a mano.
+El sistema utiliza Azure Document Intelligence para análisis de documentos, chunking estructural, Azure OpenAI para embeddings y generación, y Azure AI Search para almacenamiento vectorial. Todas las credenciales de Azure listadas arriba son requeridas y se validan al arrancar (`validate_cloud_configuration`).
 
 ## Pipeline de extraccion de 8 categorias
 

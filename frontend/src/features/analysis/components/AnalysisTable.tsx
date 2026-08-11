@@ -1,5 +1,5 @@
 import type { MouseEvent } from "react";
-import { RotateCcw, Trash2 } from "lucide-react";
+import { Play, RotateCcw, Trash2 } from "lucide-react";
 
 import type { AnalysisListItem, AnalysisListSortBy, AnalysisListSortOrder } from "../../../types/analysis";
 import { ProgressBar } from "./ProgressBar";
@@ -11,6 +11,7 @@ interface AnalysisTableProps {
   sortOrder: AnalysisListSortOrder;
   onSort: (column: AnalysisListSortBy) => void;
   onRowClick: (analysisId: string) => void;
+  onStartAnalysis?: (analysisId: string) => void;
   onRetryAnalysis?: (analysisId: string) => void;
   onDeleteAnalysis?: (item: AnalysisListItem) => void;
   retryingAnalysisId?: string | null;
@@ -63,6 +64,7 @@ export function AnalysisTable({
   sortOrder,
   onSort,
   onRowClick,
+  onStartAnalysis,
   onRetryAnalysis,
   onDeleteAnalysis,
   retryingAnalysisId,
@@ -110,7 +112,7 @@ export function AnalysisTable({
                 onClick={(event) => onRowSelect(event, item.id)}
                 className="cursor-pointer hover:bg-primary-light/30"
               >
-                <td className="px-4 py-3 text-sm text-gray-900">{item.primary_document_name ?? `Análisis ${item.id.slice(0, 8)}`}</td>
+                <td className="px-4 py-3 text-sm text-gray-900">{item.analysis_name ?? item.primary_document_name ?? `Análisis ${item.id.slice(0, 8)}`}</td>
                 <td className="px-4 py-3 text-sm text-gray-700">{item.organismo ?? "No disponible"}</td>
                 <td className="px-4 py-3 text-sm text-gray-700">
                   <StatusBadge status={item.status} />
@@ -130,6 +132,20 @@ export function AnalysisTable({
                 <td className="px-4 py-3 text-sm text-gray-700">{item.created_by_name ?? "Desconocido"}</td>
                 <td className="px-4 py-3 text-sm text-gray-700">
                   <div className="flex items-center gap-2">
+                    {item.status.toLowerCase() === "draft" ? (
+                      <button
+                        type="button"
+                        data-menu="true"
+                        aria-label={retryingAnalysisId === item.id ? "Iniciando análisis" : "Iniciar análisis"}
+                        title={retryingAnalysisId === item.id ? "Iniciando análisis" : "Iniciar análisis"}
+                        className="rounded border border-gray-200 p-2 text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        onClick={() => onStartAnalysis?.(item.id)}
+                        disabled={!onStartAnalysis || retryingAnalysisId === item.id}
+                      >
+                        <Play size={16} aria-hidden="true" className={retryingAnalysisId === item.id ? "animate-pulse" : undefined} />
+                      </button>
+                    ) : null}
+
                     {item.status.toLowerCase() === "error" ? (
                       <button
                         type="button"

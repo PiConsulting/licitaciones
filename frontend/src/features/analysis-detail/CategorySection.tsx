@@ -15,7 +15,7 @@ import { buildNarrativeBlocks } from "./utils/narrativeSynthesis";
 interface CategorySectionProps {
   categoryId: CategoryId;
   category: CategoryData;
-  onViewSource?: (payload: { citation: Citation; citations: Citation[] }) => void;
+  onViewSource?: (payload: { citation: Citation; citations: Citation[]; sources: NarrativeSource[] }) => void;
 }
 
 export function CategorySection({ categoryId, category, onViewSource }: CategorySectionProps) {
@@ -30,10 +30,13 @@ export function CategorySection({ categoryId, category, onViewSource }: Category
   );
   const isReviewed = category.is_reviewed && hasClickableEvidence;
   const confidenceLevel = category.confidence > 0 ? getConfidenceLevel(category.confidence) : null;
+  const categoryFullyNotApplicable =
+    category.extraction_status === "not_applicable" && counts.extracted === 0 && counts.conflict === 0;
 
   const state = category.extraction_status === "failed"
     ? "error"
-    : category.extraction_status === "not_applicable"
+    // Solo marcar como "no_aplica" si NO hay items extraídos (para evitar badge inconsistente)
+    : categoryFullyNotApplicable
       ? "no_aplica"
       : counts.conflict > 0
         ? "con_conflictos"
@@ -69,8 +72,10 @@ export function CategorySection({ categoryId, category, onViewSource }: Category
           {counts.conflict > 0 ? (
             <Badge tone="error" icon={AlertTriangle}>{`${counts.conflict} ${conflictWord}`}</Badge>
           ) : null}
-          {counts.notApplicable > 0 ? <Badge tone="info">{`${counts.notApplicable} no aplica`}</Badge> : null}
-          <FieldStateBadge state={state} />
+          {categoryFullyNotApplicable && counts.notApplicable > 0 ? (
+            <Badge tone="info">{`${counts.notApplicable} no aplica`}</Badge>
+          ) : null}
+          {state !== "sin_revisar" ? <FieldStateBadge state={state} /> : null}
         </div>
       </div>
 

@@ -23,11 +23,35 @@ from pydantic import BaseModel, Field, field_validator
 # BASE TYPES
 # =============================================================================
 
+# Contrato único de longitud de cita. Antes cada capa tenía su propio umbral
+# (25 en el verificador de grounding, 40 en la penalización de graph.py, 40-300
+# en este schema, "25-300" en el prompt), así que una misma cita literal y
+# verificable podía sobrevivir en un pliego y desaparecer -- o hacer explotar
+# merge_node con un ValidationError -- en otro, según cuán larga fuera la
+# oración citada. La longitud no decide si una cita es válida: eso lo decide
+# `_verify_reference_grounded` comprobando que el texto exista literalmente en
+# un chunk recuperado. El mínimo solo descarta citas demasiado cortas para ser
+# discriminantes ("oferta", "garantía"); el máximo es un límite de
+# almacenamiento y se aplica recortando la cita, nunca descartando el ítem.
+CITATION_MIN_CHARS = 12
+CITATION_MAX_CHARS = 300
+
+# Umbral de *utilidad*, no de validez: por debajo de esto la cita es verificable
+# pero pobre como evidencia para el usuario, así que se intenta reemplazarla por
+# un fragmento literal más rico del mismo chunk. Si no se consigue, la cita
+# corta se conserva igual -- nunca se descarta el ítem por este umbral.
+CITATION_PREFERRED_MIN_CHARS = 40
+
+# Nivel de confianza para categorías sin evidencia. Usado por `_empty_category_narrative()`
+# en synthesis.py cuando no se encuentran items útiles para una categoría.
+CONFIDENCE_NO_EVIDENCE = "baja"
+
+
 class SourceReference(BaseModel):
     """Referencia a la fuente en el pliego original."""
     document_id: str
     page_number: int
-    citation: str = Field(min_length=40, max_length=300)
+    citation: str = Field(min_length=CITATION_MIN_CHARS, max_length=CITATION_MAX_CHARS)
 
 
 ConfidenceLevel = Literal["alta", "media", "baja"]
@@ -51,6 +75,18 @@ class NarrativeSource(BaseModel):
     document_id: str
     page_number: int
     citation: str
+    # Marca de cita que no se pudo respaldar contra los chunks recuperados.
+    # Antes viajaba como la clave suelta `_unverified` en un dict: pydantic la
+    # descartaba al reconstruir la narrativa y la fuente llegaba al usuario sin
+    # ninguna señal de que no estaba verificada. Como campo declarado, sobrevive
+    # la serialización y la persistencia.
+    unverified: bool = False
+    # Coordenadas de highlight pre-computadas en el PDF usando PyMuPDF.
+    # Cada región es un rectángulo: {"x": float, "y": float, "width": float, "height": float}
+    # Lista vacía si no se pudo calcular o si PyMuPDF no está disponible.
+    # FIX CRÍTICO (2026-08): Resuelve el problema de highlight frágil identificado
+    # en la auditoría RAG (falsos positivos/negativos por heurísticas de matching).
+    highlight_regions: list[dict[str, float]] = Field(default_factory=list)
 
 
 class NarrativeParagraphBlock(BaseModel):
@@ -96,6 +132,59 @@ class CategoryNarrative(BaseModel):
 
 
 # =============================================================================
+# NARRATIVE BLOCKS (forma cruda que devuelve el LLM de sintesis)
+# =============================================================================
+#
+# El LLM de sintesis NUNCA autoria `sources` ni `source_ids`: solo indica, por
+# `item_refs`, que indices del array de items de entrada (`item_index`)
+# respaldan cada bloque/bullet/fila. `synthesis._resolve_narrative_sources`
+# traduce esto a un `CategoryNarrative` tomando los `source_references`
+# propios de ESOS items -- nunca texto inventado ni citas de otro item -- y
+# arma `sources`/`source_ids` en codigo. Esta forma cruda nunca se persiste ni
+# llega al frontend.
+
+class RawNarrativeParagraphBlock(BaseModel):
+    type: Literal["paragraph"] = "paragraph"
+    text: str
+    confidence_level: ConfidenceLevel
+    item_refs: list[int] = Field(default_factory=list)
+
+
+class RawNarrativeBulletItem(BaseModel):
+    text: str
+    confidence_level: ConfidenceLevel
+    item_refs: list[int] = Field(default_factory=list)
+
+
+class RawNarrativeBulletListBlock(BaseModel):
+    type: Literal["bullet_list"] = "bullet_list"
+    items: list[RawNarrativeBulletItem] = Field(default_factory=list)
+
+
+class RawNarrativeTableRow(BaseModel):
+    cells: list[str] = Field(default_factory=list)
+    confidence_level: ConfidenceLevel
+    item_refs: list[int] = Field(default_factory=list)
+
+
+class RawNarrativeTableBlock(BaseModel):
+    type: Literal["table"] = "table"
+    headers: list[str] = Field(default_factory=list)
+    rows: list[RawNarrativeTableRow] = Field(default_factory=list)
+
+
+RawNarrativeBlock = Annotated[
+    Union[RawNarrativeParagraphBlock, RawNarrativeBulletListBlock, RawNarrativeTableBlock],
+    Field(discriminator="type"),
+]
+
+
+class RawCategoryNarrative(BaseModel):
+    """Salida cruda del LLM de sintesis: bloques con `item_refs`, sin `sources`."""
+    blocks: list[RawNarrativeBlock] = Field(default_factory=list)
+
+
+# =============================================================================
 # CATEGORÍA: PLAZOS CLAVE
 # =============================================================================
 
@@ -107,6 +196,7 @@ class TipoPlazo(str, Enum):
     RESPUESTA_CONSULTAS = "respuesta_consultas"
     VISITA_LUGAR = "visita_lugar"
     MANTENIMIENTO_OFERTA = "mantenimiento_oferta"
+    PLAZO_EJECUCION = "plazo_ejecucion"  # Plazo de entrega o ejecución del contrato
     ADJUDICACION = "adjudicacion"
     IMPUGNACION = "impugnacion"
     FIRMA_CONTRATO = "firma_contrato"
@@ -157,6 +247,13 @@ class GarantiaItem(ExtractedItem):
     Solo uno puede tener valor, el otro debe ser None.
     """
     tipo: TipoGarantia
+    # Texto descriptivo de la garantía. Es el unico lugar donde puede vivir la
+    # explicacion de un item `not_applicable` ("Exento: no se exige garantia
+    # cuando el monto no supera 100 modulos"), que por definicion no tiene monto.
+    # Sin este campo pydantic descartaba en silencio el `valor` que el prompt ya
+    # le venia pidiendo al LLM, y la exencion se persistia sin ninguna
+    # explicacion para el usuario.
+    valor: str | None = None
     monto_porcentaje: float | None = Field(None, ge=0.0, le=100.0)
     monto_valor: float | None = Field(None, ge=0.0)
     moneda: str | None = None
@@ -324,6 +421,7 @@ class TipoIdentificacion(str, Enum):
     EXPEDIENTE = "expediente"
     NUMERO_PROCEDIMIENTO = "numero_procedimiento"
     TIPO_PROCEDIMIENTO = "tipo_procedimiento"
+    PRESUPUESTO_OFICIAL = "presupuesto_oficial"
     JURISDICCION = "jurisdiccion"
 
 
@@ -433,14 +531,41 @@ class ExtractedData(BaseModel):
     identificacion_procedimiento_extraction_status: str = "unknown"
     identificacion_procedimiento_narrative: CategoryNarrative | None = None
 
-    # Legacy fields (backward compatibility)
-    plazos: list[PlazoItem] = Field(default_factory=list)
+    # =============================================================================
+    # LEGACY FIELDS - BACKWARD COMPATIBILITY
+    # =============================================================================
+    # FIX MEDIUM (#4): Campos legacy mantenidos por compatibilidad con frontend.
+    # 
+    # CAMPOS CANÓNICOS (usar estos):
+    #   - plazos_clave (NO "plazos")
+    #   - identificacion_procedimiento (NO "datos_procedimiento")
+    #   - anexos_obligatorios (NO "documentos_requeridos")
+    # 
+    # DEPRECACIÓN PLANEADA:
+    #   - Q1 2027: Agregar warnings en logs cuando frontend use campos legacy
+    #   - Q2 2027: Eliminar campos legacy del schema después de migración de frontend
+    # 
+    # ACCIÓN REQUERIDA:
+    #   - Verificar que frontend solo consume campos canónicos
+    #   - Migrar cualquier referencia a campos legacy
+    # =============================================================================
+
+    plazos: list[PlazoItem] = Field(
+        default_factory=list,
+        description="DEPRECATED: Usar 'plazos_clave' en su lugar. Será eliminado en Q2 2027.",
+    )
     plazos_extraction_status: str = "unknown"
 
-    datos_procedimiento: list[GenericCategoryItem] = Field(default_factory=list)
+    datos_procedimiento: list[GenericCategoryItem] = Field(
+        default_factory=list,
+        description="DEPRECATED: Usar 'identificacion_procedimiento' en su lugar. Será eliminado en Q2 2027.",
+    )
     datos_procedimiento_extraction_status: str = "unknown"
 
-    documentos_requeridos: list[GenericCategoryItem] = Field(default_factory=list)
+    documentos_requeridos: list[GenericCategoryItem] = Field(
+        default_factory=list,
+        description="DEPRECATED: Usar 'anexos_obligatorios' en su lugar. Será eliminado en Q2 2027.",
+    )
     documentos_extraction_status: str = "unknown"
 
 
@@ -461,7 +586,19 @@ __all__ = [
     "NarrativeParagraphBlock",
     "NarrativeBulletListBlock",
     "NarrativeTableBlock",
-    
+    "NarrativeSource",
+    "NarrativeBulletItem",
+    "NarrativeTableRow",
+
+    # Narrative (raw LLM output)
+    "RawCategoryNarrative",
+    "RawNarrativeBlock",
+    "RawNarrativeParagraphBlock",
+    "RawNarrativeBulletItem",
+    "RawNarrativeBulletListBlock",
+    "RawNarrativeTableRow",
+    "RawNarrativeTableBlock",
+
     # Categorías específicas
     "PlazoItem",
     "TipoPlazo",

@@ -110,6 +110,33 @@ def test_cita_de_tabla_alucinada() -> None:
     assert item["_warning"] == "cita_no_verificada"
 
 
+def test_cita_textual_larga_en_chunk_tabla_tambien_valida() -> None:
+    chunk = _table_chunk(
+        page_number=1,
+        section_key="caratula",
+        content=(
+            "Organismo: Municipalidad de San Martín de los Andes | "
+            "Procedimiento: Contratación Directa N° 014/2026 | "
+            "Presupuesto oficial: $ 3.850.000 | Expediente: EXP-MUN-2026-00874"
+        ),
+    )
+    item = {
+        "extraction_status": "success",
+        "source_references": [
+            {
+                "document_id": "doc-1",
+                "page_number": 1,
+                "citation": "Organismo: Municipalidad de San Martín de los Andes | Procedimiento: Contratación Directa N° 014/2026",
+            }
+        ],
+    }
+
+    _verify_citation_grounding([item], [chunk], category="identificacion_procedimiento", correlation_id="corr-1")
+
+    assert item["extraction_status"] == "success"
+    assert "_warning" not in item
+
+
 def test_item_con_una_referencia_valida_y_otra_alucinada_no_se_penaliza() -> None:
     chunk = _paragraph_chunk()
     item = {

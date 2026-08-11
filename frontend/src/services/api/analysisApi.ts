@@ -1,7 +1,7 @@
 import { AxiosError } from "axios";
 
 import apiClient from "../../api/client";
-import { dedupeNarrativeSources } from "../../features/analysis-detail/utils/dedupeCitations";
+import { dedupeNarrativeSources, remapSourceIds } from "../../features/analysis-detail/utils/dedupeCitations";
 import {
   type AnalysisDetail,
   type CategoryData,
@@ -61,6 +61,7 @@ function toNarrativeSource(value: unknown): NarrativeSource | null {
     document_name: "Documento",
     page: Number(value.page_number ?? 0),
     text: String(value.citation ?? ""),
+    unverified: Boolean(value.unverified),
   };
 }
 
@@ -122,6 +123,25 @@ function toNarrativeBlock(value: unknown): NarrativeBlockData | null {
   return null;
 }
 
+/** Remapea los `source_ids` de un bloque ya tipado con el mapping que dejó la
+ * deduplicación de fuentes, para que ningún bloque quede apuntando a un id
+ * que la fusión de sources descartó. */
+function remapNarrativeBlockSourceIds(block: NarrativeBlockData, idMapping: Map<number, number>): NarrativeBlockData {
+  if (block.type === "paragraph") {
+    return { ...block, source_ids: remapSourceIds(block.source_ids, idMapping) };
+  }
+  if (block.type === "bullet_list") {
+    return {
+      ...block,
+      items: block.items.map((item) => ({ ...item, source_ids: remapSourceIds(item.source_ids, idMapping) })),
+    };
+  }
+  return {
+    ...block,
+    rows: block.rows.map((row) => ({ ...row, source_ids: remapSourceIds(row.source_ids, idMapping) })),
+  };
+}
+
 /** Arma la CategoryNarrative del backend en la forma tipada del frontend. Es
  * defensivo a propósito: si la síntesis vino mal formada o vacía, devuelve
  * undefined y el llamador cae al fallback local en vez de romper la vista. */
@@ -131,12 +151,15 @@ function toCategoryNarrative(value: unknown): CategoryNarrative | undefined {
   }
 
   const rawSources = Array.isArray(value.sources) ? value.sources : [];
-  const sources = dedupeNarrativeSources(
+  const { sources, idMapping } = dedupeNarrativeSources(
     rawSources.map(toNarrativeSource).filter((source): source is NarrativeSource => source !== null),
   );
 
   const rawBlocks = Array.isArray(value.blocks) ? value.blocks : [];
-  const blocks = rawBlocks.map(toNarrativeBlock).filter((block): block is NarrativeBlockData => block !== null);
+  const blocks = rawBlocks
+    .map(toNarrativeBlock)
+    .filter((block): block is NarrativeBlockData => block !== null)
+    .map((block) => remapNarrativeBlockSourceIds(block, idMapping));
 
   if (blocks.length === 0) {
     return undefined;
@@ -206,6 +229,13 @@ function emptyCategoryData(): CategoryData {
 /**
  * El backend emite cada categoría como un array de ítems y el estado agregado en
  * una clave hermana, cuyo nombre no siempre coincide con el de la categoría.
+ * 
+ * FIX: Migrado a campos canónicos (#4 auditoría RAG)
+ * - anexos_obligatorios_extraction_status (NO anexos_extraction_status)
+ * - criterios_evaluacion_extraction_status (NO criterios_extraction_status)
+ * 
+ * Los campos legacy siguen funcionando hasta Q2 2027, pero se recomienda
+ * usar los canónicos para evitar problemas futuros.
  */
 const BACKEND_STATUS_KEY: Record<CategoryId, string> = {
   plazos_clave: "plazos_clave_extraction_status",
@@ -213,8 +243,8 @@ const BACKEND_STATUS_KEY: Record<CategoryId, string> = {
   causales_rechazo: "causales_extraction_status",
   objeto_alcance: "objeto_alcance_extraction_status",
   requisitos_admisibilidad: "requisitos_admisibilidad_extraction_status",
-  criterios_evaluacion: "criterios_extraction_status",
-  anexos_obligatorios: "anexos_extraction_status",
+  criterios_evaluacion: "criterios_evaluacion_extraction_status",
+  anexos_obligatorios: "anexos_obligatorios_extraction_status",
   datos_procedimiento: "datos_procedimiento_extraction_status",
 };
 
@@ -240,6 +270,11 @@ const FIELD_LABELS: Record<string, string> = {
   lugar_entrega: "Lugar de entrega",
   plazo_ejecucion: "Plazo de ejecución",
   presupuesto_oficial: "Presupuesto oficial",
+  organismo_convocante: "Organismo convocante",
+  expediente: "Expediente",
+  numero_procedimiento: "Procedimiento",
+  tipo_procedimiento: "Tipo de procedimiento",
+  jurisdiccion: "Jurisdicción",
   otro: "Otro",
   otra: "Otra",
 };
@@ -428,6 +463,11 @@ function normalizeCategories(extractedData: unknown): Record<CategoryId, Categor
     return result;
   }
 
+  // FIX: Mapeo legacy solo para retrocompatibilidad (#4 auditoría RAG)
+  // El backend actual envía ambos nombres (canónico + legacy), pero versiones
+  // antiguas o análisis legacy pueden tener solo los nombres viejos.
+  // Este fallback se puede eliminar después de Q2 2027 cuando se deprecien
+  // completamente los campos legacy del backend.
   const legacyToUiMap: Partial<Record<CategoryId, string[]>> = {
     plazos_clave: ["plazos"],
     requisitos_admisibilidad: ["documentos_requeridos", "restricciones_participacion"],

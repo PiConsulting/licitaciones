@@ -49,6 +49,7 @@ class GraphState(TypedDict, total=False):
     extracted_data: dict[str, Any]
     conflicts: list[dict[str, Any]]
     extraction_metadata: dict[str, Any]
+    document_id_to_blob_path: dict[str, str]  # Para highlight pre-computado
 
     plazos_token_usage: dict[str, int]
     objeto_alcance_token_usage: dict[str, int]

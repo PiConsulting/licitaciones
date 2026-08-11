@@ -49,9 +49,25 @@ def mock_search(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def _resolve_root_key(prompt: str) -> str:
+    """Identifica la categoria que se esta extrayendo por el marcador que el
+    system prompt renderiza a partir de `{root_key}`.
+
+    Buscar la clave suelta (`'"garantias"' in prompt`) no sirve: los prompts se
+    nombran entre si para delimitar su alcance -- garantias.txt menciona
+    "plazos_clave" dos veces -- asi que el mock resolvia la categoria
+    equivocada, devolvia el payload de otra y la categoria real quedaba vacia.
+    """
+    for candidate in CANONICAL_CATEGORY_PROMPT_MAP:
+        if '{"' + candidate + '": [], "_diagnostic"' in prompt:
+            return candidate
+    return ""
+
+
 def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
     prompt = "\n".join(content for _role, content in messages)
-    if '"objeto_alcance"' in prompt:
+    root_key = _resolve_root_key(prompt)
+    if root_key == "objeto_alcance":
         return {
             "objeto_alcance": [
                 {
@@ -61,7 +77,7 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                     "source_references": [
                         {
                             "document_id": "doc-1",
-                            "page_number": 2,
+                            "page_number": 3,
                             "citation": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
                         }
                     ],
@@ -69,7 +85,7 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                 }
             ]
         }
-    if '"plazos_clave"' in prompt:
+    if root_key == "plazos_clave":
         return {
             "plazos_clave": [
                 {
@@ -87,7 +103,7 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                 }
             ]
         }
-    if '"garantias"' in prompt:
+    if root_key == "garantias":
         return {
             "garantias": [
                 {
@@ -97,7 +113,7 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                     "source_references": [
                         {
                             "document_id": "doc-1",
-                            "page_number": 5,
+                            "page_number": 3,
                             "citation": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
                         }
                     ],
@@ -105,7 +121,7 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                 }
             ]
         }
-    if '"causales_rechazo"' in prompt:
+    if root_key == "causales_rechazo":
         return {
             "causales_rechazo": [
                 {
@@ -115,7 +131,7 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                     "source_references": [
                         {
                             "document_id": "doc-1",
-                            "page_number": 7,
+                            "page_number": 3,
                             "citation": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
                         }
                     ],
@@ -123,7 +139,7 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                 }
             ]
         }
-    if '"requisitos_admisibilidad"' in prompt:
+    if root_key == "requisitos_admisibilidad":
         return {
             "requisitos_admisibilidad": [
                 {
@@ -133,7 +149,7 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                     "source_references": [
                         {
                             "document_id": "doc-1",
-                            "page_number": 8,
+                            "page_number": 3,
                             "citation": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
                         }
                     ],
@@ -141,7 +157,7 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                 }
             ]
         }
-    if '"criterios_evaluacion"' in prompt:
+    if root_key == "criterios_evaluacion":
         return {
             "criterios_evaluacion": [
                 {
@@ -151,7 +167,7 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                     "source_references": [
                         {
                             "document_id": "doc-1",
-                            "page_number": 9,
+                            "page_number": 3,
                             "citation": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
                         }
                     ],
@@ -159,7 +175,7 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                 }
             ]
         }
-    if '"anexos_obligatorios"' in prompt:
+    if root_key == "anexos_obligatorios":
         return {
             "anexos_obligatorios": [
                 {
@@ -169,7 +185,7 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
                     "source_references": [
                         {
                             "document_id": "doc-1",
-                            "page_number": 13,
+                            "page_number": 3,
                             "citation": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
                         }
                     ],
@@ -233,14 +249,14 @@ def test_merge_node_detects_conflicts() -> None:
             {
                 "tipo": "presentación ofertas",
                 "fecha": "2024-05-15",
-                "source_references": [{"document_id": "doc-1", "page_number": 1, "citation": "a"}],
+                "source_references": [{"document_id": "doc-1", "page_number": 1, "citation": "Cita literal de la fuente A del pliego."}],
                 "extraction_status": "success",
                 "confidence": 0.8,
             },
             {
                 "tipo": "presentación ofertas",
                 "fecha": "2024-05-20",
-                "source_references": [{"document_id": "doc-2", "page_number": 2, "citation": "b"}],
+                "source_references": [{"document_id": "doc-2", "page_number": 2, "citation": "Cita literal de la fuente B del pliego."}],
                 "extraction_status": "success",
                 "confidence": 0.8,
             },
@@ -324,7 +340,10 @@ def test_json_contract_allows_not_applicable_status() -> None:
     payload = {
         "plazos": [
             {
-                "tipo": "mantenimiento de oferta",
+                # El enum `TipoPlazo` es el contrato del schema. La forma con
+                # espacios la produce el LLM y la canonicaliza merge_node; este
+                # test valida el schema directo, asi que usa el valor canonico.
+                "tipo": "mantenimiento_oferta",
                 "fecha": None,
                 "confidence": 0.85,
                 "source_references": [
@@ -485,7 +504,7 @@ def test_merge_exposes_ui_category_keys() -> None:
                 "tipo": "documento",
                 "valor": "estatuto",
                 "confidence": 0.8,
-                "source_references": [{"document_id": "doc-1", "page_number": 2, "citation": "texto"}],
+                "source_references": [{"document_id": "doc-1", "page_number": 2, "citation": "Texto literal tomado del pliego analizado."}],
                 "extraction_status": "success",
             }
         ],
@@ -526,7 +545,7 @@ def test_merge_populates_datos_procedimiento_desde_identificacion() -> None:
                 "tipo": "organismo_convocante",
                 "valor": "Municipalidad de Villa Nueva",
                 "confidence": 0.9,
-                "source_references": [{"document_id": "doc-1", "page_number": 1, "citation": "texto literal"}],
+                "source_references": [{"document_id": "doc-1", "page_number": 1, "citation": "Texto literal tomado del fragmento recuperado."}],
                 "extraction_status": "success",
             }
         ],
@@ -569,7 +588,14 @@ def test_extractor_usa_una_query_semantica_rica_sin_glosario(
     captured_query = {"value": ""}
     captured_keyword = {"value": ""}
 
-    def _fake_search_hybrid(*, query: str, analysis_id: str, top_k: int, keyword_query: str | None = None):
+    def _fake_search_hybrid(
+        *,
+        query: str,
+        analysis_id: str,
+        top_k: int,
+        keyword_query: str | None = None,
+        category_filter: str | None = None,
+    ):
         captured_query["value"] = query
         captured_keyword["value"] = keyword_query or ""
         return []
@@ -698,7 +724,7 @@ def _anexo_item(valor: str, page_number: int, **overrides: object) -> dict:
         "tipo": "anexo",
         "valor": valor,
         "confidence": 0.8,
-        "source_references": [{"document_id": "doc-1", "page_number": page_number, "citation": "cita"}],
+        "source_references": [{"document_id": "doc-1", "page_number": page_number, "citation": "Cita literal tomada del pliego analizado."}],
         "extraction_status": "success",
     }
     item.update(overrides)
@@ -766,14 +792,14 @@ def test_dedup_causales_sin_campo_tipo_util_no_fusiona_hechos_distintos() -> Non
             "tipo": "causal_rechazo",
             "valor": "No presentar la garantía de mantenimiento de oferta.",
             "confidence": 0.9,
-            "source_references": [{"document_id": "doc-1", "page_number": 4, "citation": "cita"}],
+            "source_references": [{"document_id": "doc-1", "page_number": 4, "citation": "Cita literal tomada del pliego analizado."}],
             "extraction_status": "success",
         },
         {
             "tipo": "causal_rechazo",
             "valor": "Presentar la oferta fuera del plazo establecido.",
             "confidence": 0.9,
-            "source_references": [{"document_id": "doc-1", "page_number": 5, "citation": "cita"}],
+            "source_references": [{"document_id": "doc-1", "page_number": 5, "citation": "Cita literal tomada del pliego analizado."}],
             "extraction_status": "success",
         },
     ]
@@ -791,14 +817,14 @@ def test_dedup_causales_mismo_tipo_y_valor_se_fusiona() -> None:
             "tipo": "causal_rechazo",
             "valor": "No presentar la garantía de mantenimiento de oferta.",
             "confidence": 0.9,
-            "source_references": [{"document_id": "doc-1", "page_number": 4, "citation": "cita"}],
+            "source_references": [{"document_id": "doc-1", "page_number": 4, "citation": "Cita literal tomada del pliego analizado."}],
             "extraction_status": "success",
         },
         {
             "tipo": "causal_rechazo",
             "valor": "no presentar la garantía de mantenimiento de oferta.",
             "confidence": 0.85,
-            "source_references": [{"document_id": "doc-1", "page_number": 9, "citation": "cita"}],
+            "source_references": [{"document_id": "doc-1", "page_number": 9, "citation": "Cita literal tomada del pliego analizado."}],
             "extraction_status": "success",
         },
     ]
@@ -816,14 +842,14 @@ def test_dedup_no_cambia_comportamiento_de_plazos_y_garantias() -> None:
             "tipo": "presentación ofertas",
             "fecha": "2024-05-15",
             "confidence": 0.9,
-            "source_references": [{"document_id": "doc-1", "page_number": 1, "citation": "a"}],
+            "source_references": [{"document_id": "doc-1", "page_number": 1, "citation": "Cita literal de la fuente A del pliego."}],
             "extraction_status": "success",
         },
         {
             "tipo": "presentación de ofertas",
             "fecha": "2024-05-15",
             "confidence": 0.8,
-            "source_references": [{"document_id": "doc-2", "page_number": 2, "citation": "b"}],
+            "source_references": [{"document_id": "doc-2", "page_number": 2, "citation": "Cita literal de la fuente B del pliego."}],
             "extraction_status": "success",
         },
     ]
@@ -833,7 +859,7 @@ def test_dedup_no_cambia_comportamiento_de_plazos_y_garantias() -> None:
             "monto_porcentaje": 1.0,
             "monto_valor": None,
             "confidence": 0.9,
-            "source_references": [{"document_id": "doc-1", "page_number": 5, "citation": "a"}],
+            "source_references": [{"document_id": "doc-1", "page_number": 5, "citation": "Cita literal de la fuente A del pliego."}],
             "extraction_status": "success",
         },
         {
@@ -841,7 +867,7 @@ def test_dedup_no_cambia_comportamiento_de_plazos_y_garantias() -> None:
             "monto_porcentaje": 1.0,
             "monto_valor": None,
             "confidence": 0.85,
-            "source_references": [{"document_id": "doc-1", "page_number": 6, "citation": "b"}],
+            "source_references": [{"document_id": "doc-1", "page_number": 6, "citation": "Cita literal de la fuente B del pliego."}],
             "extraction_status": "success",
         },
     ]

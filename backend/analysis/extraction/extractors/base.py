@@ -12,6 +12,11 @@ import structlog
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from analysis.extraction.glossary import build_keyword_query, build_prompt_glossary_block
+from analysis.extraction.schemas import (
+    CITATION_MAX_CHARS,
+    CITATION_MIN_CHARS,
+    CITATION_PREFERRED_MIN_CHARS,
+)
 from analysis.extraction.state import GraphState
 from shared.config import get_settings
 from shared.ports.azure_openai import get_azure_openai_client
@@ -139,15 +144,22 @@ def _parse_json_response(content: str) -> dict[str, Any]:
         raw = re.sub(r"^```[a-zA-Z]*\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw).strip()
 
+    # `strict=False` tolera caracteres de control crudos dentro de los strings.
+    # Las citas son texto copiado literal del pliego, y el texto de un PDF trae
+    # los saltos de linea del maquetado ("...el importe de las garantias de\nla
+    # contratacion..."). Si el modelo no los escapa, el JSON es invalido y se
+    # pierde la categoria entera tras agotar los reintentos -- y que una cita
+    # caiga o no sobre un salto de renglon depende de como esta maquetado cada
+    # pliego, con lo cual el mismo dato se extrae en un PDF y falla en otro.
     try:
-        return json.loads(raw)
+        return json.loads(raw, strict=False)
     except json.JSONDecodeError:
         pass
 
     match = _JSON_BLOCK_RE.search(raw)
     if not match:
         raise ValueError(f"Respuesta del LLM sin JSON parseable: {raw[:200]}")
-    return json.loads(match.group(0))
+    return json.loads(match.group(0), strict=False)
 
 
 @retry(
@@ -290,7 +302,7 @@ def _expand_short_paragraph_citation(
     preferred_snippet: str | None = None,
 ) -> str:
     citation_text = str(citation or "").strip()
-    if len(citation_text) >= 40:
+    if len(citation_text) >= CITATION_PREFERRED_MIN_CHARS:
         return citation_text
 
     normalized_citation = _normalize_for_grounding(citation_text)
@@ -300,16 +312,49 @@ def _expand_short_paragraph_citation(
     preferred_text = str(preferred_snippet or "").strip()
     normalized_preferred = _normalize_for_grounding(preferred_text)
 
-    if len(preferred_text) >= 40 and normalized_preferred:
+    if len(preferred_text) >= CITATION_PREFERRED_MIN_CHARS and normalized_preferred:
         for chunk in candidate_chunks:
             if chunk.get("block_type") == "table":
                 continue
             normalized_content = _normalize_for_grounding(chunk.get("content", ""))
             if normalized_preferred in normalized_content:
-                return preferred_text[:300]
+                return clip_citation(preferred_text)
     # Política estricta: no expandir por match de palabra suelta. Si no hay
     # ancla explícita válida, la cita se conserva y el ítem se penaliza luego.
     return citation_text
+
+
+def _widen_citation_with_chunk_context(
+    citation: str,
+    candidate_chunks: list[dict[str, Any]],
+    *,
+    target_chars: int = CITATION_PREFERRED_MIN_CHARS,
+) -> str:
+    """Ensancha una cita ya verificada usando el texto que la rodea en el chunk
+    donde matcheó, hasta que sea evidencia legible por sí sola.
+
+    El resultado se recorta del contenido real del chunk, así que sigue siendo
+    literal y vuelve a verificar sin problemas. Si no se puede ubicar la cita en
+    ningún chunk, se devuelve tal cual: ensanchar es una mejora de calidad de la
+    evidencia, nunca una condición para conservarla."""
+    collapsed_citation = " ".join(str(citation or "").split())
+    if not collapsed_citation or len(collapsed_citation) >= target_chars:
+        return citation
+
+    needle = collapsed_citation.lower()
+    for chunk in candidate_chunks:
+        if chunk.get("block_type") == "table":
+            continue
+        content = " ".join(str(chunk.get("content", "")).split())
+        start = content.lower().find(needle)
+        if start < 0:
+            continue
+        widened = _build_context_citation(
+            content, start, start + len(collapsed_citation), min_chars=target_chars
+        )
+        if len(widened) > len(collapsed_citation):
+            return widened
+    return citation
 
 
 def _candidate_rescue_snippets(item: dict[str, Any], *, category: str) -> list[str]:
@@ -320,7 +365,7 @@ def _candidate_rescue_snippets(item: dict[str, Any], *, category: str) -> list[s
         snippet = str(raw_value or "").strip()
         if not snippet:
             continue
-        if len(snippet) < 40 or len(snippet) > 300:
+        if len(snippet) < CITATION_MIN_CHARS:
             continue
         normalized = _normalize_for_grounding(snippet)
         if not normalized or normalized in seen:
@@ -339,7 +384,7 @@ def _rescue_paragraph_citation(
 ) -> str | None:
     for snippet in _candidate_rescue_snippets(item, category=category):
         if _verify_reference_grounded(snippet, candidate_chunks):
-            return snippet[:300]
+            return clip_citation(snippet)
     return None
 
 
@@ -374,19 +419,175 @@ def _citation_verified_in_table_chunk(citation: str, chunk: dict[str, Any]) -> b
     return value in _normalize_for_grounding(content)
 
 
+def clip_citation(citation: str, max_chars: int = CITATION_MAX_CHARS) -> str:
+    """Recorta una cita ya verificada al límite de almacenamiento, cortando en
+    un borde de palabra. El recorte preserva el carácter literal de la cita: un
+    prefijo de un texto que existe literalmente en el chunk sigue existiendo
+    literalmente en el chunk, así que la cita recortada se vuelve a verificar
+    igual de bien si el grounding corre otra vez sobre el dato persistido."""
+    text = str(citation or "").strip()
+    if len(text) <= max_chars:
+        return text
+
+    clipped = text[:max_chars]
+    last_space = clipped.rfind(" ")
+    # Solo cortamos en el último espacio si eso no destruye la cita (nos
+    # quedaría por debajo del mínimo discriminante).
+    if last_space >= CITATION_MIN_CHARS:
+        clipped = clipped[:last_space]
+    return clipped.strip()
+
+
 def _verify_reference_grounded(citation: str, candidate_chunks: list[dict[str, Any]]) -> bool:
     citation_text = str(citation or "").strip()
     if not citation_text:
         return False
-    # Contrato estricto v3: cita literal entre 40 y 300 caracteres.
-    # Evita validar palabras sueltas que producen anclajes ambiguos en UI.
-    if len(citation_text) < 40 or len(citation_text) > 300:
+    # La longitud NO es el criterio de validez: lo es que el texto exista
+    # literalmente en un chunk recuperado (ver `CITATION_MIN_CHARS`). El único
+    # piso que queda descarta citas demasiado cortas para ser discriminantes
+    # ("oferta", "garantía"), que harían match en cualquier chunk. No hay techo:
+    # una cita larga es *más* específica, no menos verificable -- se recorta al
+    # persistir con `clip_citation`, nunca se descarta.
+    if len(citation_text) < CITATION_MIN_CHARS:
         return False
     if _is_table_citation(citation):
         table_chunks = [chunk for chunk in candidate_chunks if chunk.get("block_type") == "table"]
         return any(_citation_verified_in_table_chunk(citation, chunk) for chunk in table_chunks)
-    paragraph_chunks = [chunk for chunk in candidate_chunks if chunk.get("block_type") != "table"]
-    return any(_citation_verified_in_paragraph_chunk(citation, chunk) for chunk in paragraph_chunks)
+    # Si el LLM devuelve una cita textual "normal" para un dato que cayó en un
+    # chunk de tabla (caso frecuente en carátulas), también debe validarse.
+    return any(_citation_verified_in_paragraph_chunk(citation, chunk) for chunk in candidate_chunks)
+
+
+_PROCEDIMIENTO_CON_NUMERO_RE = re.compile(
+    r"(?P<tipo>licitaci[oó]n\s+p[úu]blica|licitaci[oó]n\s+privada|contrataci[oó]n\s+directa|concurso\s+de\s+precios|subasta\s+p[úu]blica)\s*"
+    r"(?:n[°ºo\.]?\s*)?(?P<numero>[A-Z0-9\-\/.]+)",
+    re.IGNORECASE,
+)
+_EXPEDIENTE_RE = re.compile(r"\bexpediente\b\s*[:\-]?\s*(?P<value>[A-Z0-9][A-Z0-9\-\/.]{4,})", re.IGNORECASE)
+_ORGANISMO_RE = re.compile(
+    r"\borganismo\b\s*[:\-]?\s*(?P<value>.+?)(?=\bprocedimiento\b|\bobjeto\b|\bpresupuesto\b|\bexpediente\b|$)",
+    re.IGNORECASE,
+)
+_PRESUPUESTO_RE = re.compile(
+    r"\bpresupuesto\s+oficial\b\s*[:\-]?\s*(?P<value>.+?)(?=\bexpediente\b|\bprocedimiento\b|\bobjeto\b|$)",
+    re.IGNORECASE,
+)
+
+
+def _normalized_identificacion_tipo(raw_tipo: str) -> str:
+    text = _normalize_for_grounding(raw_tipo)
+    if "organismo" in text:
+        return "organismo_convocante"
+    if "expediente" in text:
+        return "expediente"
+    if "numero" in text and "proced" in text:
+        return "numero_procedimiento"
+    if text in {"procedimiento", "procedimiento_nro", "procedimiento_numero"}:
+        return "numero_procedimiento"
+    if "tipo" in text and "proced" in text:
+        return "tipo_procedimiento"
+    if "jurisd" in text:
+        return "jurisdiccion"
+    if "presupuesto" in text:
+        return "presupuesto_oficial"
+    return raw_tipo.strip().lower() or "otro"
+
+
+def _build_context_citation(content: str, start: int, end: int, *, min_chars: int = CITATION_MIN_CHARS) -> str:
+    text = " ".join(str(content or "").split())
+    if not text:
+        return ""
+
+    left = max(0, start)
+    right = min(len(text), end)
+    snippet = text[left:right].strip()
+
+    if len(snippet) < min_chars:
+        left = max(0, left - 100)
+        right = min(len(text), right + 140)
+        snippet = text[left:right].strip()
+
+    return clip_citation(snippet)
+
+
+def _augment_identificacion_payload(payload: list[dict[str, Any]], chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    existing_tipos = {
+        _normalized_identificacion_tipo(str(item.get("tipo", "")))
+        for item in payload
+        if isinstance(item, dict)
+    }
+
+    additions: list[dict[str, Any]] = []
+
+    sorted_chunks = sorted(
+        chunks,
+        key=lambda chunk: (
+            int(chunk.get("page_number", 0) or 0),
+            str(chunk.get("document_id", "")),
+        ),
+    )
+
+    def add_if_missing(tipo: str, valor: str, chunk: dict[str, Any], match_span: tuple[int, int]) -> None:
+        canonical_tipo = _normalized_identificacion_tipo(tipo)
+        clean_valor = " ".join(str(valor or "").split()).strip(" .;:-")
+        if not clean_valor or canonical_tipo in existing_tipos:
+            return
+
+        citation = _build_context_citation(str(chunk.get("content", "")), match_span[0], match_span[1])
+        if len(citation) < CITATION_MIN_CHARS:
+            citation = clip_citation(" ".join(str(chunk.get("content", "")).split()))
+        if len(citation) < CITATION_MIN_CHARS:
+            return
+
+        additions.append(
+            {
+                "tipo": canonical_tipo,
+                "valor": clean_valor,
+                "metadata": {},
+                "confidence": 0.78,
+                "source_references": [
+                    {
+                        "document_id": str(chunk.get("document_id", "")),
+                        "page_number": int(chunk.get("page_number", 0) or 0),
+                        "citation": citation,
+                    }
+                ],
+                "extraction_status": "success",
+            }
+        )
+        existing_tipos.add(canonical_tipo)
+
+    for chunk in sorted_chunks:
+        content = " ".join(str(chunk.get("content", "")).split())
+        if not content:
+            continue
+
+        if "organismo_convocante" not in existing_tipos:
+            match = _ORGANISMO_RE.search(content)
+            if match:
+                add_if_missing("organismo_convocante", match.group("value"), chunk, match.span())
+
+        if "expediente" not in existing_tipos:
+            match = _EXPEDIENTE_RE.search(content)
+            if match:
+                add_if_missing("expediente", match.group("value"), chunk, match.span("value"))
+
+        match = _PROCEDIMIENTO_CON_NUMERO_RE.search(content)
+        if match:
+            if "tipo_procedimiento" not in existing_tipos:
+                add_if_missing("tipo_procedimiento", match.group("tipo"), chunk, match.span("tipo"))
+            if "numero_procedimiento" not in existing_tipos:
+                numero_text = f"{match.group('tipo')} N° {match.group('numero')}"
+                add_if_missing("numero_procedimiento", numero_text, chunk, match.span())
+
+        if "presupuesto_oficial" not in existing_tipos:
+            match = _PRESUPUESTO_RE.search(content)
+            if match:
+                add_if_missing("presupuesto_oficial", match.group("value"), chunk, match.span("value"))
+
+    if not additions:
+        return payload
+    return [*payload, *additions]
 
 
 def _verify_citation_grounding(
@@ -426,7 +627,7 @@ def _verify_citation_grounding(
             if not candidates:
                 continue
             citation_for_verification = citation
-            if len(citation.strip()) < 40 and category == "plazos_clave":
+            if len(citation.strip()) < CITATION_MIN_CHARS and category == "plazos_clave":
                 preferred = str(item.get("texto_original") or "").strip()
                 if preferred and _verify_reference_grounded(preferred, candidates):
                     citation_for_verification = preferred
@@ -435,15 +636,29 @@ def _verify_citation_grounding(
             if _verify_reference_grounded(citation_for_verification, candidates):
                 any_verified = True
                 normalized_ref = dict(ref)
+                final_citation = citation_for_verification
                 if not _is_table_citation(citation):
                     preferred_snippet = None
                     if category == "plazos_clave":
                         preferred_snippet = str(item.get("texto_original") or "").strip() or None
-                    normalized_ref["citation"] = _expand_short_paragraph_citation(
+                    final_citation = _expand_short_paragraph_citation(
                         citation_for_verification,
                         candidates,
                         preferred_snippet=preferred_snippet,
                     )
+                    # La cita es válida (existe literal en el chunk) pero pobre
+                    # como evidencia: se intenta enriquecerla con otro fragmento
+                    # literal del mismo ítem. Si no hay ninguno grounded, se
+                    # conserva la corta -- verificada es verificada.
+                    if len(final_citation) < CITATION_PREFERRED_MIN_CHARS:
+                        richer = _rescue_paragraph_citation(item, candidates, category=category)
+                        if richer and len(richer) > len(final_citation):
+                            final_citation = richer
+                    if len(final_citation) < CITATION_PREFERRED_MIN_CHARS:
+                        final_citation = _widen_citation_with_chunk_context(final_citation, candidates)
+                # Recorte al límite de persistencia recién acá, sobre una cita ya
+                # verificada: el techo es de almacenamiento, no de validez.
+                normalized_ref["citation"] = clip_citation(final_citation)
                 verified_refs.append(normalized_ref)
                 continue
 
@@ -478,6 +693,72 @@ def _verify_citation_grounding(
     return items
 
 
+def _chunk_identity(chunk: dict[str, Any]) -> tuple[str, int]:
+    return (str(chunk.get("document_id", "")), int(chunk.get("chunk_index", 0) or 0))
+
+
+def _retrieve_with_category_priority(
+    *,
+    query: str,
+    analysis_id: str,
+    top_k: int,
+    keyword_query: str | None,
+    category: str,
+    correlation_id: str,
+) -> list[dict[str, Any]]:
+    """Recupera los chunks de una categoría priorizando los que el chunker
+    clasificó en esa categoría, y completa el presupuesto `top_k` con la
+    búsqueda sin filtro.
+
+    El filtro por categoría sube la precisión, pero usarlo como compuerta dura
+    baja la recall de forma impredecible: la clasificación es heurística, y un
+    documento donde el título de una sección no se detectó bien deja esa
+    categoría con muy pocos chunks -- o ninguno -- mientras que otro documento
+    equivalente los tiene todos. Ese salto es exactamente la inconsistencia
+    entre pliegos que estamos corrigiendo. Priorizar y completar mantiene el
+    mismo presupuesto de contexto de siempre (no sube `top_k`): en el peor caso
+    se recupera lo mismo que la búsqueda sin filtro, nunca menos."""
+    prioritized = search_hybrid(
+        query=query,
+        analysis_id=analysis_id,
+        top_k=top_k,
+        keyword_query=keyword_query,
+        category_filter=category,
+    )
+
+    if len(prioritized) >= top_k:
+        return prioritized
+
+    backfill = search_hybrid(
+        query=query,
+        analysis_id=analysis_id,
+        top_k=top_k,
+        keyword_query=keyword_query,
+        category_filter=None,
+    )
+
+    seen = {_chunk_identity(chunk) for chunk in prioritized}
+    combined = list(prioritized)
+    for chunk in backfill:
+        if len(combined) >= top_k:
+            break
+        identity = _chunk_identity(chunk)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        combined.append(chunk)
+
+    logger.info(
+        "retrieval_category_backfill",
+        correlation_id=correlation_id,
+        category=category,
+        category_hits=len(prioritized),
+        backfilled=len(combined) - len(prioritized),
+        total=len(combined),
+    )
+    return combined
+
+
 def run_extractor(
     *,
     state: GraphState,
@@ -503,13 +784,46 @@ def run_extractor(
     try:
         settings = get_settings()
         keyword_query = build_keyword_query(result_key)
-        chunks = search_hybrid(
+        
+        # FIX MEDIUM (#14): Top-K configurable por categoría desde glossary.json
+        from analysis.extraction.glossary import get_category_top_k
+        category_top_k = get_category_top_k(result_key, default=settings.extraction_top_k)
+        
+        chunks = _retrieve_with_category_priority(
             query=query,
             analysis_id=analysis_id,
-            top_k=settings.extraction_top_k,
+            top_k=category_top_k,
             keyword_query=keyword_query or None,
+            category=result_key,
+            correlation_id=correlation_id,
         )
+
         chunks = _truncate_to_token_budget(chunks, settings.extraction_max_context_tokens)
+
+        # Logging de distribución de categorías recuperadas
+        category_distribution: dict[str, int] = {}
+        for chunk in chunks:
+            primary = chunk.get("primary_category", "unknown")
+            category_distribution[primary] = category_distribution.get(primary, 0) + 1
+
+        # Métrica de pureza: % de chunks que pertenecen a la categoría target
+        target_chunks = sum(
+            1
+            for chunk in chunks
+            if chunk.get("primary_category") == result_key
+            or result_key in chunk.get("secondary_categories", [])
+        )
+        purity_rate = target_chunks / len(chunks) if chunks else 0.0
+
+        logger.info(
+            "retrieval_metrics",
+            correlation_id=correlation_id,
+            category=result_key,
+            retrieved_chunks=len(chunks),
+            category_distribution=category_distribution,
+            target_chunks=target_chunks,
+            purity_rate=round(purity_rate, 3),
+        )
 
         if not chunks:
             logger.error(
@@ -556,15 +870,43 @@ def run_extractor(
             if not isinstance(payload, list):
                 logger.warning("payload_no_es_lista", category=result_key, tipo=type(payload).__name__)
                 payload = []
+            if result_key == "identificacion_procedimiento":
+                payload = _augment_identificacion_payload(payload, chunks)
             delta[state_field] = [_normalize_item(item) for item in payload if isinstance(item, dict)]
 
         if is_object_result:
             _verify_citation_grounding(
                 [delta[state_field]], chunks, category=result_key, correlation_id=correlation_id
             )
+
+            # Detectar contaminación cruzada en objeto
+            from analysis.extraction.extractors.validators import detect_cross_contamination
+
+            contaminated = detect_cross_contamination([delta[state_field]], category=result_key)
+            if contaminated:
+                logger.warning(
+                    "cross_contamination_detected",
+                    correlation_id=correlation_id,
+                    category=result_key,
+                    contaminated_count=len(contaminated),
+                )
+
             delta[status_field] = str(delta[state_field].get("extraction_status", "not_found"))
         else:
             _verify_citation_grounding(delta[state_field], chunks, category=result_key, correlation_id=correlation_id)
+
+            # Detectar contaminación cruzada en lista
+            from analysis.extraction.extractors.validators import detect_cross_contamination
+
+            contaminated = detect_cross_contamination(delta[state_field], category=result_key)
+            if contaminated:
+                logger.warning(
+                    "cross_contamination_detected",
+                    correlation_id=correlation_id,
+                    category=result_key,
+                    contaminated_count=len(contaminated),
+                )
+
             delta[status_field] = _aggregate_status(delta[state_field])
         logger.info(
             "extractor_completed",

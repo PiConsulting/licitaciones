@@ -48,6 +48,15 @@ export interface FieldItem {
   raw?: PlazoRawFields;
 }
 
+/** Región de highlight pre-computada por el backend usando PyMuPDF.
+ * FIX CRÍTICO (2026-08): Reemplaza heurísticas frágiles con coordenadas exactas. */
+export interface HighlightRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 /** Fuente deduplicada de una CategoryNarrative, referenciada por índice desde
  * los bloques (`source_ids`). Distinta de `Citation`/`SourceReference`, que
  * siguen existiendo para el flujo legado por-campo. */
@@ -57,6 +66,13 @@ export interface NarrativeSource {
   document_name: string;
   page: number;
   text: string;
+  /** El backend marca como no verificada una cita que no pudo respaldar
+   * contra los chunks recuperados. Estas fuentes no deben mostrarse. */
+  unverified?: boolean;
+  /** Coordenadas exactas de highlight calculadas con PyMuPDF en el backend.
+   * Si está vacío, PyMuPDF no disponible o texto no encontrado (mostrar página
+   * sin highlight). FIX CRÍTICO (2026-08). */
+  highlight_regions?: HighlightRegion[];
 }
 
 export interface NarrativeParagraphBlock {
@@ -135,6 +151,7 @@ export interface AnalysisVersion {
 
 export interface AnalysisDetail {
   id: string;
+  analysis_name?: string | null;
   created_at: string;
   status: "queued" | "processing" | "analyzed" | "validated" | "error" | "cancelled";
   current_stage: string;

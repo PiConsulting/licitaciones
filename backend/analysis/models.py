@@ -35,6 +35,7 @@ class Analysis(Base):
         nullable=True,
     )
     extraction_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    analysis_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="draft", nullable=False)
     current_stage: Mapped[str] = mapped_column(String(50), default=CurrentStage.QUEUED.value, nullable=False)
     progress_percentage: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

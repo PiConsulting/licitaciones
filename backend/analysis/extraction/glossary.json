@@ -180,7 +180,8 @@
       "de pleno derecho",
       "conducta anticompetitiva",
       "informacion falsa"
-    ]
+    ],
+    "top_k": 35
   },
   "anexos_obligatorios": {
     "query_terms": [

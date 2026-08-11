@@ -30,6 +30,7 @@ class DuplicateDecision(BaseModel):
 
 class StartAnalysisRequest(BaseModel):
     decisions: list[DuplicateDecision] = Field(default_factory=list)
+    analysis_name: str | None = Field(default=None, max_length=160)
 
 
 class StartAnalysisResponse(BaseModel):
@@ -57,10 +58,12 @@ class AnalysisStatusResponse(BaseModel):
 
 class AnalysisListItem(BaseModel):
     id: str
+    analysis_name: str | None = None
     status: str
     current_stage: str
     stage_progress: str | None = None
     progress_percentage: int
+    confidence_avg: float | None = None
     created_at: datetime
     primary_document_name: str | None = None
     organismo: str | None = None
@@ -86,6 +89,7 @@ class AnalysisVersionResponse(BaseModel):
 
 class AnalysisDetailResponse(BaseModel):
     id: str
+    analysis_name: str | None = None
     created_at: datetime
     status: str
     current_stage: str

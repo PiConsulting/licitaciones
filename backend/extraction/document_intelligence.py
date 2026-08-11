@@ -5,6 +5,11 @@ from time import sleep
 from uuid import UUID
 
 import structlog
+from azure.core.exceptions import (
+    HttpResponseError,
+    ServiceRequestError,
+    ServiceResponseError,
+)
 from structlog.typing import EventDict
 
 from extraction.errors import DocumentTextExtractionError, TransientExtractionError
@@ -34,10 +39,11 @@ _MD_FIGURE_END_RE = re.compile(r"^</figure>")
 # introduce una tabla siempre viene antes que la tabla misma.
 _TABLE_SOURCE_ORDER_BASE = 10_000_000
 # Une palabras partidas por un salto de linea con guion de fin de renglon
-# ("ad-\nquisicion" -> "adquisicion"). Solo aplica entre minusculas: un guion
-# real de palabra compuesta casi siempre separa dos palabras completas, no
-# deja una letra sola pegada al salto de linea.
-_LINE_WRAP_HYPHEN_RE = re.compile(r"([a-záéíóúñ])-\n([a-záéíóúñ])")
+# ("ad-\nquisicion" -> "adquisicion", "ADQUI-\nSICIÓN" -> "ADQUISICIÓN").
+# Soporta minúsculas, mayúsculas y ü/Ü. Un guion real de palabra compuesta
+# casi siempre separa dos palabras completas, no deja una letra sola pegada
+# al salto de linea, por lo que este regex es suficientemente específico.
+_LINE_WRAP_HYPHEN_RE = re.compile(r"([a-záéíóúñüA-ZÁÉÍÓÚÑÜ])-\n([a-záéíóúñüA-ZÁÉÍÓÚÑÜ])")
 
 
 def _safe_int(value: object, default: int = 0) -> int:
@@ -152,14 +158,20 @@ def _dehyphenate(text: str) -> str:
     return _LINE_WRAP_HYPHEN_RE.sub(r"\1\2", text)
 
 
-def _parse_markdown_blocks(markdown: str) -> tuple[list[dict], dict[int, int]]:
+def _parse_markdown_blocks(markdown: str) -> tuple[list[dict], dict[int, int], list[tuple[int, int]]]:
     """Convierte el markdown de Document Intelligence en bloques de encabezado
     (con su nivel, segun cantidad de '#') y parrafo, recuperando la pagina real
     via los marcadores `<!-- PageBreak -->`. Las tablas HTML embebidas se
     saltean aca -- se extraen aparte desde `result.tables` (fila por fila, con
-    table_ref) para no perder la granularidad que ya tenia el pipeline."""
+    table_ref) para no perder la granularidad que ya tenia el pipeline.
+
+    Ademas devuelve, para cada `<table>` que aparece en el markdown y en el
+    mismo orden, la posicion (pagina, source_order) que ocupa en el flujo de
+    lectura. Es lo que permite reinsertar las filas en su lugar real en vez de
+    empujarlas al final de la pagina."""
     blocks: list[dict] = []
     heading_levels_by_order: dict[int, int] = {}
+    table_positions: list[tuple[int, int]] = []
 
     page_number = 1
     source_order = 0
@@ -181,6 +193,17 @@ def _parse_markdown_blocks(markdown: str) -> tuple[list[dict], dict[int, int]]:
                     "table_ref": None,
                 }
             )
+            # LOG diagnóstico: detectar posibles títulos perdidos (heurística)
+            if len(text) < 100:
+                uppercase_ratio = sum(1 for c in text if c.isupper()) / len(text) if text else 0
+                if uppercase_ratio > 0.5:
+                    logger.debug(
+                        "potential_missed_heading",
+                        page=page_number,
+                        source_order=source_order,
+                        uppercase_ratio=round(uppercase_ratio, 2),
+                        text_preview=text[:80],
+                    )
             source_order += 1
 
     for raw_line in markdown.splitlines():
@@ -202,9 +225,21 @@ def _parse_markdown_blocks(markdown: str) -> tuple[list[dict], dict[int, int]]:
             in_figure = False
             continue
         if in_figure:
+            # LOG diagnóstico: registrar contenido descartado de figuras
+            if stripped:
+                logger.debug(
+                    "figure_content_discarded",
+                    page=page_number,
+                    content_preview=stripped[:100],
+                )
             continue  # logos/membretes escaneados como figura: sin texto util
         if _MD_TABLE_START_RE.match(stripped):
             flush_paragraph()
+            # Reserva la posicion de lectura de esta tabla y consume un
+            # source_order, para que las filas se ordenen justo aca respecto de
+            # los parrafos y encabezados vecinos.
+            table_positions.append((page_number, source_order))
+            source_order += 1
             in_table = True
             continue
         if _MD_TABLE_END_RE.match(stripped):
@@ -229,6 +264,14 @@ def _parse_markdown_blocks(markdown: str) -> tuple[list[dict], dict[int, int]]:
                     }
                 )
                 heading_levels_by_order[source_order] = level
+                # LOG diagnóstico: registrar heading detectado
+                logger.debug(
+                    "heading_detected",
+                    page=page_number,
+                    level=level,
+                    source_order=source_order,
+                    text_preview=heading_text[:100],
+                )
                 source_order += 1
             continue
 
@@ -240,37 +283,83 @@ def _parse_markdown_blocks(markdown: str) -> tuple[list[dict], dict[int, int]]:
         paragraph_lines.append(raw_line)
 
     flush_paragraph()
-    return blocks, heading_levels_by_order
+    return blocks, heading_levels_by_order, table_positions
 
 
 def _build_markdown_blocks(result: object) -> tuple[list[dict], EventDict]:
     markdown = str(getattr(result, "content", "") or "")
     tables = list(getattr(result, "tables", None) or [])
 
-    blocks, heading_levels_by_order = _parse_markdown_blocks(markdown)
+    blocks, heading_levels_by_order, table_positions = _parse_markdown_blocks(markdown)
     for block in blocks:
         level = heading_levels_by_order.get(block["source_order"])
         if level is not None:
             block["heading_level"] = level
 
     total_table_rows = 0
+    tables_placed_in_reading_order = 0
+    tables_with_fallback_position = 0
     for index, table in enumerate(tables, start=1):
         table_id = f"T{index}"
         row_blocks = _serialize_table_rows(table, table_id=table_id)
-        for row_index, row_block in enumerate(row_blocks):
-            row_block["source_order"] = _TABLE_SOURCE_ORDER_BASE + (index * 1000) + row_index
+        # Las tablas aparecen en `result.tables` en el mismo orden en que sus
+        # `<table>` aparecen en el markdown, asi que la posicion i-esima ubica a
+        # la tabla i-esima en el flujo de lectura. Con eso las filas quedan bajo
+        # el encabezado que realmente las precede. Sin esto (fallback historico)
+        # toda tabla se empujaba al final de su pagina y heredaba el ultimo
+        # titulo de la pagina: la caratula de un pliego terminaba etiquetada como
+        # "ANEXOS OBLIGATORIOS" solo por estar en la misma pagina.
+        position = table_positions[index - 1] if index - 1 < len(table_positions) else None
+        if position is not None:
+            table_page, table_order = position
+            tables_placed_in_reading_order += 1
+            for row_index, row_block in enumerate(row_blocks):
+                row_block["page_number"] = table_page
+                # Las filas comparten la posicion de la tabla y se desempatan
+                # entre si por su indice, sin invadir el source_order siguiente.
+                row_block["source_order"] = table_order
+                row_block["row_order"] = row_index
+        else:
+            # Tabla sin posición en markdown - usar fallback artificial
+            tables_with_fallback_position += 1
+            logger.warning(
+                "table_position_fallback",
+                table_id=table_id,
+                table_index=index,
+                reason="No <table> tag found in markdown for this table from result.tables",
+            )
+            for row_index, row_block in enumerate(row_blocks):
+                row_block["source_order"] = _TABLE_SOURCE_ORDER_BASE + (index * 1000) + row_index
+                row_block["row_order"] = row_index
         total_table_rows += len(row_blocks)
         blocks.extend(row_blocks)
 
     if blocks:
-        blocks.sort(key=lambda item: (int(item.get("page_number", 0)), int(item.get("source_order", 0))))
+        blocks.sort(
+            key=lambda item: (
+                int(item.get("page_number", 0)),
+                int(item.get("source_order", 0)),
+                int(item.get("row_order", 0)),
+            )
+        )
 
     telemetry: EventDict = {
         "markdown_chars": len(markdown),
         "headings_count": len(heading_levels_by_order),
         "tables_count": len(tables),
         "tables_rows_total": total_table_rows,
+        "tables_placed_in_reading_order": tables_placed_in_reading_order,
+        "tables_with_fallback_position": tables_with_fallback_position,
+        "table_positions_detected": len(table_positions),
     }
+    # Detectar desincronización entre markdown y result.tables
+    if tables_with_fallback_position > 0:
+        logger.warning(
+            "table_position_mismatch",
+            tables_count=len(tables),
+            table_positions_in_markdown=len(table_positions),
+            tables_with_fallback=tables_with_fallback_position,
+        )
     return blocks, telemetry
 
 
@@ -296,6 +385,16 @@ class AzureDocumentIntelligenceAdapter(DocumentIntelligencePort):
         )
         result = poller.result(timeout=self._timeout_seconds)
 
+        # Validación: verificar que el resultado tiene el formato esperado
+        if not hasattr(result, "content"):
+            raise DocumentTextExtractionError(
+                "Azure DI result missing 'content' attribute - schema may have changed"
+            )
+        if result.content is None:
+            raise DocumentTextExtractionError(
+                "Azure DI returned None for content - document may be empty or corrupted"
+            )
+
         blocks, telemetry = _build_markdown_blocks(result)
         if not blocks:
             raise DocumentTextExtractionError("No se detectó texto útil en el documento")
@@ -306,11 +405,7 @@ class AzureDocumentIntelligenceAdapter(DocumentIntelligencePort):
 
 def _build_adapter() -> DocumentIntelligencePort:
     settings = get_settings()
-    if settings.is_development:
-        from extraction.local.markitdown_extraction import MarkItDownAdapter
-
-        return MarkItDownAdapter(settings.local_blob_storage_path)
-
+    
     if not settings.azure_document_intelligence_endpoint or not settings.azure_document_intelligence_key:
         raise DocumentTextExtractionError("Falta configuración de Azure Document Intelligence")
 
@@ -349,18 +444,56 @@ def extract_text(blob_url: str, document_id: str | UUID, correlation_id: str | U
             return pages
         except DocumentTextExtractionError:
             raise
-        except Exception as exc:
+        # FIX LOW (#11): Separar Azure errors específicos para mejor handling
+        except HttpResponseError as exc:
+            is_last_attempt = attempt >= retries
+            # Status code específico ayuda a diagnosticar (429 rate limit, 503 service unavailable, etc.)
+            status_code = getattr(exc, "status_code", None)
+            logger.warning(
+                "text_extraction_http_error",
+                correlation_id=str(correlation_id),
+                document_id=str(document_id),
+                attempt=attempt,
+                retries=retries,
+                status_code=status_code,
+                error=sanitize_error_message(str(exc)),
+            )
+            if is_last_attempt:
+                raise TransientExtractionError(f"HTTP error {status_code}: {exc}") from exc
+            # Para rate limits (429), esperar más tiempo
+            wait_time = backoff_seconds[min(attempt - 1, len(backoff_seconds) - 1)]
+            if status_code == 429:
+                wait_time *= 2
+            sleep(wait_time)
+        except (ServiceRequestError, ServiceResponseError) as exc:
             is_last_attempt = attempt >= retries
             logger.warning(
-                "text_extraction_attempt_failed",
+                "text_extraction_service_error",
                 correlation_id=str(correlation_id),
                 document_id=str(document_id),
                 attempt=attempt,
                 retries=retries,
                 error=sanitize_error_message(str(exc)),
+                error_type=type(exc).__name__,
             )
             if is_last_attempt:
-                raise TransientExtractionError(str(exc)) from exc
+                raise TransientExtractionError(f"Service error after {retries} attempts: {exc}") from exc
+            sleep(backoff_seconds[min(attempt - 1, len(backoff_seconds) - 1)])
+        except Exception as exc:
+            # Errores inesperados (bugs de código, etc.) - loggear más detalles
+            is_last_attempt = attempt >= retries
+            logger.error(
+                "text_extraction_unexpected_error",
+                correlation_id=str(correlation_id),
+                document_id=str(document_id),
+                attempt=attempt,
+                retries=retries,
+                error=sanitize_error_message(str(exc)),
+                error_type=type(exc).__name__,
+                exc_info=True,
+            )
+            if is_last_attempt:
+                raise TransientExtractionError(f"Unexpected error after {retries} attempts: {exc}") from exc
             sleep(backoff_seconds[min(attempt - 1, len(backoff_seconds) - 1)])
 
     raise TransientExtractionError("No se pudo extraer texto")

@@ -176,10 +176,12 @@ def _build_analysis_list_item(analysis: dict, documents: list[dict], extracted_d
 
     return {
         "id": analysis_id,
+        "analysis_name": analysis.get("analysis_name"),
         "status": analysis.get("status", "draft"),
         "current_stage": analysis.get("current_stage", CurrentStage.QUEUED.value),
         "stage_progress": stage_progress,
         "progress_percentage": int(analysis.get("progress_percentage", 0) or 0),
+        "confidence_avg": calculate_confidence_avg(extracted_data if isinstance(extracted_data, dict) else None),
         "created_at": _parse_dt(analysis.get("created_at")),
         "primary_document_name": primary_document_name,
         "organismo": _extract_organism(extracted_data),
@@ -259,7 +261,7 @@ def list_analyses_cosmos(
         )
         haystack = " ".join(
             str(value).lower()
-            for value in (primary_document_name, extracted_data, analysis_id)
+            for value in (analysis.get("analysis_name"), primary_document_name, extracted_data, analysis_id)
             if value
         )
         if normalized_search not in haystack:
@@ -297,6 +299,7 @@ def create_analysis_with_documents_cosmos(
         "analysis_id": analysis_id,
         "created_by": user_id,
         "created_by_name": user_name,
+        "analysis_name": None,
         "status": "draft",
         "current_stage": CurrentStage.QUEUED.value,
         "progress_percentage": 0,
@@ -511,7 +514,7 @@ def delete_analysis_cosmos(analysis_id: str, user_id: str) -> str:
     return "soft"
 
 
-def start_analysis_cosmos(analysis_id: str, user_id: str) -> dict:
+def start_analysis_cosmos(analysis_id: str, user_id: str, *, analysis_name: str | None = None) -> dict:
     analysis = _load_analysis_or_none(analysis_id)
     if analysis is None:
         raise ValueError("ANALYSIS_NOT_FOUND")
@@ -520,6 +523,9 @@ def start_analysis_cosmos(analysis_id: str, user_id: str) -> dict:
 
     if analysis.get("status") not in {"draft", "error"}:
         raise RuntimeError("ANALYSIS_ALREADY_STARTED")
+
+    if analysis_name is not None:
+        analysis["analysis_name"] = analysis_name
 
     analysis["status"] = "queued"
     analysis["current_stage"] = CurrentStage.QUEUED.value
@@ -544,6 +550,7 @@ def start_analysis_with_duplicates_cosmos(
     *,
     created_by_label: str,
     decisions: list[dict],
+    analysis_name: str | None = None,
 ) -> dict:
     analysis = _load_analysis_or_none(analysis_id)
     if analysis is None:
@@ -552,6 +559,9 @@ def start_analysis_with_duplicates_cosmos(
         raise PermissionError("FORBIDDEN")
     if analysis.get("status") not in {"draft", "error"}:
         raise RuntimeError("ANALYSIS_ALREADY_STARTED")
+
+    if analysis_name is not None:
+        analysis["analysis_name"] = analysis_name
 
     duplicates = find_duplicates_for_analysis_cosmos(analysis_id, user_id, created_by_label)
 
@@ -601,7 +611,7 @@ def start_analysis_with_duplicates_cosmos(
                 "redirect_analysis_id": redirect_target,
             }
 
-    result = start_analysis_cosmos(analysis_id, user_id)
+    result = start_analysis_cosmos(analysis_id, user_id, analysis_name=analysis_name)
     return {
         "id": result["id"],
         "status": result["status"],
@@ -629,6 +639,7 @@ def get_analysis_detail_cosmos(analysis_id: str, user_id: str) -> dict:
 
     return {
         "id": analysis_id,
+        "analysis_name": analysis.get("analysis_name"),
         "created_at": _parse_dt(analysis.get("created_at")),
         "status": analysis.get("status", "draft"),
         "current_stage": analysis.get("current_stage", CurrentStage.QUEUED.value),

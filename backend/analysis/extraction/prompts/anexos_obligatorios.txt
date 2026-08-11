@@ -76,7 +76,7 @@ Usá el schema `AnexoObligatorioItem` definido en `schemas_v3.py`.
   - `debe_firmarse`: "si" | "no" | "no_especificado"
   - `presente_en_documentos_subidos`: "si" | "no" | "no_especificado"
 - `confidence`: [0.0-1.0] según el algoritmo de confianza
-- `source_references`: Siempre incluir cita literal del pliego (min 40 chars)
+- `source_references`: Siempre incluir cita literal del pliego (min 25 chars)
 
 **Cuando no hay anexos:** `{"anexos_obligatorios": []}`
 

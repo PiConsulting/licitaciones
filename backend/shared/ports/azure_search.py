@@ -19,6 +19,8 @@ SEARCH_CHUNK_SELECT_FIELDS = [
     "section_path",
     "block_type",
     "table_ref",
+    "primary_category",
+    "secondary_categories",
     "content",
 ]
 
@@ -75,7 +77,13 @@ def _embed_query_or_none(query: str) -> list[float] | None:
         return None
 
 
-def _search_azure(query: str, analysis_id: str, top_k: int, keyword_query: str | None = None) -> list[dict]:
+def _search_azure(
+    query: str,
+    analysis_id: str,
+    top_k: int,
+    keyword_query: str | None = None,
+    category_filter: str | None = None,
+) -> list[dict]:
     settings = get_settings()
     from azure.core.credentials import AzureKeyCredential
     from azure.search.documents import SearchClient
@@ -115,11 +123,37 @@ def _search_azure(query: str, analysis_id: str, top_k: int, keyword_query: str |
 
     analysis_filter = [f"analysis_id eq '{analysis_id}'"]
 
+    # Filtro de categoría: busca en primary_category O en secondary_categories
+    if category_filter:
+        category_escaped = category_filter.replace("'", "''")
+        category_condition = (
+            f"(primary_category eq '{category_escaped}' or "
+            f"secondary_categories/any(c: c eq '{category_escaped}'))"
+        )
+        analysis_filter.append(category_condition)
+
     raw_results = _run_query(analysis_filter, bm25_text, top=over_fetch)
 
-    if not raw_results:
-        logger.warning("azure_search_wildcard_fallback", analysis_id=analysis_id, query=query[:120])
+    # FIX MEDIUM (#13): Limitar fallback wildcard para evitar chunks irrelevantes.
+    # Solo hacer fallback si no hay filtro de categoría — si ya se filtró por
+    # categoría y no hay resultados, retornar vacío es más seguro que retornar
+    # chunks aleatorios que el LLM podría usar para "extraer" información incorrecta.
+    if not raw_results and not category_filter:
+        logger.warning(
+            "azure_search_wildcard_fallback",
+            analysis_id=analysis_id,
+            query=query[:120],
+            reason="no results without category filter - trying wildcard",
+        )
         raw_results = _run_query(analysis_filter, "*", top=over_fetch)
+    elif not raw_results and category_filter:
+        logger.info(
+            "azure_search_no_results_with_category",
+            analysis_id=analysis_id,
+            category=category_filter,
+            query=query[:120],
+            reason="no results with category filter - returning empty (safer than wildcard)",
+        )
 
     # Se ordena por el score de relevancia hibrida que Azure ya calculo
     # (BM25 + vectorial fusionados por RRF) -- nunca se descarta ese score para
@@ -139,6 +173,12 @@ def _search_azure(query: str, analysis_id: str, top_k: int, keyword_query: str |
             "section_path": item.get("section_path") or "general",
             "block_type": item.get("block_type") or "paragraph",
             "table_ref": _deserialize_table_ref(item.get("table_ref")),
+            # Sin estos dos campos, `retrieval_metrics.purity_rate` en
+            # run_extractor daba 0.0 siempre y la distribución de categorías
+            # reportaba "unknown" para todo, dejando ciega la telemetría que
+            # justamente serviría para detectar este problema.
+            "primary_category": item.get("primary_category"),
+            "secondary_categories": list(item.get("secondary_categories") or []),
             "content": item.get("content", ""),
         }
         scored.append((hybrid_score, _token_overlap_score(query, chunk["content"]), chunk))
@@ -147,7 +187,28 @@ def _search_azure(query: str, analysis_id: str, top_k: int, keyword_query: str |
     return [chunk for _score, _overlap, chunk in scored[:top_k]]
 
 
-def search_hybrid(query: str, analysis_id: str, top_k: int = 10, keyword_query: str | None = None) -> list[dict]:
+def search_hybrid(
+    query: str,
+    analysis_id: str,
+    top_k: int = 10,
+    keyword_query: str | None = None,
+    category_filter: str | None = None,
+) -> list[dict]:
     """Recupera chunks relevantes para una categoría, filtrados por analysis_id.
-    keyword_query se usa para BM25 (discriminante); query va al vector (semántico)."""
-    return _search_azure(query=query, analysis_id=analysis_id, top_k=top_k, keyword_query=keyword_query)
+
+    Args:
+        query: Query semántica para búsqueda vectorial
+        analysis_id: ID del análisis
+        top_k: Cantidad de chunks a retornar
+        keyword_query: Query de keywords para BM25 (discriminante)
+        category_filter: Si se especifica, filtra chunks donde:
+            primary_category eq '{category_filter}' OR
+            secondary_categories/any(c: c eq '{category_filter}')
+    """
+    return _search_azure(
+        query=query,
+        analysis_id=analysis_id,
+        top_k=top_k,
+        keyword_query=keyword_query,
+        category_filter=category_filter,
+    )

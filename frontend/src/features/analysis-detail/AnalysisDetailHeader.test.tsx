@@ -16,6 +16,9 @@ function createAnalysis(overrides?: {
   objeto?: string;
   organismo?: string;
   expediente?: string;
+  procedimiento?: string;
+  tipoProcedimiento?: string;
+  presupuestoOficial?: string;
 }): AnalysisDetail {
   const extracted_data = {
     objeto_alcance: EMPTY_CATEGORY,
@@ -44,7 +47,13 @@ function createAnalysis(overrides?: {
     };
   }
 
-  if (overrides?.organismo || overrides?.expediente) {
+  if (
+    overrides?.organismo ||
+    overrides?.expediente ||
+    overrides?.procedimiento ||
+    overrides?.tipoProcedimiento ||
+    overrides?.presupuestoOficial
+  ) {
     extracted_data.datos_procedimiento = {
       ...EMPTY_CATEGORY,
       extraction_status: "success",
@@ -65,6 +74,39 @@ function createAnalysis(overrides?: {
               {
                 field_name: "Expediente",
                 field_value: overrides.expediente,
+                field_state: "extraido" as const,
+                confidence: 0.9,
+                citations: [],
+              },
+            ]
+          : []),
+        ...(overrides.tipoProcedimiento
+          ? [
+              {
+                field_name: "Tipo de procedimiento",
+                field_value: overrides.tipoProcedimiento,
+                field_state: "extraido" as const,
+                confidence: 0.9,
+                citations: [],
+              },
+            ]
+          : []),
+        ...(overrides.procedimiento
+          ? [
+              {
+                field_name: "Procedimiento",
+                field_value: overrides.procedimiento,
+                field_state: "extraido" as const,
+                confidence: 0.9,
+                citations: [],
+              },
+            ]
+          : []),
+        ...(overrides.presupuestoOficial
+          ? [
+              {
+                field_name: "Presupuesto oficial",
+                field_value: overrides.presupuestoOficial,
                 field_state: "extraido" as const,
                 confidence: 0.9,
                 citations: [],
@@ -97,6 +139,9 @@ describe("AnalysisDetailHeader", () => {
       objeto: "La contratación del servicio de limpieza integral de los edificios municipales de Villa Nueva",
       organismo: "Municipalidad de Villa Nueva",
       expediente: "0100-EXP-2026",
+      tipoProcedimiento: "Contratación Directa",
+      procedimiento: "Contratación Directa N° 014/2026",
+      presupuestoOficial: "$ 3.850.000",
     });
 
     render(<AnalysisDetailHeader analysis={analysis} />);
@@ -105,6 +150,8 @@ describe("AnalysisDetailHeader", () => {
       screen.getByText("La contratación del servicio de limpieza integral de los edificios municipales de Villa Nueva"),
     ).toBeInTheDocument();
     expect(screen.getByText("Municipalidad de Villa Nueva · 0100-EXP-2026")).toBeInTheDocument();
+    expect(screen.getByText("Contratación Directa · Contratación Directa N° 014/2026")).toBeInTheDocument();
+    expect(screen.getByText("Presupuesto oficial: $ 3.850.000")).toBeInTheDocument();
   });
 
   test("sin organismo extraído, no muestra un subtítulo vacío", () => {

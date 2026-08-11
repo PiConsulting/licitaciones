@@ -20,7 +20,6 @@ from documents.service import calculate_content_hash
 from extraction.ai_search import delete_analysis_chunks
 from extraction.runner import extract_and_index
 from shared.adapters.azure_blob_storage import AzureBlobStorageAdapter
-from shared.adapters.local_blob_storage import LocalBlobStorageAdapter
 from shared.config import get_settings
 from shared.database import SessionLocal
 from shared.pdf_utils import get_pdf_metadata
@@ -47,19 +46,17 @@ def _sanitize_filename(filename: str) -> str:
 
 def _build_blob_storage() -> BlobStoragePort:
     settings = get_settings()
-    if settings.is_production:
-        missing: list[str] = []
-        if not settings.azure_blob_connection_string.strip():
-            missing.append("AZURE_BLOB_CONNECTION_STRING")
-        if not settings.azure_blob_container_name.strip():
-            missing.append("AZURE_BLOB_CONTAINER_NAME")
-        if missing:
-            raise RuntimeError("Configuración de Blob incompleta: " + ", ".join(missing))
-        return AzureBlobStorageAdapter(
-            connection_string=settings.azure_blob_connection_string,
-            container_name=settings.azure_blob_container_name,
-        )
-    return LocalBlobStorageAdapter(settings.local_blob_storage_path)
+    missing: list[str] = []
+    if not settings.azure_blob_connection_string.strip():
+        missing.append("AZURE_BLOB_CONNECTION_STRING")
+    if not settings.azure_blob_container_name.strip():
+        missing.append("AZURE_BLOB_CONTAINER_NAME")
+    if missing:
+        raise RuntimeError("Configuración de Blob incompleta: " + ", ".join(missing))
+    return AzureBlobStorageAdapter(
+        connection_string=settings.azure_blob_connection_string,
+        container_name=settings.azure_blob_container_name,
+    )
 
 
 def _validate_pdf_or_raise(filename: str, content: bytes) -> tuple[int, DocumentWarning | None]:
@@ -487,6 +484,7 @@ def list_analyses(
         normalized = f"%{search.strip().lower()}%"
         query = query.filter(
             or_(
+                func.lower(func.coalesce(Analysis.analysis_name, "")).like(normalized),
                 func.lower(func.coalesce(primary_document.filename, "")).like(normalized),
                 func.lower(func.coalesce(cast(AnalysisVersion.extracted_data, String), "")).like(normalized),
                 func.lower(func.coalesce(Analysis.id, "")).like(normalized),
@@ -512,10 +510,12 @@ def list_analyses(
         items.append(
             {
                 "id": analysis.id,
+                "analysis_name": analysis.analysis_name,
                 "status": analysis.status,
                 "current_stage": analysis.current_stage,
                 "stage_progress": stage_progress,
                 "progress_percentage": analysis.progress_percentage or 0,
+                "confidence_avg": calculate_confidence_avg(extracted_data),
                 "created_at": analysis.created_at,
                 "primary_document_name": primary_document_name,
                 "organismo": _extract_organism(extracted_data),

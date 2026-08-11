@@ -44,6 +44,16 @@ ejecución, plazos para consultas o impugnaciones, fecha de presentación.
 Un ítem por plazo. Si el pliego da fecha Y hora para el mismo hito, es un solo
 ítem con ambos campos completos.
 
+**⚠️ IMPORTANTE - NO DUPLICAR:**
+Si el mismo plazo aparece en múltiples fragmentos con redacción levemente distinta
+(ej: "12 meses" vs "12 (doce) meses"), extraelo UNA SOLA VEZ. Consolidá las citas
+de todos los fragmentos donde aparece, pero emití un único ítem.
+
+**Ejemplos de duplicados a evitar:**
+- ❌ "Consultas: hasta 2 días antes de apertura" + "Otro: hasta 2 días antes de apertura" → ✅ UN SOLO item tipo `consultas`
+- ❌ "Plazo de ejecución: 12 meses" + "Plazo de ejecución: 12 (doce) meses" → ✅ UN SOLO item con ambas citas
+- ❌ "Impugnación: 3 días hábiles" extraído dos veces → ✅ UN SOLO item
+
 # ESTRUCTURA DE SALIDA
 
 Usá el schema `PlazoItem` definido en `schemas_v3.py`.
@@ -56,7 +66,7 @@ Usá el schema `PlazoItem` definido en `schemas_v3.py`.
 - `texto_original`: **OBLIGATORIO** - frase literal del pliego
 - `prorrogable`: "si" | "no" | "no_especificado"
 - `confidence`: [0.0-1.0] según el algoritmo de confianza
-- `source_references`: Siempre incluir cita literal del pliego (min 40 chars)
+- `source_references`: Siempre incluir cita literal del pliego (min 25 chars)
 
 **Cuando no hay plazos:** `{"plazos_clave": []}`
 
@@ -96,6 +106,27 @@ Normalizá a 24 horas formato `HH:MM`:
 ### mantenimiento_oferta
 El plazo de validez/vigencia de la oferta. Casi siempre es relativo:
 "60 días corridos desde la apertura" → va en `expresion_relativa`, no en `fecha`.
+
+**⚠️ IMPORTANTE - No confundir con garantías:**
+- "**Plazo** de mantenimiento de oferta: 15 días" → **SÍ extraer acá** (es un plazo)
+- "**Garantía** de mantenimiento de oferta: 1% del presupuesto" → **NO extraer acá** (es una garantía financiera, va en "garantias")
+
+La diferencia: El PLAZO es cuánto TIEMPO la oferta es válida. La GARANTÍA es cuánto DINERO/PÓLIZA hay que depositar.
+
+### plazo_ejecucion
+El plazo para entregar los bienes o ejecutar los servicios DESPUÉS de adjudicado el contrato.
+
+**Sinónimos comunes:**
+- "Plazo de entrega"
+- "Plazo de provisión"
+- "Plazo de suministro"
+- "Tiempo de ejecución"
+
+**Ejemplos:**
+- "Plazo de entrega: 5 días hábiles contados desde la notificación de la orden de compra" → tipo: `plazo_ejecucion`
+- "La provisión se realizará dentro de 10 días corridos de recibida la orden" → tipo: `plazo_ejecucion`
+
+**⚠️ Usar tipo `plazo_ejecucion` (NO `otro`)** cuando el pliego mencione cuánto tiempo tiene el adjudicatario para entregar/ejecutar.
 
 ### presentacion_ofertas vs apertura_ofertas
 Son hitos DISTINTOS aunque compartan día. Emití dos ítems separados.

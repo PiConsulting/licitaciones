@@ -4,11 +4,11 @@ import { Eye, Maximize2, MapPin, X } from "lucide-react";
 import { getConfidenceLevel } from "../../../utils/confidence";
 import { ActionButton } from "../ActionButton";
 import { FieldBadge } from "../FieldBadge";
-import type { Citation, ConfidenceLevel, FieldItem } from "../types";
+import type { Citation, ConfidenceLevel, FieldItem, NarrativeSource } from "../types";
 
 interface PlazosTimelineProps {
   items: FieldItem[];
-  onViewSource?: (payload: { citation: Citation; citations: Citation[] }) => void;
+  onViewSource?: (payload: { citation: Citation; citations: Citation[]; sources: NarrativeSource[] }) => void;
 }
 
 const MIN_SPAN_DAYS = 14;
@@ -290,7 +290,10 @@ export function PlazosTimeline({ items, onViewSource }: PlazosTimelineProps) {
     if (!primary || !onViewSource) {
       return;
     }
-    onViewSource({ citation: primary, citations: item.citations });
+    // PlazosTimeline usa el flujo legado por-campo (FieldItem con citations),
+    // no tiene NarrativeSources con highlight_regions. Pasar array vacío para
+    // que el PDFViewer use el fallback de heurísticas de texto.
+    onViewSource({ citation: primary, citations: item.citations, sources: [] });
   };
 
   return (

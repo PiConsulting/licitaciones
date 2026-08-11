@@ -25,12 +25,11 @@ def test_run_synthesis_respeta_el_formato_que_devuelve_el_llm_bullet_list(monkey
                     {
                         "type": "bullet_list",
                         "items": [
-                            {"text": "Presentar certificado fiscal.", "confidence_level": "alta", "source_ids": [0]},
-                            {"text": "Acreditar capacidad técnica mínima.", "confidence_level": "alta", "source_ids": [0]},
+                            {"text": "Presentar certificado fiscal.", "confidence_level": "alta", "item_refs": [0]},
+                            {"text": "Acreditar capacidad técnica mínima.", "confidence_level": "alta", "item_refs": [0]},
                         ],
                     }
                 ],
-                "sources": [{"id": 0, "document_id": "doc-1", "page_number": 2, "citation": "cita"}],
             },
             {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
         )
@@ -42,7 +41,9 @@ def test_run_synthesis_respeta_el_formato_que_devuelve_el_llm_bullet_list(monkey
             "tipo": "documento",
             "valor": "Certificado fiscal",
             "confidence": 0.9,
-            "source_references": [{"document_id": "doc-1", "page_number": 2, "citation": "cita"}],
+            "source_references": [
+                {"document_id": "doc-1", "page_number": 2, "citation": "Certificado fiscal vigente al momento de la oferta."}
+            ],
             "extraction_status": "success",
         }
     ]
@@ -54,6 +55,12 @@ def test_run_synthesis_respeta_el_formato_que_devuelve_el_llm_bullet_list(monkey
     assert len(narrative.blocks) == 1
     assert narrative.blocks[0].type == "bullet_list"
     assert len(narrative.blocks[0].items) == 2
+    # Ambos bullets referencian el mismo (unico) item, asi que comparten fuente.
+    assert len(narrative.sources) == 1
+    assert narrative.sources[0].citation == "Certificado fiscal vigente al momento de la oferta."
+    assert narrative.sources[0].document_id == "doc-1"
+    assert narrative.blocks[0].items[0].source_ids == [0]
+    assert narrative.blocks[0].items[1].source_ids == [0]
 
 
 def test_run_synthesis_respeta_el_formato_que_devuelve_el_llm_paragraph(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -65,10 +72,9 @@ def test_run_synthesis_respeta_el_formato_que_devuelve_el_llm_paragraph(monkeypa
                         "type": "paragraph",
                         "text": "Serán causales de rechazo la falta de garantía y la presentación fuera de término.",
                         "confidence_level": "alta",
-                        "source_ids": [0],
+                        "item_refs": [0],
                     }
                 ],
-                "sources": [{"id": 0, "document_id": "doc-1", "page_number": 2, "citation": "cita"}],
             },
             {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
         )
@@ -80,7 +86,9 @@ def test_run_synthesis_respeta_el_formato_que_devuelve_el_llm_paragraph(monkeypa
             "tipo": "causal_rechazo",
             "valor": "Causal uno",
             "confidence": 0.9,
-            "source_references": [{"document_id": "doc-1", "page_number": 2, "citation": "cita"}],
+            "source_references": [
+                {"document_id": "doc-1", "page_number": 2, "citation": "Serán causales de rechazo formal la falta de garantía."}
+            ],
             "extraction_status": "success",
         }
     ]
@@ -91,6 +99,7 @@ def test_run_synthesis_respeta_el_formato_que_devuelve_el_llm_paragraph(monkeypa
 
     assert len(narrative.blocks) == 1
     assert narrative.blocks[0].type == "paragraph"
+    assert narrative.sources[0].citation == "Serán causales de rechazo formal la falta de garantía."
 
 
 def test_response_base_prompt_incluye_regla_de_formato_de_fecha() -> None:
@@ -100,6 +109,15 @@ def test_response_base_prompt_incluye_regla_de_formato_de_fecha() -> None:
 
     assert "Fechas y horas en formato natural" in prompt
     assert "formato argentino" in prompt
+
+
+def test_response_base_prompt_prioriza_checklist_breve() -> None:
+    from analysis.extraction.synthesis import _load_response_base_prompt
+
+    prompt = _load_response_base_prompt()
+
+    assert "Modo checklist breve" in prompt
+    assert "items de una sola idea" in prompt
 
 
 def test_run_synthesis_convierte_fecha_iso_a_formato_natural(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -113,10 +131,9 @@ def test_run_synthesis_convierte_fecha_iso_a_formato_natural(monkeypatch: pytest
                         "type": "paragraph",
                         "text": "La oferta debe presentarse antes del 15 de septiembre de 2026 a las 14:30 hs.",
                         "confidence_level": "alta",
-                        "source_ids": [0],
+                        "item_refs": [0],
                     }
                 ],
-                "sources": [{"id": 0, "document_id": "doc-1", "page_number": 4, "citation": "cita"}],
             },
             {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
         )
@@ -129,7 +146,9 @@ def test_run_synthesis_convierte_fecha_iso_a_formato_natural(monkeypatch: pytest
             "fecha": "2026-09-15",
             "hora": "14:30",
             "confidence": 0.9,
-            "source_references": [{"document_id": "doc-1", "page_number": 4, "citation": "cita"}],
+            "source_references": [
+                {"document_id": "doc-1", "page_number": 4, "citation": "La oferta debe presentarse antes del 15/09/2026 14:30."}
+            ],
             "extraction_status": "success",
         }
     ]
@@ -140,3 +159,84 @@ def test_run_synthesis_convierte_fecha_iso_a_formato_natural(monkeypatch: pytest
 
     assert "15 de septiembre de 2026" in narrative.blocks[0].text
     assert "2026-09-15" not in narrative.blocks[0].text
+
+
+def test_run_synthesis_incluye_item_index_en_el_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """El LLM solo puede referenciar items por `item_index`: tiene que
+    recibirlo explicito en el JSON de entrada, no inferirlo contando posicion."""
+    captured_prompt = {}
+
+    def fake_call_llm(*, messages, correlation_id):
+        captured_prompt["value"] = messages[0][1]
+        return (
+            {
+                "blocks": [
+                    {
+                        "type": "paragraph",
+                        "text": "Texto.",
+                        "confidence_level": "alta",
+                        "item_refs": [0],
+                    }
+                ],
+            },
+            {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        )
+
+    monkeypatch.setattr("analysis.extraction.extractors.base._call_llm", fake_call_llm)
+
+    items = [
+        {
+            "tipo": "resumen_objeto",
+            "valor": "Objeto",
+            "confidence": 0.9,
+            "source_references": [{"document_id": "doc-1", "page_number": 1, "citation": "cita larga y valida"}],
+            "extraction_status": "success",
+        }
+    ]
+
+    result = run_synthesis(category_key="objeto_alcance", items=items, correlation_id="corr-1")
+    assert result is not None
+    assert '"item_index": 0' in captured_prompt["value"]
+
+
+def test_run_synthesis_descarta_item_refs_fuera_de_rango(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Si el LLM referencia un item_index invalido, ese bloque se descarta en
+    vez de mostrar una fuente inventada o vacia."""
+
+    def fake_call_llm(*, messages, correlation_id):
+        return (
+            {
+                "blocks": [
+                    {
+                        "type": "paragraph",
+                        "text": "Afirmacion sin evidencia real.",
+                        "confidence_level": "alta",
+                        "item_refs": [99],
+                    }
+                ],
+            },
+            {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        )
+
+    monkeypatch.setattr("analysis.extraction.extractors.base._call_llm", fake_call_llm)
+
+    items = [
+        {
+            "tipo": "resumen_objeto",
+            "valor": "Objeto",
+            "confidence": 0.9,
+            "source_references": [{"document_id": "doc-1", "page_number": 1, "citation": "cita larga y valida"}],
+            "extraction_status": "success",
+        }
+    ]
+
+    result = run_synthesis(category_key="objeto_alcance", items=items, correlation_id="corr-1")
+    assert result is not None
+    narrative, _token_usage = result
+
+    # El bloque invalido se descarta -> narrative queda vacia -> cae al
+    # mensaje canonico armado en Python, nunca al texto que trajo el LLM.
+    assert narrative.sources == []
+    assert len(narrative.blocks) == 1
+    assert "Afirmacion sin evidencia real." not in narrative.blocks[0].text
+    assert "No se encontró información" in narrative.blocks[0].text

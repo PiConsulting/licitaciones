@@ -9,7 +9,7 @@ import type {
   NarrativeParagraphBlock,
   NarrativeSource,
 } from "../types";
-import { dedupeNarrativeSources } from "./dedupeCitations";
+import { dedupeNarrativeSources, remapSourceIds } from "./dedupeCitations";
 
 function normalizeText(value: string | null | undefined): string {
   return (value ?? "").trim();
@@ -110,21 +110,23 @@ export function buildNarrativeBlocks(category: CategoryData, categoryId: Categor
   if (!useBulletList) {
     const [singleItem] = items;
     const text = fieldSentence(singleItem) ?? fallbackBlock(categoryId).text;
+    const sourceIds = collectSourceIds(singleItem, sourceIndex, sources);
+    const { sources: dedupedSources, idMapping } = dedupeNarrativeSources(sources);
     return {
       blocks: [
         {
           type: "paragraph",
           text,
           confidence_level: getConfidenceLevel(singleItem.confidence),
-          source_ids: collectSourceIds(singleItem, sourceIndex, sources),
+          source_ids: remapSourceIds(sourceIds, idMapping),
         },
       ],
-      sources: dedupeNarrativeSources(sources),
+      sources: dedupedSources,
     };
   }
 
-  const bulletItems = items
-    .map((item): NarrativeBulletItem | null => {
+  const bulletDrafts = items
+    .map((item): { text: string; confidence_level: NarrativeBulletItem["confidence_level"]; sourceIds: number[] } | null => {
       const text = fieldSentence(item);
       if (!text) {
         return null;
@@ -132,17 +134,24 @@ export function buildNarrativeBlocks(category: CategoryData, categoryId: Categor
       return {
         text,
         confidence_level: getConfidenceLevel(item.confidence),
-        source_ids: collectSourceIds(item, sourceIndex, sources),
+        sourceIds: collectSourceIds(item, sourceIndex, sources),
       };
     })
-    .filter((entry): entry is NarrativeBulletItem => entry !== null);
+    .filter((entry): entry is { text: string; confidence_level: NarrativeBulletItem["confidence_level"]; sourceIds: number[] } => entry !== null);
 
-  if (bulletItems.length === 0) {
+  if (bulletDrafts.length === 0) {
     return { blocks: [fallbackBlock(categoryId)], sources: [] };
   }
 
+  const { sources: dedupedSources, idMapping } = dedupeNarrativeSources(sources);
+  const bulletItems: NarrativeBulletItem[] = bulletDrafts.map((draft) => ({
+    text: draft.text,
+    confidence_level: draft.confidence_level,
+    source_ids: remapSourceIds(draft.sourceIds, idMapping),
+  }));
+
   return {
     blocks: [{ type: "bullet_list", items: bulletItems }],
-    sources: dedupeNarrativeSources(sources),
+    sources: dedupedSources,
   };
 }

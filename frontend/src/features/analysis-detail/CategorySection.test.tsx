@@ -228,19 +228,38 @@ describe("CategorySection", () => {
   });
 
   test("T7b: Categoría con extraction_status=not_applicable muestra badge NO APLICA", () => {
-    const category = createMockCategory({ extraction_status: "not_applicable" });
+    const category = createMockCategory({
+      extraction_status: "not_applicable",
+      items: [createField("x", { state: "no_aplica", confidence: 0.8, value: "No exigido" })],
+    });
 
     render(<CategorySection category={category} categoryId="anexos_obligatorios" />);
 
     expect(screen.getByText("NO APLICA")).toBeInTheDocument();
+    expect(screen.getByText("1 no aplica")).toBeInTheDocument();
   });
 
-  test("T7c: Categoría con extraction_status=not_found no cae en badge ERROR", () => {
+  test("T7d: Si hay extraídos, oculta contador no aplica para evitar mezcla confusa", () => {
+    const category = createMockCategory({
+      items: [
+        createField("extraido-1", { state: "extraido", value: "Dato válido" }),
+        createField("no-aplica-1", { state: "no_aplica", value: "No exigido" }),
+      ],
+      extraction_status: "success",
+    });
+
+    render(<CategorySection category={category} categoryId="garantias" />);
+
+    expect(screen.queryByText(/^1 no aplica$/i)).not.toBeInTheDocument();
+    expect(screen.getByText("1 extraídos")).toBeInTheDocument();
+  });
+
+  test("T7c: Categoría con extraction_status=not_found no cae en badge ERROR y oculta SIN REVISAR", () => {
     const category = createMockCategory({ extraction_status: "not_found" });
 
     render(<CategorySection category={category} categoryId="objeto_alcance" />);
 
-    expect(screen.getByText("SIN REVISAR")).toBeInTheDocument();
+    expect(screen.queryByText("SIN REVISAR")).not.toBeInTheDocument();
     expect(screen.queryByText("ERROR")).not.toBeInTheDocument();
   });
 

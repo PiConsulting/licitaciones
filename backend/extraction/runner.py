@@ -22,7 +22,6 @@ from extraction.document_intelligence import extract_text
 from extraction.embeddings import generate_embeddings
 from extraction.errors import DocumentTextExtractionError, ExtractionError
 from shared.adapters.azure_blob_storage import AzureBlobStorageAdapter
-from shared.adapters.local_blob_storage import LocalBlobStorageAdapter
 from shared.config import get_settings
 from shared.database import SessionLocal
 from shared.ports.blob_storage import BlobStoragePort
@@ -54,19 +53,17 @@ def _now_for_comparison(target: datetime) -> datetime:
 
 def _build_blob_storage() -> BlobStoragePort:
     settings = get_settings()
-    if settings.is_production:
-        missing: list[str] = []
-        if not settings.azure_blob_connection_string.strip():
-            missing.append("AZURE_BLOB_CONNECTION_STRING")
-        if not settings.azure_blob_container_name.strip():
-            missing.append("AZURE_BLOB_CONTAINER_NAME")
-        if missing:
-            raise RuntimeError("Configuración de Blob incompleta: " + ", ".join(missing))
-        return AzureBlobStorageAdapter(
-            connection_string=settings.azure_blob_connection_string,
-            container_name=settings.azure_blob_container_name,
-        )
-    return LocalBlobStorageAdapter(settings.local_blob_storage_path)
+    missing: list[str] = []
+    if not settings.azure_blob_connection_string.strip():
+        missing.append("AZURE_BLOB_CONNECTION_STRING")
+    if not settings.azure_blob_container_name.strip():
+        missing.append("AZURE_BLOB_CONTAINER_NAME")
+    if missing:
+        raise RuntimeError("Configuración de Blob incompleta: " + ", ".join(missing))
+    return AzureBlobStorageAdapter(
+        connection_string=settings.azure_blob_connection_string,
+        container_name=settings.azure_blob_container_name,
+    )
 
 
 def check_timeout_warning(db: Session, analysis_id: str, logger_instance) -> bool:

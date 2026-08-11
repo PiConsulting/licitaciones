@@ -62,13 +62,18 @@ export default function Dashboard() {
     navigate(`/analysis/${analysisId}`);
   };
 
-  const handleRetryAnalysis = async (analysisId: string) => {
+  const handleStartOrRetryAnalysis = async (analysisId: string, mode: "start" | "retry") => {
     setRetryingAnalysisId(analysisId);
     try {
       const response = await startMutation.mutateAsync({
         analysisId,
         payload: { decisions: [] },
       });
+
+      if (response.requires_resolution) {
+        addToast("error", "Este análisis requiere resolver duplicados desde el wizard antes de iniciar.");
+        return;
+      }
 
       const queuedStatus: AnalysisStatusResponse = {
         id: analysisId,
@@ -102,7 +107,12 @@ export default function Dashboard() {
         addToast("success", "Redirigiendo al análisis existente");
         navigate(`/analysis/${response.redirect_analysis_id}`);
       } else {
-        addToast("success", "Reintento encolado. El análisis continuará en segundo plano.");
+        addToast(
+          "success",
+          mode === "start"
+            ? "Análisis encolado. El procesamiento comenzó en segundo plano."
+            : "Reintento encolado. El análisis continuará en segundo plano.",
+        );
       }
 
       await queryClient.invalidateQueries({ queryKey: ["analyses"] });
@@ -115,16 +125,24 @@ export default function Dashboard() {
           return;
         }
       }
-      addToast("error", "No se pudo reintentar el análisis");
+      addToast("error", mode === "start" ? "No se pudo iniciar el análisis" : "No se pudo reintentar el análisis");
     } finally {
       setRetryingAnalysisId(null);
     }
   };
 
+  const handleStartAnalysis = async (analysisId: string) => {
+    await handleStartOrRetryAnalysis(analysisId, "start");
+  };
+
+  const handleRetryAnalysis = async (analysisId: string) => {
+    await handleStartOrRetryAnalysis(analysisId, "retry");
+  };
+
   const handleOpenDelete = (item: AnalysisListItem) => {
     setDeleteModalState({
       id: item.id,
-      label: item.primary_document_name ?? `Análisis ${item.id.slice(0, 8)}`,
+      label: item.analysis_name ?? item.primary_document_name ?? `Análisis ${item.id.slice(0, 8)}`,
       isErrorAnalysis: item.status.toLowerCase() === "error",
     });
   };
@@ -203,6 +221,7 @@ export default function Dashboard() {
             sortOrder={sortOrder}
             onSort={setSort}
             onRowClick={handleRowClick}
+            onStartAnalysis={handleStartAnalysis}
             onRetryAnalysis={handleRetryAnalysis}
             onDeleteAnalysis={handleOpenDelete}
             retryingAnalysisId={retryingAnalysisId}
