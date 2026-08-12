@@ -1,0 +1,240 @@
+# FORMATO DE SALIDA JSON
+
+## Estructura Principal
+
+Devolvé EXCLUSIVAMENTE un objeto JSON válido con esta estructura:
+
+```json
+{
+  "blocks": [ <bloque>, <bloque>, ... ],
+  "evidence": [ <evidence>, <evidence>, ... ]
+}
+```
+
+---
+
+## Tipos de Bloque
+
+Elegí el formato según el contenido real, no hay "default por categoría":
+
+### 1. Paragraph (para una idea única)
+```json
+{
+  "type": "paragraph",
+  "text": "<explicación en español natural>",
+  "confidence_level": "alta|media|baja",
+  "item_refs": [0, 1, ...]
+}
+```
+
+**Cuándo usar:** Una idea central que se lee mejor en forma narrativa.
+**Ejemplo:** El objeto de la licitación explicado en 2-3 oraciones.
+**`item_refs`:** los `item_index` de los ítems cuyo dato usaste para escribir ESTE párrafo, y solo esos.
+
+### 2. Bullet List (para hechos discretos)
+```json
+{
+  "type": "bullet_list",
+  "items": [
+    {
+      "text": "<oración completa>",
+      "confidence_level": "alta|media|baja",
+      "item_refs": [0]
+    },
+    ...
+  ]
+}
+```
+
+**Cuándo usar:** Varios hechos independientes, cada uno con su propio dato concreto.
+**Ejemplo:** Lista de requisitos, lista de anexos, lista de causales.
+**Regla:** Cada item debe ser corto y escaneable. Se permite formato breve
+`Etiqueta: dato` cuando mejora claridad (ej: "Apertura: 14/09/2026 10:00 hs").
+**`item_refs`:** los `item_index` de los ítems cuyo dato usaste para escribir ESTE bullet puntual, y solo esos.
+
+### 3. Table (para datos comparables)
+```json
+{
+  "type": "table",
+  "headers": ["<col 1>", "<col 2>", ...],
+  "rows": [
+    {
+      "cells": ["<valor col 1>", "<valor col 2>", ...],
+      "confidence_level": "alta|media|baja",
+      "item_refs": [0]
+    },
+    ...
+  ]
+}
+```
+
+**Cuándo usar:** SOLO cuando hay varias filas naturalmente comparables (ej: distintas
+garantías con monto y forma de constitución).
+**Regla:** Vos decidís los encabezados según lo que dice ESTE pliego. No uses un
+esquema fijo copiado de otro ejemplo.
+**`item_refs`:** los `item_index` de los ítems cuyo dato usaste para escribir ESTA fila puntual, y solo esos.
+
+---
+
+## Reglas de `item_refs` (CRÍTICO)
+
+`item_refs` es lo único que conecta tu texto con una fuente verificable.
+
+- Un bloque/bullet/fila que habla de UN hecho puntual debe llevar `item_refs` con SOLO el/los `item_index` de ese hecho.
+- ❌ NUNCA reutilices el `item_index` de un ítem distinto solo porque está cerca o suena parecido.
+- ✅ Si tu texto combina información de más de un ítem, incluí los `item_index` de todos.
+- No necesitás pensar en IDs, citas ni deduplicar — eso lo resuelve el backend a partir de tus `item_refs`.
+
+---
+
+## Campo `evidence` (CRÍTICO para highlighting preciso)
+
+**Propósito:** Identificar las FRASES EXACTAS del pliego que sustentan tu respuesta.
+
+**Cada evidencia debe tener:**
+
+| Campo | Tipo | Descripción | Ejemplo |
+|-------|------|-------------|---------|
+| `document_id` | string | ID del documento (copiado de `item.source_references`) | `"abc-123"` |
+| `page_number` | int | Número de página (copiado de `item.source_references`) | `5` |
+| `text` | string | Texto LITERAL copiado de `citation` en `source_references` | `"La garantía será del 1%"` |
+| `claim` | string | Qué afirma esta evidencia (en tus palabras) | `"Monto de garantía"` |
+| `item_refs` | array[int] | Índices de items que esta evidencia respalda | `[0, 1]` |
+
+**REGLAS CRÍTICAS:**
+
+1. **Text debe ser LITERAL** - Copiá el texto exacto de `citation` en `source_references`. NO parafrasees, NO resumas, NO reordenes palabras.
+   
+   **EJEMPLOS DE COPIA LITERAL (✅ CORRECTO):**
+   
+   ```
+   Item source_references.citation:
+   "La garantía de mantenimiento de oferta será equivalente al 1% del presupuesto oficial"
+   
+   Evidence.text CORRECTO:
+   "La garantía de mantenimiento de oferta será equivalente al 1% del presupuesto oficial"
+   
+   Evidence.text INCORRECTO (paráfrasis):
+   "La garantía de oferta equivale a un 1% del presupuesto" ❌
+   ```
+   
+   ```
+   Item source_references.citation:
+   "El adjudicatario deberá entregar la Orden de provisión firmada, en el plazo de cinco (5) días hábiles de recibida"
+   
+   Evidence.text CORRECTO:
+   "El adjudicatario deberá entregar la Orden de provisión firmada, en el plazo de cinco (5) días hábiles de recibida"
+   
+   Evidence.text INCORRECTO (reordenado):
+   "El adjudicatario deberá entregar en 5 días hábiles la orden firmada" ❌
+   ```
+
+   **⚠️ CRÍTICO:** Si no copiás LITERAL, el highlighting NO funcionará. El sistema busca el texto exacto en el PDF.
+
+2. **Una evidencia = una idea** - Si usás múltiples ítems, crea múltiples evidencias.
+3. **document_id y page_number obligatorios** - Deben matchear EXACTAMENTE con los de `item.source_references`.
+4. **item_refs consistentes** - Deben coincidir con los que usaste en el bloque correspondiente.
+
+**⚠️ REGLA DE ORO PARA EVIDENCE.TEXT:**
+- Abrí el array `source_references` del item
+- Encontrá el campo `citation`
+- Hacé Ctrl+C, Ctrl+V DEL TEXTO COMPLETO en `evidence.text`
+- NO cambies ni una coma
+
+**Cuando un citation es muy largo (>300 caracteres):**
+- Copiá los primeros 300 caracteres LITERALES
+- NO elijas fragmentos inconexos
+- NO resumas
+
+---
+
+## Confidence Level
+
+Sale de los `confidence` numéricos de los ítems que sustentan ese bloque:
+- `>= 0.8` → `"alta"`
+- `>= 0.6` → `"media"`
+- `< 0.6` → `"baja"`
+
+Si un bloque combina ítems con distinto confidence, usá el más bajo.
+
+---
+
+## Ejemplo Completo
+
+**Items de entrada:**
+```json
+[
+  {
+    "item_index": 0,
+    "tipo": "garantia_oferta",
+    "monto_porcentaje": 1,
+    "source_references": [{
+      "document_id": "abc-123",
+      "page_number": 5,
+      "citation": "La garantía de mantenimiento de oferta será equivalente al 1% del presupuesto oficial"
+    }]
+  },
+  {
+    "item_index": 1,
+    "tipo": "garantia_oferta",
+    "forma_constitucion": "póliza bancaria",
+    "source_references": [{
+      "document_id": "abc-123",
+      "page_number": 5,
+      "citation": "deberá instrumentarse mediante póliza bancaria de entidad reconocida"
+    }]
+  }
+]
+```
+
+**Salida esperada:**
+```json
+{
+  "blocks": [
+    {
+      "type": "paragraph",
+      "text": "La garantía de oferta debe ser del 1% del presupuesto oficial, mediante póliza bancaria.",
+      "confidence_level": "alta",
+      "item_refs": [0, 1]
+    }
+  ],
+  "evidence": [
+    {
+      "document_id": "abc-123",
+      "page_number": 5,
+      "text": "La garantía de mantenimiento de oferta será equivalente al 1% del presupuesto oficial",
+      "claim": "Monto de garantía: 1%",
+      "item_refs": [0]
+    },
+    {
+      "document_id": "abc-123",
+      "page_number": 5,
+      "text": "deberá instrumentarse mediante póliza bancaria de entidad reconocida",
+      "claim": "Instrumento: póliza bancaria",
+      "item_refs": [1]
+    }
+  ]
+}
+```
+
+---
+
+## Sin Contenido Útil
+
+Si ningún ítem tiene datos suficientes para armar una afirmación (todos
+`not_found` o `failed`), simplemente no emitas ningún bloque:
+
+```json
+{ "blocks": [], "evidence": [] }
+```
+
+El backend arma el mensaje de "no se encontró información" cuando la
+categoría queda sin bloques.
+
+---
+
+## Notas Importantes
+
+- **NO hay campo `sources` separado** - El backend construye fuentes automáticamente desde `evidence`.
+- **El campo `text` en evidence** permite al backend hacer matching preciso con las coordenadas bbox del PDF para highlighting.
+- **Copiar literal es esencial** - Si el texto no matchea exactamente, el highlight fallará.

@@ -59,11 +59,29 @@ de todos los fragmentos donde aparece, pero emití un único ítem.
 Usá el schema `PlazoItem` definido en `schemas_v3.py`.
 
 **Campos clave:**
-- `tipo`: Usa enum `TipoPlazo` (presentacion_ofertas, apertura_ofertas, consultas, mantenimiento_oferta, etc.)
+- `tipo`: Usa enum `TipoPlazo`. **Tipos disponibles:**
+  - `presentacion_ofertas` - Fecha/hora límite para presentar ofertas
+  - `apertura_ofertas` - Fecha/hora del acto de apertura
+  - `consultas` - Plazo para hacer consultas al pliego
+  - `respuesta_consultas` - Plazo para responder consultas
+  - `visita_lugar` - Plazo para visita al lugar de ejecución
+  - `mantenimiento_oferta` - Plazo de vigencia de la oferta
+  - `plazo_ejecucion` - Plazo para entregar bienes o ejecutar servicios
+  - `adjudicacion` - Plazo para notificar adjudicación
+  - `impugnacion` - Plazo para impugnar
+  - `firma_contrato` - Plazo para firmar contrato
+  - `presentacion_orden_provision` - Plazo para presentarse a firmar orden
+  - `entrega_orden_firmada` - Plazo para devolver orden firmada
+  - `plazo_pago` - Plazo para efectuar el pago
+  - `plazo_subsanacion` - Plazo para subsanar documentación faltante
+  - `preaviso_rescision` - Plazo de preaviso para rescindir
+  - `acreditacion_importacion` - Plazo para acreditar importación
+  - `presentacion_factura` - Plazo para presentar factura
+  - `otro` - Solo si no encaja en ningún tipo anterior
 - `fecha`: Formato ISO YYYY-MM-DD (solo si hay fecha calendaria explícita, sino `None`)
 - `hora`: Formato HH:MM en 24h (solo si se especifica, sino `None`)
 - `expresion_relativa`: Frase literal para plazos relativos ("10 días corridos desde...") - NO calcular fechas
-- `texto_original`: **OBLIGATORIO** - frase literal del pliego
+- `texto_original`: **OBLIGATORIO** - frase literal del pliego. **CRÍTICO cuando tipo="otro"**: debe incluir descripción de QUÉ plazo es (ej: "Plazo para retirar muestras: 5 días")
 - `prorrogable`: "si" | "no" | "no_especificado"
 - `confidence`: [0.0-1.0] según el algoritmo de confianza
 - `source_references`: Siempre incluir cita literal del pliego (min 25 chars)
@@ -127,6 +145,97 @@ El plazo para entregar los bienes o ejecutar los servicios DESPUÉS de adjudicad
 - "La provisión se realizará dentro de 10 días corridos de recibida la orden" → tipo: `plazo_ejecucion`
 
 **⚠️ Usar tipo `plazo_ejecucion` (NO `otro`)** cuando el pliego mencione cuánto tiempo tiene el adjudicatario para entregar/ejecutar.
+
+### presentacion_orden_provision
+Plazo para que el adjudicatario se presente a firmar la Orden de Provisión/Compra.
+
+**Ejemplo:**
+"El adjudicatario deberá presentarse dentro de los 5 días corridos de notificada la adjudicación para suscribir la orden de provisión" → tipo: `presentacion_orden_provision`
+
+### entrega_orden_firmada
+Plazo para devolver la orden de provisión ya firmada.
+
+**Ejemplo:**
+"El adjudicatario deberá entregar la Orden de provisión firmada, en el plazo de 5 días hábiles de recibida" → tipo: `entrega_orden_firmada`
+
+### plazo_pago
+Plazo que tiene la entidad para pagar al proveedor.
+
+**Ejemplos:**
+- "El pago se realizará a los 30 días de conformada la factura" → tipo: `plazo_pago`
+- "Plazo de pago: 60 días de recepción conforme" → tipo: `plazo_pago`
+
+### plazo_subsanacion
+Plazo para subsanar/completar documentación faltante.
+
+**Ejemplos:**
+- "El Oferente podrá suplir su omisión dentro del término de 2 días hábiles" → tipo: `plazo_subsanacion`
+- "48 horas para completar la documentación intimada" → tipo: `plazo_subsanacion`
+
+### preaviso_rescision
+Plazo de preaviso que debe dar alguna de las partes para rescindir el contrato.
+
+**Ejemplo:**
+"La Municipalidad podrá rescindir con 10 días de anticipación a la fecha de rescisión" → tipo: `preaviso_rescision`
+
+### acreditacion_importacion
+Plazo para acreditar solicitud de importación ante autoridad aduanera (ARCA, etc.).
+
+**Ejemplo:**
+"Deberá presentar el documento aduanero que acredite la solicitud de importación ante ARCA, dentro de los 5 días hábiles" → tipo: `acreditacion_importacion`
+
+### presentacion_factura
+Plazo para presentar factura después de la entrega.
+
+**Ejemplo:**
+"El proveedor presentará la factura dentro de 5 días hábiles de entregados los productos" → tipo: `presentacion_factura`
+
+### otro (SOLO si no encaja en ningún tipo anterior)
+Usá `tipo: "otro"` únicamente cuando el plazo NO encaja en ninguno de los 17 tipos anteriores.
+
+**⚠️ REGLA CRÍTICA:** Cuando uses `tipo: "otro"`, el campo `texto_original` DEBE incluir una descripción clara de QUÉ PLAZO ES (no solo la fecha/duración).
+
+**Ejemplos CORRECTOS:**
+
+✅ Plazo para retirar muestras:
+```json
+{
+  "tipo": "otro",
+  "expresion_relativa": "5 días hábiles desde la notificación",
+  "texto_original": "Plazo para retirar muestras de laboratorio: 5 días hábiles desde la notificación"
+}
+```
+
+✅ Plazo para constituir domicilio legal:
+```json
+{
+  "tipo": "otro",
+  "fecha": "2027-11-15",
+  "texto_original": "Los oferentes deberán constituir domicilio legal hasta el 15/11/2027"
+}
+```
+
+✅ Plazo para realizar análisis técnicos:
+```json
+{
+  "tipo": "otro",
+  "expresion_relativa": "10 días corridos desde recepción de muestras",
+  "texto_original": "Plazo para completar análisis técnicos de calidad: 10 días corridos desde recepción de muestras"
+}
+```
+
+**Ejemplos INCORRECTOS:**
+
+❌ Falta contexto (no se entiende de qué plazo es):
+```json
+{
+  "tipo": "otro",
+  "expresion_relativa": "5 días hábiles"
+  // ¿De qué es este plazo? ¡Falta texto_original descriptivo!
+}
+```
+
+**Antes de usar "otro":** Verificá que el plazo realmente NO encaja en ninguno de los 17 tipos específicos disponibles. La mayoría de plazos en licitaciones argentinas están cubiertos.
 
 ### presentacion_ofertas vs apertura_ofertas
 Son hitos DISTINTOS aunque compartan día. Emití dos ítems separados.

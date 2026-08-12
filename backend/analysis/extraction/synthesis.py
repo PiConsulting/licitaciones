@@ -24,6 +24,7 @@ except ImportError:
 logger = structlog.get_logger(__name__)
 
 RESPONSE_BASE_PROMPT_FILE = "_response_base.txt"
+OUTPUT_SCHEMA_FILE = "_output_schema.txt"
 
 CATEGORY_LABELS = {
     "objeto_alcance": "Objeto y Alcance",
@@ -92,15 +93,182 @@ def _normalize_text_for_comparison(text: str) -> str:
     return " ".join(normalized.lower().strip().split())
 
 
+def _resolve_from_evidence(
+    raw: RawCategoryNarrative,
+    chunks_by_id: dict[str, dict],
+    *,
+    correlation_id: str,
+) -> CategoryNarrative:
+    """Construye CategoryNarrative desde evidencias textuales del LLM.
+    
+    Arquitectura nueva (2026-08-12):
+    - El LLM devuelve `evidence` con document_id + page_number + texto exacto
+    - Este texto se busca en el chunk para extraer chunk_id y validar
+    - Solo se resaltan las frases específicas que el LLM citó
+    
+    Esto resuelve el problema: "retrieved chunks != evidence chunks"
+    """
+    all_sources: list[dict[str, Any]] = []
+    evidence_to_source_id: dict[str, int] = {}
+    
+    # Construir sources desde evidencias
+    for ev in raw.evidence:
+        # Buscar chunk por (document_id, page_number) ya que el LLM no tiene chunk_id
+        matching_chunks = [
+            c for c in chunks_by_id.values()
+            if c.get("document_id") == ev.document_id and c.get("page_number") == ev.page_number
+        ]
+        
+        if not matching_chunks:
+            logger.warning(
+                "evidence_no_matching_chunks",
+                correlation_id=correlation_id,
+                document_id=ev.document_id,
+                page_number=ev.page_number,
+                text_preview=ev.text[:50],
+            )
+            continue
+        
+        # Buscar el chunk que contiene el texto de evidencia
+        chunk = None
+        evidence_normalized = _normalize_text_for_comparison(ev.text)
+        for candidate in matching_chunks:
+            chunk_content = candidate.get("content", "")
+            chunk_content_normalized = _normalize_text_for_comparison(chunk_content)
+            
+            if evidence_normalized in chunk_content_normalized:
+                chunk = candidate
+                break
+        
+        if not chunk:
+            logger.warning(
+                "evidence_text_not_found_in_page",
+                correlation_id=correlation_id,
+                document_id=ev.document_id,
+                page_number=ev.page_number,
+                evidence_text=ev.text[:100],
+                chunks_checked=len(matching_chunks),
+            )
+            continue
+        
+        # Crear source desde evidencia
+        evidence_key = f"{chunk['document_id']}-{chunk['page_number']}-{evidence_normalized}"
+        
+        if evidence_key in evidence_to_source_id:
+            # Ya existe esta evidencia, reutilizar
+            continue
+        
+        chunk_id = chunk.get("chunk_id")  # Obtenido del matching, no del LLM
+        
+        source = {
+            "id": len(all_sources),
+            "document_id": chunk["document_id"],
+            "page_number": chunk["page_number"],
+            "citation": ev.text,  # Texto exacto del LLM
+            "unverified": False,
+            "highlight_regions": [],  # Se computará después
+            "chunk_id": chunk_id,  # Para matching posterior con highlight
+        }
+        
+        all_sources.append(source)
+        evidence_to_source_id[evidence_key] = source["id"]
+    
+    # Mapear item_refs de evidencias a source_ids
+    def get_source_ids_for_item_refs(item_refs: list[int]) -> list[int]:
+        """Encuentra sources que corresponden a estos item_refs."""
+        source_ids = []
+        for ev in raw.evidence:
+            if any(ref in item_refs for ref in ev.item_refs):
+                # Buscar chunks que matcheen (document_id, page_number)
+                matching_chunks = [
+                    c for c in chunks_by_id.values()
+                    if c.get("document_id") == ev.document_id and c.get("page_number") == ev.page_number
+                ]
+                
+                chunk = None
+                evidence_normalized = _normalize_text_for_comparison(ev.text)
+                for candidate in matching_chunks:
+                    chunk_content_normalized = _normalize_text_for_comparison(candidate.get("content", ""))
+                    if evidence_normalized in chunk_content_normalized:
+                        chunk = candidate
+                        break
+                
+                if not chunk:
+                    continue
+                
+                evidence_key = f"{chunk['document_id']}-{chunk['page_number']}-{evidence_normalized}"
+                
+                source_id = evidence_to_source_id.get(evidence_key)
+                if source_id is not None and source_id not in source_ids:
+                    source_ids.append(source_id)
+        
+        return source_ids
+    
+    # Construir bloques con source_ids
+    blocks_data: list[dict[str, Any]] = []
+    for block in raw.blocks:
+        if block.type == "paragraph":
+            source_ids = get_source_ids_for_item_refs(block.item_refs)
+            if not source_ids:
+                logger.info(
+                    "paragraph_dropped_no_evidence",
+                    correlation_id=correlation_id,
+                    text=block.text[:100],
+                )
+                continue
+            blocks_data.append({
+                "type": "paragraph",
+                "text": block.text,
+                "confidence_level": block.confidence_level,
+                "source_ids": source_ids,
+            })
+        elif block.type == "bullet_list":
+            kept_items = []
+            for bullet in block.items:
+                source_ids = get_source_ids_for_item_refs(bullet.item_refs)
+                if not source_ids:
+                    continue
+                kept_items.append({
+                    "text": bullet.text,
+                    "confidence_level": bullet.confidence_level,
+                    "source_ids": source_ids,
+                })
+            if kept_items:
+                blocks_data.append({"type": "bullet_list", "items": kept_items})
+        elif block.type == "table":
+            kept_rows = []
+            for row in block.rows:
+                source_ids = get_source_ids_for_item_refs(row.item_refs)
+                if not source_ids:
+                    continue
+                kept_rows.append({
+                    "cells": row.cells,
+                    "confidence_level": row.confidence_level,
+                    "source_ids": source_ids,
+                })
+            if kept_rows:
+                blocks_data.append({"type": "table", "headers": block.headers, "rows": kept_rows})
+    
+    logger.info(
+        "narrative_resolved_from_evidence",
+        correlation_id=correlation_id,
+        evidence_count=len(raw.evidence),
+        sources_created=len(all_sources),
+        blocks_retained=len(blocks_data),
+    )
+    
+    return CategoryNarrative.model_validate({"blocks": blocks_data, "sources": all_sources})
+
+
 def _dedupe_narrative_sources(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Deduplica sources en narrative agrupando por párrafo.
+    """Deduplica sources en narrative usando normalización de texto.
     
-    FIX (2026-08-11): Agrupa múltiples citations del MISMO párrafo en una sola source.
-    - Múltiples citations del mismo block_id → 1 source con citation combinada
-    - Citation de otro block_id → source separada
+    FIX CRÍTICO (2026-08-12): NO agrupar por block_id ni combinar citations.
+    - Cada citation única es una source separada (permite múltiples highlights del mismo párrafo)
+    - Solo deduplica citations literalmente idénticas (mismo documento, página, texto normalizado)
+    - NUNCA combina con [...] (eso creaba citations que no existen en el PDF)
     
-    Clave de agrupación: (document_id, page_number, block_id)
-    Si block_id no está disponible, usa citation normalizada (comportamiento legacy).
+    Clave de deduplicación: (document_id, page_number, citation_normalizada)
     """
     seen: dict[tuple[str, int, str], int] = {}
     deduped: list[dict[str, Any]] = []
@@ -111,33 +279,16 @@ def _dedupe_narrative_sources(sources: list[dict[str, Any]]) -> list[dict[str, A
         page = int(source.get("page_number", 0) or 0)
         citation = str(source.get("citation", ""))
         normalized_citation = _normalize_text_for_comparison(citation)
-        block_id = str(source.get("block_id", "")) if source.get("block_id") else None
         
-        # FIX: Agrupar por block_id si está disponible, sino por citation
-        if block_id:
-            key = (doc_id, page, block_id)
-        else:
-            # Fallback legacy: agrupar por citation normalizada
-            key = (doc_id, page, normalized_citation)
+        # Clave: documento + página + texto normalizado (NO usar block_id)
+        key = (doc_id, page, normalized_citation)
         
         original_id = int(source.get("id", 0))
         
         if key in seen:
-            # Ya existe una source de este párrafo
+            # Citation duplicada exacta → reusar source existente
             canonical_id = seen[key]
             id_mapping[original_id] = canonical_id
-            
-            # FIX: Si es el mismo block_id, combinar citations
-            if block_id:
-                existing_source = deduped[canonical_id]
-                existing_citation = existing_source.get("citation", "")
-                # Solo agregar si es citation diferente (no duplicar texto)
-                if normalized_citation not in _normalize_text_for_comparison(existing_citation):
-                    combined_citation = f"{existing_citation} [...] {citation}"
-                    # Limitar longitud total
-                    if len(combined_citation) > 500:
-                        combined_citation = combined_citation[:497] + "..."
-                    existing_source["citation"] = combined_citation
         else:
             # Nueva fuente única
             new_id = len(deduped)
@@ -148,8 +299,11 @@ def _dedupe_narrative_sources(sources: list[dict[str, Any]]) -> list[dict[str, A
                 "document_id": doc_id,
                 "page_number": page,
                 "citation": citation,
-                "block_id": block_id,
             }
+            # Preservar block_id como metadata (NO para agrupación)
+            if source.get("block_id"):
+                deduped_source["block_id"] = str(source.get("block_id"))
+            
             # La marca de cita no verificada se pierde si se reconstruye el dict
             # desde cero: la fuente llegaba al usuario sin ninguna señal de que
             # no se pudo respaldar contra los chunks.
@@ -188,10 +342,15 @@ def _resolve_narrative_sources(
     items: list[dict[str, Any]],
     *,
     correlation_id: str,
+    chunks_by_id: dict[str, dict] | None = None,
 ) -> CategoryNarrative:
     """Traduce la salida cruda del LLM (bloques con `item_refs`) a un
     `CategoryNarrative` (bloques con `source_ids` + `sources`), resolviendo
     cada referencia contra los `source_references` PROPIOS del item apuntado.
+    
+    NUEVO (2026-08-12): Si `raw.evidence` está presente, construye sources
+    desde las evidencias (texto exacto del chunk) en vez de item_refs.
+    Esto permite highlighting preciso de frases específicas, no párrafos enteros.
 
     Esto es lo que hace estructuralmente imposible que la fuente de un bloque
     sea la evidencia de un item distinto: `sources` solo se puede poblar desde
@@ -199,6 +358,25 @@ def _resolve_narrative_sources(
     nunca desde un pool global de la categoria. Un bloque/bullet/fila cuyos
     `item_refs` no resuelven a ningun source valido se descarta entero — "no
     hay fuente, no hay afirmacion" aplicado en codigo, no delegado al prompt."""
+    
+    # NUEVO: Si hay evidencias NO VACÍAS, construir sources desde ahí
+    # IMPORTANTE: Solo usar evidence-based si el LLM devolvió evidencias válidas
+    if raw.evidence and len(raw.evidence) > 0 and chunks_by_id:
+        logger.info(
+            "using_evidence_based_resolution",
+            correlation_id=correlation_id,
+            evidence_count=len(raw.evidence),
+        )
+        return _resolve_from_evidence(raw, chunks_by_id, correlation_id=correlation_id)
+    
+    # Flujo estándar: usar item_refs (backward compatible)
+    logger.info(
+        "using_item_refs_resolution",
+        correlation_id=correlation_id,
+        has_evidence=bool(raw.evidence),
+        evidence_count=len(raw.evidence) if raw.evidence else 0,
+        has_chunks_by_id=chunks_by_id is not None,
+    )
     item_stubs = [_item_source_stubs(item) for item in items]
     all_stubs: list[dict[str, Any]] = []
 
@@ -334,8 +512,13 @@ def _empty_category_narrative(category_label: str) -> CategoryNarrative:
 
 @lru_cache(maxsize=1)
 def _load_response_base_prompt() -> str:
-    prompt_path = Path(__file__).resolve().parent / "prompts" / RESPONSE_BASE_PROMPT_FILE
-    return prompt_path.read_text(encoding="utf-8")
+    """Carga el prompt base y el schema de output, concatenándolos."""
+    prompts_dir = Path(__file__).resolve().parent / "prompts"
+    base_prompt = (prompts_dir / RESPONSE_BASE_PROMPT_FILE).read_text(encoding="utf-8")
+    output_schema = (prompts_dir / OUTPUT_SCHEMA_FILE).read_text(encoding="utf-8")
+    
+    # Concatenar con separador
+    return f"{base_prompt}\n\n---\n\n{output_schema}"
 
 
 def _serialize_items(items: list[dict[str, Any]]) -> str:
@@ -356,13 +539,18 @@ def run_synthesis(
     category_key: str,
     items: list[dict[str, Any]],
     correlation_id: str,
+    chunks_by_id: dict[str, dict] | None = None,
 ) -> tuple[CategoryNarrative, dict[str, int]] | None:
     """Convierte los items ya extraidos de una categoria en una respuesta de
     experto: bloques en lenguaje natural (parrafo/lista/tabla), nunca metadata
     cruda. Devuelve None si no hay contenido util o si la sintesis falla por
     cualquier motivo (LLM, parseo, validacion) — el llamador (grafo) y el
     frontend ya tienen fallback, asi que una categoria nunca se queda sin
-    respuesta por un fallo puntual de este paso."""
+    respuesta por un fallo puntual de este paso.
+    
+    NUEVO (2026-08-12): Acepta chunks_by_id opcional para evidence-based
+    highlighting. Si el LLM devuelve evidencias, se usan para construir
+    sources precisos con texto exacto en vez de item_refs."""
     if not items or not _has_usable_content(items):
         return None
 
@@ -384,7 +572,13 @@ def run_synthesis(
 
         # Resuelve item_refs -> source_references propios de cada item. Nunca
         # confia en texto o ids que el LLM haya podido inventar.
-        narrative = _resolve_narrative_sources(raw_narrative, items, correlation_id=correlation_id)
+        # NUEVO: Si hay evidencias y chunks_by_id, usa evidence-based resolution
+        narrative = _resolve_narrative_sources(
+            raw_narrative,
+            items,
+            correlation_id=correlation_id,
+            chunks_by_id=chunks_by_id,
+        )
         if not narrative.blocks:
             narrative = _empty_category_narrative(category_label)
 
@@ -406,12 +600,72 @@ def run_synthesis(
         return None
 
 
+def _build_chunks_index_from_search(analysis_id: str, correlation_id: str) -> dict[tuple[str, int], list[dict]]:
+    """Construye índice de chunks por (document_id, page_number) desde Azure Search.
+    
+    FIX CRÍTICO (2026-08-12): Necesario para que compute_highlights_for_sources
+    pueda buscar los chunks que contienen cada citation y extraer sus bbox.
+    
+    Args:
+        analysis_id: ID del análisis para filtrar chunks
+        correlation_id: ID para logging
+    
+    Returns:
+        Diccionario {(document_id, page_number): [chunks en esa página]}
+    """
+    try:
+        from shared.ports.azure_search import search_hybrid
+        
+        # Obtener todos los chunks del análisis
+        # Azure Search vector search limita a 1000 max, así que no pedimos más
+        all_chunks = search_hybrid(
+            query="*",  # Wildcard = obtener todos los chunks
+            analysis_id=analysis_id,
+            top_k=1000,  # Máximo soportado por Azure AI Search vector search
+            keyword_query=None,
+            category_filter=None,
+        )
+        
+        # Construir índice
+        chunks_by_doc_page: dict[tuple[str, int], list[dict]] = {}
+        for chunk in all_chunks:
+            doc_id = chunk.get("document_id")
+            page = chunk.get("page_number")
+            if not doc_id or not page:
+                continue
+            key = (str(doc_id), int(page))
+            if key not in chunks_by_doc_page:
+                chunks_by_doc_page[key] = []
+            chunks_by_doc_page[key].append(chunk)
+        
+        logger.info(
+            "chunks_index_built",
+            correlation_id=correlation_id,
+            analysis_id=analysis_id,
+            total_chunks=len(all_chunks),
+            unique_pages=len(chunks_by_doc_page),
+        )
+        
+        return chunks_by_doc_page
+        
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "chunks_index_build_failed",
+            correlation_id=correlation_id,
+            analysis_id=analysis_id,
+            error=str(exc),
+            message="Highlight no disponible - no se pudo construir índice de chunks",
+        )
+        return {}
+
+
 def enrich_narrative_with_highlights(
     narrative: CategoryNarrative,
     document_id_to_blob_path: dict[str, str],
     correlation_id: str,
     *,
     category_key: str | None = None,
+    analysis_id: str | None = None,
 ) -> CategoryNarrative:
     """Enriquece una CategoryNarrative con coordenadas de highlight pre-computadas.
     
@@ -420,11 +674,15 @@ def enrich_narrative_with_highlights(
     pre-computamos las coordenadas exactas usando PyMuPDF con disambiguación
     basada en categoría.
     
+    FIX CRÍTICO (2026-08-12): Obtiene chunks desde Azure Search y construye índice
+    para que compute_highlights_for_sources pueda filtrar por contenido real.
+    
     Args:
         narrative: CategoryNarrative ya construida (output de run_synthesis)
         document_id_to_blob_path: Mapeo document_id → ruta absoluta del PDF
         correlation_id: ID para logging
         category_key: Clave de categoría para section_hint (ej: "objeto_alcance")
+        analysis_id: ID del análisis (necesario para obtener chunks)
     
     Returns:
         CategoryNarrative con sources enriquecidas (highlight_regions poblado)
@@ -445,16 +703,28 @@ def enrich_narrative_with_highlights(
     if not narrative.sources:
         return narrative
     
+    # FIX CRÍTICO (2026-08-12): Construir índice de chunks desde Azure Search
+    chunks_by_doc_page = {}
+    if analysis_id:
+        chunks_by_doc_page = _build_chunks_index_from_search(analysis_id, correlation_id)
+    else:
+        logger.warning(
+            "highlight_skipped_no_analysis_id",
+            correlation_id=correlation_id,
+            message="analysis_id no disponible - highlights no se calcularán",
+        )
+    
     try:
         # Convertir sources a dict para modificar
         sources_data = [source.model_dump() for source in narrative.sources]
         
-        # Enriquecer con highlights
+        # Enriquecer con highlights (ahora CON chunks_by_doc_page)
         enriched_sources_data = compute_highlights_for_sources(
             sources=sources_data,
             document_id_to_blob_path=document_id_to_blob_path,
             correlation_id=correlation_id,
             category_key=category_key,
+            chunks_by_doc_page=chunks_by_doc_page,
         )
         
         # Reconstruir narrative con sources enriquecidas

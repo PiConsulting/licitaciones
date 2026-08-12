@@ -446,118 +446,82 @@ def compute_highlights_for_sources(
                 if not blocks:
                     continue
                 
-                # FIX V5 (2026-08-11): Detectar si es source agrupada por párrafo
-                # Si tiene block_id O la citation contiene "[...]" (múltiples citations combinadas)
-                # → resaltar párrafo completo en lugar de filtrar por frase específica
-                is_paragraph_grouped = (
-                    source.get("block_id") is not None 
-                    or "[...]" in citation
-                )
+                # FIX CRÍTICO (2026-08-12): SIEMPRE filtrar por contenido específico de citation.
+                # NUNCA marcar párrafo completo basándose en block_id (es solo metadata).
+                # Solo marcar el block que contiene el texto exacto de la citation.
+                citation_normalized = _normalize_for_search(citation)
                 
-                if is_paragraph_grouped:
-                    # Source agrupada: resaltar TODOS los blocks del párrafo
-                    # Si tiene block_id, usar solo el block que matchea ese ID
-                    target_block_id = source.get("block_id")
+                # Validar longitud mínima de citation para evitar matches espurios
+                if len(citation_normalized.split()) < 3:
+                    logger.warning(
+                        "highlight_citation_too_short_for_matching",
+                        correlation_id=correlation_id,
+                        document_id=document_id,
+                        page_number=page_number,
+                        citation_length=len(citation_normalized.split()),
+                        category_key=category_key,
+                        message="Citation too short (<3 words) - skipping highlight to avoid false positives",
+                    )
+                    continue
+                
+                matched_blocks = []
+                for block in blocks:
+                    # Leer texto del block (campo 'text' en nuevo formato, 'content' en legacy)
+                    block_text = str(block.get("text") or block.get("content", ""))
                     
-                    for block in blocks:
-                        # Si hay block_id, verificar match
-                        if target_block_id:
-                            block_id = str(block.get("block_id") or block.get("para_id", ""))
-                            if block_id != target_block_id:
-                                continue
-                        
-                        # Agregar bbox del block completo (sin filtrar por contenido)
-                        bbox = block.get("bbox")
-                        if not bbox:
-                            continue
-                        
-                        if isinstance(bbox, dict) and "x" in bbox:
-                            regions.append({
-                                "x": float(bbox.get("x", 0)),
-                                "y": float(bbox.get("y", 0)),
-                                "width": float(bbox.get("width", 0)),
-                                "height": float(bbox.get("height", 0)),
-                            })
-                        elif isinstance(bbox, list):
-                            for bbox_item in bbox:
-                                if bbox_item.get("page") == page_number:
-                                    regions.append({
-                                        "x": float(bbox_item.get("x", 0)),
-                                        "y": float(bbox_item.get("y", 0)),
-                                        "width": float(bbox_item.get("width", 0)),
-                                        "height": float(bbox_item.get("height", 0)),
-                                    })
+                    if not block_text:
+                        # NO agregar blocks sin texto (evita highlights incorrectos)
+                        continue
                     
-                    if regions:
+                    # Verificar si la citation está en este block específico
+                    block_normalized = _normalize_for_search(block_text)
+                    
+                    # Match estricto: citation debe estar completa en el block
+                    # (no partial matches de palabras sueltas)
+                    if citation_normalized in block_normalized:
+                        matched_blocks.append(block)
+                
+                # Extraer bbox solo de los blocks que matchearon
+                for block in matched_blocks:
+                    # Nuevo formato: bbox es dict directo {x, y, width, height}
+                    # Legacy formato: bbox es lista de dicts con campo 'page'
+                    bbox = block.get("bbox")
+                    if not bbox:
+                        continue
+                    
+                    # Detectar formato
+                    if isinstance(bbox, dict) and "x" in bbox:
+                        # Nuevo formato estructurado
+                        regions.append({
+                            "x": float(bbox.get("x", 0)),
+                            "y": float(bbox.get("y", 0)),
+                            "width": float(bbox.get("width", 0)),
+                            "height": float(bbox.get("height", 0)),
+                        })
+                    elif isinstance(bbox, list):
+                        # Legacy formato: lista de bboxes
+                        for bbox_item in bbox:
+                            if bbox_item.get("page") == page_number:
+                                regions.append({
+                                    "x": float(bbox_item.get("x", 0)),
+                                    "y": float(bbox_item.get("y", 0)),
+                                    "width": float(bbox_item.get("width", 0)),
+                                    "height": float(bbox_item.get("height", 0)),
+                                })
+                
+                if matched_blocks:
+                    if len(matched_blocks) > 1 or (len(blocks) > 1 and len(matched_blocks) < len(blocks)):
                         stats["multiple_blocks"] += 1
-                        logger.debug(
-                            "highlight_paragraph_grouped",
-                            correlation_id=correlation_id,
-                            document_id=document_id,
-                            page_number=page_number,
-                            block_id=target_block_id,
-                            category_key=category_key,
-                            message="Multiple citations from same paragraph - highlighting entire block"
-                        )
-                else:
-                    # Source única: filtrar block específico que contiene la citation
-                    citation_normalized = _normalize_for_search(citation)
-                    
-                    matched_blocks = []
-                    for block in blocks:
-                        # Leer texto del block (campo 'text' en nuevo formato, 'content' en legacy)
-                        block_text = str(block.get("text") or block.get("content", ""))
-                        
-                        if not block_text:
-                            # Fallback: si no hay texto en el block (análisis antiguos),
-                            # agregar el block igual (comportamiento previo)
-                            matched_blocks.append(block)
-                            continue
-                        
-                        # Verificar si la citation está en este block específico
-                        block_normalized = _normalize_for_search(block_text)
-                        if citation_normalized in block_normalized:
-                            matched_blocks.append(block)
-                    
-                    # Extraer bbox solo de los blocks que matchearon
-                    for block in matched_blocks:
-                        # Nuevo formato: bbox es dict directo {x, y, width, height}
-                        # Legacy formato: bbox es lista de dicts con campo 'page'
-                        bbox = block.get("bbox")
-                        if not bbox:
-                            continue
-                        
-                        # Detectar formato
-                        if isinstance(bbox, dict) and "x" in bbox:
-                            # Nuevo formato estructurado
-                            regions.append({
-                                "x": float(bbox.get("x", 0)),
-                                "y": float(bbox.get("y", 0)),
-                                "width": float(bbox.get("width", 0)),
-                                "height": float(bbox.get("height", 0)),
-                            })
-                        elif isinstance(bbox, list):
-                            # Legacy formato: lista de bboxes
-                            for bbox_item in bbox:
-                                if bbox_item.get("page") == page_number:
-                                    regions.append({
-                                        "x": float(bbox_item.get("x", 0)),
-                                        "y": float(bbox_item.get("y", 0)),
-                                        "width": float(bbox_item.get("width", 0)),
-                                        "height": float(bbox_item.get("height", 0)),
-                                    })
-                    
-                    if matched_blocks and len(blocks) > 1:
-                        stats["multiple_blocks"] += 1
-                        logger.debug(
-                            "highlight_filtered_blocks",
-                            correlation_id=correlation_id,
-                            document_id=document_id,
-                            page_number=page_number,
-                            total_blocks=len(blocks),
-                            matched_blocks=len(matched_blocks),
-                            category_key=category_key,
-                        )
+                    logger.debug(
+                        "highlight_filtered_blocks",
+                        correlation_id=correlation_id,
+                        document_id=document_id,
+                        page_number=page_number,
+                        total_blocks=len(blocks),
+                        matched_blocks=len(matched_blocks),
+                        category_key=category_key,
+                        message=f"Filtered {len(blocks)} blocks down to {len(matched_blocks)} that contain citation",
+                    )
                 
                 if regions:
                     break  # Encontramos el chunk correcto

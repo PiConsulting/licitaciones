@@ -982,6 +982,69 @@ def merge_node(state: GraphState) -> GraphState:
     return state
 
 
+def _build_chunks_by_id_index(analysis_id: str, correlation_id: str) -> dict[str, dict]:
+    """Construye índice de chunks por chunk_id desde Azure Search.
+    
+    NUEVO (2026-08-12): Necesario para evidence-based highlighting. El LLM
+    devuelve evidencias con chunk_id, y necesitamos el contenido completo
+    del chunk para validar que el texto de evidencia existe realmente.
+    
+    Args:
+        analysis_id: ID del análisis para filtrar chunks
+        correlation_id: ID para logging
+    
+    Returns:
+        Diccionario {chunk_id: chunk_data} con todos los chunks del análisis
+    """
+    try:
+        from shared.ports.azure_search import search_hybrid
+        
+        # Obtener TODOS los chunks del análisis con query wildcard y top_k alto
+        # Azure Search acepta máximo 1000 resultados por request
+        all_chunks = search_hybrid(
+            query="*",  # Wildcard = obtener todos los chunks
+            analysis_id=analysis_id,
+            top_k=1000,  # Límite máximo de Azure Search
+            keyword_query=None,
+            category_filter=None,
+        )
+        
+        # Construir índice por chunk_id
+        chunks_by_id: dict[str, dict] = {}
+        for chunk in all_chunks:
+            # Los chunks de Azure Search no tienen chunk_id directamente,
+            # necesitamos construirlo desde analysis_id + document_id + chunk_index
+            analysis_id_field = chunk.get("analysis_id")
+            document_id = chunk.get("document_id")
+            chunk_index = chunk.get("chunk_index")
+            
+            if analysis_id_field and document_id is not None and chunk_index is not None:
+                chunk_id = f"{analysis_id_field}--{document_id}--{chunk_index}"
+                # Agregar el chunk_id al chunk para uso posterior
+                chunk["chunk_id"] = chunk_id
+                chunks_by_id[chunk_id] = chunk
+        
+        logger.info(
+            "chunks_by_id_index_built",
+            correlation_id=correlation_id,
+            analysis_id=analysis_id,
+            total_chunks=len(all_chunks),
+            indexed_chunks=len(chunks_by_id),
+        )
+        
+        return chunks_by_id
+        
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "chunks_by_id_index_build_failed",
+            correlation_id=correlation_id,
+            analysis_id=analysis_id,
+            error=str(exc),
+            message="Evidence-based highlighting no disponible",
+        )
+        return {}
+
+
 def synthesize_node(state: GraphState) -> GraphState:
     """Convierte cada categoria ya mergeada en una respuesta de experto (bloques
     en lenguaje natural), una llamada LLM liviana por categoria (no vuelve a
@@ -1013,12 +1076,20 @@ def synthesize_node(state: GraphState) -> GraphState:
                 reason="document_mapping is empty - highlights will not be computed",
             )
 
+    # Construir índice de chunks para evidence-based highlighting
+    chunks_by_id = _build_chunks_by_id_index(state["analysis_id"], correlation_id)
+    
     synthesized = 0
     for category_key in NARRATIVE_CATEGORIES:
         items = extracted_data.get(category_key, [])
         if not isinstance(items, list):
             continue
-        result = run_synthesis(category_key=category_key, items=items, correlation_id=correlation_id)
+        result = run_synthesis(
+            category_key=category_key,
+            items=items,
+            correlation_id=correlation_id,
+            chunks_by_id=chunks_by_id,
+        )
         if result is None:
             continue
         narrative, token_usage = result
@@ -1030,6 +1101,7 @@ def synthesize_node(state: GraphState) -> GraphState:
                 document_id_to_blob_path=document_mapping,
                 correlation_id=correlation_id,
                 category_key=category_key,
+                analysis_id=state["analysis_id"],
             )
         
         extracted_data[f"{category_key}_narrative"] = narrative.model_dump()

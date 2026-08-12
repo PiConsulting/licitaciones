@@ -33,6 +33,7 @@ RESPONSE_BASE_PROMPT_FILE = "_response_base.txt"
 CANONICAL_PROMPT_FILES = {
     BASE_SYSTEM_PROMPT_FILE,
     RESPONSE_BASE_PROMPT_FILE,
+    "_output_schema.txt",
     "objeto_alcance.txt",
     "requisitos_admisibilidad.txt",
     "garantias.txt",
@@ -242,6 +243,83 @@ def _normalize_item(item: dict[str, Any], fallback: dict[str, Any] | None = None
         status = "partial" if normalized.get("source_references") else "not_found"
     normalized["extraction_status"] = status
     return normalized
+
+
+def _item_has_substantive_content(item: dict[str, Any]) -> bool:
+    """Detecta si un ítem aporta dato útil más allá del status declarado."""
+    text_fields = ("valor", "texto_original", "expresion_relativa", "fecha", "hora", "lugar")
+    for field_name in text_fields:
+        value = item.get(field_name)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            cleaned = value.strip().lower()
+            if cleaned and cleaned not in {"no encontrado", "not_found"}:
+                return True
+            continue
+        return True
+
+    metadata = item.get("metadata")
+    if isinstance(metadata, dict):
+        for meta_value in metadata.values():
+            if meta_value is None:
+                continue
+            if isinstance(meta_value, str):
+                cleaned = meta_value.strip().lower()
+                if cleaned and cleaned not in {"no_especificado", "no encontrado", "not_found"}:
+                    return True
+                continue
+            return True
+
+    return bool(item.get("source_references"))
+
+
+def _normalize_mixed_not_found_items(items: list[dict[str, Any]], *, category: str) -> list[dict[str, Any]]:
+    """Evita `not_found` a nivel ítem cuando la categoría sí tiene hallazgos.
+
+    Regla pedida por producto: `not_found` solo corresponde cuando la categoría
+    completa no encontró nada útil.
+    """
+    if not items:
+        return items
+
+    has_category_findings = any(
+        str(item.get("extraction_status", "")).strip() in {"success", "partial", "not_applicable"}
+        or _item_has_substantive_content(item)
+        for item in items
+    )
+    if not has_category_findings:
+        return items
+
+    normalized_items: list[dict[str, Any]] = []
+    converted = 0
+    dropped = 0
+
+    for item in items:
+        status = str(item.get("extraction_status", "")).strip()
+        if status != "not_found":
+            normalized_items.append(item)
+            continue
+
+        if _item_has_substantive_content(item):
+            adjusted = dict(item)
+            adjusted["extraction_status"] = "partial"
+            normalized_items.append(adjusted)
+            converted += 1
+        else:
+            dropped += 1
+
+    if converted or dropped:
+        logger.info(
+            "normalized_mixed_not_found_items",
+            category=category,
+            original_count=len(items),
+            kept_count=len(normalized_items),
+            converted_to_partial=converted,
+            dropped_placeholders=dropped,
+        )
+
+    return normalized_items
 
 
 def _truncate_to_token_budget(chunks: list[dict[str, Any]], budget: int) -> list[dict[str, Any]]:
@@ -718,58 +796,113 @@ def _retrieve_with_category_priority(
     keyword_query: str | None,
     category: str,
     correlation_id: str,
+    category_boost: float = 0.20,  # Parametrizable para benchmark
 ) -> list[dict[str, Any]]:
-    """Recupera los chunks de una categoría priorizando los que el chunker
-    clasificó en esa categoría, y completa el presupuesto `top_k` con la
-    búsqueda sin filtro.
+    """Recupera chunks relevantes usando SCORING HÍBRIDO en vez de filtro rígido.
 
-    El filtro por categoría sube la precisión, pero usarlo como compuerta dura
-    baja la recall de forma impredecible: la clasificación es heurística, y un
-    documento donde el título de una sección no se detectó bien deja esa
-    categoría con muy pocos chunks -- o ninguno -- mientras que otro documento
-    equivalente los tiene todos. Ese salto es exactamente la inconsistencia
-    entre pliegos que estamos corrigiendo. Priorizar y completar mantiene el
-    mismo presupuesto de contexto de siempre (no sube `top_k`): en el peor caso
-    se recupera lo mismo que la búsqueda sin filtro, nunca menos."""
-    prioritized = search_hybrid(
+    CAMBIO ARQUITECTÓNICO v3 (2026-08-12):
+    Ya NO filtra por categoría como criterio de exclusión. En su lugar:
+    
+    1. Busca en TODOS los chunks del analysis_id (sin category_filter)
+    2. Aplica category_boost al scoring de Azure:
+       - Chunks con categoría target → boost +20%
+       - Resto → score original de Azure
+    3. Reordena y devuelve top_k
+    
+    Esto resuelve el problema fundamental: "información distribuida en chunks
+    de distintas categorías no se pierde por clasificación imperfecta en chunking time".
+    
+    Por ejemplo:
+        Chunk A: "La garantía será del 1%..." → primary_category="garantias"
+        Chunk B: "Deberá presentarse junto con la oferta..." → primary_category="presentacion_ofertas"
+    
+    Query "garantias":
+        ANTES: Solo recuperaba Chunk A (filtro rígido)
+        AHORA: Recupera A y B, con A boosted (scoring híbrido)
+    
+    El LLM recibe contexto más amplio y decide cuál es evidencia relevante.
+    """
+    # PHASE 1: Búsqueda amplia - recuperar candidatos sin filtro rígido
+    # Over-fetch para tener margen después de aplicar boost
+    over_fetch_k = top_k * 3
+    
+    all_candidates = search_hybrid(
         query=query,
         analysis_id=analysis_id,
-        top_k=top_k,
+        top_k=over_fetch_k,
         keyword_query=keyword_query,
-        category_filter=category,
+        category_filter=None,  # ← CLAVE: Sin filtro
     )
 
-    if len(prioritized) >= top_k:
-        return prioritized
+    if not all_candidates:
+        logger.warning(
+            "retrieval_no_candidates",
+            correlation_id=correlation_id,
+            category=category,
+            query=query[:120],
+        )
+        return []
 
-    backfill = search_hybrid(
-        query=query,
-        analysis_id=analysis_id,
-        top_k=top_k,
-        keyword_query=keyword_query,
-        category_filter=None,
+    # PHASE 2: Category boost - señal, NO filtro
+    # Boost configurable (default 20%) para chunks que tienen la categoría target
+    CATEGORY_BOOST_FACTOR = 1.0 + category_boost  # e.g. 0.20 → 1.20
+    
+    scored_chunks: list[tuple[float, dict]] = []
+    category_match_count = 0
+    
+    for rank, chunk in enumerate(all_candidates):
+        # Score base: inferido de la posición en el ranking de Azure
+        # Azure ya devuelve ordenado por RRF (BM25 + vector)
+        # Asignamos score decreciente: 1.0 / (rank + 1)
+        base_score = 1.0 / (rank + 1)
+        
+        # Category boost: verificar si el chunk tiene la categoría target
+        has_category = (
+            chunk.get("primary_category") == category
+            or category in chunk.get("secondary_categories", [])
+        )
+        
+        if has_category:
+            boosted_score = base_score * CATEGORY_BOOST_FACTOR
+            category_match_count += 1
+        else:
+            boosted_score = base_score
+        
+        scored_chunks.append((boosted_score, chunk))
+    
+    # PHASE 3: Reordenar por score combinado y devolver top_k
+    # Como el score base ya viene de Azure en orden, solo necesitamos
+    # reorganizar para que los boosted suban
+    scored_chunks.sort(key=lambda x: x[0], reverse=True)
+    final_chunks = [chunk for _score, chunk in scored_chunks[:top_k]]
+
+    # Logging de distribución y recall
+    category_distribution: dict[str, int] = {}
+    for chunk in final_chunks:
+        primary = chunk.get("primary_category", "unknown")
+        category_distribution[primary] = category_distribution.get(primary, 0) + 1
+
+    target_chunks = sum(
+        1
+        for chunk in final_chunks
+        if chunk.get("primary_category") == category
+        or category in chunk.get("secondary_categories", [])
     )
-
-    seen = {_chunk_identity(chunk) for chunk in prioritized}
-    combined = list(prioritized)
-    for chunk in backfill:
-        if len(combined) >= top_k:
-            break
-        identity = _chunk_identity(chunk)
-        if identity in seen:
-            continue
-        seen.add(identity)
-        combined.append(chunk)
-
+    
     logger.info(
-        "retrieval_category_backfill",
+        "retrieval_hybrid_scoring",
         correlation_id=correlation_id,
         category=category,
-        category_hits=len(prioritized),
-        backfilled=len(combined) - len(prioritized),
-        total=len(combined),
+        total_candidates=len(all_candidates),
+        category_matches=category_match_count,
+        final_chunks=len(final_chunks),
+        target_chunks_in_final=target_chunks,
+        category_distribution=category_distribution,
+        strategy="hybrid_scoring_with_category_boost",
+        category_boost_factor=f"{category_boost:.0%}",
     )
-    return combined
+    
+    return final_chunks
 
 
 def run_extractor(
@@ -878,14 +1011,18 @@ def run_extractor(
         if is_object_result:
             if not isinstance(payload, dict):
                 payload = _default_not_found_item()
-            delta[state_field] = _normalize_item(payload, fallback={"tipo": "estimacion_presupuesto"})
+            normalized_object = _normalize_item(payload, fallback={"tipo": "estimacion_presupuesto"})
+            if normalized_object.get("extraction_status") == "not_found" and _item_has_substantive_content(normalized_object):
+                normalized_object["extraction_status"] = "partial"
+            delta[state_field] = normalized_object
         else:
             if not isinstance(payload, list):
                 logger.warning("payload_no_es_lista", category=result_key, tipo=type(payload).__name__)
                 payload = []
             if result_key == "identificacion_procedimiento":
                 payload = _augment_identificacion_payload(payload, chunks)
-            delta[state_field] = [_normalize_item(item) for item in payload if isinstance(item, dict)]
+            normalized_items = [_normalize_item(item) for item in payload if isinstance(item, dict)]
+            delta[state_field] = _normalize_mixed_not_found_items(normalized_items, category=result_key)
 
         if is_object_result:
             _verify_citation_grounding(

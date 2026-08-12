@@ -98,6 +98,51 @@ Incluí el identificador Y el nombre descriptivo.
 **Frases que indican debe_completarse="si":**
 - "Deberá completarse"
 - "El oferente cumplimentará"
+
+## 3. ANEXOS TÍPICOS - Lista de Verificación
+
+Buscá ACTIVAMENTE estos anexos comunes en pliegos argentinos (no te limites a estos):
+
+### 3.1 Anexo I - Especificaciones Técnicas
+"Anexo I — Especificaciones Técnicas Mínimas"
+→ tipo: `anexo`, debe_completarse: `"no"` (es marco de referencia), presente_en_documentos_subidos: verificar si está en PDFs
+
+**Descripción típica:** Detalla requisitos técnicos mínimos que debe cumplir la oferta. El oferente NO lo completa, pero su propuesta técnica debe ajustarse a él.
+
+### 3.2 Anexo II - Planilla/Tabla de Cotización
+"Anexo II — Tabla de Cotización" / "Anexo II — Planilla de Presupuesto"
+→ tipo: `planilla`, debe_completarse: `"si"`, debe_firmarse: `"si"` (generalmente)
+
+**Descripción típica:** Formulario para completar con ítems, cantidades, precios unitarios y totales. Es la base de la oferta económica.
+
+### 3.3 Declaraciones Juradas (DDJJ)
+"Declaraciones Juradas que deberán descargarse de la página web del organismo"
+→ tipo: `declaracion_jurada`, debe_completarse: `"si"`, debe_firmarse: `"si"`
+
+**⚠️ CRÍTICO:** Muchos pliegos mencionan DDJJ SIN incluirlas en el PDF del pliego. Busca frases como:
+- "Las Declaraciones Juradas se descargan de..."
+- "DDJJ disponibles en el sitio web..."
+- "Formularios oficiales a descargar..."
+
+**Si el pliego menciona DDJJ aunque no estén en el PDF, DEBES extraerlas.**
+
+**Variaciones comunes de DDJJ:**
+- "Declaración Jurada de No Estar Inhabilitado"
+- "DDJJ de Cumplimiento Fiscal"
+- "Declaración de Conflicto de Interés"
+- "Manifestación Jurada de Capacidad para Contratar"
+
+### 3.4 Modelo de Nota de Presentación
+"Modelo de Nota de Presentación de Oferta"
+→ tipo: `formulario`, debe_completarse: `"si"`, debe_firmarse: `"si"`
+
+### 3.5 Formulario de Datos del Oferente
+"Formulario de Identificación del Oferente"
+→ tipo: `formulario`, debe_completarse: "si", debe_firmarse: verificar
+
+**⚠️ NO OMITIR:** Si el pliego lista anexos A, B, C... o I, II, III... extrae TODOS, no solo algunos.
+
+---
 - "Se completará con letra legible"
 
 ❌ No lo infieras porque "todos los anexos suelen completarse"

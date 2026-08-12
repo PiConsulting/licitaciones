@@ -183,9 +183,27 @@ RawNarrativeBlock = Annotated[
 ]
 
 
+class RawEvidence(BaseModel):
+    """Evidencia textual extraída - para highlighting preciso.
+    
+    IMPORTANTE: No usa chunk_id porque el LLM no tiene acceso a ese campo.
+    En su lugar usa (document_id, page_number) que están en source_references.
+    """
+    document_id: str
+    page_number: int
+    text: str = Field(min_length=CITATION_MIN_CHARS)
+    claim: str
+    item_refs: list[int] = Field(default_factory=list)
+
+
 class RawCategoryNarrative(BaseModel):
-    """Salida cruda del LLM de sintesis: bloques con `item_refs`, sin `sources`."""
+    """Salida cruda del LLM de sintesis: bloques con `item_refs`, sin `sources`.
+    
+    NUEVO (2026-08-12): Campo `evidence` opcional para highlighting preciso.
+    Si está presente, se usa para construir sources en vez de item_refs.
+    """
     blocks: list[RawNarrativeBlock] = Field(default_factory=list)
+    evidence: list[RawEvidence] = Field(default_factory=list)
 
 
 # =============================================================================
@@ -204,6 +222,14 @@ class TipoPlazo(str, Enum):
     ADJUDICACION = "adjudicacion"
     IMPUGNACION = "impugnacion"
     FIRMA_CONTRATO = "firma_contrato"
+    # Nuevos tipos específicos para evitar clasificación genérica
+    PRESENTACION_ORDEN_PROVISION = "presentacion_orden_provision"  # Plazo para presentarse a firmar orden
+    ENTREGA_ORDEN_FIRMADA = "entrega_orden_firmada"  # Plazo para devolver orden firmada
+    PLAZO_PAGO = "plazo_pago"  # Plazo para efectuar el pago
+    PLAZO_SUBSANACION = "plazo_subsanacion"  # Plazo para subsanar documentación faltante
+    PREAVISO_RESCISION = "preaviso_rescision"  # Plazo de preaviso para rescindir contrato
+    ACREDITACION_IMPORTACION = "acreditacion_importacion"  # Plazo para acreditar solicitud de importación
+    PRESENTACION_FACTURA = "presentacion_factura"  # Plazo para presentar factura
     OTRO = "otro"
 
 

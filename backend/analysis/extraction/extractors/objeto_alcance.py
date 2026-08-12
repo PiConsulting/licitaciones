@@ -4,9 +4,9 @@ from analysis.extraction.extractors.base import run_extractor
 from analysis.extraction.state import GraphState
 
 _QUERY = (
-    "Qué se licita exactamente: objeto principal de la contratación y alcance general "
-    "en síntesis breve (2-3 líneas), sin incluir plazos, garantías, causales de rechazo, "
-    "criterios de evaluación ni requisitos formales."
+    "Objeto y alcance completos de la contratación: tipo de procedimiento, qué se compra/contrata, "
+    "ítems y cantidades (renglones/lotes), organismo destinatario y modalidad de adjudicación "
+    "(por ítem/global/lote), sin incluir plazos, garantías, causales, criterios ni requisitos formales."
 )
 
 

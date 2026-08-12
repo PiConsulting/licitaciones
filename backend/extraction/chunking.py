@@ -17,8 +17,9 @@ _BOILERPLATE_MIN_PAGE_FRACTION = 0.5
 # una categoria se considera saturado (1.0). Independiente de cuantos sinonimos
 # tenga cargada cada categoria.
 _KEYWORD_SCORE_SATURATION = 4
-# Minimo de terminos distintos para asignar una categoria como secundaria.
-_SECONDARY_MIN_TERM_MATCHES = 2
+# Threshold por defecto para categorías sin configuración explícita
+_DEFAULT_PRIMARY_THRESHOLD = 0.25
+_DEFAULT_SECONDARY_THRESHOLD = 0.12
 
 # Patrones de títulos para clasificación de categorías.
 #
@@ -373,6 +374,121 @@ def _strip_boilerplate_fragments(heading: str, boilerplate: set[str]) -> str:
     return current
 
 
+def _merge_split_headings_across_pages(blocks: list[dict]) -> list[dict]:
+    """Detecta y fusiona encabezados que Document Intelligence partió entre páginas.
+    
+    Problema típico:
+    - Página N: "ARTÍCULO 12: PLA" (heading_level=2)
+    - Página N+1: "ZO DE ENTREGA" (heading_level=2)
+    
+    Solución:
+    - Detectar headings fragmentados por análisis de ambas partes
+    - Fusionar contenido: "ARTÍCULO 12: PLAZO DE ENTREGA"
+    - Mantener metadata del primer bloque (para bbox correcto)
+    """
+    import re
+    
+    if not blocks:
+        return blocks
+    
+    merged: list[dict] = []
+    skip_next = False
+    
+    for i, block in enumerate(blocks):
+        if skip_next:
+            skip_next = False
+            continue
+        
+        level = block.get("heading_level")
+        if level is None or i == len(blocks) - 1:
+            merged.append(block)
+            continue
+        
+        # Verificar si este heading puede estar partido
+        content = str(block.get("content", "")).strip()
+        next_block = blocks[i + 1]
+        next_level = next_block.get("heading_level")
+        next_content = str(next_block.get("content", "")).strip()
+        
+        # Condiciones para fusión:
+        # 1. Ambos son headings del mismo nivel
+        # 2. Están en páginas consecutivas
+        
+        if (next_level == level and 
+            int(next_block["page_number"]) == int(block["page_number"]) + 1):
+            
+            # Analizar ambas partes para detectar fragmentación
+            words_current = content.split()
+            words_next = next_content.split()
+            
+            if not words_current or not words_next:
+                merged.append(block)
+                continue
+            
+            last_word_current = words_current[-1]
+            first_word_next = words_next[0]
+            
+            # CASOS DE NO FRAGMENTACIÓN (false positives a evitar):
+            # - Números romanos: "ANEXO I" + "ANEXO II"
+            # - Headings completos: "CAPÍTULO 1" + "CAPÍTULO 2"
+            
+            is_roman_current = bool(re.match(r'^[IVXLCDM]+$', last_word_current, re.IGNORECASE))
+            is_roman_next = bool(re.match(r'^[IVXLCDM]+$', first_word_next, re.IGNORECASE))
+            
+            # Patrones de FRAGMENTACIÓN REAL:
+            # 1. Siguiente empieza con minúscula → continuación obvia
+            # 2. Primera palabra del siguiente es muy corta (< 4 chars) y mayúscula → fragmento ("ZO")
+            # 3. Patrón "ARTÍCULO N: ABC" + "DEF..." donde DEF completa ABC
+            
+            next_starts_lowercase = first_word_next[0].islower()
+            
+            next_starts_with_short_fragment = (
+                len(first_word_next) < 4 and 
+                first_word_next.isupper() and 
+                not is_roman_next and
+                not first_word_next[-1] in ".,:;"  # No es abreviación
+            )
+            
+            # Patrón adicional: si el heading actual termina con ":" o keywords
+            # y la parte siguiente NO empieza con palabra típica de inicio
+            current_ends_with_colon = last_word_current.endswith(':')
+            next_starts_with_article = first_word_next.upper() in ['EL', 'LA', 'LOS', 'LAS', 'DE', 'DEL']
+            
+            likely_continuation = (
+                current_ends_with_colon and 
+                not next_starts_with_article and
+                len(first_word_next) < 6  # Fragmento corto después de ":"
+            )
+            
+            is_fragmented = (
+                next_starts_lowercase or 
+                next_starts_with_short_fragment or
+                likely_continuation
+            )
+            
+            if is_fragmented:
+                # Fusionar headings
+                merged_content = content + next_content
+                merged_block = {**block}  # Mantener metadata del primero
+                merged_block["content"] = merged_content
+                
+                logger.info(
+                    "merged_split_heading",
+                    page_from=block["page_number"],
+                    page_to=next_block["page_number"],
+                    original_parts=[content, next_content],
+                    merged=merged_content,
+                )
+                
+                merged.append(merged_block)
+                skip_next = True
+                continue
+        
+        merged.append(block)
+    
+    return merged
+
+
 def _normalize_numbered_heading_levels(blocks: list[dict]) -> list[dict]:
     """Normaliza los niveles de headings con patron numerico consecutivo
     (1. OBJETO, 2. REQUISITOS, 3. GARANTÍAS...) para que sean hermanos
@@ -482,6 +598,11 @@ def _to_intermediate_blocks(blocks: list[dict]) -> list[dict]:
             int(item.get("row_order", 0)),
         ),
     )
+    
+    # FIX CRÍTICO (2026-08-12): Fusionar headings partidos ANTES de procesar
+    # Ejemplo: "ARTÍCULO 12: PLA" (página N) + "ZO DE ENTREGA" (página N+1)
+    ordered = _merge_split_headings_across_pages(ordered)
+    
     ordered = _normalize_numbered_heading_levels(ordered)
     ordered = _promote_run_in_headings(ordered)
     boilerplate = _detect_repeated_heading_boilerplate(ordered)
@@ -820,25 +941,67 @@ def _count_keyword_matches(content: str, glossary: dict) -> dict[str, int]:
     return match_counts
 
 
+def _compute_density_score(match_count: int, content_length: int, category_weight: float = 1.0) -> float:
+    """Calcula score normalizado por densidad de keywords en el contenido.
+    
+    Fórmula:
+        term_coverage = min(match_count / SATURATION, 1.0)
+        keyword_density = min(match_count / (content_length / 100), 1.0)
+        score = term_coverage * keyword_density * category_weight
+    
+    Args:
+        match_count: Cantidad de términos únicos del glossary que matchearon
+        content_length: Cantidad de palabras en el chunk
+        category_weight: Peso/boost de la categoría (default 1.0)
+    
+    Returns:
+        Score normalizado entre 0.0 y 1.0
+    """
+    if match_count == 0 or content_length == 0:
+        return 0.0
+    
+    # Coverage: qué porcentaje del umbral de saturación alcanzamos
+    term_coverage = min(match_count / _KEYWORD_SCORE_SATURATION, 1.0)
+    
+    # Density: qué tan concentrados están los términos en el texto
+    # Normalizado por cada 100 palabras para evitar penalizar chunks largos
+    words_per_100 = max(content_length / 100.0, 1.0)
+    keyword_density = min(match_count / words_per_100, 1.0)
+    
+    # Score combinado con peso de categoría
+    score = term_coverage * keyword_density * category_weight
+    
+    return min(score, 1.0)  # Cap at 1.0
+
+
 def _classify_by_keywords(content: str, glossary: dict) -> dict[str, float]:
     """Score relativo de cada categoría por matching de términos clave.
-
-    Se normaliza contra `_KEYWORD_SCORE_SATURATION` y no contra la cantidad
-    total de términos de la categoría: dividir por el tamaño del glossary hacía
-    que el score dependiera de cuántos sinónimos tuviera cargados cada
-    categoría, no de la evidencia del chunk. Una categoría con 39 términos no
-    llegaba nunca al umbral aunque el chunk la mencionara explícitamente, así
-    que `secondary_categories` quedaba vacío en la práctica para todos los
-    documentos."""
+    
+    CAMBIO v2 (2026-08-12): Score basado en DENSIDAD adaptativa en vez de
+    conteo simple. Usa thresholds configurables por categoría.
+    
+    Fórmula: density_score = term_coverage * keyword_density * category_weight
+    
+    Ver _compute_density_score() para detalles."""
     match_counts = _count_keyword_matches(content, glossary)
-    return {
-        category: min(matches / _KEYWORD_SCORE_SATURATION, 1.0)
-        for category, matches in match_counts.items()
-    }
+    content_length = len(content.split())
+    
+    scores = {}
+    for category, match_count in match_counts.items():
+        entry = glossary.get(category, {})
+        category_weight = entry.get("weight", 1.0) if isinstance(entry, dict) else 1.0
+        
+        score = _compute_density_score(match_count, content_length, category_weight)
+        scores[category] = score
+    
+    return scores
 
 
 def classify_chunk_categories(chunk: dict) -> dict:
-    """Clasifica un chunk en categorías.
+    """Clasifica un chunk en categorías usando scoring adaptativo por densidad.
+    
+    CAMBIO v2 (2026-08-12): Usa thresholds configurables por categoría en vez de
+    magic numbers hardcodeados. Cada categoría define su propio umbral en glossary.json.
 
     Returns:
         {
@@ -850,36 +1013,66 @@ def classify_chunk_categories(chunk: dict) -> dict:
     glossary = _load_glossary()
     heading_path = chunk.get("heading_path", [])
     content = chunk.get("content", "")
+    chunk_id = chunk.get("chunk_id", "unknown")
 
     # 1. Clasificación por título
     heading_category = _classify_by_heading(heading_path)
 
-    # 2. Clasificación por keywords
+    # 2. Clasificación por keywords (scoring de densidad)
     keyword_scores = _classify_by_keywords(content, glossary)
 
-    # 3. Determinar categoría primary y secundarias
+    # 3. Determinar categoría primary usando thresholds configurables
     primary_category = heading_category  # El título tiene prioridad
 
-    # Si no hay título claro, usar keyword matching
+    # Si no hay título claro, usar keyword matching con threshold
     if not primary_category and keyword_scores:
-        # La categoría con mayor score es la primary
-        primary_category = max(keyword_scores.items(), key=lambda x: x[1])[0]
+        # Buscar categoría que supere su threshold de primary
+        candidates = []
+        for cat, score in keyword_scores.items():
+            entry = glossary.get(cat, {})
+            thresholds = entry.get("thresholds", {}) if isinstance(entry, dict) else {}
+            primary_threshold = thresholds.get("primary", _DEFAULT_PRIMARY_THRESHOLD)
+            
+            if score >= primary_threshold:
+                candidates.append((cat, score))
+        
+        if candidates:
+            # Si hay múltiples candidatos, tomar el de mayor score
+            primary_category = max(candidates, key=lambda x: x[1])[0]
+            
+            # Logging de ambigüedades: si hay múltiples candidatos con scores cercanos
+            if len(candidates) > 1:
+                sorted_candidates = sorted(candidates, key=lambda x: x[1], reverse=True)
+                top_score = sorted_candidates[0][1]
+                close_competitors = [c for c in sorted_candidates[1:] if c[1] >= top_score * 0.85]
+                
+                if close_competitors:
+                    logger.info(
+                        "chunk_classification_ambiguous",
+                        chunk_id=chunk_id,
+                        primary_chosen=primary_category,
+                        primary_score=round(top_score, 3),
+                        close_competitors={c[0]: round(c[1], 3) for c in close_competitors},
+                        heading_path=" > ".join(heading_path) if heading_path else None,
+                    )
     
     # Fallback final: si aún no hay categoría, asignar "identificacion_procedimiento"
     # como default genérico (es la categoría menos específica)
     if not primary_category:
         primary_category = "identificacion_procedimiento"
 
-    # Categorías secundarias: se decide por cantidad de términos distintos del
-    # glossary presentes en el chunk, no por un porcentaje del glossary. Dos
-    # términos distintos ya son una mención deliberada de la categoría y no una
-    # coincidencia suelta.
-    keyword_matches = _count_keyword_matches(content, glossary)
-    secondary_categories = [
-        cat
-        for cat, matches in keyword_matches.items()
-        if matches >= _SECONDARY_MIN_TERM_MATCHES and cat != primary_category
-    ]
+    # 4. Categorías secundarias: todas las categorías que superen el threshold secundario
+    secondary_categories = []
+    for cat, score in keyword_scores.items():
+        if cat == primary_category:
+            continue  # No incluir la primary en secondary
+        
+        entry = glossary.get(cat, {})
+        thresholds = entry.get("thresholds", {}) if isinstance(entry, dict) else {}
+        secondary_threshold = thresholds.get("secondary", _DEFAULT_SECONDARY_THRESHOLD)
+        
+        if score >= secondary_threshold:
+            secondary_categories.append(cat)
 
     return {
         "primary_category": primary_category,

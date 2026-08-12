@@ -113,6 +113,9 @@ def _search_azure(
     )
 
     over_fetch = max(top_k * 3, 30)
+    # Azure AI Search limita k_nearest_neighbors a 1000 max para búsquedas vectoriales
+    k_for_vector = min(over_fetch, 1000)
+    
     query_vector = _embed_query_or_none(query)
     # BM25 usa keywords del glossary (discriminantes); vector usa la query
     # descriptiva completa (semántica). Esto evita diluir BM25 con stopwords.
@@ -134,7 +137,7 @@ def _search_azure(
             from azure.search.documents.models import VectorizedQuery
 
             search_kwargs["vector_queries"] = [
-                VectorizedQuery(vector=query_vector, k_nearest_neighbors=top, fields="embedding")
+                VectorizedQuery(vector=query_vector, k_nearest_neighbors=k_for_vector, fields="embedding")
             ]
 
         return list(client.search(**search_kwargs))

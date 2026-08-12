@@ -67,6 +67,11 @@ Usá el schema `CausalRechazoItem` definido en `schemas_v3.py`.
 
 **Cuando no hay causales:** `{"causales_rechazo": []}`
 
+**Regla crítica de estado `not_found`:**
+- `not_found` se usa SOLO cuando NO existe ninguna causal útil en TODA la categoría.
+- Si encontraste al menos una causal (success/partial), NO devuelvas ítems `not_found` de relleno.
+- No inventes "faltantes" como ítems separados; simplemente omitirlos.
+
 ---
 
 # REGLAS ESPECÍFICAS
@@ -145,6 +150,56 @@ Mantené el texto lo más cercano posible al pliego.
 **Ejemplos:**
 - ❌ "No presentar garantía" (muy genérico)
 - ✅ "No acompañar la garantía de mantenimiento de oferta" (más específico)
+
+## 7. CAUSALES COMUNES - Lista de Verificación
+
+Buscá ACTIVAMENTE estas causales típicas en licitaciones argentinas (no te limites a estas):
+
+### 7.1 Falta de oferta económica (CRÍTICA)
+"La falta de oferta económica será causal de rechazo sin posibilidad de subsanación"
+→ tipo: `formal`, es_descalificante: `"si"`, es_subsanable: `"no"`
+
+**Variaciones:**
+- "Se rechazará la oferta en cuyo sobre no obre la propuesta económica"
+- "Ausencia de cotización de precios"
+
+### 7.2 No finalizar inscripción en registro/padrón
+"No estar inscripto en el P.A.C. al momento de adjudicar será causal de desestimación"
+→ tipo: `formal`, es_descalificante: `"si"`, es_subsanable: `"no"` (aunque el trámite pueda iniciarse antes)
+
+**Variaciones:**
+- "La falta de inscripción en el Registro de Proveedores"
+- "No acreditar inscripción al momento de la adjudicación"
+
+### 7.3 No subsanar documentación en plazo
+"Si no cumplimenta lo dispuesto en tiempo y forma, la Municipalidad podrá desestimar la oferta"
+→ tipo: `formal`, es_descalificante: `"no"` (dice "podrá"), es_subsanable: `"si"` (si se cumple en plazo)
+
+### 7.4 Aclaraciones post-apertura que alteren la oferta
+"No se admitirán aclaraciones post-apertura que alteren la propuesta original o rompan el principio de igualdad"
+→ tipo: `formal`, es_descalificante: `"si"`
+
+**Variaciones:**
+- "Modificaciones a la oferta después del acto de apertura"
+- "Pretender mejorar la propuesta luego de conocer ofertas de terceros"
+
+### 7.5 Pretensión de ajustar precios cotizados
+"Cualquier pretensión de ajustar el precio cotizado será rechazada"
+→ tipo: `economica`, es_descalificante: `"si"`
+
+**Variaciones:**
+- "Los precios son firmes e inamovibles"
+- "No se admitirán ajustes por variación de costos/impuestos/salarios"
+
+### 7.6 Incumplimientos en Uniones Transitorias (UT)
+"El incumplimiento de los compromisos de solidaridad y constitución de la U.T. será causal de desestimación"
+→ tipo: `legal`, es_descalificante: `"si"`
+
+**Variaciones:**
+- "No presentar documentos de constitución de la U.T."
+- "Falta de compromiso expreso de responsabilidad solidaria"
+
+**⚠️ IMPORTANTE:** Si el pliego menciona estas causales explícitamente, extraelas TODAS. No te detengas en 3-4.
 
 ---
 
