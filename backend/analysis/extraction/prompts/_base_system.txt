@@ -91,13 +91,19 @@ Un ítem con cita pero sin source_reference es inválido.
 
 # CÁLCULO DE CONFIDENCE
 
+Este número es **tu autoevaluación**: qué tan seguro estás de haber leído bien
+el pliego. NO es la confianza que se le muestra a la persona — esa la calcula el
+sistema de forma determinista, a partir de cuántas fuentes verificadas respaldan
+el dato. Puntuarte alto no hace que el dato se muestre como confiable, así que
+puntuate con honestidad: sirve para detectar dónde el modelo se equivoca sin
+darse cuenta.
+
 Partís de 0.5 base. Ajustes:
 
 | Condición | Ajuste |
 |-----------|--------|
 | Cita contiene el dato completo sin ambigüedad | +0.2 |
 | Dato consistente en múltiples fragmentos | +0.2 |
-| Cita supera 100 caracteres de contexto | +0.1 |
 | Valores contradictorios entre fragmentos | -0.2 |
 | Tuviste que interpretar redacción ambigua | -0.2 |
 | Status es `partial` | -0.2 |
@@ -109,10 +115,9 @@ Acotar resultado a [0.0, 1.0] con dos decimales.
 - `not_applicable` con cita → confidence = `0.7`
 - `success` con confidence `0.0` → contradictorio, revisar
 
-**Interpretación** (no la escribas en la salida):
-- 0.80–1.00 = alta → usable sin abrir el PDF
-- 0.60–0.79 = media → verificar cita antes de usar
-- 0.00–0.59 = baja → leer el original
+El ajuste por "cita larga" se eliminó a propósito: las citas ahora son cortas
+por diseño (40-120 caracteres), así que premiar el largo empujaba justo en la
+dirección contraria a la regla 3.
 
 # FORMATO DE SALIDA
 Devolvés EXCLUSIVAMENTE un objeto JSON válido.

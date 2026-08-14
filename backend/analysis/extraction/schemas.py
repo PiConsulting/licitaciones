@@ -76,6 +76,25 @@ class SourceReference(BaseModel):
         default=None,
         description="ID del chunk recuperado del que se verificó esta cita.",
     )
+    # ATR-02 (auditoria 2026-08-13): el pipeline reescribe la cita despues de
+    # verificarla -- la ensancha con el contexto del chunk, la reemplaza por
+    # `texto_original`, o la rescata desde el `valor` del item. Estos dos campos
+    # hacen visible esa diferencia en vez de borrarla: `citation` es lo que se
+    # muestra, `citation_llm` es lo que el modelo declaro como evidencia, y
+    # `citation_origin` dice cual de las dos cosas es.
+    citation_llm: str | None = Field(
+        default=None,
+        description="La cita tal como la emitio el LLM, antes de cualquier reescritura.",
+    )
+    citation_origin: Literal["llm", "ensanchada", "rescatada"] | None = Field(
+        default=None,
+        description=(
+            "'llm': la cita mostrada es la que emitio el modelo. "
+            "'ensanchada': se amplio con texto del mismo chunk para que se lea sola. "
+            "'rescatada': la cita del modelo NO verifico y se reemplazo por otro "
+            "texto literal del item -- el item baja a `partial`."
+        ),
+    )
 
 
 ConfidenceLevel = Literal["alta", "media", "baja"]
@@ -85,6 +104,11 @@ ExtractionStatus = Literal["success", "failed", "not_found", "partial", "not_app
 class ExtractedItem(BaseModel):
     """Base para todos los items extraídos."""
     confidence: float = Field(ge=0.0, le=1.0)
+    # SYN-05 (auditoria 2026-08-13): la autoevaluacion del LLM. NO es la que ve
+    # el usuario -- `confidence` la calcula `calculate_confidence` de forma
+    # determinista. Este campo se conserva para telemetria: permite medir si el
+    # modelo sabe cuando se esta equivocando, comparandolo contra la formula.
+    confidence_llm: float | None = Field(default=None, ge=0.0, le=1.0)
     source_references: list[SourceReference] = Field(min_length=1)
     extraction_status: ExtractionStatus = "success"
 

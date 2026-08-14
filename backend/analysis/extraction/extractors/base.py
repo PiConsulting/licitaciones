@@ -1000,6 +1000,7 @@ def _verify_citation_grounding(
 
     total_items = 0
     unverified_items = 0
+    rescued_items = 0
 
     for item in items:
         status = str(item.get("extraction_status", ""))
@@ -1009,6 +1010,7 @@ def _verify_citation_grounding(
 
         total_items += 1
         any_verified = False
+        rescued_refs_count = 0
         verified_refs: list[dict[str, Any]] = []
         for ref in refs:
             if not isinstance(ref, dict):
@@ -1064,6 +1066,17 @@ def _verify_citation_grounding(
                 # ventana que contiene el dato del item, no al prefijo -- ver
                 # `shorten_citation_to_evidence`.
                 normalized_ref["citation"] = shorten_citation_to_evidence(final_citation, item)
+                # ATR-02 (auditoría 2026-08-13): qué relación tiene lo que se
+                # muestra con lo que el modelo realmente citó. Sin esto, tres
+                # transformaciones distintas reescriben la cita después de
+                # verificarla y nada aguas abajo puede distinguir el texto del
+                # modelo del texto que puso el pipeline.
+                normalized_ref["citation_llm"] = citation
+                normalized_ref["citation_origin"] = (
+                    "llm"
+                    if _normalize_for_grounding(final_citation) == _normalize_for_grounding(citation)
+                    else "ensanchada"
+                )
                 verified_refs.append(normalized_ref)
                 continue
 
@@ -1071,9 +1084,28 @@ def _verify_citation_grounding(
                 rescued_citation = _rescue_paragraph_citation(item, candidates, category=category)
 
             if rescued_citation:
-                any_verified = True
+                # FIX (auditoría 2026-08-13, hallazgo ATR-02): acá se hacía
+                # `any_verified = True` y el item quedaba en `success`.
+                #
+                # Pero este camino se toma justamente cuando la cita QUE EL
+                # MODELO DECLARÓ COMO EVIDENCIA no se pudo verificar contra
+                # ningún chunk. El rescate busca si el `valor` o el
+                # `texto_original` del item aparecen literalmente en algún chunk
+                # y, si aparecen, los usa como cita. Que ese otro texto exista
+                # en la página no prueba que respalde ESTE dato: puede ser el
+                # mismo porcentaje de otra garantía, o la misma fecha de otro
+                # plazo. La verificación anti-alucinación falló, y el sistema
+                # la reemplazaba por otra que sí pasa.
+                #
+                # Se conserva el rescate -- tirar el item entero sería peor, y
+                # el texto rescatado sí es literal del pliego -- pero deja de
+                # contar como verificación: el item baja a `partial` y lleva una
+                # marca explícita.
+                rescued_refs_count += 1
                 normalized_ref = dict(ref)
                 normalized_ref["citation"] = rescued_citation
+                normalized_ref["citation_llm"] = citation
+                normalized_ref["citation_origin"] = "rescatada"
                 # La cita rescatada también tiene su chunk de respaldo: es el
                 # que hizo pasar `_verify_reference_grounded` dentro de
                 # `_rescue_paragraph_citation`.
@@ -1085,7 +1117,15 @@ def _verify_citation_grounding(
         if verified_refs:
             item["source_references"] = verified_refs
 
-        if not any_verified:
+        # Un item que sólo se sostiene con citas rescatadas no está verificado:
+        # su evidencia declarada no existía en los chunks (ver arriba).
+        if not any_verified and rescued_refs_count:
+            rescued_items += 1
+            if status == "success":
+                item["extraction_status"] = "partial"
+            item["_warning"] = "cita_reemplazada_por_rescate"
+
+        if not any_verified and not rescued_refs_count:
             unverified_items += 1
             item["source_references"] = []
             if status == "success":
@@ -1099,6 +1139,7 @@ def _verify_citation_grounding(
             category=category,
             total_items=total_items,
             unverified_items=unverified_items,
+            rescued_items=rescued_items,
         )
 
     return items

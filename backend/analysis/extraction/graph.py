@@ -574,12 +574,24 @@ def calculate_confidence(source_references: list[dict], extraction_status: str) 
     elif len(source_references) == 1:
         confidence += 0.2
 
-    if source_references:
-        avg_citation_length = sum(len(str(ref.get("citation", ""))) for ref in source_references) / len(source_references)
-        if avg_citation_length > 100:
-            confidence += 0.2
-        elif avg_citation_length < 25:
-            confidence -= 0.2
+    # FIX (auditoría 2026-08-13, hallazgo SYN-05): acá había un ajuste por LARGO
+    # de la cita: +0.2 por encima de 100 caracteres, -0.2 por debajo de 25.
+    #
+    # El largo de la cita no mide la calidad de la evidencia: mide una decisión
+    # del propio pipeline. `_expand_short_paragraph_citation`,
+    # `_widen_citation_with_chunk_context` y `_rescue_paragraph_citation`
+    # ensanchan la cita hasta llegar a `CITATION_PREFERRED_MIN_CHARS`. O sea que
+    # el sistema alargaba la cita y después se premiaba a sí mismo por tenerla
+    # larga.
+    #
+    # Y desde que `CITATION_MAX_CHARS` bajó a 120 (las citas ahora son cortas a
+    # propósito, ver el hallazgo de legibilidad), el bonus de +0.2 pasó a ser
+    # casi inalcanzable: habría bajado la confianza de todas las categorías sin
+    # que cambiara nada de la evidencia.
+    #
+    # Lo que sí mide calidad de evidencia -- cuántas fuentes independientes
+    # respaldan el dato, y si la extracción fue completa o parcial -- ya está
+    # contemplado arriba y abajo.
 
     if extraction_status == "partial":
         confidence -= 0.2
@@ -596,13 +608,35 @@ def get_confidence_level(confidence: float) -> str:
 
 
 def _normalize_confidence(item: dict) -> dict:
+    """La confianza que ve el usuario se CALCULA; no se le pregunta al modelo.
+
+    FIX (auditoría 2026-08-13, hallazgo SYN-05): antes, si el item traía
+    `confidence` -- y el prompt se lo pide explícitamente al LLM, así que casi
+    siempre lo trae -- se respetaba ese número y `calculate_confidence` no corría
+    nunca. Lo que el usuario leía como "confianza alta" era la autoevaluación del
+    mismo modelo que produjo el dato.
+
+    No es una opinión de más entre varias: `get_confidence_level` marca "alta" a
+    partir de 0.8, y el prompt define ese rango como "usable sin abrir el PDF".
+    Un modelo que se equivoca al extraer se equivoca también al puntuarse.
+
+    Ahora la confianza sale siempre de `calculate_confidence`, que es
+    determinista y auditable: cuántas fuentes verificadas respaldan el dato y si
+    la extracción quedó completa o parcial. La autoevaluación del modelo se
+    conserva en `confidence_llm` -- sirve para telemetría (¿el modelo sabe
+    cuándo se está equivocando?), no para decidir qué se le muestra a la
+    persona.
+    """
     status = str(item.get("extraction_status", "success"))
     refs = list(item.get("source_references", []))
-    if "confidence" not in item:
-        item["confidence"] = calculate_confidence(refs, status)
-    else:
-        conf = float(item.get("confidence", 0.0) or 0.0)
-        item["confidence"] = max(0.0, min(conf, 1.0))
+
+    if "confidence" in item:
+        try:
+            item["confidence_llm"] = max(0.0, min(float(item.get("confidence") or 0.0), 1.0))
+        except (TypeError, ValueError):
+            item["confidence_llm"] = None
+
+    item["confidence"] = calculate_confidence(refs, status)
     item["confidence_level"] = get_confidence_level(float(item.get("confidence", 0.0) or 0.0))
     return item
 
