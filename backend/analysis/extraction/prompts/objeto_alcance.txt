@@ -84,7 +84,7 @@ Usá el schema `ObjetoAlcanceItem` definido en `schemas.py`.
   - `unidad_medida`: texto (si aplica)
   - `renglon`: identificador (si aplica)
 - `confidence`: [0.0-1.0] según el algoritmo de confianza
-- `source_references`: Siempre incluir cita literal del pliego (min 25 chars)
+- `source_references`: Siempre incluir cita literal del pliego (min 12 chars, ver CITATION_MIN_CHARS en schemas.py)
 
 **Cuando no hay datos:** `{"objeto_alcance": []}`
 

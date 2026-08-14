@@ -22,7 +22,7 @@ from analysis.extraction.extractors.garantias import extractor_garantias
 from analysis.extraction.extractors.objeto_alcance import extractor_objeto_alcance
 from analysis.extraction.extractors.plazos import extractor_plazos
 from analysis.extraction.extractors.requisitos_admisibilidad import extractor_requisitos_admisibilidad
-from analysis.extraction.graph import calculate_confidence, graph, merge_node
+from analysis.extraction.graph import calculate_confidence, graph, merge_node, setup_node, synthesize_node
 from analysis.extraction.schemas import ExtractedData
 
 
@@ -204,6 +204,60 @@ def mock_llm(monkeypatch: pytest.MonkeyPatch) -> None:
             {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
         ),
     )
+
+
+def test_document_mapping_fluye_de_setup_a_synthesize_para_highlights(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """US-5.2: verifica que `document_id_to_blob_path`, calculado en
+    `setup_node` via `_build_document_mapping`, efectivamente llega a
+    `synthesize_node` y de ahi a `enrich_narrative_with_highlights` -- que es
+    lo que permite la busqueda viva con PyMuPDF (fix de Fase 1, C-2) en vez
+    de degradar siempre al matching por bbox almacenado."""
+    from analysis.extraction import graph as graph_module
+
+    expected_mapping = {"doc-1": "/tmp/fake-doc-1.pdf"}
+    monkeypatch.setattr(
+        graph_module,
+        "_build_document_mapping",
+        lambda analysis_id, db_session: expected_mapping,
+    )
+
+    state: dict = {
+        "analysis_id": "analysis-123",
+        "correlation_id": "corr-456",
+        "db_session": None,
+    }
+    state = setup_node(state)
+
+    assert state["document_id_to_blob_path"] == expected_mapping
+
+    captured_calls: list[dict] = []
+
+    def _fake_enrich(**kwargs):
+        captured_calls.append(kwargs)
+        return kwargs["narrative"]
+
+    monkeypatch.setattr(graph_module, "enrich_narrative_with_highlights", _fake_enrich)
+    # SYN-03: `_build_chunks_by_id_index` se unificó en `_build_chunk_indexes`,
+    # que enumera una sola vez y devuelve los DOS índices (por chunk_id y por
+    # (document_id, página)).
+    monkeypatch.setattr(graph_module, "_build_chunk_indexes", lambda *_a, **_kw: ({}, {}))
+
+    from analysis.extraction.schemas import CategoryNarrative
+
+    fake_narrative = CategoryNarrative(blocks=[], sources=[])
+    monkeypatch.setattr(
+        graph_module,
+        "run_synthesis",
+        lambda **_kwargs: (fake_narrative, {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}),
+    )
+
+    state["extracted_data"] = {"objeto_alcance": [{"tipo": "resumen_objeto", "valor": "algo"}]}
+    state = synthesize_node(state)
+
+    assert captured_calls, "enrich_narrative_with_highlights debe haberse llamado"
+    assert captured_calls[0]["document_id_to_blob_path"] == expected_mapping
 
 
 def test_graph_execution_all_success(mock_state: dict, mock_search: None, mock_llm: None) -> None:
@@ -526,6 +580,41 @@ def test_merge_exposes_ui_category_keys() -> None:
     assert data["requisitos_admisibilidad_extraction_status"] == "success"
 
 
+def test_merge_no_descarta_en_silencio_restricciones_cronograma_presupuesto() -> None:
+    """FIX (auditoría US-5.3, 2026-08-12): `merge_node` siempre escribe
+    'restricciones_participacion'/'cronograma_proceso'/'estimacion_presupuesto'
+    en el dict de extracted_data, pero `ExtractedData(**extracted_data)` los
+    descartaba en silencio porque no estaban declarados como campos del
+    schema -- mismo patron del incidente historico de primary_category/
+    secondary_categories. El frontend los espera como fallback
+    (`legacyToUiMap` en analysisApi.ts) para completar 'requisitos_admisibilidad'
+    y 'datos_procedimiento'."""
+    state = {
+        "analysis_id": "analysis-1",
+        "correlation_id": "corr-1",
+        "plazos": [],
+        "garantias": [],
+        "causales": [],
+        "requisitos_admisibilidad": [],
+        "criterios": [],
+        "plazos_status": "not_found",
+        "garantias_status": "not_found",
+        "causales_status": "not_found",
+        "requisitos_admisibilidad_status": "not_found",
+        "criterios_status": "not_found",
+    }
+
+    result = merge_node(state)
+    data = result["extracted_data"]
+
+    assert "restricciones_participacion" in data
+    assert "restricciones_extraction_status" in data
+    assert "cronograma_proceso" in data
+    assert "cronograma_extraction_status" in data
+    assert "estimacion_presupuesto" in data
+    assert "presupuesto_extraction_status" in data
+
+
 def test_merge_populates_datos_procedimiento_desde_identificacion() -> None:
     """`datos_procedimiento` solía quedar hardcodeado en `[]` porque el
     extractor de identificación nunca estaba conectado al grafo (bug real: el
@@ -593,7 +682,6 @@ def test_extractor_usa_una_query_semantica_rica_sin_glosario(
         analysis_id: str,
         top_k: int,
         keyword_query: str | None = None,
-        category_filter: str | None = None,
     ):
         captured_query["value"] = query
         captured_keyword["value"] = keyword_query or ""
@@ -875,3 +963,120 @@ def test_dedup_no_cambia_comportamiento_de_plazos_y_garantias() -> None:
 
     assert len(result["extracted_data"]["plazos_clave"]) == 1
     assert len(result["extracted_data"]["garantias"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# REGRESIÓN SYN-03 (auditoría 2026-08-13): una sola enumeración por análisis.
+#
+# `synthesize_node` llamaba a `_build_chunks_by_id_index` una vez Y, dentro del
+# loop de las 7 categorías narrativas, `enrich_narrative_with_highlights`
+# reconstruía su propio índice con `_build_chunks_index_from_search`. Total: 8
+# enumeraciones del índice completo por análisis, cada una con su llamada de
+# embedding, su búsqueda con top=3000 y sus get_document() de expansión.
+# ---------------------------------------------------------------------------
+
+
+def test_synthesize_node_enumera_el_indice_una_sola_vez(monkeypatch) -> None:
+    from analysis.extraction import graph as graph_module
+    from analysis.extraction.schemas import CategoryNarrative
+
+    enumeration_calls: list[str] = []
+
+    def _fake_fetch_all(analysis_id):
+        enumeration_calls.append(analysis_id)
+        return (
+            [
+                {
+                    "id": "an-1--doc-1--0",
+                    "analysis_id": "an-1",
+                    "document_id": "doc-1",
+                    "page_number": 1,
+                    "chunk_index": 0,
+                    "content": "La garantia de mantenimiento de oferta sera del 1%",
+                }
+            ],
+            False,
+        )
+
+    monkeypatch.setattr(
+        "shared.ports.azure_search.fetch_all_analysis_chunks", _fake_fetch_all
+    )
+
+    narrative = CategoryNarrative(blocks=[], sources=[])
+    monkeypatch.setattr(
+        graph_module,
+        "run_synthesis",
+        lambda **_kwargs: (narrative, {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}),
+    )
+
+    enrich_calls: list[dict] = []
+
+    def _fake_enrich(**kwargs):
+        enrich_calls.append(kwargs)
+        return kwargs["narrative"]
+
+    monkeypatch.setattr(graph_module, "enrich_narrative_with_highlights", _fake_enrich)
+    monkeypatch.setattr(graph_module, "_cleanup_temp_highlights", lambda *_a, **_kw: None)
+
+    state = {
+        "analysis_id": "an-1",
+        "correlation_id": "corr-1",
+        "extracted_data": {key: [{"tipo": "x"}] for key in graph_module.NARRATIVE_CATEGORIES},
+        "extraction_metadata": {"token_usage": {}},
+        "document_id_to_blob_path": {"doc-1": "/tmp/doc-1.pdf"},
+    }
+
+    graph_module.synthesize_node(state)
+
+    assert len(enumeration_calls) == 1, (
+        f"se enumeró el índice {len(enumeration_calls)} veces; debe ser 1 por análisis "
+        "(regresión de SYN-03)"
+    )
+    # Y todas las categorías reciben el índice ya construido, en vez de armarlo.
+    assert len(enrich_calls) == len(graph_module.NARRATIVE_CATEGORIES)
+    for call in enrich_calls:
+        assert call["chunks_by_doc_page"] is not None
+
+
+def test_build_chunk_indexes_deriva_los_dos_indices_de_una_enumeracion(monkeypatch) -> None:
+    from analysis.extraction.graph import _build_chunk_indexes
+
+    monkeypatch.setattr(
+        "shared.ports.azure_search.fetch_all_analysis_chunks",
+        lambda analysis_id: (
+            [
+                {
+                    "id": "an-1--doc-1--0",
+                    "analysis_id": "an-1",
+                    "document_id": "doc-1",
+                    "page_number": 2,
+                    "chunk_index": 0,
+                    "content": "primero",
+                },
+                {
+                    "id": "an-1--doc-1--1",
+                    "analysis_id": "an-1",
+                    "document_id": "doc-1",
+                    "page_number": 2,
+                    "chunk_index": 1,
+                    "content": "segundo, misma pagina",
+                },
+                {
+                    "id": "an-1--doc-2--0",
+                    "analysis_id": "an-1",
+                    "document_id": "doc-2",
+                    "page_number": 5,
+                    "chunk_index": 0,
+                    "content": "otro documento",
+                },
+            ],
+            False,
+        ),
+    )
+
+    by_id, by_doc_page = _build_chunk_indexes("an-1", "corr-1")
+
+    assert set(by_id) == {"an-1--doc-1--0", "an-1--doc-1--1", "an-1--doc-2--0"}
+    assert by_id["an-1--doc-1--0"]["chunk_id"] == "an-1--doc-1--0"
+    assert len(by_doc_page[("doc-1", 2)]) == 2
+    assert len(by_doc_page[("doc-2", 5)]) == 1

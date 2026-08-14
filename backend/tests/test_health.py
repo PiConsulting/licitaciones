@@ -8,7 +8,11 @@ def test_health_ready_returns_checks(client):
     payload = response.json()
     assert payload["status"] == "ok"
     assert payload["checks"]["database"]["status"] == "ok"
-    assert payload["checks"]["adapters"]["mode"] == "development"
+    # FIX (auditoría 2026-08-12): "development" es un valor que ya no existe
+    # -- `main.py` (ver comentario "eliminados adaptadores locales") hardcodea
+    # `mode` a "cloud" desde que se sacaron los adaptadores locales. Esta
+    # aserción quedó desactualizada de ese refactor.
+    assert payload["checks"]["adapters"]["mode"] == "cloud"
 
 
 def test_health_degraded_when_database_unavailable(client, monkeypatch):

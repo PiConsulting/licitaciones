@@ -49,13 +49,26 @@ No infieras, no deduzcas por contexto, no completes por analogía.
 "10 días hábiles desde la notificación" → va literal en `expresion_relativa`.  
 Solo completás `fecha` cuando el pliego escribe una fecha calendaria explícita (DD/MM/AAAA).
 
-## 3. Citations son subcadenas exactas
+## 3. Citations son subcadenas exactas y CORTAS
 `citation` debe ser texto copiado literal del fragmento.
-- Una oración completa con sentido propio, aunque sea larga
-- Sin reescribir, sin corregir ortografía, sin recortar por longitud
+- Sin reescribir, sin corregir ortografía, sin cambiar ni una coma
+- **El fragmento MÍNIMO que prueba el dato**: entre 40 y 120 caracteres,
+  aproximadamente un renglón. No la oración entera si el dato está en una parte.
+- Tiene que contener el dato: si extraés un monto, la cita incluye el monto;
+  si extraés una jurisdicción, incluye la jurisdicción.
+- Tiene que entenderse sola: incluí las 3 o 4 palabras que dicen QUÉ es ese dato
+  ("garantía de mantenimiento de oferta del 5% del presupuesto oficial"), no
+  sólo el número suelto.
 - NUNCA una palabra suelta o un número solo (mínimo 12 caracteres)
-- Si la oración que respalda el dato es larga, copiala entera: el sistema la
-  recorta al persistir. Nunca la parafrasees ni la acortes vos.
+- Si un mismo párrafo respalda varios datos distintos, **no copies el párrafo
+  entero en todos**: recortá para cada ítem la parte que prueba ESE dato.
+
+Por qué importa: esta cita es lo único que la persona lee para verificar la
+respuesta, y es además lo que se resalta en el PDF. Una cita de párrafo produce
+un resaltado de párrafo, que no señala nada.
+
+✅ `"garantía de mantenimiento de oferta equivalente al 5% del presupuesto oficial"` (78)
+❌ `"Los oferentes deberán constituir una garantía de mantenimiento de oferta equivalente al 5% del presupuesto oficial, mediante póliza de caución, dentro de los 5 días hábiles de notificada la apertura, bajo apercibimiento de..."` (264)
 
 **Para fragmentos TABLA**, formato especial:  
 `Encabezado: <columna> | Fila: <fila> | Valor: <valor>`

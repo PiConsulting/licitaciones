@@ -400,16 +400,20 @@ class TestCategoryClassification:
         # Debe clasificar por título "GARANTÍAS", no por keywords "plazo" o "anexo"
         assert chunks[0]["primary_category"] == "garantias"
 
-    def test_fallback_to_identificacion_procedimiento(self):
-        """Sin título ni keywords claros, debe usar fallback."""
+    def test_sin_titulo_ni_keywords_el_chunk_queda_sin_categoria(self):
+        """FIX (auditoría 2026-08-13, hallazgo CHK-05): este test fijaba el
+        fallback a `identificacion_procedimiento`, que era justamente el bug --
+        convertía a esa categoría en el tacho de basura de la clasificación y
+        hacía que todo el relleno del pliego cobrara el boost de retrieval de
+        la carátula. Ver `tests/test_classification_sin_categoria.py`."""
         blocks = [
             {"content": "Contenido genérico sin palabras clave específicas de ninguna categoría.", "page_number": 1, "source_order": 0},
         ]
-        
+
         chunks = create_chunks(blocks, document_id="test-doc", correlation_id="test-corr")
-        
+
         assert len(chunks) == 1
-        assert chunks[0]["primary_category"] == "identificacion_procedimiento"
+        assert chunks[0]["primary_category"] is None
 
 
 @pytest.mark.parametrize(

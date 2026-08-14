@@ -236,6 +236,21 @@ def extract_and_index(analysis_id: str) -> None:
             stage_progress=build_stage_progress(CurrentStage.INDEXING),
             status="processing",
         )
+        # FIX (auditoría 2026-08-12, hallazgo #3 -- staleness en cosmos_temporal):
+        # `update_stage_and_progress` solo toca SQL. El shadow-write a Cosmos
+        # (`_persist_runtime_state`) antes se disparaba únicamente al arrancar
+        # ("analysis_processing") y al terminar ("analysis_version_created"/
+        # "analysis_error") -- nunca en las transiciones de etapa intermedias.
+        # Quien leyera el status DESDE Cosmos en modo cosmos_temporal/dual_write
+        # (el objetivo de esos modos es justamente poder leer de Cosmos antes
+        # de cortar del todo) veía "processing" congelado en la etapa anterior
+        # durante TODO `extracting_text`+`indexing`+la llamada a `graph.invoke()`
+        # (varios minutos), y recién se actualizaba al final. No agregamos un
+        # write por cada documento del loop de arriba (multiplicaría el costo
+        # en RU de Cosmos por N documentos); estas dos transiciones de etapa
+        # grandes acotan la ventana de staleness a "dentro de una etapa" sin
+        # sumar escrituras al camino más caliente.
+        _persist_runtime_state(db, analysis_id, "analysis_indexing")
 
         chunks_with_embeddings = generate_embeddings(all_chunks, correlation_id)
         upload_chunks(chunks_with_embeddings, analysis_id, correlation_id)
@@ -247,6 +262,7 @@ def extract_and_index(analysis_id: str) -> None:
             stage_progress=build_stage_progress(CurrentStage.ANALYZING, done=0, total=TOTAL_ANALYSIS_CATEGORIES),
             status="processing",
         )
+        _persist_runtime_state(db, analysis_id, "analysis_analyzing")
 
         if check_cancellation_requested(db, analysis_id, logger):
             return

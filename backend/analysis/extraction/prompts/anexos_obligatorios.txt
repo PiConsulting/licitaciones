@@ -66,7 +66,7 @@ anexo/formulario.
 
 # ESTRUCTURA DE SALIDA
 
-Usá el schema `AnexoObligatorioItem` definido en `schemas_v3.py`.
+Usá el schema `AnexoObligatorioItem` definido en `schemas.py`.
 
 **Campos clave:**
 - `tipo`: Usa enum `TipoAnexo` (anexo, formulario, planilla, declaracion_jurada, otro)
@@ -76,7 +76,7 @@ Usá el schema `AnexoObligatorioItem` definido en `schemas_v3.py`.
   - `debe_firmarse`: "si" | "no" | "no_especificado"
   - `presente_en_documentos_subidos`: "si" | "no" | "no_especificado"
 - `confidence`: [0.0-1.0] según el algoritmo de confianza
-- `source_references`: Siempre incluir cita literal del pliego (min 25 chars)
+- `source_references`: Siempre incluir cita literal del pliego (min 12 chars, ver CITATION_MIN_CHARS en schemas.py)
 
 **Cuando no hay anexos:** `{"anexos_obligatorios": []}`
 
@@ -98,6 +98,9 @@ Incluí el identificador Y el nombre descriptivo.
 **Frases que indican debe_completarse="si":**
 - "Deberá completarse"
 - "El oferente cumplimentará"
+- "Se completará con letra legible"
+
+❌ No lo infieras porque "todos los anexos suelen completarse"
 
 ## 3. ANEXOS TÍPICOS - Lista de Verificación
 
@@ -143,11 +146,8 @@ Buscá ACTIVAMENTE estos anexos comunes en pliegos argentinos (no te limites a e
 **⚠️ NO OMITIR:** Si el pliego lista anexos A, B, C... o I, II, III... extrae TODOS, no solo algunos.
 
 ---
-- "Se completará con letra legible"
 
-❌ No lo infieras porque "todos los anexos suelen completarse"
-
-## 3. metadata.debe_firmarse
+## 4. metadata.debe_firmarse
 `"si"` únicamente si el pliego lo indica para ese anexo.
 
 **Frases que indican debe_firmarse="si":**
@@ -155,7 +155,7 @@ Buscá ACTIVAMENTE estos anexos comunes en pliegos argentinos (no te limites a e
 - "Firmado por el representante legal"
 - "Con firma certificada"
 
-## 4. metadata.presente_en_documentos_subidos
+## 5. metadata.presente_en_documentos_subidos
 `"si"` solo si entre los fragmentos aparece el CONTENIDO del propio anexo (no su
 mención en un listado).
 
@@ -165,15 +165,15 @@ mención en un listado).
 
 En la duda, `"no_especificado"`.
 
-## 5. Listado de anexos en tabla
-Si el pliego lista anexos en tabla, un ítem por fila con `citation` en formato:  
+## 6. Listado de anexos en tabla
+Si el pliego lista anexos en tabla, un ítem por fila con `citation` en formato:
 `Encabezado: <col> | Fila: <fila> | Valor: <valor>`
 
-## 6. No incluir documentos respaldatorios
-❌ Certificados fiscales, balances, constancias de terceros → van en requisitos.  
+## 7. No incluir documentos respaldatorios
+❌ Certificados fiscales, balances, constancias de terceros → van en requisitos.
 ✅ Formularios que el pliego provee para completar → van acá.
 
-## 7. TipoAnexo enum
+## 8. TipoAnexo enum
 Valores disponibles:
 - `anexo`: referencia genérica a anexo del pliego
 - `formulario`: formulario oficial

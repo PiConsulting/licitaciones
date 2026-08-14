@@ -16,7 +16,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # =============================================================================
@@ -34,7 +34,17 @@ from pydantic import BaseModel, Field, field_validator
 # discriminantes ("oferta", "garantía"); el máximo es un límite de
 # almacenamiento y se aplica recortando la cita, nunca descartando el ítem.
 CITATION_MIN_CHARS = 12
-CITATION_MAX_CHARS = 300
+# La cita es lo que la persona lee para verificar de un vistazo que la síntesis
+# dice la verdad -- y es TAMBIÉN lo que define el largo del resaltado en el PDF:
+# `highlight.py::compute_highlights_for_sources` busca este texto exacto en la
+# página, así que una cita de párrafo produce un subrayado de párrafo. No son
+# dos cosas independientes.
+#
+# 300 caracteres daban citas de 2 a 4 renglones (mediana medida sobre un
+# análisis real: 129, p90 157, máximo 264) y subrayados del tamaño de un
+# párrafo. El objetivo es el fragmento mínimo que prueba el dato: de
+# `CITATION_PREFERRED_MIN_CHARS` a `CITATION_MAX_CHARS`.
+CITATION_MAX_CHARS = 120
 
 # Umbral de *utilidad*, no de validez: por debajo de esto la cita es verificable
 # pero pobre como evidencia para el usuario, así que se intenta reemplazarla por
@@ -55,6 +65,16 @@ class SourceReference(BaseModel):
     block_id: str | None = Field(
         default=None,
         description="ID del bloque/párrafo fuente. Usado para agrupar múltiples citations del mismo párrafo."
+    )
+    # ATR-01 (auditoría 2026-08-13): id del chunk que respaldó esta cita,
+    # capturado en `_verify_citation_grounding` en el momento en que se
+    # verifica el grounding. Es lo que evita que síntesis y highlighting
+    # tengan que re-adivinar el origen buscando el texto de la cita de nuevo
+    # -- y lo que impide que una frase repetida en dos chunks de la misma
+    # página se resuelva al chunk equivocado.
+    chunk_id: str | None = Field(
+        default=None,
+        description="ID del chunk recuperado del que se verificó esta cita.",
     )
 
 
@@ -85,6 +105,11 @@ class NarrativeSource(BaseModel):
     # ninguna señal de que no estaba verificada. Como campo declarado, sobrevive
     # la serialización y la persistencia.
     unverified: bool = False
+    # ATR-05 (auditoría 2026-08-13): `_resolve_from_evidence` ya escribía este
+    # campo "para matching posterior con highlight", pero al no estar declarado
+    # pydantic lo descartaba en el `model_validate` -- exactamente el mismo bug
+    # que ya se había corregido para `unverified` (ver el comentario de arriba).
+    chunk_id: str | None = None
     # Coordenadas de highlight pre-computadas en el PDF usando PyMuPDF.
     # Cada región es un rectángulo: {"x": float, "y": float, "width": float, "height": float}
     # Lista vacía si no se pudo calcular o si PyMuPDF no está disponible.
@@ -184,10 +209,18 @@ RawNarrativeBlock = Annotated[
 
 
 class RawEvidence(BaseModel):
-    """Evidencia textual extraída - para highlighting preciso.
-    
-    IMPORTANTE: No usa chunk_id porque el LLM no tiene acceso a ese campo.
-    En su lugar usa (document_id, page_number) que están en source_references.
+    """Evidencia textual del LLM de sintesis - para highlighting preciso.
+
+    FIX (auditoria 2026-08-13, hallazgos SYN-01 y SYN-04): `text` NO es el
+    contenido que se le muestra al usuario. Es un selector: `_stub_for_evidence`
+    lo usa para recortar un sub-fragmento DENTRO de la cita ya verificada del
+    item que esta evidencia referencia en `item_refs`. Si no cae dentro de
+    ninguna de esas citas, se usa la cita verificada completa.
+
+    Por la misma razon, `document_id` y `page_number` son informativos: los
+    valores que llegan a la source salen del item verificado, no de estos
+    campos. El LLM copiaba mal el UUID del documento y eso alcanzaba para
+    perder la evidencia.
     """
     document_id: str
     page_number: int
@@ -293,15 +326,29 @@ class GarantiaItem(ExtractedItem):
     plazo_constitucion: str | None = None
     vigencia: str | None = None
 
-    @field_validator('monto_porcentaje')
-    def validate_monto_exclusivity(cls, v, info):
-        """Valida que monto_porcentaje y monto_valor sean mutuamente excluyentes."""
-        if v is not None and info.data.get('monto_valor') is not None:
+    @model_validator(mode='after')
+    def validate_monto_exclusivity(self) -> "GarantiaItem":
+        """Valida que monto_porcentaje y monto_valor sean mutuamente excluyentes.
+
+        FIX (auditoría 2026-08-12, flujo RAG/prompts): esto era un
+        `@field_validator('monto_porcentaje')` que leía
+        `info.data.get('monto_valor')`. En Pydantic v2 los validators de
+        campo corren en el orden de declaración y `info.data` solo trae los
+        campos YA validados -- como `monto_porcentaje` se declara antes que
+        `monto_valor` en esta clase, `monto_valor` nunca estaba todavía en
+        `info.data` cuando este validator corría, así que la condición
+        `is not None` daba siempre falso y la regla de exclusividad mutua
+        nunca se disparaba (verificado: un `GarantiaItem` con AMBOS campos
+        seteados se construía sin error). Un `model_validator(mode='after')`
+        corre una sola vez con el objeto ya completo, sin depender del orden
+        de declaración de los campos.
+        """
+        if self.monto_porcentaje is not None and self.monto_valor is not None:
             raise ValueError(
                 "monto_porcentaje y monto_valor son mutuamente excluyentes. "
                 "Solo uno puede tener valor."
             )
-        return v
+        return self
 
 
 # =============================================================================
@@ -453,6 +500,16 @@ class TipoIdentificacion(str, Enum):
     TIPO_PROCEDIMIENTO = "tipo_procedimiento"
     PRESUPUESTO_OFICIAL = "presupuesto_oficial"
     JURISDICCION = "jurisdiccion"
+    # FIX (2026-08-13): la carátula/portada de muchos pliegos trae un nombre
+    # corto entre comillas (ej. "Adquisición de Servidores de aplicaciones y
+    # base de datos") que identifica de qué se trata el llamado a simple
+    # vista -- distinto del número de procedimiento (que puede no existir
+    # todavía, ver la regla de `numero_procedimiento` en el prompt) y
+    # distinto del resumen_objeto de `objeto_alcance` (que es una síntesis
+    # de 2-4 oraciones, pensada para lectura detallada, no para un título).
+    # Sin este campo, un pliego sin número asignado quedaba con un título
+    # vacío de contenido ("Licitación Privada" a secas).
+    DENOMINACION = "denominacion"
 
 
 class IdentificacionProcedimientoItem(ExtractedItem):
@@ -565,19 +622,45 @@ class ExtractedData(BaseModel):
     # LEGACY FIELDS - BACKWARD COMPATIBILITY
     # =============================================================================
     # FIX MEDIUM (#4): Campos legacy mantenidos por compatibilidad con frontend.
-    # 
-    # CAMPOS CANÓNICOS (usar estos):
-    #   - plazos_clave (NO "plazos")
-    #   - identificacion_procedimiento (NO "datos_procedimiento")
-    #   - anexos_obligatorios (NO "documentos_requeridos")
-    # 
-    # DEPRECACIÓN PLANEADA:
-    #   - Q1 2027: Agregar warnings en logs cuando frontend use campos legacy
-    #   - Q2 2027: Eliminar campos legacy del schema después de migración de frontend
-    # 
+    #
+    # AUDITORÍA US-5.3 (2026-08-12): se confirmó contra `frontend/src` cuáles
+    # campos legacy siguen consumiéndose de verdad -- el estado real es
+    # DISTINTO por campo, no "todos son fallback seguro de eliminar en Q2 2027"
+    # como decía este comentario antes:
+    #
+    #   - "plazos" y "documentos_requeridos"/"restricciones_participacion":
+    #     confirmado SAFE. `frontend/src/services/api/analysisApi.ts`
+    #     (`legacyToUiMap`) los lee solo como fallback para análisis viejos
+    #     que no tengan todavía el campo canónico -- el camino primario ya usa
+    #     "plazos_clave"/"requisitos_admisibilidad". Como `merge_node` escribe
+    #     siempre ambos nombres, todo análisis nuevo ya trae el canónico. Plan
+    #     Q2 2027 (dejar de escribirlos desde el backend) sigue vigente.
+    #
+    #   - "datos_procedimiento": NO es un duplicado legacy seguro de eliminar.
+    #     El frontend lo usa como categoría PRIMARIA -- `CategoryId` en
+    #     `frontend/src/features/analysis-detail/types.ts` lo declara como
+    #     valor de primera clase, y es la ÚNICA fuente que puebla
+    #     organismo/expediente en el header del análisis
+    #     (`NORMALIZE_CATEGORY_IDS` en `analysisApi.ts`). El frontend NUNCA
+    #     lee "identificacion_procedimiento" (cero referencias en todo
+    #     `frontend/src`). Además "identificacion_procedimiento" no es
+    #     equivalente: es un subconjunto filtrado por el enum
+    #     `TipoIdentificacion` (ver `graph.py::merge_node`,
+    #     `identificacion_canonica`), mientras que "datos_procedimiento"
+    #     conserva la lista completa sin filtrar. Eliminar este campo con
+    #     el plan viejo (fecha fija, sin depender de que el frontend migre)
+    #     rompería el header de cualquier análisis nuevo. Ver plan de
+    #     migración de frontend en
+    #     `_bmad-output/us-5.3-legacy-fields-migration-plan.md` -- la
+    #     eliminación de este campo queda BLOQUEADA hasta que ese trabajo de
+    #     frontend se haga, no programada por fecha de calendario.
+    #
     # ACCIÓN REQUERIDA:
-    #   - Verificar que frontend solo consume campos canónicos
-    #   - Migrar cualquier referencia a campos legacy
+    #   - "plazos" / "documentos_requeridos" / "restricciones_participacion":
+    #     ninguna -- proceder con el retiro planeado en Q2 2027.
+    #   - "datos_procedimiento": NO retirar hasta migrar el frontend a
+    #     "identificacion_procedimiento" (o a un campo canónico sin filtrar
+    #     que preserve el 100% de lo que hoy expone "datos_procedimiento").
     # =============================================================================
 
     plazos: list[PlazoItem] = Field(
@@ -588,7 +671,12 @@ class ExtractedData(BaseModel):
 
     datos_procedimiento: list[GenericCategoryItem] = Field(
         default_factory=list,
-        description="DEPRECATED: Usar 'identificacion_procedimiento' en su lugar. Será eliminado en Q2 2027.",
+        description=(
+            "NO DEPRECAR TODAVÍA: pese al nombre 'legacy', es la fuente primaria que usa "
+            "el frontend para organismo/expediente (nunca lee 'identificacion_procedimiento', "
+            "que además es un subconjunto filtrado, no equivalente). Ver "
+            "_bmad-output/us-5.3-legacy-fields-migration-plan.md antes de tocar este campo."
+        ),
     )
     datos_procedimiento_extraction_status: str = "unknown"
 
@@ -597,6 +685,22 @@ class ExtractedData(BaseModel):
         description="DEPRECATED: Usar 'anexos_obligatorios' en su lugar. Será eliminado en Q2 2027.",
     )
     documentos_extraction_status: str = "unknown"
+
+    # FIX (auditoría US-5.3, 2026-08-12): `merge_node` ya escribía estos tres
+    # campos en el dict de `extracted_data`, pero no estaban declarados acá --
+    # `ExtractedData(**extracted_data)` los descartaba en silencio (comportamiento
+    # default de pydantic con campos no declarados), exactamente el mismo patrón
+    # del incidente histórico de `primary_category`/`secondary_categories`. Hoy
+    # no cambia nada observable (`merge_node` los escribe siempre vacíos, todavía
+    # no hay extractor real para estas categorías), pero sin esto, el día que se
+    # implemente un extractor para alguna de las tres, sus datos se perderían en
+    # silencio antes de llegar a la API -- igual que pasó antes.
+    restricciones_participacion: list[GenericCategoryItem] = Field(default_factory=list)
+    restricciones_extraction_status: str = "not_found"
+    cronograma_proceso: list[GenericCategoryItem] = Field(default_factory=list)
+    cronograma_extraction_status: str = "not_found"
+    estimacion_presupuesto: PresupuestoItem | None = None
+    presupuesto_extraction_status: str = "not_found"
 
 
 # =============================================================================

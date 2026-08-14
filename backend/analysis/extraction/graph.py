@@ -20,7 +20,7 @@ from analysis.extraction.extractors import (
 )
 from pydantic import BaseModel, ValidationError
 
-from analysis.extraction.extractors.base import clip_citation
+from analysis.extraction.extractors.base import shorten_citation_to_evidence
 from analysis.extraction.schemas import (
     CITATION_MAX_CHARS,
     CITATION_MIN_CHARS,
@@ -406,6 +406,7 @@ _TIPOS_IDENTIFICACION_VALIDOS = {
     "tipo_procedimiento",
     "presupuesto_oficial",
     "jurisdiccion",
+    "denominacion",
 }
 
 
@@ -427,6 +428,11 @@ def _canonical_identificacion_tipo(value: str) -> str | None:
         return "presupuesto_oficial"
     if "jurisdicc" in text:
         return "jurisdiccion"
+    # Antes del catch-all de "proced": una variante como "denominacion del
+    # procedimiento" contiene ambas palabras, y sin este check quedaría mal
+    # clasificada como numero_procedimiento.
+    if "denomina" in text or "nombre del llamado" in text or "nombre_del_llamado" in text:
+        return "denominacion"
     if "proced" in text:
         if "tipo" in text:
             return "tipo_procedimiento"
@@ -648,7 +654,10 @@ def _enforce_citation_contract(items: list[dict]) -> list[dict]:
             if len(citation) < CITATION_MIN_CHARS:
                 continue
             if len(citation) > CITATION_MAX_CHARS:
-                citation = clip_citation(citation)
+                # Se recorta a la ventana que contiene el dato del item, no al
+                # prefijo: la carátula de un pliego respalda varios items y el
+                # dato de cada uno cae en un lugar distinto del mismo texto.
+                citation = shorten_citation_to_evidence(citation, item)
             normalized_ref = dict(ref)
             normalized_ref["citation"] = citation
             refs.append(normalized_ref)
@@ -982,67 +991,77 @@ def merge_node(state: GraphState) -> GraphState:
     return state
 
 
-def _build_chunks_by_id_index(analysis_id: str, correlation_id: str) -> dict[str, dict]:
-    """Construye índice de chunks por chunk_id desde Azure Search.
-    
-    NUEVO (2026-08-12): Necesario para evidence-based highlighting. El LLM
-    devuelve evidencias con chunk_id, y necesitamos el contenido completo
-    del chunk para validar que el texto de evidencia existe realmente.
-    
-    Args:
-        analysis_id: ID del análisis para filtrar chunks
-        correlation_id: ID para logging
-    
+def _build_chunk_indexes(
+    analysis_id: str, correlation_id: str
+) -> tuple[dict[str, dict], dict[tuple[str, int], list[dict]]]:
+    """Enumera los chunks del análisis UNA vez y deriva los dos índices que
+    necesita la síntesis.
+
+    FIX (auditoría 2026-08-13, hallazgo SYN-03): antes había dos funciones
+    equivalentes (`_build_chunks_by_id_index` acá y
+    `synthesis._build_chunks_index_from_search`) que hacían la misma consulta
+    por separado, y la segunda se llamaba DENTRO del loop de categorías, sin
+    caché. Total: 8 enumeraciones del índice por análisis, cada una con su
+    propia llamada de embedding, su búsqueda con `top=3000` y sus cientos de
+    `get_document()` de la expansión children->parent. Ahora se enumera una
+    sola vez y los dos índices se derivan del mismo resultado.
+
     Returns:
-        Diccionario {chunk_id: chunk_data} con todos los chunks del análisis
+        (chunks_by_id, chunks_by_doc_page)
+          - chunks_by_id: {chunk_id: chunk} -- para resolver evidencias.
+          - chunks_by_doc_page: {(document_id, page_number): [chunks]} -- para
+            el fallback de highlighting por bbox almacenado.
     """
     try:
-        from shared.ports.azure_search import search_hybrid
-        
-        # Obtener TODOS los chunks del análisis con query wildcard y top_k alto
-        # Azure Search acepta máximo 1000 resultados por request
-        all_chunks = search_hybrid(
-            query="*",  # Wildcard = obtener todos los chunks
-            analysis_id=analysis_id,
-            top_k=1000,  # Límite máximo de Azure Search
-            keyword_query=None,
-            category_filter=None,
-        )
-        
-        # Construir índice por chunk_id
+        from shared.ports.azure_search import fetch_all_analysis_chunks
+
+        all_chunks, truncated = fetch_all_analysis_chunks(analysis_id)
+
         chunks_by_id: dict[str, dict] = {}
+        chunks_by_doc_page: dict[tuple[str, int], list[dict]] = {}
+
         for chunk in all_chunks:
-            # Los chunks de Azure Search no tienen chunk_id directamente,
-            # necesitamos construirlo desde analysis_id + document_id + chunk_index
-            analysis_id_field = chunk.get("analysis_id")
-            document_id = chunk.get("document_id")
-            chunk_index = chunk.get("chunk_index")
-            
-            if analysis_id_field and document_id is not None and chunk_index is not None:
-                chunk_id = f"{analysis_id_field}--{document_id}--{chunk_index}"
-                # Agregar el chunk_id al chunk para uso posterior
+            # El id compuesto ya viene del índice; se reconstruye sólo si
+            # faltara (documentos viejos indexados antes de que `id` se
+            # seleccionara).
+            chunk_id = chunk.get("id")
+            if not chunk_id:
+                analysis_id_field = chunk.get("analysis_id")
+                document_id = chunk.get("document_id")
+                chunk_index = chunk.get("chunk_index")
+                if analysis_id_field and document_id is not None and chunk_index is not None:
+                    chunk_id = f"{analysis_id_field}--{document_id}--{chunk_index}"
+
+            if chunk_id:
                 chunk["chunk_id"] = chunk_id
                 chunks_by_id[chunk_id] = chunk
-        
+
+            doc_id = chunk.get("document_id")
+            page = chunk.get("page_number")
+            if doc_id and page:
+                chunks_by_doc_page.setdefault((str(doc_id), int(page)), []).append(chunk)
+
         logger.info(
-            "chunks_by_id_index_built",
+            "chunk_indexes_built",
             correlation_id=correlation_id,
             analysis_id=analysis_id,
             total_chunks=len(all_chunks),
-            indexed_chunks=len(chunks_by_id),
+            indexed_by_id=len(chunks_by_id),
+            unique_doc_pages=len(chunks_by_doc_page),
+            truncated=truncated,
         )
-        
-        return chunks_by_id
-        
+
+        return chunks_by_id, chunks_by_doc_page
+
     except Exception as exc:  # noqa: BLE001
         logger.warning(
-            "chunks_by_id_index_build_failed",
+            "chunk_indexes_build_failed",
             correlation_id=correlation_id,
             analysis_id=analysis_id,
             error=str(exc),
             message="Evidence-based highlighting no disponible",
         )
-        return {}
+        return {}, {}
 
 
 def synthesize_node(state: GraphState) -> GraphState:
@@ -1076,9 +1095,12 @@ def synthesize_node(state: GraphState) -> GraphState:
                 reason="document_mapping is empty - highlights will not be computed",
             )
 
-    # Construir índice de chunks para evidence-based highlighting
-    chunks_by_id = _build_chunks_by_id_index(state["analysis_id"], correlation_id)
-    
+    # SYN-03: una sola enumeración del índice por análisis. Los dos índices
+    # que necesita la síntesis se derivan del mismo resultado y se pasan a
+    # `enrich_narrative_with_highlights`, que antes reconstruía el suyo desde
+    # cero en CADA categoría.
+    chunks_by_id, chunks_by_doc_page = _build_chunk_indexes(state["analysis_id"], correlation_id)
+
     synthesized = 0
     for category_key in NARRATIVE_CATEGORIES:
         items = extracted_data.get(category_key, [])
@@ -1093,7 +1115,7 @@ def synthesize_node(state: GraphState) -> GraphState:
         if result is None:
             continue
         narrative, token_usage = result
-        
+
         # FIX CRÍTICO: Enriquecer con highlights pre-computados
         if document_mapping:
             narrative = enrich_narrative_with_highlights(
@@ -1102,6 +1124,7 @@ def synthesize_node(state: GraphState) -> GraphState:
                 correlation_id=correlation_id,
                 category_key=category_key,
                 analysis_id=state["analysis_id"],
+                chunks_by_doc_page=chunks_by_doc_page,
             )
         
         extracted_data[f"{category_key}_narrative"] = narrative.model_dump()

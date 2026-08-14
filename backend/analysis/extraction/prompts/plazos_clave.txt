@@ -56,7 +56,7 @@ de todos los fragmentos donde aparece, pero emití un único ítem.
 
 # ESTRUCTURA DE SALIDA
 
-Usá el schema `PlazoItem` definido en `schemas_v3.py`.
+Usá el schema `PlazoItem` definido en `schemas.py`.
 
 **Campos clave:**
 - `tipo`: Usa enum `TipoPlazo`. **Tipos disponibles:**
@@ -84,7 +84,7 @@ Usá el schema `PlazoItem` definido en `schemas_v3.py`.
 - `texto_original`: **OBLIGATORIO** - frase literal del pliego. **CRÍTICO cuando tipo="otro"**: debe incluir descripción de QUÉ plazo es (ej: "Plazo para retirar muestras: 5 días")
 - `prorrogable`: "si" | "no" | "no_especificado"
 - `confidence`: [0.0-1.0] según el algoritmo de confianza
-- `source_references`: Siempre incluir cita literal del pliego (min 25 chars)
+- `source_references`: Siempre incluir cita literal del pliego (min 12 chars, ver CITATION_MIN_CHARS en schemas.py)
 
 **Cuando no hay plazos:** `{"plazos_clave": []}`
 

@@ -100,7 +100,13 @@ def generate_embeddings(chunks: list[dict], correlation_id: str | UUID) -> list[
     )
 
     retries = settings.azure_openai_retry_attempts
-    
+    # FIX CRÍTICO (auditoría 2026-08-12, hallazgo C-1): esta variable se usaba en
+    # los 4 bloques `except` de abajo sin estar nunca definida, así que cualquier
+    # RateLimitError/APITimeoutError/APIError (eventos transitorios y rutinarios
+    # contra Azure OpenAI, no excepcionales) crasheaba con NameError en el primer
+    # intento en vez de reintentar -- tumbando el análisis completo del documento.
+    backoff_seconds = [1, 5, 15]
+
     # Calcular batch_size dinámico basado en token_count de chunks
     batch_size = _calculate_dynamic_batch_size(chunks)
     logger.info(

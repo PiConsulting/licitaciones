@@ -54,7 +54,7 @@ Una causal por ítem. Si el pliego lista incisos a), b), c)... emití un ítem p
 
 # ESTRUCTURA DE SALIDA
 
-Usá el schema `CausalRechazoItem` definido en `schemas_v3.py`.
+Usá el schema `CausalRechazoItem` definido en `schemas.py`.
 
 **Campos clave:**
 - `tipo`: Usa enum `TipoCausal` (formal, tecnica, economica, legal, etica, otra)
@@ -63,7 +63,7 @@ Usá el schema `CausalRechazoItem` definido en `schemas_v3.py`.
   - `es_descalificante`: "si" | "no" | "no_especificado"
   - `es_subsanable`: "si" | "no" | "no_especificado"
 - `confidence`: [0.0-1.0] según el algoritmo de confianza
-- `source_references`: Siempre incluir cita literal del pliego (min 25 chars)
+- `source_references`: Siempre incluir cita literal del pliego (min 12 chars, ver CITATION_MIN_CHARS en schemas.py)
 
 **Cuando no hay causales:** `{"causales_rechazo": []}`
 

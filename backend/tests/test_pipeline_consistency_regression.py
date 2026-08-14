@@ -334,11 +334,17 @@ def test_chunks_llevan_categoria_al_indice() -> None:
     uploaded: list[dict[str, Any]] = []
 
     class _Adapter:
+        deleted_analysis_ids: list[str] = []
+
         def upload_chunks(self, documents: list[dict]) -> None:
             uploaded.extend(documents)
 
-        def delete_analysis_chunks(self, analysis_id: str) -> None:  # pragma: no cover
-            raise AssertionError("no se usa en este test")
+        def delete_analysis_chunks(self, analysis_id: str) -> int:
+            # IDX-03 (auditoría 2026-08-13): `upload_chunks` ahora limpia los
+            # chunks previos del análisis antes de subir los nuevos, así que
+            # este método SÍ se invoca en cada re-indexación.
+            self.deleted_analysis_ids.append(analysis_id)
+            return 0
 
     original_build = ai_search._build_adapter
     original_validate = ai_search.validate_index_contract
@@ -361,6 +367,143 @@ def test_retrieval_selecciona_los_campos_de_categoria() -> None:
     telemetria que detectaria este problema quedaba ciega."""
     assert "primary_category" in SEARCH_CHUNK_SELECT_FIELDS
     assert "secondary_categories" in SEARCH_CHUNK_SELECT_FIELDS
+
+
+# ---------------------------------------------------------------------------
+# 5. US-3.1: parent/child chunking tiene que llegar completo al indice
+# ---------------------------------------------------------------------------
+
+
+_ARTICULO_LARGO_CON_INCISOS = (
+    "Los oferentes deberan presentar la totalidad de la documentacion enumerada a "
+    "continuacion, en sobre cerrado, dentro del plazo establecido en el presente "
+    "pliego de bases y condiciones, bajo apercibimiento de exclusion automatica del "
+    "proceso licitatorio sin posibilidad de subsanacion posterior alguna.\n\n"
+    "a) Documentacion de personeria juridica del oferente, incluyendo estatuto social "
+    "vigente, actas de designacion de autoridades y poder suficiente para obligar a "
+    "la sociedad en los terminos de la presente contratacion.\n\n"
+    "b) Propuesta economica conforme al modelo adjunto como Anexo II, indicando "
+    "precio unitario y total, discriminando impuestos, con vigencia minima de "
+    "sesenta dias corridos desde la apertura.\n\n"
+    "c) Propuesta tecnica incluyendo cronograma detallado de tareas, metodologia de "
+    "trabajo, recursos humanos afectados y antecedentes de trabajos similares "
+    "realizados en los ultimos cinco anios."
+)
+
+
+def test_upload_chunks_traduce_indices_de_parent_child_a_ids_completos() -> None:
+    """`create_chunks` sólo conoce `chunk_index` (entero, único por documento)
+    para parent_chunk_index/child_chunk_indices -- recién `upload_chunks`
+    conoce el `analysis_id` necesario para armar los mismos ids compuestos
+    (`{analysis_id}--{document_id}--{chunk_index}`) que se usan como `id` de
+    documento en Azure Search. Si esto se rompe, la expansión children→parent
+    del retrieval (`_expand_children_to_parents`) no encuentra el parent."""
+    from extraction import ai_search
+
+    blocks = [
+        {"page_number": 1, "source_order": 0, "block_type": "paragraph", "table_ref": None,
+         "content": _ARTICULO_LARGO_CON_INCISOS},
+    ]
+    chunks = create_chunks(blocks, document_id="doc-1", correlation_id="corr-1")
+    parent = next(c for c in chunks if c["chunk_type"] == "parent")
+    children = [c for c in chunks if c["chunk_type"] == "child"]
+    assert children, "el articulo de prueba tiene que generar al menos un child"
+
+    uploaded: list[dict[str, Any]] = []
+
+    class _Adapter:
+        deleted_analysis_ids: list[str] = []
+
+        def upload_chunks(self, documents: list[dict]) -> None:
+            uploaded.extend(documents)
+
+        def delete_analysis_chunks(self, analysis_id: str) -> int:
+            # IDX-03 (auditoría 2026-08-13): `upload_chunks` ahora limpia los
+            # chunks previos del análisis antes de subir los nuevos, así que
+            # este método SÍ se invoca en cada re-indexación.
+            self.deleted_analysis_ids.append(analysis_id)
+            return 0
+
+    original_build = ai_search._build_adapter
+    original_validate = ai_search.validate_index_contract
+    ai_search._build_adapter = lambda: _Adapter()  # type: ignore[assignment]
+    ai_search.validate_index_contract = lambda: None  # type: ignore[assignment]
+    try:
+        with_embeddings = [{**chunk, "embedding": [0.0, 0.1]} for chunk in chunks]
+        ai_search.upload_chunks(with_embeddings, "analysis-1", "corr-1")
+    finally:
+        ai_search._build_adapter = original_build  # type: ignore[assignment]
+        ai_search.validate_index_contract = original_validate  # type: ignore[assignment]
+
+    by_chunk_index = {doc["chunk_index"]: doc for doc in uploaded}
+
+    parent_doc = by_chunk_index[parent["chunk_index"]]
+    assert parent_doc["chunk_type"] == "parent"
+    assert parent_doc["parent_chunk_id"] is None
+    expected_child_ids = [f"analysis-1--doc-1--{c['chunk_index']}" for c in children]
+    assert parent_doc["child_chunk_ids"] == expected_child_ids
+
+    for child in children:
+        child_doc = by_chunk_index[child["chunk_index"]]
+        assert child_doc["chunk_type"] == "child"
+        assert child_doc["parent_chunk_id"] == f"analysis-1--doc-1--{parent['chunk_index']}"
+        assert child_doc["child_chunk_ids"] == []
+
+
+def test_upload_chunks_marca_normal_los_chunks_sin_subdividir() -> None:
+    """Los chunks que no se subdividieron (la mayoría) tienen que seguir
+    subiendo con chunk_type='normal' y sin parent/child ids -- comportamiento
+    idéntico al de antes de US-3.1."""
+    from extraction import ai_search
+
+    blocks = [
+        {"page_number": 1, "source_order": 0, "block_type": "paragraph", "table_ref": None,
+         "content": "3. GARANTÍAS", "heading_level": 1},
+        {"page_number": 1, "source_order": 1, "block_type": "paragraph", "table_ref": None,
+         "content": "Garantía de mantenimiento de oferta: 1% del presupuesto oficial."},
+    ]
+    chunks = create_chunks(blocks, document_id="doc-1", correlation_id="corr-1")
+
+    uploaded: list[dict[str, Any]] = []
+
+    class _Adapter:
+        deleted_analysis_ids: list[str] = []
+
+        def upload_chunks(self, documents: list[dict]) -> None:
+            uploaded.extend(documents)
+
+        def delete_analysis_chunks(self, analysis_id: str) -> int:
+            # IDX-03 (auditoría 2026-08-13): `upload_chunks` ahora limpia los
+            # chunks previos del análisis antes de subir los nuevos, así que
+            # este método SÍ se invoca en cada re-indexación.
+            self.deleted_analysis_ids.append(analysis_id)
+            return 0
+
+    original_build = ai_search._build_adapter
+    original_validate = ai_search.validate_index_contract
+    ai_search._build_adapter = lambda: _Adapter()  # type: ignore[assignment]
+    ai_search.validate_index_contract = lambda: None  # type: ignore[assignment]
+    try:
+        with_embeddings = [{**chunk, "embedding": [0.0, 0.1]} for chunk in chunks]
+        ai_search.upload_chunks(with_embeddings, "analysis-1", "corr-1")
+    finally:
+        ai_search._build_adapter = original_build  # type: ignore[assignment]
+        ai_search.validate_index_contract = original_validate  # type: ignore[assignment]
+
+    assert uploaded
+    assert uploaded[0]["chunk_type"] == "normal"
+    assert uploaded[0]["parent_chunk_id"] is None
+    assert uploaded[0]["child_chunk_ids"] == []
+
+
+def test_retrieval_selecciona_los_campos_de_parent_child() -> None:
+    """US-3.1: sin estos campos en el SELECT, `_expand_children_to_parents`
+    nunca detecta un chunk 'child' en los resultados y la expansión a parent
+    queda muerta en la práctica (nunca se activa)."""
+    assert "chunk_type" in SEARCH_CHUNK_SELECT_FIELDS
+    assert "parent_chunk_id" in SEARCH_CHUNK_SELECT_FIELDS
+    assert "child_chunk_ids" in SEARCH_CHUNK_SELECT_FIELDS
+    assert "id" in SEARCH_CHUNK_SELECT_FIELDS
 
 
 def test_titulo_en_singular_clasifica_igual_que_en_plural() -> None:
@@ -557,17 +700,36 @@ def test_categoria_no_aplicable_no_se_agrega_como_not_found() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_filtro_de_categoria_nunca_recupera_menos_que_sin_filtro(monkeypatch) -> None:
-    """Usar el filtro como compuerta dura hacia que un documento con la seccion
-    mal clasificada recuperara 1 chunk y otro equivalente 25. El filtro prioriza
-    y despues se completa el MISMO presupuesto top_k."""
+def test_la_categoria_prioriza_pero_no_recorta_el_presupuesto(monkeypatch) -> None:
+    """Usar la categoría como compuerta dura hacía que un documento con la
+    sección mal clasificada recuperara 1 chunk y otro equivalente 25.
+
+    La categoría prioriza (boost sobre el score de Azure) y después se completa
+    el MISMO presupuesto top_k con el resto de los candidatos.
+
+    Este test también fija el contrato de RET-02: `_retrieve_with_category_priority`
+    NO le pasa ningún argumento de categoría a `search_hybrid`. Si alguien
+    reintroduce un filtro duro, `fake_search` revienta con TypeError.
+    """
     from analysis.extraction.extractors import base
 
-    filtrados = [_chunk("garantía de mantenimiento de oferta", chunk_index=7)]
-    sin_filtro = [_chunk(f"parrafo {i}", chunk_index=i) for i in range(10)]
+    # El chunk clasificado en la categoría tiene un score PEOR que varios otros:
+    # sin el boost no quedaría primero.
+    candidatos = [_chunk(f"parrafo {i}", chunk_index=i, search_score=1.0 - i * 0.01) for i in range(10)]
+    candidatos.append(
+        _chunk(
+            "garantía de mantenimiento de oferta",
+            chunk_index=7 + 10,
+            search_score=0.95,
+            primary_category="garantias",
+        )
+    )
 
-    def fake_search(*, query, analysis_id, top_k, keyword_query, category_filter):
-        return list(filtrados) if category_filter else list(sin_filtro)
+    llamadas: list[dict[str, Any]] = []
+
+    def fake_search(*, query, analysis_id, top_k, keyword_query):
+        llamadas.append({"query": query, "top_k": top_k, "keyword_query": keyword_query})
+        return list(candidatos)
 
     monkeypatch.setattr(base, "search_hybrid", fake_search)
 
@@ -580,10 +742,11 @@ def test_filtro_de_categoria_nunca_recupera_menos_que_sin_filtro(monkeypatch) ->
         correlation_id="corr-1",
     )
 
-    assert len(chunks) == 5, "se completa el presupuesto, no se recorta a lo filtrado"
-    assert chunks[0]["chunk_index"] == 7, "lo clasificado en la categoria va primero"
+    assert len(llamadas) == 1, "una sola búsqueda: no hay pasada filtrada + backfill"
+    assert len(chunks) == 5, "se completa el presupuesto, no se recorta a lo clasificado"
+    assert chunks[0]["chunk_index"] == 17, "lo clasificado en la categoría va primero"
     indexes = [chunk["chunk_index"] for chunk in chunks]
-    assert len(indexes) == len(set(indexes)), "el backfill no puede duplicar chunks"
+    assert len(indexes) == len(set(indexes)), "no se puede duplicar chunks"
 
 
 # ---------------------------------------------------------------------------

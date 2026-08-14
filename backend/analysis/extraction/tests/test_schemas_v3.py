@@ -1,5 +1,14 @@
 """
-Tests unitarios para schemas v3.
+Tests unitarios para analysis/extraction/schemas.py.
+
+NOTA (auditoría 2026-08-12): este módulo se llamaba `schemas_v3.py` y este
+archivo de tests importaba de ahí. En algún momento se renombró a
+`schemas.py` sin actualizar este import, y como este archivo vive fuera de
+`backend/tests/` (el path que corre la suite normal) nadie notó que quedó
+con un `ModuleNotFoundError` en la colección -- 492 líneas de cobertura
+muertas. Se corrigió el import y se resucitaron los 28 tests (2 de ellos
+tenían además expectativas desactualizadas, corregidas en el mismo pase:
+ver `test_source_reference_citation_too_short`).
 
 Ejecutar con:
     pytest backend/analysis/extraction/tests/test_schemas_v3.py -v
@@ -15,7 +24,7 @@ Cobertura:
 import pytest
 from pydantic import ValidationError
 
-from analysis.extraction.schemas_v3 import (
+from analysis.extraction.schemas import (
     # Base types
     SourceReference,
     ExtractedItem,
@@ -84,12 +93,20 @@ def test_source_reference_valid(valid_source_ref):
 
 
 def test_source_reference_citation_too_short(short_citation_source):
-    """Citation < 40 chars debe fallar."""
+    """Citation < CITATION_MIN_CHARS (12, ver schemas.py) debe fallar.
+
+    FIX (auditoría 2026-08-12): el umbral original era 40, pero se unificó
+    a 12 en un fix previo de esta misma sesión (ver comentario en
+    schemas.py junto a `CITATION_MIN_CHARS`) para evitar que una cita
+    literal y verificable sobreviviera en un pliego y desapareciera en
+    otro según su longitud. Este test quedó desactualizado (import roto a
+    `schemas_v3`) desde antes de ese cambio y no se corrió nunca contra el
+    umbral nuevo; se actualiza acá para reflejar el contrato vigente."""
     with pytest.raises(ValidationError) as exc_info:
         SourceReference(**short_citation_source)
-    
+
     errors = exc_info.value.errors()
-    assert any("at least 40" in str(e).lower() for e in errors)
+    assert any("at least 12" in str(e).lower() for e in errors)
 
 
 def test_source_reference_citation_too_long():

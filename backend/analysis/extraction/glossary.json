@@ -115,7 +115,8 @@
       "primary": 0.35,
       "secondary": 0.15
     },
-    "weight": 1.0
+    "weight": 1.0,
+    "top_k": 35
   },
   "plazos_clave": {
     "query_terms": [
@@ -143,13 +144,23 @@
       "plazo de impugnacion",
       "entrega de ofertas",
       "dias habiles",
-      "dias corridos"
+      "dias corridos",
+      "subsanacion",
+      "subsanar",
+      "intimacion",
+      "intimacion fehaciente",
+      "preaviso",
+      "rescision",
+      "rescindir",
+      "acreditacion de importacion",
+      "termino"
     ],
     "thresholds": {
       "primary": 0.30,
       "secondary": 0.15
     },
-    "weight": 1.0
+    "weight": 1.0,
+    "top_k": 35
   },
   "criterios_evaluacion": {
     "query_terms": [

@@ -103,6 +103,12 @@ esquema fijo copiado de otro ejemplo.
 
 **REGLAS CRÍTICAS:**
 
+0. **Text debe salir de UNO de los items que listás en `item_refs`** - No de
+   cualquier item de la categoría, ni de otro item que esté en la misma página.
+   Si la frase que querés citar pertenece a otro item, agregá ese índice a
+   `item_refs`. El backend ancla cada evidencia a las citas del item que vos
+   referenciás: si el texto no sale de ahí, la evidencia no puede resolver.
+
 1. **Text debe ser LITERAL** - Copiá el texto exacto de `citation` en `source_references`. NO parafrasees, NO resumas, NO reordenes palabras.
    
    **EJEMPLOS DE COPIA LITERAL (✅ CORRECTO):**
@@ -141,10 +147,16 @@ esquema fijo copiado de otro ejemplo.
 - Hacé Ctrl+C, Ctrl+V DEL TEXTO COMPLETO en `evidence.text`
 - NO cambies ni una coma
 
-**Cuando un citation es muy largo (>300 caracteres):**
-- Copiá los primeros 300 caracteres LITERALES
+**Cuando un citation es muy largo (>120 caracteres):**
+- Copiá un fragmento CONTIGUO y literal de esa cita (idealmente el que contiene el dato)
 - NO elijas fragmentos inconexos
 - NO resumas
+
+**Qué pasa si no copiás exacto:** el backend usa `evidence.text` para recortar
+el resaltado dentro de la cita verificada del item. Si tu texto no es un
+fragmento literal de esa cita, se resalta la cita completa. Se pierde precisión
+de resaltado, no la respuesta -- así que ante la duda, copiá de más, nunca
+inventes ni completes de memoria.
 
 ---
 
