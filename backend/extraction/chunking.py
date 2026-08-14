@@ -13,12 +13,59 @@ logger = structlog.get_logger(__name__)
 _BOILERPLATE_MIN_PAGES = 3
 _BOILERPLATE_MIN_PAGE_FRACTION = 0.5
 
+# PARENT/CHILD CHUNKING (auditoría 2026-08-12, US-3.1): a partir de cuántos
+# caracteres un chunk conviene subdividir en incisos -- ver
+# `_bmad-output/parent-child-chunking-implementation.md`. Por debajo de esto
+# el chunk ya es lo bastante chico como para que subdividir no aporte
+# precisión y sí sume overhead de storage/retrieval.
+_PARENT_CHILD_MIN_CHARS = 800
+# Un inciso detectado por debajo de este largo probablemente sea un falso
+# positivo del regex (ej. una enumeración corta que no es jurídicamente
+# subdividible) -- en ese caso es más seguro no partir que partir mal, así
+# que `_detect_incisos` aborta toda la subdivisión del chunk.
+_INCISO_MIN_SUBSTANTIVE_CHARS = 100
+
+# Incisos tipo "a)", "b)", "i)", "ii)", "1.", "2)" al inicio de línea.
+_INCISO_PATTERN = re.compile(
+    r"^(?P<label>[a-z]\)|[ivxIVX]+\)|[0-9]+[.)])\s+(?P<text>.+)",
+    re.MULTILINE,
+)
+
+
+def _detect_incisos(content: str) -> list[dict]:
+    """Detecta incisos (a), b), 1., 2., i), ii)...) dentro de un artículo largo.
+
+    PARENT/CHILD CHUNKING (US-3.1): esto es lo que decide si un chunk se deja
+    plano o se subdivide en un chunk "parent" (contexto completo) + N chunks
+    "child" (uno por inciso, más precisos para retrieval). Devuelve lista
+    vacía -- y por lo tanto ninguna subdivisión -- si hay menos de 2 incisos
+    o si alguno queda por debajo de `_INCISO_MIN_SUBSTANTIVE_CHARS`.
+
+    Returns:
+        [{"label": "a)", "start": int, "end": int, "text": str}, ...]
+    """
+    matches = list(_INCISO_PATTERN.finditer(content))
+    if len(matches) < 2:
+        return []
+
+    incisos = []
+    for index, match in enumerate(matches):
+        start = match.start()
+        end = matches[index + 1].start() if index < len(matches) - 1 else len(content)
+        text = content[start:end].strip()
+        if len(text) < _INCISO_MIN_SUBSTANTIVE_CHARS:
+            return []
+        incisos.append({"label": match.group("label"), "start": start, "end": end, "text": text})
+
+    return incisos
+
 # Cantidad de terminos distintos del glossary a partir de la cual el score de
 # una categoria se considera saturado (1.0). Independiente de cuantos sinonimos
 # tenga cargada cada categoria.
 _KEYWORD_SCORE_SATURATION = 4
-# Minimo de terminos distintos para asignar una categoria como secundaria.
-_SECONDARY_MIN_TERM_MATCHES = 2
+# Threshold por defecto para categorías sin configuración explícita
+_DEFAULT_PRIMARY_THRESHOLD = 0.25
+_DEFAULT_SECONDARY_THRESHOLD = 0.12
 
 # Patrones de títulos para clasificación de categorías.
 #
@@ -133,6 +180,38 @@ def _split_block_into_chunks(content: str, chunk_size: int, overlap: int) -> lis
     parrafo a la mitad. Acumula parrafos completos hasta el limite de tokens;
     si un parrafo individual supera el limite por si solo, se lo particiona por
     palabras de forma aislada (nunca mezclado con el contenido de otro parrafo).
+
+    FIX CRÍTICO (auditoría 2026-08-13, hallazgo CHK-01): el carry de overlap
+    tenía dos defectos que se combinaban para producir chunks de hasta 2x
+    `chunk_size` con duplicación total del contenido:
+
+      1. `if carried and carried_tokens + prev_tokens > overlap` -- por el
+         `carried and`, el PRIMER párrafo se arrastraba siempre, sin importar
+         su tamaño. Con párrafos de 690 tokens y overlap de 120, el "overlap"
+         terminaba siendo un párrafo entero de 690.
+      2. Después del carry se hacía `current.append(paragraph)` sin volver a
+         validar el límite, así que el chunk resultante era carry + el párrafo
+         que justamente había disparado el flush por no entrar.
+
+    Reproducido con los defaults (chunk_size=700, overlap=120) sobre 3
+    párrafos de 690 tokens: salían chunks de 690, 1380 y 1380 tokens, con el
+    chunk 0 contenido ÍNTEGRAMENTE dentro del chunk 1 (2070 tokens de entrada
+    -> 3450 emitidos, 67% de redundancia). Eso inflaba el índice, gastaba
+    slots de top_k en texto repetido y disparaba el bonus de "dato consistente
+    en múltiples fragmentos" del prompt del sistema.
+
+    Ahora el presupuesto de carry es `min(overlap, chunk_size - len(tokens))`,
+    que garantiza por construcción que el chunk siguiente entra completo, y no
+    se arrastra ningún párrafo que por sí solo exceda ese presupuesto.
+
+    NOTA sobre el overlap resultante: como los párrafos son atómicos (nunca se
+    cortan), cuando un párrafo es más grande que `overlap` el solapamiento
+    entre chunks consecutivos pasa a ser CERO. Eso es correcto y no pierde
+    información: el overlap existe para que un hecho que cae sobre el borde de
+    un chunk aparezca entero en alguno, y acá ningún hecho puede caer sobre un
+    borde -- cada párrafo está completo en exactamente un chunk. El overlap
+    real sigue aplicándose donde sí hace falta: en `_split_with_overlap`, que
+    es el único punto donde se parte texto por el medio.
     """
     paragraphs = _split_into_paragraphs(content)
     if not paragraphs:
@@ -156,16 +235,20 @@ def _split_block_into_chunks(content: str, chunk_size: int, overlap: int) -> lis
 
         if current and current_tokens + len(tokens) > chunk_size:
             chunks.append("\n\n".join(current))
+
+            # Presupuesto de arrastre: nunca más que `overlap`, y nunca tanto
+            # como para que el párrafo que viene no entre en el chunk nuevo.
+            max_carry = min(overlap, chunk_size - len(tokens))
             carried: list[str] = []
             carried_tokens = 0
-            for prev_paragraph in reversed(current):
-                prev_tokens = len(_tokenize(prev_paragraph))
-                if carried and carried_tokens + prev_tokens > overlap:
-                    break
-                carried.insert(0, prev_paragraph)
-                carried_tokens += prev_tokens
-                if carried_tokens >= overlap:
-                    break
+            if max_carry > 0:
+                for prev_paragraph in reversed(current):
+                    prev_tokens = len(_tokenize(prev_paragraph))
+                    if carried_tokens + prev_tokens > max_carry:
+                        break
+                    carried.insert(0, prev_paragraph)
+                    carried_tokens += prev_tokens
+
             current = carried
             current_tokens = carried_tokens
 
@@ -241,10 +324,15 @@ def _promote_run_in_headings(blocks: list[dict]) -> list[dict]:
     Azure ya reconocio) y solo cuando la etiqueta abre un parrafo, para no
     partir el texto por una referencia cruzada tipo "lo dispuesto en el Art. 9".
 
-    Importante: `_parse_markdown_blocks` no corta en lineas en blanco, asi que
-    TODO el texto entre dos encabezados llega como un unico bloque con `\\n\\n`
-    internos. Por eso hay que mirar el inicio de cada parrafo interno y no solo
-    el inicio del bloque."""
+    Nota (actualizado tras fix de auditoria 2026-08-12, hallazgo C-2):
+    `_parse_markdown_blocks` ahora SI hace flush de parrafo en cada linea en
+    blanco, asi que en el caso normal cada bloque de cuerpo ya corresponde a
+    un unico parrafo real (precondicion que necesita `_enrich_blocks_with_para_id`
+    para asignar el bbox correcto por indice posicional). Aun asi, esta funcion
+    sigue soportando bloques con multiples segmentos separados por `\\n\\n`
+    como caso residual (por ejemplo bloques ya fusionados aguas arriba, o
+    fixtures/tests antiguos), por lo que se sigue mirando el inicio de cada
+    segmento interno y no solo el inicio del bloque."""
     promoted: list[dict] = []
 
     for block in blocks:
@@ -373,6 +461,288 @@ def _strip_boilerplate_fragments(heading: str, boilerplate: set[str]) -> str:
     return current
 
 
+def _merge_split_headings_across_pages(blocks: list[dict]) -> list[dict]:
+    """Detecta y fusiona encabezados que Document Intelligence partió entre páginas.
+    
+    Problema típico:
+    - Página N: "ARTÍCULO 12: PLA" (heading_level=2)
+    - Página N+1: "ZO DE ENTREGA" (heading_level=2)
+    
+    Solución:
+    - Detectar headings fragmentados por análisis de ambas partes
+    - Fusionar contenido: "ARTÍCULO 12: PLAZO DE ENTREGA"
+    - Mantener metadata del primer bloque (para bbox correcto)
+    """
+    import re
+    
+    if not blocks:
+        return blocks
+    
+    merged: list[dict] = []
+    skip_next = False
+    
+    for i, block in enumerate(blocks):
+        if skip_next:
+            skip_next = False
+            continue
+        
+        level = block.get("heading_level")
+        if level is None or i == len(blocks) - 1:
+            merged.append(block)
+            continue
+        
+        # Verificar si este heading puede estar partido
+        content = str(block.get("content", "")).strip()
+        next_block = blocks[i + 1]
+        next_level = next_block.get("heading_level")
+        next_content = str(next_block.get("content", "")).strip()
+        
+        # Condiciones para fusión:
+        # 1. Ambos son headings del mismo nivel
+        # 2. Están en páginas consecutivas
+        
+        if (next_level == level and 
+            int(next_block["page_number"]) == int(block["page_number"]) + 1):
+            
+            # Analizar ambas partes para detectar fragmentación
+            words_current = content.split()
+            words_next = next_content.split()
+            
+            if not words_current or not words_next:
+                merged.append(block)
+                continue
+            
+            last_word_current = words_current[-1]
+            first_word_next = words_next[0]
+            
+            # CASOS DE NO FRAGMENTACIÓN (false positives a evitar):
+            # - Números romanos: "ANEXO I" + "ANEXO II"
+            # - Headings completos: "CAPÍTULO 1" + "CAPÍTULO 2"
+            
+            is_roman_current = bool(re.match(r'^[IVXLCDM]+$', last_word_current, re.IGNORECASE))
+            is_roman_next = bool(re.match(r'^[IVXLCDM]+$', first_word_next, re.IGNORECASE))
+            
+            # Patrones de FRAGMENTACIÓN REAL:
+            # 1. Siguiente empieza con minúscula → continuación obvia
+            # 2. Primera palabra del siguiente es muy corta (< 4 chars) y mayúscula → fragmento ("ZO")
+            # 3. Patrón "ARTÍCULO N: ABC" + "DEF..." donde DEF completa ABC
+            
+            next_starts_lowercase = first_word_next[0].islower()
+            
+            next_starts_with_short_fragment = (
+                len(first_word_next) < 4 and 
+                first_word_next.isupper() and 
+                not is_roman_next and
+                not first_word_next[-1] in ".,:;"  # No es abreviación
+            )
+            
+            # Patrón adicional: si el heading actual termina con ":" o keywords
+            # y la parte siguiente NO empieza con palabra típica de inicio
+            current_ends_with_colon = last_word_current.endswith(':')
+            next_starts_with_article = first_word_next.upper() in ['EL', 'LA', 'LOS', 'LAS', 'DE', 'DEL']
+            
+            likely_continuation = (
+                current_ends_with_colon and 
+                not next_starts_with_article and
+                len(first_word_next) < 6  # Fragmento corto después de ":"
+            )
+            
+            is_fragmented = (
+                next_starts_lowercase or 
+                next_starts_with_short_fragment or
+                likely_continuation
+            )
+            
+            if is_fragmented:
+                # Fusionar headings
+                merged_content = content + next_content
+                merged_block = {**block}  # Mantener metadata del primero
+                merged_block["content"] = merged_content
+                
+                logger.info(
+                    "merged_split_heading",
+                    page_from=block["page_number"],
+                    page_to=next_block["page_number"],
+                    original_parts=[content, next_content],
+                    merged=merged_content,
+                )
+                
+                merged.append(merged_block)
+                skip_next = True
+                continue
+        
+        merged.append(block)
+    
+    return merged
+
+
+# Largo máximo de la cola de un título que quedó pegada al cuerpo. Un título
+# de artículo de pliego no pasa de una línea; más que esto ya es cuerpo.
+_HEADING_TAIL_MAX_CHARS = 90
+
+
+def _first_bbox_on_page(block: dict) -> dict | None:
+    """Primer bounding box del bloque que corresponde a su propia página."""
+    page_number = block.get("page_number")
+    for bbox in block.get("bbox") or []:
+        if not isinstance(bbox, dict):
+            continue
+        if bbox.get("page") == page_number and "y" in bbox:
+            return bbox
+    return None
+
+
+def _starts_on_same_line(heading: dict, body: dict) -> bool:
+    """¿El cuerpo arranca en la MISMA línea visual que el encabezado?
+
+    Es la firma estructural de que Document Intelligence partió una sola línea
+    del PDF en dos "párrafos": el bbox del cuerpo empieza a la misma altura que
+    el del encabezado, porque su primer renglón ES la continuación del título.
+
+    Se usa esto y no una heurística sobre las palabras (largo del fragmento,
+    listas de términos conocidos) porque es una propiedad del documento, no del
+    vocabulario de un pliego en particular.
+    """
+    heading_bbox = _first_bbox_on_page(heading)
+    body_bbox = _first_bbox_on_page(body)
+    if heading_bbox is None or body_bbox is None:
+        return False
+
+    heading_height = float(heading_bbox.get("height") or 0)
+    if heading_height <= 0:
+        return False
+
+    return abs(float(body_bbox["y"]) - float(heading_bbox["y"])) <= heading_height * 0.7
+
+
+def _is_upper_run(text: str) -> bool:
+    """Tirada en mayúsculas: se ignoran dígitos, símbolos y puntuación."""
+    letters = [ch for ch in text if ch.isalpha()]
+    if not letters:
+        return False
+    return all(ch.isupper() for ch in letters)
+
+
+def _split_heading_tail(content: str) -> tuple[str, str] | None:
+    """Separa el contenido en (cola del título, cuerpo real), o None.
+
+    Dos formas, las dos observadas en pliegos reales:
+      a) "ANTÍA DE ADJUDICACIÓN: En caso de corresponder, ..." -> la cola
+         termina en ':' y después sigue el cuerpo;
+      b) "ZO DE ENTREGA" -> el bloque entero es la cola, sin cuerpo.
+    """
+    stripped = str(content or "").strip()
+    if not stripped:
+        return None
+
+    # Caso (b): todo el bloque es cola de título.
+    if "\n" not in stripped and len(stripped) <= _HEADING_TAIL_MAX_CHARS and _is_upper_run(stripped):
+        return stripped, ""
+
+    # Caso (a): cola terminada en ':' seguida del cuerpo.
+    tail, separator, rest = stripped.partition(":")
+    if not separator or not rest.strip():
+        return None
+    if len(tail) > _HEADING_TAIL_MAX_CHARS or not _is_upper_run(tail):
+        return None
+    return tail.strip(), rest.strip()
+
+
+def _join_heading_tail(heading_text: str, tail: str) -> str:
+    """Une el encabezado con su cola, con o sin espacio según corresponda.
+
+    Sin espacio cuando la palabra quedó cortada al medio ("GAR" + "ANTÍA",
+    "PLA" + "ZO"); con espacio cuando el corte cayó justo en un límite de
+    palabra ("PLAZO" + "DE ENTREGA").
+    """
+    heading_text = heading_text.rstrip()
+    if not heading_text or not tail:
+        return f"{heading_text}{tail}".strip()
+
+    last_token = heading_text.split()[-1]
+    # Una palabra cortada deja un fragmento corto y en mayúsculas pegado al
+    # final del encabezado; un título completo termina en palabra entera.
+    looks_truncated = (
+        heading_text[-1].isalpha()
+        and tail[0].isalpha()
+        and _is_upper_run(last_token)
+        and len(last_token) <= 5
+    )
+    return f"{heading_text}{tail}" if looks_truncated else f"{heading_text} {tail}"
+
+
+def _merge_truncated_headings_with_body(blocks: list[dict]) -> list[dict]:
+    """Reconstruye los encabezados que Document Intelligence cortó al medio.
+
+    FIX (auditoría 2026-08-13): sobre un pliego real de la Municipalidad de
+    Rosario, DI emitió el encabezado "Artículo Nº 10: GAR" y arrancó el párrafo
+    siguiente con "ANTÍA DE ADJUDICACIÓN: En caso de corresponder, el importe de
+    las garantías de la contratación...". Ni el título ni el cuerpo contenían la
+    palabra "garantía", así que ese artículo era invisible para BM25 y para el
+    vector, y la categoría `garantias` respondió `not_applicable` -- "el pliego
+    sólo prevé garantía técnica del equipamiento, ninguna financiera" -- sobre un
+    pliego cuyo Artículo 10 se titula GARANTÍA DE ADJUDICACIÓN. El usuario
+    recibía información legal equivocada, no un resaltado corrido.
+
+    `_merge_split_headings_across_pages` no cubre este caso porque exige que las
+    dos mitades sean encabezados en páginas CONSECUTIVAS; acá la segunda mitad
+    es un párrafo de cuerpo en la MISMA página.
+
+    La detección es estructural, no léxica: se exige que el cuerpo empiece en la
+    misma línea visual que el encabezado (ver `_starts_on_same_line`). Si el
+    bloque no tiene bbox utilizable no se fusiona nada -- preferimos no tocar el
+    encabezado antes que fusionar por una coincidencia de mayúsculas.
+    """
+    merged: list[dict] = []
+    skip_indexes: set[int] = set()
+
+    for index, block in enumerate(blocks):
+        if index in skip_indexes:
+            continue
+
+        if block.get("heading_level") is None or index + 1 >= len(blocks):
+            merged.append(block)
+            continue
+
+        body = blocks[index + 1]
+        if (
+            body.get("heading_level") is not None
+            or body.get("block_type") == "table"
+            or int(body.get("page_number", -1)) != int(block.get("page_number", -2))
+            or not _starts_on_same_line(block, body)
+        ):
+            merged.append(block)
+            continue
+
+        split = _split_heading_tail(str(body.get("content", "")))
+        if split is None:
+            merged.append(block)
+            continue
+
+        tail, remaining_body = split
+        heading_block = dict(block)
+        heading_block["content"] = _join_heading_tail(str(block.get("content", "")), tail)
+        merged.append(heading_block)
+
+        logger.info(
+            "merged_truncated_heading_with_body",
+            page=block.get("page_number"),
+            heading_before=str(block.get("content", ""))[:60],
+            heading_after=heading_block["content"][:80],
+            body_remainder_chars=len(remaining_body),
+        )
+
+        if remaining_body:
+            body_block = dict(body)
+            body_block["content"] = remaining_body
+            merged.append(body_block)
+        # Si no queda cuerpo, el bloque siguiente era pura cola de título: ya
+        # se absorbió en el encabezado y no se emite por separado.
+        skip_indexes.add(index + 1)
+
+    return merged
+
+
 def _normalize_numbered_heading_levels(blocks: list[dict]) -> list[dict]:
     """Normaliza los niveles de headings con patron numerico consecutivo
     (1. OBJETO, 2. REQUISITOS, 3. GARANTÍAS...) para que sean hermanos
@@ -482,6 +852,17 @@ def _to_intermediate_blocks(blocks: list[dict]) -> list[dict]:
             int(item.get("row_order", 0)),
         ),
     )
+    
+    # FIX CRÍTICO (2026-08-12): Fusionar headings partidos ANTES de procesar
+    # Ejemplo: "ARTÍCULO 12: PLA" (página N) + "ZO DE ENTREGA" (página N+1)
+    ordered = _merge_split_headings_across_pages(ordered)
+
+    # FIX (auditoría 2026-08-13): encabezados que DI cortó al medio dejando la
+    # cola al principio del párrafo siguiente, en la misma página. Va después
+    # de la fusión entre páginas y antes de normalizar niveles, porque cambia
+    # el TEXTO del encabezado y eso es lo que después se clasifica.
+    ordered = _merge_truncated_headings_with_body(ordered)
+
     ordered = _normalize_numbered_heading_levels(ordered)
     ordered = _promote_run_in_headings(ordered)
     boilerplate = _detect_repeated_heading_boilerplate(ordered)
@@ -539,7 +920,20 @@ def _to_intermediate_blocks(blocks: list[dict]) -> list[dict]:
             continue
 
         if heading_has_body:
-            heading_has_body[-1] = True
+            # FIX (auditoría 2026-08-13, destapado al arreglar CHK-04): antes
+            # sólo se marcaba el encabezado MÁS INTERNO. Sus ancestros quedaban
+            # como "sin cuerpo propio" y `pop_to_level` fabricaba un bloque
+            # puro-encabezado para cada uno. Mientras esos bloques no generaban
+            # chunks el error era invisible; en cuanto empezaron a generarlos,
+            # cada ancestro de la jerarquía metía un chunk de ruido con sólo su
+            # título ("PLIEGO DE CONDICIONES PARTICULARES" suelto).
+            #
+            # Un ancestro NO está sin representar porque el párrafo cuelgue de
+            # una subsección suya: su contenido son sus descendientes. Sólo se
+            # pierde de verdad el encabezado del que no cuelga nada, ni directo
+            # ni indirecto -- la portada de un anexo.
+            for index in range(len(heading_has_body)):
+                heading_has_body[index] = True
 
         intermediate.append(
             {
@@ -743,19 +1137,19 @@ def _normalize_for_matching(text: str) -> str:
     return " ".join(normalized.split())
 
 
-def _classify_by_heading(heading_path: list[str]) -> str | None:
-    """Clasifica chunk por título de sección"""
-    if not heading_path:
+def _classify_single_heading(heading: str) -> str | None:
+    """Clasifica UN encabezado (no una ruta) contra los patrones de categoría.
+
+    Scoring por categoría: cantidad de patrones que matchean y, como desempate,
+    cuál aparece ANTES en el título. En castellano el núcleo del sintagma va
+    primero, así que "GARANTÍA DE ADJUDICACIÓN" es una garantía y no un
+    criterio de adjudicación. Sin este desempate el resultado dependía del
+    orden de iteración del diccionario de patrones.
+    """
+    normalized = _normalize_for_matching(heading.lower())
+    if not normalized:
         return None
 
-    heading_text = " ".join(heading_path).lower()
-    normalized = _normalize_for_matching(heading_text)
-
-    # Scoring por categoría: cantidad de patrones que matchean y, como
-    # desempate, cuál aparece ANTES en el título. En castellano el núcleo del
-    # sintagma va primero, así que "GARANTÍA DE ADJUDICACIÓN" es una garantía y
-    # no un criterio de adjudicación. Sin este desempate el resultado dependía
-    # del orden de iteración del diccionario de patrones.
     scores: dict[str, tuple[int, int]] = {}
     for category, patterns in CATEGORY_HEADING_PATTERNS.items():
         matches = 0
@@ -773,6 +1167,39 @@ def _classify_by_heading(heading_path: list[str]) -> str | None:
 
     # Mayor cantidad de matches; a igualdad, el que aparece primero.
     return min(scores.items(), key=lambda item: (-item[1][0], item[1][1]))[0]
+
+
+def _classify_by_heading(heading_path: list[str]) -> str | None:
+    """Clasifica un chunk por su título de sección, de la hoja hacia la raíz.
+
+    FIX (auditoría 2026-08-13, hallazgo CHK-06): antes se concatenaba TODO el
+    `heading_path` en un solo string y se desempataba por la posición más
+    temprana del patrón. Como los ancestros van primero en esa concatenación,
+    el desempate favorecía estructuralmente al ancestro por sobre la sección
+    real.
+
+    Caso concreto: `["LICITACIÓN PÚBLICA Nº 5/2026", "GARANTÍAS"]`
+      - `identificacion_procedimiento` matchea "licitacion" en la posición 0
+      - `garantias` matchea "garantia" en la posición ~26
+      - empate en cantidad de matches (1 y 1) -> ganaba el ancestro
+    Toda la sección de garantías de ese pliego quedaba clasificada como
+    identificación del procedimiento. Y como el título tiene prioridad absoluta
+    sobre las keywords del contenido, nada aguas abajo podía corregirlo.
+
+    Ahora se clasifica de la hoja hacia la raíz: el encabezado más específico
+    decide, y los ancestros sólo se consultan si la hoja no matchea nada. Eso
+    también hace que el desempate por posición opere DENTRO de un mismo
+    encabezado, que es para lo que se escribió.
+    """
+    if not heading_path:
+        return None
+
+    for heading in reversed(heading_path):
+        category = _classify_single_heading(str(heading))
+        if category is not None:
+            return category
+
+    return None
 
 
 @lru_cache(maxsize=1)
@@ -820,25 +1247,67 @@ def _count_keyword_matches(content: str, glossary: dict) -> dict[str, int]:
     return match_counts
 
 
+def _compute_density_score(match_count: int, content_length: int, category_weight: float = 1.0) -> float:
+    """Calcula score normalizado por densidad de keywords en el contenido.
+    
+    Fórmula:
+        term_coverage = min(match_count / SATURATION, 1.0)
+        keyword_density = min(match_count / (content_length / 100), 1.0)
+        score = term_coverage * keyword_density * category_weight
+    
+    Args:
+        match_count: Cantidad de términos únicos del glossary que matchearon
+        content_length: Cantidad de palabras en el chunk
+        category_weight: Peso/boost de la categoría (default 1.0)
+    
+    Returns:
+        Score normalizado entre 0.0 y 1.0
+    """
+    if match_count == 0 or content_length == 0:
+        return 0.0
+    
+    # Coverage: qué porcentaje del umbral de saturación alcanzamos
+    term_coverage = min(match_count / _KEYWORD_SCORE_SATURATION, 1.0)
+    
+    # Density: qué tan concentrados están los términos en el texto
+    # Normalizado por cada 100 palabras para evitar penalizar chunks largos
+    words_per_100 = max(content_length / 100.0, 1.0)
+    keyword_density = min(match_count / words_per_100, 1.0)
+    
+    # Score combinado con peso de categoría
+    score = term_coverage * keyword_density * category_weight
+    
+    return min(score, 1.0)  # Cap at 1.0
+
+
 def _classify_by_keywords(content: str, glossary: dict) -> dict[str, float]:
     """Score relativo de cada categoría por matching de términos clave.
-
-    Se normaliza contra `_KEYWORD_SCORE_SATURATION` y no contra la cantidad
-    total de términos de la categoría: dividir por el tamaño del glossary hacía
-    que el score dependiera de cuántos sinónimos tuviera cargados cada
-    categoría, no de la evidencia del chunk. Una categoría con 39 términos no
-    llegaba nunca al umbral aunque el chunk la mencionara explícitamente, así
-    que `secondary_categories` quedaba vacío en la práctica para todos los
-    documentos."""
+    
+    CAMBIO v2 (2026-08-12): Score basado en DENSIDAD adaptativa en vez de
+    conteo simple. Usa thresholds configurables por categoría.
+    
+    Fórmula: density_score = term_coverage * keyword_density * category_weight
+    
+    Ver _compute_density_score() para detalles."""
     match_counts = _count_keyword_matches(content, glossary)
-    return {
-        category: min(matches / _KEYWORD_SCORE_SATURATION, 1.0)
-        for category, matches in match_counts.items()
-    }
+    content_length = len(content.split())
+    
+    scores = {}
+    for category, match_count in match_counts.items():
+        entry = glossary.get(category, {})
+        category_weight = entry.get("weight", 1.0) if isinstance(entry, dict) else 1.0
+        
+        score = _compute_density_score(match_count, content_length, category_weight)
+        scores[category] = score
+    
+    return scores
 
 
 def classify_chunk_categories(chunk: dict) -> dict:
-    """Clasifica un chunk en categorías.
+    """Clasifica un chunk en categorías usando scoring adaptativo por densidad.
+    
+    CAMBIO v2 (2026-08-12): Usa thresholds configurables por categoría en vez de
+    magic numbers hardcodeados. Cada categoría define su propio umbral en glossary.json.
 
     Returns:
         {
@@ -850,36 +1319,80 @@ def classify_chunk_categories(chunk: dict) -> dict:
     glossary = _load_glossary()
     heading_path = chunk.get("heading_path", [])
     content = chunk.get("content", "")
+    chunk_id = chunk.get("chunk_id", "unknown")
 
     # 1. Clasificación por título
     heading_category = _classify_by_heading(heading_path)
 
-    # 2. Clasificación por keywords
+    # 2. Clasificación por keywords (scoring de densidad)
     keyword_scores = _classify_by_keywords(content, glossary)
 
-    # 3. Determinar categoría primary y secundarias
+    # 3. Determinar categoría primary usando thresholds configurables
     primary_category = heading_category  # El título tiene prioridad
 
-    # Si no hay título claro, usar keyword matching
+    # Si no hay título claro, usar keyword matching con threshold
     if not primary_category and keyword_scores:
-        # La categoría con mayor score es la primary
-        primary_category = max(keyword_scores.items(), key=lambda x: x[1])[0]
+        # Buscar categoría que supere su threshold de primary
+        candidates = []
+        for cat, score in keyword_scores.items():
+            entry = glossary.get(cat, {})
+            thresholds = entry.get("thresholds", {}) if isinstance(entry, dict) else {}
+            primary_threshold = thresholds.get("primary", _DEFAULT_PRIMARY_THRESHOLD)
+            
+            if score >= primary_threshold:
+                candidates.append((cat, score))
+        
+        if candidates:
+            # Si hay múltiples candidatos, tomar el de mayor score
+            primary_category = max(candidates, key=lambda x: x[1])[0]
+            
+            # Logging de ambigüedades: si hay múltiples candidatos con scores cercanos
+            if len(candidates) > 1:
+                sorted_candidates = sorted(candidates, key=lambda x: x[1], reverse=True)
+                top_score = sorted_candidates[0][1]
+                close_competitors = [c for c in sorted_candidates[1:] if c[1] >= top_score * 0.85]
+                
+                if close_competitors:
+                    logger.info(
+                        "chunk_classification_ambiguous",
+                        chunk_id=chunk_id,
+                        primary_chosen=primary_category,
+                        primary_score=round(top_score, 3),
+                        close_competitors={c[0]: round(c[1], 3) for c in close_competitors},
+                        heading_path=" > ".join(heading_path) if heading_path else None,
+                    )
     
-    # Fallback final: si aún no hay categoría, asignar "identificacion_procedimiento"
-    # como default genérico (es la categoría menos específica)
-    if not primary_category:
-        primary_category = "identificacion_procedimiento"
+    # FIX (auditoría 2026-08-13, hallazgo CHK-05): acá había un fallback que
+    # asignaba "identificacion_procedimiento" a todo chunk que no se pudiera
+    # clasificar, con el argumento de que era "la categoría menos específica".
+    # El efecto real era convertirla en el tacho de basura de la clasificación:
+    # considerandos, remisiones normativas y formalidades -- la mayoría del
+    # texto de relleno de un pliego -- quedaban etiquetados como identificación
+    # del procedimiento.
+    #
+    # Eso no es una etiqueta inocua. `_retrieve_with_category_priority` le da
+    # +20% de boost a los chunks cuya `primary_category` coincide con la
+    # categoría objetivo, así que al extraer la carátula TODO el ruido del
+    # documento competía boosteado contra la carátula real.
+    #
+    # `None` es la respuesta correcta y no requiere ningún caso especial aguas
+    # abajo: un chunk sin categoría simplemente no recibe boost (la comparación
+    # `primary_category == category` es False), que es exactamente lo que se
+    # quiere para un chunk que no se pudo clasificar. Sigue siendo recuperable
+    # por BM25 y por similitud vectorial como cualquier otro.
 
-    # Categorías secundarias: se decide por cantidad de términos distintos del
-    # glossary presentes en el chunk, no por un porcentaje del glossary. Dos
-    # términos distintos ya son una mención deliberada de la categoría y no una
-    # coincidencia suelta.
-    keyword_matches = _count_keyword_matches(content, glossary)
-    secondary_categories = [
-        cat
-        for cat, matches in keyword_matches.items()
-        if matches >= _SECONDARY_MIN_TERM_MATCHES and cat != primary_category
-    ]
+    # 4. Categorías secundarias: todas las categorías que superen el threshold secundario
+    secondary_categories = []
+    for cat, score in keyword_scores.items():
+        if cat == primary_category:
+            continue  # No incluir la primary en secondary
+        
+        entry = glossary.get(cat, {})
+        thresholds = entry.get("thresholds", {}) if isinstance(entry, dict) else {}
+        secondary_threshold = thresholds.get("secondary", _DEFAULT_SECONDARY_THRESHOLD)
+        
+        if score >= secondary_threshold:
+            secondary_categories.append(cat)
 
     return {
         "primary_category": primary_category,
@@ -984,6 +1497,9 @@ def create_chunks(
                     "table_ref": block.get("table_ref"),
                     "source": source,  # RAG PHASE 3: Metadata estructurada para highlighting
                     "blocks": blocks_data,  # LEGACY: Mantener por compatibilidad
+                    # PARENT/CHILD CHUNKING (US-3.1): las tablas no se subdividen
+                    # en incisos -- siempre quedan como chunk "normal".
+                    "chunk_type": "normal",
                 }
 
                 # Clasificar categorías del chunk
@@ -995,14 +1511,32 @@ def create_chunks(
                 chunk_index += 1
                 continue
 
-            body = "" if block.get("is_heading") else str(block["content"]).strip()
-
-            if body:
-                # RAG: NO inyectar heading en content → será agregado solo para embedding
-                content_pieces = _split_block_into_chunks(body, chunk_size, overlap)
+            if block.get("is_heading"):
+                # FIX (auditoría 2026-08-13, hallazgo CHK-04): antes esto ponía
+                # `body = ""` y más abajo `content_pieces = []`, así que el
+                # bloque NO generaba ningún chunk -- pese a que el comentario
+                # decía "crear chunk vacío con metadata" y a que
+                # `_to_intermediate_blocks` fabrica estos bloques justamente
+                # para "no perder" los encabezados sin cuerpo propio (ver toda
+                # la maquinaria de `heading_has_body`). Era código muerto con
+                # pérdida de información.
+                #
+                # Efecto concreto: la portada de un anexo -- "ANEXO III -
+                # DECLARACIÓN JURADA DE APTITUD PARA CONTRATAR", un título solo,
+                # con el formulario en la página siguiente bajo otro encabezado
+                # -- simplemente NO EXISTÍA en el índice. La categoría
+                # `anexos_obligatorios` no podía recuperarlo y el sistema
+                # informaba que el pliego no lo pedía.
+                #
+                # Éste es el único caso donde el texto del encabezado va al
+                # `content`: no hay cuerpo que lo represente, y sin contenido el
+                # chunk no es recuperable ni por BM25 ni por el vector.
+                heading_text = heading_path[-1] if heading_path else ""
+                content_pieces = [heading_text] if heading_text else []
             else:
-                # Heading sin body → crear chunk vacío con metadata (poco común)
-                content_pieces = []
+                # RAG: NO inyectar heading en content → será agregado solo para embedding
+                body = str(block["content"]).strip()
+                content_pieces = _split_block_into_chunks(body, chunk_size, overlap) if body else []
 
             for chunk_content in content_pieces:
                 if not chunk_content.strip():
@@ -1046,7 +1580,65 @@ def create_chunks(
                     "table_ref": None,
                     "source": source,  # RAG PHASE 3: Metadata estructurada para highlighting
                     "blocks": blocks_data,  # LEGACY: Mantener por compatibilidad
+                    "chunk_type": "normal",
                 }
+
+                # PARENT/CHILD CHUNKING (auditoría 2026-08-12, US-3.1): un
+                # artículo largo con incisos mete todo el contexto jurídico en
+                # un solo chunk -- el retrieval recupera el artículo entero
+                # aunque el query apunte a un inciso puntual. Si el chunk
+                # supera `_PARENT_CHILD_MIN_CHARS` y tiene una estructura de
+                # incisos clara, se conserva completo como "parent" (no se
+                # pierde contexto) y además se generan chunks "child" -- uno
+                # por inciso, más chicos y precisos para que el retrieval
+                # matchee directamente. Ver
+                # `_bmad-output/parent-child-chunking-implementation.md`.
+                incisos = (
+                    _detect_incisos(chunk_content)
+                    if len(chunk_content) >= _PARENT_CHILD_MIN_CHARS
+                    else []
+                )
+
+                if incisos:
+                    parent_index = chunk_index
+                    chunk_dict["chunk_type"] = "parent"
+
+                    classification = classify_chunk_categories(chunk_dict)
+                    chunk_dict["primary_category"] = classification["primary_category"]
+                    chunk_dict["secondary_categories"] = classification["secondary_categories"]
+
+                    child_indices: list[int] = []
+                    child_chunk_dicts: list[dict] = []
+                    for inciso in incisos:
+                        chunk_index += 1
+                        inciso_label = inciso["label"].rstrip(").")
+                        child_content = inciso["text"]
+                        child_dict = {
+                            **chunk_dict,
+                            "chunk_index": chunk_index,
+                            "content": child_content,
+                            "token_count": len(_tokenize(child_content)),
+                            "title": f"{title}.{inciso_label}" if title else inciso_label,
+                            "section_path": f"{section_path} > {inciso['label']}",
+                            "chunk_type": "child",
+                            "parent_chunk_index": parent_index,
+                        }
+                        child_dict.pop("child_chunk_indices", None)
+                        # Cada inciso puede hablar de algo distinto al resto del
+                        # artículo (ej: un inciso de garantías dentro de un
+                        # artículo de "documentación a presentar") -- reclasificar
+                        # por su propio contenido en vez de heredar la del parent.
+                        child_classification = classify_chunk_categories(child_dict)
+                        child_dict["primary_category"] = child_classification["primary_category"]
+                        child_dict["secondary_categories"] = child_classification["secondary_categories"]
+                        child_chunk_dicts.append(child_dict)
+                        child_indices.append(chunk_index)
+
+                    chunk_dict["child_chunk_indices"] = child_indices
+                    chunks.append(chunk_dict)
+                    chunks.extend(child_chunk_dicts)
+                    chunk_index += 1
+                    continue
 
                 # Clasificar categorías del chunk
                 classification = classify_chunk_categories(chunk_dict)

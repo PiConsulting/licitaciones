@@ -53,7 +53,7 @@ factor evaluado.
 
 # ESTRUCTURA DE SALIDA
 
-Usá el schema `CriterioEvaluacionItem` definido en `schemas_v3.py`.
+Usá el schema `CriterioEvaluacionItem` definido en `schemas.py`.
 
 **Campos clave:**
 - `tipo`: Literal "metodo" o "criterio"
@@ -65,7 +65,7 @@ Usá el schema `CriterioEvaluacionItem` definido en `schemas_v3.py`.
   - `formula`: texto literal o null
   - `puntaje_tecnico_minimo`: texto o null
 - `confidence`: [0.0-1.0] según el algoritmo de confianza
-- `source_references`: Siempre incluir cita literal del pliego (min 25 chars)
+- `source_references`: Siempre incluir cita literal del pliego (min 12 chars, ver CITATION_MIN_CHARS en schemas.py)
 
 **Cuando no hay criterios:** `{"criterios_evaluacion": []}`
 

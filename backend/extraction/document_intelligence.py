@@ -62,12 +62,79 @@ def _first_page_number(item: object) -> int:
     return 1
 
 
-def _extract_bounding_boxes(item: object) -> list[dict[str, float]]:
+# Azure Document Intelligence expresa las coordenadas en la unidad que reporta
+# `result.pages[i].unit`: PULGADAS para PDF y PÍXELES para imágenes sueltas.
+# El resto del pipeline (y el visor) trabajan en PUNTOS de PDF, que es lo que
+# devuelve PyMuPDF en `highlight.py`. Ver `_page_unit_scales`.
+_POINTS_PER_INCH = 72.0
+
+
+def _page_unit_scales(result: object) -> dict[int, float]:
+    """Factor de conversión a PUNTOS para cada página del documento.
+
+    FIX (auditoría 2026-08-13, hallazgo ING-03): el bbox de Azure DI se guardaba
+    en la unidad cruda que devuelve el servicio, sin convertir. Para un PDF eso
+    son PULGADAS (valores del orden de 0-11), mientras que el camino de
+    highlighting con PyMuPDF emite PUNTOS (0-842). Los dos caminos alimentan el
+    mismo campo `highlight_regions` y el visor multiplica lo que reciba por la
+    escala de zoom, así que las regiones en pulgadas se dibujaban como un
+    recuadro de ~7 px pegado al ángulo superior izquierdo.
+
+    Se vio en un análisis real: de ~35 sources, unas 10 salieron en pulgadas
+    (`{"x": 0.77, "y": 2.12, "width": 6.71}`) y el resto en puntos
+    (`{"x": 56.8, "y": 465.2, "width": 240.3}`), mezcladas en la misma
+    respuesta.
+
+    Devuelve {page_number: factor}. Las páginas cuya unidad no se puede
+    convertir con seguridad quedan fuera del diccionario y su bbox se descarta
+    en `_extract_bounding_boxes` -- mejor sin resaltado que con uno que apunta
+    a cualquier lado.
+    """
+    scales: dict[int, float] = {}
+    unsupported: dict[int, str] = {}
+
+    for page in list(getattr(result, "pages", None) or []):
+        page_number = _safe_int(getattr(page, "page_number", None), default=0)
+        if page_number <= 0:
+            continue
+        unit = str(getattr(page, "unit", "") or "").strip().lower()
+
+        if unit == "inch":
+            scales[page_number] = _POINTS_PER_INCH
+        elif unit in {"point", "pt"}:
+            scales[page_number] = 1.0
+        else:
+            # "pixel" (imágenes sueltas) y cualquier unidad futura: no se puede
+            # convertir sin conocer el DPI real del origen. Esta app sólo acepta
+            # PDF, así que llegar acá indica un cambio del servicio.
+            unsupported[page_number] = unit or "(sin unidad)"
+
+    if unsupported:
+        logger.error(
+            "document_intelligence_unsupported_bbox_unit",
+            pages=sorted(unsupported),
+            units=sorted(set(unsupported.values())),
+            impact="esas páginas quedan sin bbox; el highlighting cae al camino de PyMuPDF",
+        )
+
+    return scales
+
+
+def _extract_bounding_boxes(
+    item: object, unit_scales: dict[int, float] | None = None
+) -> list[dict[str, float]]:
     """Extrae bounding boxes de un item de Azure Document Intelligence.
-    
+
     Convierte las bounding_regions a coordenadas top-left origin (estándar web)
-    que pueden usarse directamente para highlighting.
-    
+    y a PUNTOS de PDF, que es la unidad del contrato de `highlight_regions`
+    (ver `analysis/extraction/highlight.py::compute_highlight_regions`).
+
+    Args:
+        item: entidad de Azure DI con `bounding_regions`.
+        unit_scales: {page_number: factor a puntos}, de `_page_unit_scales`.
+            Si es None no se convierte nada -- sólo para llamadores de test que
+            ya trabajan en puntos.
+
     Returns:
         Lista de bbox: [{"page": int, "x": float, "y": float, "width": float, "height": float}]
     """
@@ -101,16 +168,56 @@ def _extract_bounding_boxes(item: object) -> list[dict[str, float]]:
         y = min(y_coords)
         width = max(x_coords) - x
         height = max(y_coords) - y
-        
+
+        page = _safe_int(page_number, default=1)
+        if unit_scales is None:
+            scale = 1.0
+        elif page in unit_scales:
+            scale = unit_scales[page]
+        else:
+            # Unidad desconocida para esta página: se descarta el bbox en vez
+            # de emitirlo en una escala que el consumidor no puede interpretar.
+            continue
+
         bboxes.append({
-            "page": _safe_int(page_number, default=1),
-            "x": float(x),
-            "y": float(y),
-            "width": float(width),
-            "height": float(height),
+            "page": page,
+            "x": float(x) * scale,
+            "y": float(y) * scale,
+            "width": float(width) * scale,
+            "height": float(height) * scale,
         })
     
     return bboxes
+
+
+def _page_sizes_in_points(
+    result: object, unit_scales: dict[int, float]
+) -> dict[int, tuple[float, float]]:
+    """Dimensiones (ancho, alto) de cada página, en PUNTOS.
+
+    Reemplaza los límites hardcodeados `x <= 1200 / y <= 1600` que usaba
+    `_enrich_blocks_with_para_id` para validar coordenadas (ING-03). Esos dos
+    números no correspondían a ninguna unidad concreta: para un PDF en pulgadas
+    (valores 0-11) nunca disparaban, y para cualquier documento en píxeles
+    descartaban el 100% de los bbox. Validar contra el tamaño REAL de la página
+    es correcto en cualquier unidad y detecta el caso que importa: un bbox que
+    cae fuera de la hoja.
+    """
+    sizes: dict[int, tuple[float, float]] = {}
+    for page in list(getattr(result, "pages", None) or []):
+        page_number = _safe_int(getattr(page, "page_number", None), default=0)
+        scale = unit_scales.get(page_number)
+        if page_number <= 0 or scale is None:
+            continue
+        width = getattr(page, "width", None)
+        height = getattr(page, "height", None)
+        if width is None or height is None:
+            continue
+        try:
+            sizes[page_number] = (float(width) * scale, float(height) * scale)
+        except (TypeError, ValueError):
+            continue
+    return sizes
 
 
 def _first_span_offset(item: object, fallback: int) -> int:
@@ -128,7 +235,9 @@ def _normalize_cell_kind(kind: object) -> str:
     return str(kind).strip()
 
 
-def _serialize_table_rows(table: object, table_id: str) -> list[dict]:
+def _serialize_table_rows(
+    table: object, table_id: str, unit_scales: dict[int, float] | None = None
+) -> list[dict]:
     row_count = _safe_int(getattr(table, "row_count", 0), default=0)
     column_count = _safe_int(getattr(table, "column_count", 0), default=0)
     cells = list(getattr(table, "cells", None) or [])
@@ -166,7 +275,7 @@ def _serialize_table_rows(table: object, table_id: str) -> list[dict]:
             header_rows.add(row_index)
         
         # Extraer bbox de cada celda
-        cell_bboxes = _extract_bounding_boxes(cell)
+        cell_bboxes = _extract_bounding_boxes(cell, unit_scales)
         if cell_bboxes:
             if row_index not in bboxes_by_row:
                 bboxes_by_row[row_index] = []
@@ -221,7 +330,9 @@ def _dehyphenate(text: str) -> str:
     return _LINE_WRAP_HYPHEN_RE.sub(r"\1\2", text)
 
 
-def _build_para_id_index(paragraphs: list) -> dict[tuple[int, int], list[dict[str, float]]]:
+def _build_para_id_index(
+    paragraphs: list, unit_scales: dict[int, float] | None = None
+) -> dict[tuple[int, int], list[dict[str, float]]]:
     """Construye índice para_id → bounding_boxes para mapeo preciso.
     
     SOLUCIÓN DEFINITIVA V2 (2026-08): Mapeo por posición estructural.
@@ -256,7 +367,7 @@ def _build_para_id_index(paragraphs: list) -> dict[tuple[int, int], list[dict[st
         
         for idx, para in enumerate(page_paras_sorted):
             total_paras += 1
-            bboxes = _extract_bounding_boxes(para)
+            bboxes = _extract_bounding_boxes(para, unit_scales)
             if bboxes:
                 para_id = (page_num, idx)
                 bbox_index[para_id] = bboxes
@@ -275,6 +386,7 @@ def _build_para_id_index(paragraphs: list) -> dict[tuple[int, int], list[dict[st
 def _enrich_blocks_with_para_id(
     blocks: list[dict],
     bbox_by_para_id: dict[tuple[int, int], list[dict[str, float]]],
+    page_sizes: dict[int, tuple[float, float]] | None = None,
 ) -> None:
     """Enriquece bloques con para_id y bbox usando posición estructural.
     
@@ -338,15 +450,26 @@ def _enrich_blocks_with_para_id(
                 )
                 continue
             
-            # Validar coordenadas
+            # ING-03: validar contra el tamaño REAL de la página (en puntos),
+            # no contra dos constantes sin unidad. Se deja 1pt de tolerancia
+            # por el redondeo del polígono de Azure DI.
+            page_size = (page_sizes or {}).get(page_num)
             valid_bboxes = []
             for bbox in bboxes:
-                if (
-                    0 <= bbox["x"] <= 1200
-                    and 0 <= bbox["y"] <= 1600
-                    and 0 < bbox["width"] <= 1200
-                    and 0 < bbox["height"] <= 1600
-                ):
+                if page_size is None:
+                    # Sin dimensiones conocidas sólo se exige que el rectángulo
+                    # exista y no sea negativo.
+                    is_valid = bbox["x"] >= 0 and bbox["y"] >= 0 and bbox["width"] > 0 and bbox["height"] > 0
+                else:
+                    page_width, page_height = page_size
+                    is_valid = (
+                        -1.0 <= bbox["x"] <= page_width + 1.0
+                        and -1.0 <= bbox["y"] <= page_height + 1.0
+                        and 0 < bbox["width"] <= page_width + 1.0
+                        and 0 < bbox["height"] <= page_height + 1.0
+                    )
+
+                if is_valid:
                     valid_bboxes.append(bbox)
                 else:
                     logger.warning(
@@ -354,6 +477,7 @@ def _enrich_blocks_with_para_id(
                         page=page_num,
                         para_id=para_id,
                         bbox=bbox,
+                        page_size_points=page_size,
                     )
             
             if not valid_bboxes:
@@ -493,8 +617,21 @@ def _parse_markdown_blocks(markdown: str) -> tuple[list[dict], dict[int, int], l
             continue
 
         if not stripped:
-            if paragraph_lines:
-                paragraph_lines.append("")
+            # FIX CRÍTICO (auditoría 2026-08-12, hallazgo C-2): antes, una línea en
+            # blanco NO cerraba el párrafo -- solo se agregaba como separador
+            # interno, así que todo el cuerpo entre dos headings terminaba en un
+            # único bloque con "\n\n" internos. Eso hacía que el índice
+            # (página, índice_secuencial) que arma _build_para_id_index (a partir
+            # de result.paragraphs de Document Intelligence, con un registro por
+            # párrafo REAL) dejara de corresponderse con el índice de "blocks" de
+            # este parser en cuanto había más de un párrafo de cuerpo seguido
+            # -- el caso común, no el edge case. El resultado: bloques (y sus
+            # chunks/highlights) recibían el bbox de OTRO párrafo de la misma
+            # página. Haciendo flush en cada línea en blanco, 1 bloque de este
+            # parser vuelve a corresponder a 1 párrafo real de Document
+            # Intelligence, que es la precondición que _enrich_blocks_with_para_id
+            # necesita para asignar el bbox correcto.
+            flush_paragraph()
             continue
 
         paragraph_lines.append(raw_line)
@@ -519,15 +656,18 @@ def _build_markdown_blocks(result: object) -> tuple[list[dict], EventDict]:
     # - Asigna para_id secuencial a bloques por orden de lectura
     # - Mapea bbox por para_id (identidad estable, no contenido)
     # - Precisión 100% sin ambigüedad por texto duplicado
-    bbox_by_para_id = _build_para_id_index(paragraphs)
-    _enrich_blocks_with_para_id(blocks, bbox_by_para_id)
+    # ING-03: factor a puntos por página, antes de extraer cualquier bbox.
+    unit_scales = _page_unit_scales(result)
+
+    bbox_by_para_id = _build_para_id_index(paragraphs, unit_scales)
+    _enrich_blocks_with_para_id(blocks, bbox_by_para_id, _page_sizes_in_points(result, unit_scales))
 
     total_table_rows = 0
     tables_placed_in_reading_order = 0
     tables_with_fallback_position = 0
     for index, table in enumerate(tables, start=1):
         table_id = f"T{index}"
-        row_blocks = _serialize_table_rows(table, table_id=table_id)
+        row_blocks = _serialize_table_rows(table, table_id=table_id, unit_scales=unit_scales)
         # Las tablas aparecen en `result.tables` en el mismo orden en que sus
         # `<table>` aparecen en el markdown, asi que la posicion i-esima ubica a
         # la tabla i-esima en el flujo de lectura. Con eso las filas quedan bajo

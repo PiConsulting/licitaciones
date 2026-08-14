@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from analysis.extraction.extractors.base import _verify_citation_grounding
+from analysis.extraction.schemas import CITATION_MAX_CHARS
 
 
 def _paragraph_chunk(**overrides: object) -> dict:
@@ -245,5 +246,12 @@ def test_rescata_cita_desde_valor_literal_del_item_en_mismo_chunk() -> None:
     _verify_citation_grounding([item], [chunk], category="requisitos_admisibilidad", correlation_id="corr-1")
 
     assert item["extraction_status"] == "success"
-    assert item["source_references"][0]["citation"] == item["valor"]
+    # La cita se rescata desde el `valor` literal del item, pero ahora se
+    # recorta al límite de legibilidad (CITATION_MAX_CHARS = 120): el `valor`
+    # de este item tiene 129 caracteres. Lo que importa es que siga siendo un
+    # fragmento LITERAL y contiguo de ese valor, no que sea idéntico.
+    citation = item["source_references"][0]["citation"]
+    assert citation in item["valor"]
+    assert len(citation) <= CITATION_MAX_CHARS
+    assert citation.startswith("Constancia de inscripción en el Registro de Proveedores")
     assert "_warning" not in item

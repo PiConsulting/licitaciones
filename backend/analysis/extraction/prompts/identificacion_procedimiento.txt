@@ -52,14 +52,14 @@ todo.
 
 # ESTRUCTURA DE SALIDA
 
-Usá el schema `IdentificacionProcedimientoItem` definido en `schemas_v3.py`.
+Usá el schema `IdentificacionProcedimientoItem` definido en `schemas.py`.
 
 **Campos clave:**
 - `tipo`: Usa enum `TipoIdentificacion` (organismo_convocante, expediente, numero_procedimiento, tipo_procedimiento, presupuesto_oficial, jurisdiccion)
 - `valor`: Texto literal o casi literal del pliego
 - `metadata`: Diccionario vacío (reservado para futuros usos)
 - `confidence`: [0.0-1.0] según el algoritmo de confianza
-- `source_references`: Siempre incluir cita literal del pliego (min 25 chars)
+- `source_references`: Siempre incluir cita literal del pliego (min 12 chars, ver CITATION_MIN_CHARS en schemas.py)
 
 **Cuando no hay datos:** `{"identificacion_procedimiento": []}`
 
@@ -101,6 +101,27 @@ El número/código de la licitación o procedimiento en sí, distinto del expedi
 Si el pliego solo menciona uno (expediente o número de procedimiento), no inventes
 el otro.
 
+**⚠️ No inventes "N°" ni ningún número cuando el pliego no lo tiene.** Es común
+encontrar pliegos-plantilla donde el tipo de procedimiento aparece SIN número
+asociado todavía (el llamado se redactó antes de asignarlo administrativamente
+— señales típicas del mismo pliego: "Presupuesto oficial: $ X" con una `X`
+literal en vez de un monto, o una fecha de apertura en blanco). En ese caso el
+texto real es, por ejemplo, "la Municipalidad llama a Licitación Privada para
+la 'Adquisición de...'" — **sin ningún "N°" ni número en ningún lugar**.
+
+**Incorrecto:** emitir `numero_procedimiento` con `valor: "Licitación Privada
+N° para"` (o cualquier variante que le agregue "N°" u otro prefijo numérico al
+tipo de procedimiento cuando el texto original no lo tiene). Esto no es "casi
+literal" — es agregar una palabra que el pliego no contiene, y el resultado es
+un dato roto (una oración cortada a mitad de camino) que además el sistema usa
+como título del análisis.
+
+**Correcto:** si, tras buscar en todo el pliego, no aparece ningún número o
+código asociado al procedimiento (ni junto al tipo, ni en la carátula, ni en
+el articulado), **no emitas el ítem `numero_procedimiento`** — dejalo afuera
+del array. `tipo_procedimiento` (Licitación Privada, Licitación Pública, etc.)
+sí se extrae normalmente si el pliego lo nombra; es un dato distinto y real.
+
 ## 4. tipo_procedimiento
 La modalidad de selección que el pliego nombra explícitamente.
 
@@ -136,14 +157,48 @@ Si el pliego declara explícitamente un presupuesto oficial, extraelo como un
 
 Copiá el monto tal como aparece en el pliego (con moneda y separadores).
 
-## 7. Un ítem por tipo
+## 7. denominacion
+
+Un título corto y descriptivo de QUÉ se licita — pensado para identificar el
+análisis de un vistazo, no para explicarlo. Es DISTINTO del `resumen_objeto`
+de la categoría `objeto_alcance` (que es una síntesis de 2-4 oraciones,
+pensada para lectura detallada): acá va una frase breve tipo título (unas
+pocas palabras, sin verbos conjugados ni explicación de modalidad/alcance),
+nunca una oración completa.
+
+Si la carátula o portada del pliego ya trae un nombre corto hecho (con o sin
+comillas, da igual el formato), copialo tal cual — es el caso más simple y
+más confiable. Si el pliego NO tiene un nombre corto propio y solo describe
+el objeto en un párrafo largo, armá vos un título breve a partir de eso (qué
+se compra/contrata, en pocas palabras), pero seguí siendo un título, no un
+resumen: nada de modalidad de adjudicación, plazos, ni condiciones — eso ya
+está en `objeto_alcance` y en el resto de las categorías.
+
+**Ejemplos:**
+- Carátula: `LICITACIÓN PRIVADA — "Adquisición de Servidores de aplicaciones
+  y base de datos"` → `valor`: "Adquisición de Servidores de aplicaciones y
+  base de datos" (se copia tal cual, ya viene hecho)
+- Sin carátula con nombre propio, solo el objeto: "La Municipalidad llama a
+  Licitación Privada para la adquisición de servidores de aplicaciones y de
+  base de datos, con provisión de equipamiento LCD KVM Switch..." → `valor`:
+  "Adquisición de servidores de aplicaciones y de base de datos" (título
+  armado a partir del objeto, sin repetir el detalle de ítems/modalidad)
+
+**Cuándo importa extraerlo:** es el dato que completa el título del análisis
+cuando `numero_procedimiento` no existe (ver regla de la sección 3) — sin él,
+un pliego sin número asignado quedaría con un título que solo dice
+"Licitación Privada" y no refleja qué se está licitando. Si el pliego tiene
+número Y un nombre corto propio, extraé los dos: no son mutuamente
+excluyentes.
+
+## 8. Un ítem por tipo
 Emití como máximo un ítem por `tipo`.
 
 Si el mismo dato aparece repetido en varios fragmentos:
 - Consolidalo en un solo ítem
 - Sumá las citas
 
-## 8. TipoIdentificacion enum
+## 9. TipoIdentificacion enum
 Valores disponibles:
 - `organismo_convocante`
 - `expediente`
@@ -151,6 +206,7 @@ Valores disponibles:
 - `tipo_procedimiento`
 - `presupuesto_oficial`
 - `jurisdiccion`
+- `denominacion`
 
 ---
 
@@ -207,6 +263,61 @@ municipales.
           "page_number": 1,
           "citation": "Licitación Pública N° 08/2026 para la contratación del servicio de limpieza integral de los edificios municipales."
         }
+      ],
+      "extraction_status": "success"
+    }
+  ]
+}
+```
+
+# EJEMPLO: PLIEGO SIN NÚMERO ASIGNADO, CON DENOMINACIÓN
+
+**Fragmento:**
+```
+[Fragmento: F1, Documento: a1b2, Página: 1, Sección: Carátula, Tipo: PÁRRAFO]
+Municipalidad de Rosario
+LICITACIÓN PRIVADA
+"Adquisición de Servidores de aplicaciones y base de datos"
+PLIEGO DE CONDICIONES PARTICULARES
+Presupuesto oficial: $ X
+```
+
+Notar: no hay ningún "N°" en todo el fragmento (ver regla de la sección 3 —
+`numero_procedimiento` no se emite). El "$ X" es un placeholder literal del
+pliego, no un monto real, así que tampoco se emite `presupuesto_oficial`
+(mismo criterio: no inventar un dato que el pliego no completó).
+
+**Salida correcta (3 ítems — sin numero_procedimiento ni presupuesto_oficial):**
+```json
+{
+  "identificacion_procedimiento": [
+    {
+      "tipo": "organismo_convocante",
+      "valor": "Municipalidad de Rosario",
+      "metadata": {},
+      "confidence": 0.9,
+      "source_references": [
+        {"document_id": "a1b2", "page_number": 1, "citation": "Municipalidad de Rosario"}
+      ],
+      "extraction_status": "success"
+    },
+    {
+      "tipo": "tipo_procedimiento",
+      "valor": "Licitación Privada",
+      "metadata": {},
+      "confidence": 0.9,
+      "source_references": [
+        {"document_id": "a1b2", "page_number": 1, "citation": "LICITACIÓN PRIVADA"}
+      ],
+      "extraction_status": "success"
+    },
+    {
+      "tipo": "denominacion",
+      "valor": "Adquisición de Servidores de aplicaciones y base de datos",
+      "metadata": {},
+      "confidence": 0.9,
+      "source_references": [
+        {"document_id": "a1b2", "page_number": 1, "citation": "\"Adquisición de Servidores de aplicaciones y base de datos\""}
       ],
       "extraction_status": "success"
     }

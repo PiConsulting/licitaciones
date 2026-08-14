@@ -12,7 +12,7 @@ import structlog
 from analysis.extraction.extractors.base import validate_prompt_inventory
 from analysis.extraction.graph import graph
 from analysis.models import CurrentStage
-from analysis.progress import build_stage_progress, calculate_timeout_minutes
+from analysis.progress import TERMINAL_STATUSES, build_stage_progress, calculate_timeout_minutes
 from analysis.service import (
     MAX_FILES,
     IncomingUploadFile,
@@ -115,9 +115,134 @@ def _load_analysis_or_none(analysis_id: str) -> dict | None:
 
 
 def _upsert_analysis(analysis: dict, event: str) -> None:
+    """Persiste el estado de un analysis en Cosmos.
+
+    FIX (auditoría 2026-08-12, hallazgo #6 -- sin concurrencia optimista):
+    esto era un `upsert_item` ciego, sin ETag. Dos escritores tocando el
+    mismo analysis al mismo tiempo -- ej: el background task escribiendo un
+    tick de progreso mientras el usuario cancela desde otro request -- se
+    resolvían "last write wins" sin ningún aviso: el que llegaba último
+    pisaba al otro aunque fuera el cambio más viejo. Ahora, si el dict trae
+    un `_etag` (viene de una lectura previa vía `_load_analysis_or_none` o de
+    una escritura anterior en esta misma ejecución), el write es condicional:
+    Cosmos lo rechaza con 412 (`CosmosAccessConditionFailedError`) si el item
+    cambió desde que lo leímos, en vez de pisarlo en silencio. Deliberadamente
+    NO reintentamos acá con los mismos datos -- reintentar a ciegas con el
+    `analysis` que ya tenemos en memoria volvería a pisar el cambio ajeno; el
+    llamador tiene que releer el estado fresco si quiere decidir qué hacer.
+    Items sin `_etag` (recién creados en memoria, nunca leídos de Cosmos)
+    hacen upsert normal, igual que antes.
+    """
     analysis["event"] = event
     analysis["updated_at"] = datetime.now(UTC).isoformat()
-    get_cosmos_container().upsert_item(analysis)
+    container = get_cosmos_container()
+    etag = analysis.get("_etag")
+    if etag:
+        from azure.core import MatchConditions
+
+        result = container.replace_item(
+            item=analysis["id"],
+            body=analysis,
+            etag=etag,
+            match_condition=MatchConditions.IfNotModified,
+        )
+    else:
+        result = container.upsert_item(analysis)
+    if isinstance(result, dict) and result.get("_etag"):
+        analysis["_etag"] = result["_etag"]
+
+
+def _finalize_analysis_cosmos(analysis_id: str, event: str, mutate) -> bool:
+    """Relee el estado más fresco antes de aplicar una transición TERMINAL
+    (analyzed / error / cancelled) y nunca pisa un estado terminal al que ya
+    se haya llegado por otro camino mientras corría el trabajo en background.
+
+    FIX (auditoría 2026-08-12, hallazgo #2 -- "un-cancel" silencioso): antes,
+    el final de `extract_and_index_cosmos` (y su manejador de excepciones)
+    mutaban directamente el dict `analysis` capturado ANTES del loop de
+    documentos y lo volvían a escribir entero al terminar `graph.invoke()`.
+    Si el usuario cancelaba el análisis MIENTRAS `graph.invoke()` corría
+    (varios minutos, sin ningún chequeo de cancelación en el medio -- ver
+    hallazgo #2 más abajo), Cosmos ya tenía `status="cancelled"` escrito por
+    `cancel_analysis_cosmos`, pero el write final de éxito pisaba eso con
+    `status="analyzed"` sin enterarse: la cancelación del usuario quedaba
+    revertida en silencio y la UI mostraba un análisis completo que el
+    usuario había cancelado. Ahora toda transición terminal relee el estado
+    vivo, y si ya está en un status terminal (`analyzed`/`error`/`cancelled`)
+    simplemente no escribe -- se respeta lo que haya pasado mientras tanto.
+
+    `mutate` recibe el dict fresco y lo modifica in-place. Devuelve True si
+    se escribió, False si se saltó por encontrar un estado terminal previo.
+    """
+    fresh = _load_analysis_or_none(analysis_id)
+    if fresh is None:
+        logger.warning("cosmos_finalize_analysis_missing", analysis_id=analysis_id, event=event)
+        return False
+    if fresh.get("status") in TERMINAL_STATUSES:
+        logger.info(
+            "cosmos_finalize_analysis_skipped_already_terminal",
+            analysis_id=analysis_id,
+            current_status=fresh.get("status"),
+            attempted_event=event,
+        )
+        return False
+    mutate(fresh)
+    _upsert_analysis(fresh, event)
+    return True
+
+
+def _check_should_stop_cosmos(analysis_id: str) -> bool:
+    """Chequeo combinado de cancelación + timeout, releyendo estado vivo.
+
+    FIX (auditoría 2026-08-12, hallazgo #1 -- timeout nunca se hace cumplir
+    en cosmos_only, y hallazgo #2 -- chequeo de cancelación con huecos): el
+    modo SQL (`extraction/runner.py::check_cancellation_requested` /
+    `check_timeout_exceeded`) chequea cancelación Y timeout antes de CADA
+    etapa del pipeline (por documento, antes de indexar, antes de analizar).
+    `extract_and_index_cosmos` en cambio solo chequeaba cancelación una vez
+    por documento y JAMÁS chequeaba timeout -- un análisis en cosmos_only que
+    se colgara (ej: Document Intelligence tarda de más) podía quedar
+    "processing" para siempre, sin que nada lo marcara como error, a
+    diferencia de SQL donde `check_timeout_exceeded` lo hace. Esta función
+    replica esos mismos puntos de control para Cosmos. Devuelve True si el
+    análisis fue detenido (cancelado o por timeout) y el llamador debe
+    retornar sin seguir procesando.
+    """
+    fresh = _load_analysis_or_none(analysis_id)
+    if fresh is None:
+        return False
+    if fresh.get("status") in TERMINAL_STATUSES:
+        return True
+
+    if fresh.get("cancellation_requested"):
+        fresh["status"] = "cancelled"
+        fresh["current_stage"] = CurrentStage.COMPLETED.value
+        fresh["progress_percentage"] = min(99, max(int(fresh.get("progress_percentage") or 0), 35))
+        fresh["error_message"] = "El analisis fue cancelado por el usuario"
+        _upsert_analysis(fresh, "analysis_cancelled")
+        return True
+
+    timeout_at = _parse_dt(fresh.get("timeout_at"))
+    if timeout_at is not None and datetime.now(UTC) >= timeout_at:
+        metadata = fresh.get("extraction_metadata") or {}
+        timeout_minutes = int(metadata.get("timeout_minutes") or 0)
+        logger.error(
+            "cosmos_analysis_timeout_exceeded",
+            analysis_id=analysis_id,
+            timeout_at=fresh.get("timeout_at"),
+            timeout_minutes=timeout_minutes,
+        )
+        fresh["status"] = "error"
+        fresh["current_stage"] = CurrentStage.COMPLETED.value
+        fresh["progress_percentage"] = min(int(fresh.get("progress_percentage") or 0), 95)
+        fresh["error_message"] = (
+            f"El analisis supero el tiempo maximo ({timeout_minutes} minutos) y se detuvo. "
+            "Podes volver a cargar el pliego e intentarlo nuevamente"
+        )
+        _upsert_analysis(fresh, "analysis_timeout")
+        return True
+
+    return False
 
 
 def _query_documents(analysis_id: str, *, include_deleted: bool = False) -> list[dict]:
@@ -708,7 +833,30 @@ def cancel_analysis_cosmos(analysis_id: str, user_id: str) -> dict:
 
 
 def extract_and_index_cosmos(analysis_id: str) -> None:
-    analysis = _load_analysis_or_none(analysis_id)
+    try:
+        analysis = _load_analysis_or_none(analysis_id)
+    except Exception as exc:  # noqa: BLE001
+        # FIX (auditoría 2026-08-12, flujo Cosmos): antes esta excepción se
+        # propagaba sin atrapar desde el punto de entrada del análisis en
+        # background -- si Cosmos fallaba justo acá (throttling, timeout,
+        # outage transitorio), el análisis quedaba stranded en "queued" para
+        # siempre: nunca llegó a existir el dict `analysis` en memoria, así
+        # que ni siquiera se pudo escribir un status "error" de vuelta, y no
+        # quedaba ningún registro buscable salvo lo que el framework de
+        # background tasks loguee por su cuenta (si loguea algo). Ahora al
+        # menos queda un error explícito, distinguible de "análisis no
+        # existe" (`analysis_not_found` más abajo, que sí es un 404 real).
+        logger.error(
+            "analysis_load_failed_at_start",
+            analysis_id=analysis_id,
+            error=str(exc)[:200],
+            action_required=(
+                "El análisis puede haber quedado varado en 'queued' -- revisar "
+                "conectividad de Cosmos y reintentar manualmente si corresponde."
+            ),
+        )
+        return
+
     if analysis is None:
         logger.error("analysis_not_found", analysis_id=analysis_id)
         return
@@ -746,12 +894,10 @@ def extract_and_index_cosmos(analysis_id: str) -> None:
         total_docs = len(documents)
 
         for index, document in enumerate(documents, start=1):
-            refreshed = _load_analysis_or_none(analysis_id)
-            if refreshed and refreshed.get("cancellation_requested"):
-                refreshed["status"] = "cancelled"
-                refreshed["current_stage"] = CurrentStage.COMPLETED.value
-                refreshed["error_message"] = "El analisis fue cancelado por el usuario"
-                _upsert_analysis(refreshed, "analysis_cancelled")
+            # FIX (auditoría 2026-08-12, hallazgo #1 y #2): antes esto solo
+            # chequeaba cancelación, nunca timeout -- ver docstring de
+            # `_check_should_stop_cosmos`.
+            if _check_should_stop_cosmos(analysis_id):
                 return
 
             analysis["current_stage"] = CurrentStage.EXTRACTING_TEXT.value
@@ -765,13 +911,27 @@ def extract_and_index_cosmos(analysis_id: str) -> None:
             try:
                 pages = extract_text(blob_url, str(document["document_id"]), str(correlation_id))
             except DocumentTextExtractionError as exc:
-                analysis["status"] = "error"
-                analysis["current_stage"] = CurrentStage.COMPLETED.value
-                analysis["error_message"] = f"No se pudo leer el texto de {document['filename']}: {str(exc)}"
-                _upsert_analysis(analysis, "analysis_error")
+                _finalize_analysis_cosmos(
+                    analysis_id,
+                    "analysis_error",
+                    lambda fresh, filename=document["filename"], detail=str(exc): fresh.update(
+                        status="error",
+                        current_stage=CurrentStage.COMPLETED.value,
+                        error_message=f"No se pudo leer el texto de {filename}: {detail}",
+                    ),
+                )
                 return
             chunks = create_chunks(pages, str(document["document_id"]), str(correlation_id))
             all_chunks.extend(chunks)
+
+        # FIX (auditoría 2026-08-12, hallazgo #2): SQL mode chequea
+        # cancelación/timeout antes de indexar Y antes de analizar (ver
+        # `extraction/runner.py::extract_and_index`) -- cosmos_only no tenía
+        # ninguno de los dos chequeos acá, así que un análisis podía seguir
+        # gastando embeddings/LLM calls varios minutos después de que el
+        # usuario lo cancelara o de que venciera su timeout.
+        if _check_should_stop_cosmos(analysis_id):
+            return
 
         analysis["current_stage"] = CurrentStage.INDEXING.value
         analysis["progress_percentage"] = max(int(analysis.get("progress_percentage") or 0), 30)
@@ -791,6 +951,9 @@ def extract_and_index_cosmos(analysis_id: str) -> None:
         _upsert_analysis(analysis, "analysis_processing")
 
         validate_prompt_inventory()
+
+        if _check_should_stop_cosmos(analysis_id):
+            return
 
         result = graph.invoke(
             {
@@ -830,16 +993,40 @@ def extract_and_index_cosmos(analysis_id: str) -> None:
         }
         get_cosmos_container().upsert_item(version_item)
 
-        analysis["current_version_id"] = version_id
-        analysis["status"] = "analyzed"
-        analysis["current_stage"] = CurrentStage.COMPLETED.value
-        analysis["progress_percentage"] = 100
-        analysis["error_message"] = None
-        analysis["extraction_metadata"] = runtime_metadata
-        _upsert_analysis(analysis, "analysis_version_created")
+        # FIX (auditoría 2026-08-12, hallazgo #2 -- "un-cancel" silencioso):
+        # `graph.invoke()` recién terminado pudo tardar varios minutos sin
+        # ningún chequeo de cancelación/timeout en el medio (LangGraph no
+        # expone puntos de interrupción intermedios acá, igual que en modo
+        # SQL). Si el usuario canceló o el timeout venció DURANTE esa
+        # llamada, Cosmos ya tiene `status="cancelled"`/`"error"` escrito por
+        # otro camino (`cancel_analysis_cosmos` / `_check_should_stop_cosmos`
+        # corriendo en otra invocación) -- `_finalize_analysis_cosmos` relee
+        # ese estado antes de escribir "analyzed" y, si ya es terminal, NO lo
+        # pisa. Antes esto escribía `analysis` (el dict capturado ANTES de
+        # `graph.invoke()`) a ciegas, revirtiendo la cancelación del usuario.
+        _finalize_analysis_cosmos(
+            analysis_id,
+            "analysis_version_created",
+            lambda fresh: fresh.update(
+                current_version_id=version_id,
+                status="analyzed",
+                current_stage=CurrentStage.COMPLETED.value,
+                progress_percentage=100,
+                error_message=None,
+                extraction_metadata=runtime_metadata,
+            ),
+        )
     except Exception:
-        analysis["status"] = "error"
-        analysis["current_stage"] = CurrentStage.COMPLETED.value
-        analysis["error_message"] = "No se pudo procesar el documento. Intenta nuevamente"
-        _upsert_analysis(analysis, "analysis_error")
+        # Mismo motivo que el bloque de éxito de arriba: no pisar a ciegas un
+        # estado terminal (ej. "cancelled") al que ya se haya llegado por
+        # otro camino mientras esta ejecución fallaba.
+        _finalize_analysis_cosmos(
+            analysis_id,
+            "analysis_error",
+            lambda fresh: fresh.update(
+                status="error",
+                current_stage=CurrentStage.COMPLETED.value,
+                error_message="No se pudo procesar el documento. Intenta nuevamente",
+            ),
+        )
         raise

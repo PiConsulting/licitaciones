@@ -47,13 +47,32 @@ def test_health_skips_database_check_in_cosmos_temporal(monkeypatch: pytest.Monk
     monkeypatch.setenv("PERSISTENCE_MODE", "cosmos_temporal")
     get_settings.cache_clear()
 
+    # FIX (auditoría 2026-08-12, flujo Cosmos, hallazgo #5): este test seguía
+    # apuntando a un endpoint de Cosmos que no existe de verdad
+    # (COSMOS_ENDPOINT="https://cosmos.example.documents.azure.com" seteado
+    # arriba en `_set_cloud_minimum`, solo para satisfacer
+    # `validate_cloud_configuration()`). Antes del fix de este mismo hallazgo,
+    # `/health` nunca intentaba una conexión real a Cosmos, así que ese
+    # endpoint falso nunca se usaba de verdad y el test pasaba por accidente.
+    # Ahora que `_cosmos_health()` sí hace un `container.read()` real en todo
+    # modo que usa Cosmos (justamente lo que este hallazgo pedía), hay que
+    # mockear el container -- si no, este test intenta una conexión de red
+    # real contra un dominio inexistente y el chequeo de Cosmos legítimamente
+    # reporta "error" (que es el comportamiento correcto para un endpoint que
+    # no responde, no un bug nuevo).
+    fake_container = type("FakeContainer", (), {"read": lambda self: {"id": "container-1"}})()
+    monkeypatch.setattr("shared.cosmos_container.get_cosmos_container", lambda: fake_container)
+
     import main
 
     status_code, payload = main._run_health_checks()
 
     assert status_code == 200
     assert payload["checks"]["database"]["status"] == "skipped"
-    assert payload["checks"]["adapters"]["mode"] == "production"
+    assert payload["checks"]["cosmos"]["status"] == "ok"
+    # FIX (auditoría 2026-08-12): mismo motivo que en test_health.py --
+    # "production" ya no es un valor posible, `main.py` hardcodea "cloud".
+    assert payload["checks"]["adapters"]["mode"] == "cloud"
 
 
 def test_cosmos_metadata_sink_upserts_with_analysis_partition_key(monkeypatch: pytest.MonkeyPatch) -> None:

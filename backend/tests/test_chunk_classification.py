@@ -178,3 +178,55 @@ class TestCategoryHeadingPatterns:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# ---------------------------------------------------------------------------
+# REGRESIÓN CHK-06 (auditoría 2026-08-13): el ancestro le ganaba a la sección.
+#
+# `_classify_by_heading` concatenaba TODO el heading_path en un solo string y
+# desempataba por la posición más temprana del patrón. Como los ancestros van
+# primero en esa concatenación, el desempate favorecía estructuralmente al
+# ancestro por sobre la sección real -- y el título tiene prioridad absoluta
+# sobre las keywords del contenido, así que nada aguas abajo podía corregirlo.
+# ---------------------------------------------------------------------------
+
+
+class TestClasificacionHojaSobreAncestro:
+    def test_la_seccion_le_gana_al_nombre_del_llamado(self) -> None:
+        """El caso del hallazgo: el ancestro matchea "licitacion" en posición 0
+        y la hoja matchea "garantia" más adelante; empatan en cantidad."""
+        assert (
+            _classify_by_heading(["LICITACIÓN PÚBLICA Nº 5/2026", "GARANTÍAS"]) == "garantias"
+        )
+
+    def test_la_seccion_le_gana_a_un_ancestro_de_pliego(self) -> None:
+        assert (
+            _classify_by_heading(
+                ["PLIEGO DE CONDICIONES PARTICULARES PARA LA LICITACIÓN", "5. PLAZOS CLAVE"]
+            )
+            == "plazos_clave"
+        )
+
+    def test_la_hoja_decide_aunque_el_ancestro_tenga_mas_matches(self) -> None:
+        """Un ancestro con dos patrones no debe tapar una hoja inequívoca."""
+        assert (
+            _classify_by_heading(["ANEXO I - FORMULARIO DE PRESENTACIÓN", "GARANTÍA DE OFERTA"])
+            == "garantias"
+        )
+
+    def test_se_cae_al_ancestro_cuando_la_hoja_no_matchea_nada(self) -> None:
+        assert _classify_by_heading(["GARANTÍAS", "5.2 Constitución"]) == "garantias"
+
+    def test_recorre_hacia_la_raiz_hasta_encontrar_una_categoria(self) -> None:
+        assert (
+            _classify_by_heading(["CRITERIOS DE EVALUACIÓN", "Generalidades", "5.2.1"])
+            == "criterios_evaluacion"
+        )
+
+    def test_el_desempate_por_posicion_sigue_operando_dentro_del_titulo(self) -> None:
+        """La razón por la que existe el desempate: en castellano el núcleo del
+        sintagma va primero, así que esto es una garantía y no un criterio."""
+        assert _classify_by_heading(["GARANTÍA DE ADJUDICACIÓN"]) == "garantias"
+
+    def test_sin_ninguna_coincidencia_devuelve_none(self) -> None:
+        assert _classify_by_heading(["PLIEGO", "Generalidades", "Otros"]) is None

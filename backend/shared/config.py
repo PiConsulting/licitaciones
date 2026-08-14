@@ -70,9 +70,19 @@ class Settings(BaseSettings):
         description="Número de chunks a recuperar por categoría (default si glossary no especifica)",
     )
     extraction_max_context_tokens: int = Field(
-        default=8000,
+        default=16000,
         alias="EXTRACTION_MAX_CONTEXT_TOKENS",
-        description="Límite de tokens de contexto para extracción (aproximado por palabras)",
+        description=(
+            "Límite de tokens de contexto para extracción, medido con el tokenizer real "
+            "del modelo cuando está disponible (ver `_count_tokens`, cae a conteo por "
+            "palabras si no). FIX (2026-08-13): subido de 8000 a 16000 -- categorías con "
+            "muchos hechos discretos en el mismo pliego (ej. `plazos_clave` con muchos "
+            "hitos, `garantias` con varias cláusulas) podían perder chunks relevantes ya "
+            "recuperados por descarte silencioso de presupuesto (ver "
+            "`extraction_chunks_dropped_token_budget` en los logs). Este límite aplica "
+            "por categoría, no por análisis completo, así que el costo adicional es "
+            "acotado incluso en el peor caso."
+        ),
     )
     
     # Chunking configuration

@@ -26,7 +26,12 @@
       "renglones",
       "lotes",
       "items a cotizar"
-    ]
+    ],
+    "thresholds": {
+      "primary": 0.30,
+      "secondary": 0.12
+    },
+    "weight": 1.0
   },
   "requisitos_admisibilidad": {
     "query_terms": [
@@ -71,7 +76,12 @@
       "balance",
       "estados contables",
       "seguro de responsabilidad civil"
-    ]
+    ],
+    "thresholds": {
+      "primary": 0.25,
+      "secondary": 0.12
+    },
+    "weight": 1.0
   },
   "garantias": {
     "query_terms": [
@@ -100,7 +110,13 @@
       "pagare",
       "fianza bancaria",
       "garantia de impugnacion"
-    ]
+    ],
+    "thresholds": {
+      "primary": 0.35,
+      "secondary": 0.15
+    },
+    "weight": 1.0,
+    "top_k": 35
   },
   "plazos_clave": {
     "query_terms": [
@@ -128,8 +144,23 @@
       "plazo de impugnacion",
       "entrega de ofertas",
       "dias habiles",
-      "dias corridos"
-    ]
+      "dias corridos",
+      "subsanacion",
+      "subsanar",
+      "intimacion",
+      "intimacion fehaciente",
+      "preaviso",
+      "rescision",
+      "rescindir",
+      "acreditacion de importacion",
+      "termino"
+    ],
+    "thresholds": {
+      "primary": 0.30,
+      "secondary": 0.15
+    },
+    "weight": 1.0,
+    "top_k": 35
   },
   "criterios_evaluacion": {
     "query_terms": [
@@ -155,7 +186,12 @@
       "coeficiente de ponderacion",
       "puntaje tecnico minimo",
       "orden de merito"
-    ]
+    ],
+    "thresholds": {
+      "primary": 0.30,
+      "secondary": 0.15
+    },
+    "weight": 1.0
   },
   "causales_rechazo": {
     "query_terms": [
@@ -165,7 +201,11 @@
       "descalificacion",
       "exclusion",
       "rechazo de oferta",
-      "oferta inadmisible"
+      "oferta inadmisible",
+      "rechazada",
+      "desestimada",
+      "excluida",
+      "inadmisible"
     ],
     "aliases": [
       "causales de exclusion",
@@ -179,9 +219,21 @@
       "sin mas tramite",
       "de pleno derecho",
       "conducta anticompetitiva",
-      "informacion falsa"
+      "informacion falsa",
+      "oferta rechazada",
+      "propuesta rechazada",
+      "quedara desestimada",
+      "no podra presentarse",
+      "causal de inhabilitacion",
+      "motivo de exclusion",
+      "oferta excluida"
     ],
-    "top_k": 35
+    "top_k": 35,
+    "thresholds": {
+      "primary": 0.35,
+      "secondary": 0.15
+    },
+    "weight": 1.2
   },
   "anexos_obligatorios": {
     "query_terms": [
@@ -191,7 +243,9 @@
       "debe completarse",
       "debe firmarse",
       "planilla",
-      "modelo de nota"
+      "modelo de nota",
+      "formulario adjunto",
+      "debera completar"
     ],
     "aliases": [
       "apendice",
@@ -204,8 +258,19 @@
       "presupuesto detallado",
       "documentacion tecnica obligatoria",
       "constancia",
-      "certificado exigido"
-    ]
+      "certificado exigido",
+      "modelo adjunto",
+      "formato anexo",
+      "planilla adjunta",
+      "formulario a completar",
+      "debe presentar formulario",
+      "anexo que debera"
+    ],
+    "thresholds": {
+      "primary": 0.40,
+      "secondary": 0.18
+    },
+    "weight": 1.0
   },
   "identificacion_procedimiento": {
     "query_terms": [
@@ -231,6 +296,11 @@
       "concurso de precios",
       "subasta",
       "licitacion privada"
-    ]
+    ],
+    "thresholds": {
+      "primary": 0.20,
+      "secondary": 0.10
+    },
+    "weight": 0.8
   }
 }

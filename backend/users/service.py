@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import jwt
+import structlog
 from fastapi import HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from passlib.hash import bcrypt
@@ -14,6 +15,8 @@ from shared.config import get_settings
 from shared.cosmos_container import get_cosmos_container
 from shared.database import SessionLocal
 from users.models import User
+
+logger = structlog.get_logger(__name__)
 
 http_bearer = HTTPBearer(auto_error=False)
 
@@ -63,13 +66,37 @@ def _find_user_by_email_cosmos(email: str) -> AuthUser | None:
 
 
 def _find_user_by_id_cosmos(user_id: str) -> AuthUser | None:
-    from azure.cosmos.exceptions import CosmosHttpResponseError
+    # FIX (auditoría 2026-08-12, flujo Cosmos): antes se atrapaba
+    # `CosmosHttpResponseError` en general -- esa es la clase base de TODOS
+    # los errores HTTP de Cosmos (429 throttling, 5xx, timeouts, fallos de
+    # red), no solo "no encontrado". Con eso, un outage o rate-limit
+    # transitorio de Cosmos hacía que `get_current_user` tratara a CUALQUIER
+    # usuario autenticado como si su token fuera inválido (401 "No
+    # autorizado"), sin loguear nada -- indistinguible de una sesión vencida
+    # para quien mira los logs, y deslogueando en masa a usuarios reales
+    # durante un problema de infraestructura que no tiene nada que ver con
+    # sus tokens. Ahora solo "no encontrado" (404 real) se trata como
+    # "no hay usuario"; cualquier otro error de Cosmos se loguea y se
+    # propaga como 503, para que quede claro que el problema es de
+    # disponibilidad del backend, no de la sesión del usuario.
+    from azure.cosmos.exceptions import CosmosHttpResponseError, CosmosResourceNotFoundError
 
     container = get_cosmos_container()
     try:
         item = container.read_item(item=f"user::{user_id}", partition_key=f"user::{user_id}")
-    except CosmosHttpResponseError:
+    except CosmosResourceNotFoundError:
         return None
+    except CosmosHttpResponseError as exc:
+        logger.warning(
+            "cosmos_find_user_by_id_failed",
+            user_id=user_id,
+            status_code=getattr(exc, "status_code", None),
+            error=str(exc)[:200],
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": {"code": "AUTH_BACKEND_UNAVAILABLE", "message": "Servicio de autenticación no disponible"}},
+        ) from exc
     if item.get("deleted") is True:
         return None
     return _build_auth_user_from_item(item)

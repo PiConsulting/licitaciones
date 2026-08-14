@@ -197,11 +197,61 @@ Texto después"""
 Contenido
 <!-- PageFooter="Página 1" -->"""
         blocks, _, _ = _parse_markdown_blocks(markdown)
-        
+
         # Solo título y contenido
         assert len(blocks) == 2
         assert "PageNumber" not in str(blocks)
         assert "PageHeader" not in str(blocks)
+
+    def test_blank_line_flushes_paragraph_c2_fix(self):
+        """FIX CRÍTICO (auditoría 2026-08-12, hallazgo C-2).
+
+        Dos párrafos de cuerpo consecutivos bajo el mismo heading, separados
+        por una línea en blanco, deben producir DOS bloques independientes
+        (uno por párrafo), no un único bloque con "\n\n" interno.
+
+        Esto es lo que permite que el índice posicional (página, índice
+        secuencial) de estos bloques se corresponda 1:1 con
+        `result.paragraphs` de Document Intelligence -- precondición de la
+        que depende `_enrich_blocks_with_para_id` para asignar el bbox
+        correcto a cada bloque. Antes de este fix, ambos párrafos llegaban
+        fusionados en un solo bloque y el índice se desalineaba con el
+        siguiente párrafo real, haciendo que bloques (y sus highlights)
+        recibieran el bbox de OTRO párrafo de la misma página.
+        """
+        markdown = """# ARTÍCULO 9: GARANTÍAS
+Primer párrafo del cuerpo con contenido A.
+
+Segundo párrafo del cuerpo con contenido B."""
+        blocks, heading_levels, _ = _parse_markdown_blocks(markdown)
+
+        # 1 heading + 2 párrafos independientes = 3 bloques (antes del fix: 2)
+        assert len(blocks) == 3
+        assert 0 in heading_levels
+
+        # `heading_levels` mapea source_order -> nivel para los bloques que son
+        # headings; los bloques de cuerpo son los que NO aparecen ahí.
+        body_blocks = [b for b in blocks if b["source_order"] not in heading_levels]
+        assert len(body_blocks) == 2
+        assert body_blocks[0]["content"].strip() == "Primer párrafo del cuerpo con contenido A."
+        assert body_blocks[1]["content"].strip() == "Segundo párrafo del cuerpo con contenido B."
+        # Ningún bloque de cuerpo debe contener el separador interno "\n\n":
+        # cada uno es ya un único párrafo real.
+        assert "\n\n" not in body_blocks[0]["content"]
+        assert "\n\n" not in body_blocks[1]["content"]
+
+    def test_multiple_blank_lines_between_paragraphs(self):
+        """Múltiples líneas en blanco seguidas no deben crear bloques vacíos."""
+        markdown = """# Título
+Párrafo 1.
+
+
+Párrafo 2."""
+        blocks, heading_levels, _ = _parse_markdown_blocks(markdown)
+
+        body_blocks = [b for b in blocks if b["source_order"] not in heading_levels]
+        assert len(body_blocks) == 2
+        assert all(b["content"].strip() for b in body_blocks)
 
 
 class TestTablePositioning:

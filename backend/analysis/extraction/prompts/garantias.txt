@@ -133,6 +133,28 @@ oferente necesita, y con cita puede verificarlo.
 mencionan garantías de ninguna clase. Sin evidencia no hay `not_applicable`,
 porque `not_applicable` exige cita.
 
+**⚠️ Varias menciones de garantía técnica NO son varias garantías financieras
+— siguen colapsando en el mismo ítem único.** Es común que un pliego mencione
+la garantía técnica del producto en más de un lugar: una cláusula general
+(ej. en el articulado) y después, por separado, una garantía técnica específica
+por ítem/renglón en un anexo (ej. "Anexo I — Especificaciones técnicas"), a
+veces con duraciones distintas por renglón. Ninguna de esas menciones es una
+garantía financiera (Caso 1 sigue aplicando a cada una), y encontrar varias no
+cambia el análisis: seguís devolviendo el mismo **UN SOLO** ítem
+`not_applicable` de Caso 4.c, nunca un ítem por cada renglón/artículo que
+menciona una duración técnica distinta.
+
+**Incorrecto:** emitir un ítem por cada garantía técnica encontrada (ej. uno
+para la garantía técnica general del articulado y otro por cada renglón del
+anexo de especificaciones técnicas), aunque cada uno tenga su propia cita y
+duración. Son datos reales del pliego, pero no son garantías financieras —
+extraerlos acá reintroduce exactamente la confusión que la EXCLUSIÓN CRÍTICA
+de arriba prohíbe, solo que fragmentada en varios ítems en lugar de uno.
+
+**Correcto:** un único ítem `not_applicable` (Caso 4.c) cuya cita puede ser
+cualquiera de esas menciones técnicas (la que mejor represente la situación),
+sin necesidad de listar ni citar cada renglón por separado.
+
 ---
 
 ## ⚠️ REGLA DE ORO
@@ -153,7 +175,7 @@ Extraer garantías FINANCIERAS que el oferente debe constituir. Un ítem por gar
 
 # ESTRUCTURA DE SALIDA
 
-Usá el schema `GarantiaItem` definido en `schemas_v3.py`.
+Usá el schema `GarantiaItem` definido en `schemas.py`.
 
 **Campos clave:**
 - `tipo`: Usa enum `TipoGarantia` (mantenimiento_oferta, cumplimiento_contrato, anticipo, etc.)
@@ -315,7 +337,7 @@ ninguna clase.
 === FIN DEL CONTENIDO ===
 
 **Recordatorio final:**
-- Devolvé JSON válido según schema `GarantiaItem` en `schemas_v3.py`
+- Devolvé JSON válido según schema `GarantiaItem` en `schemas.py`
 - `monto_porcentaje` y `monto_valor` mutuamente excluyentes
 - Si el pliego habla de garantías pero no exige ninguna → ítem `not_applicable` con cita
 - Lista vacía `[]` SOLO si los fragmentos no mencionan garantías de ninguna clase
