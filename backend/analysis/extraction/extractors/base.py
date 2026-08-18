@@ -387,6 +387,95 @@ def _count_tokens(text: str) -> int:
     return len(text.split())
 
 
+# CTX-02: cuántos chunks entran al prompt sí o sí, sin mirar el score. Es el
+# piso que impide que un corte por relevancia se lleve evidencia real cuando
+# toda la categoría tiene scores parejos y bajos.
+_RELEVANCE_MIN_CHUNKS = 10
+# Y por debajo de qué fracción del mejor score se descarta el resto. Relativo y
+# no absoluto porque los scores de RRF no son comparables entre consultas.
+_RELEVANCE_MIN_RATIO = 0.4
+
+
+def _drop_low_relevance_chunks(
+    chunks: list[dict[str, Any]],
+    *,
+    correlation_id: str | None = None,
+    category: str | None = None,
+) -> list[dict[str, Any]]:
+    """Saca la cola de chunks que el retrieval trajo por completar el `top_k`.
+
+    FIX (auditoría 2026-08-13, hallazgo CTX-02): se recuperaban `category_top_k`
+    chunks y sólo se recortaban por presupuesto de tokens. No había ningún corte
+    por relevancia, así que el chunk en la posición 35 —con un score de RRF
+    típicamente la mitad del primero— entraba al prompt con el mismo peso visual
+    que el primero.
+
+    Dónde duele: una categoría que en ESE pliego no tiene evidencia real (por
+    ejemplo `criterios_evaluacion` en un pliego que adjudica por menor precio,
+    sin matriz de puntajes) igual llenaba sus 25-35 chunks con secciones
+    tangenciales. Al modelo se le pide ser "un analista experto que reconoce el
+    concepto aunque el vocabulario cambie", y después se le da mucho material
+    del cual construir un criterio que el pliego no tiene. La instrucción de no
+    inventar está; la presión del contexto va en contra.
+
+    El corte es deliberadamente tímido, porque el error caro es el inverso:
+    descartar el chunk que sí tenía el dato reproduce exactamente la falla que
+    esta auditoría viene persiguiendo (una categoría respondiendo "no
+    encontrado" sobre un pliego que sí lo dice). Por eso los primeros
+    `_RELEVANCE_MIN_CHUNKS` entran siempre, y un chunk sin score no se juzga.
+    """
+    if len(chunks) <= _RELEVANCE_MIN_CHUNKS:
+        return chunks
+
+    def score_de(chunk: dict[str, Any]) -> float | None:
+        valor = chunk.get("search_score")
+        try:
+            numero = float(valor)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+        return numero if numero > 0 else None
+
+    scores = [score_de(chunk) for chunk in chunks]
+    conocidos = [s for s in scores if s is not None]
+    if not conocidos:
+        # Mocks y fuentes legacy no traen `search_score`. Sin score no hay
+        # criterio, y no tenerlo no puede costar chunks.
+        return chunks
+
+    umbral = max(conocidos) * _RELEVANCE_MIN_RATIO
+    # El piso se cuenta por score, no por posición: la expansión
+    # children→parent puede alterar el orden de la lista.
+    protegidos = {
+        indice
+        for indice, _score in sorted(
+            enumerate(scores),
+            key=lambda par: (par[1] is None, -(par[1] or 0.0)),
+        )[:_RELEVANCE_MIN_CHUNKS]
+    }
+
+    conservados: list[dict[str, Any]] = []
+    descartados: list[float] = []
+    for indice, chunk in enumerate(chunks):
+        score = scores[indice]
+        if indice in protegidos or score is None or score >= umbral:
+            conservados.append(chunk)
+        else:
+            descartados.append(score)
+
+    if descartados:
+        logger.info(
+            "extraction_chunks_dropped_low_relevance",
+            correlation_id=correlation_id,
+            category=category,
+            chunks_kept=len(conservados),
+            chunks_dropped=len(descartados),
+            score_max=round(max(conocidos), 5),
+            score_umbral=round(umbral, 5),
+            score_descartado_max=round(max(descartados), 5),
+        )
+    return conservados
+
+
 def _truncate_to_token_budget(
     chunks: list[dict[str, Any]],
     budget: int,
@@ -523,7 +612,10 @@ def _widen_citation_with_chunk_context(
         widened = _build_context_citation(
             content, start, start + len(collapsed_citation), min_chars=target_chars
         )
-        if len(widened) > len(collapsed_citation):
+        # ATR-07: ensanchar es agregarle contexto a la cita, no cambiarla por
+        # otra. Si el resultado ya no contiene lo que el modelo citó, la mejora
+        # falló y se devuelve la cita original -- corta pero fiel.
+        if len(widened) > len(collapsed_citation) and needle in widened.lower():
             return widened
     return citation
 
@@ -828,21 +920,98 @@ def _normalized_identificacion_tipo(raw_tipo: str) -> str:
     return raw_tipo.strip().lower() or "otro"
 
 
-def _build_context_citation(content: str, start: int, end: int, *, min_chars: int = CITATION_MIN_CHARS) -> str:
+def _word_start(text: str, index: int) -> int:
+    """Inicio de la palabra que contiene `index`. Expande hacia afuera."""
+    index = max(0, min(index, len(text)))
+    while index > 0 and not text[index - 1].isspace():
+        index -= 1
+    return index
+
+
+def _word_end(text: str, index: int) -> int:
+    """Fin (exclusivo) de la palabra que contiene `index - 1`. Expande hacia afuera."""
+    index = max(0, min(index, len(text)))
+    while index < len(text) and not text[index].isspace():
+        index += 1
+    return index
+
+
+def _build_context_citation(
+    content: str,
+    start: int,
+    end: int,
+    *,
+    min_chars: int = CITATION_MIN_CHARS,
+    max_chars: int = CITATION_MAX_CHARS,
+) -> str:
+    """Ensancha `content[start:end]` con el texto que lo rodea, sin perderlo.
+
+    FIX (auditoría 2026-08-14, hallazgo ATR-07): la versión anterior ensanchaba
+    con dos constantes ciegas -- 100 caracteres a la izquierda y 140 a la
+    derecha -- y después llamaba a `clip_citation`, que recorta un PREFIJO. Con
+    un núcleo de 33 caracteres eso da una ventana de 273 que arranca 100 antes
+    del dato; el prefijo de 120 se queda con los primeros 120 de esa ventana y
+    el núcleo, que vivía en el offset 100, quedaba cortado por la mitad o
+    directamente afuera.
+
+    Visto en un análisis real (`objeto_alcance`, fuente 3):
+
+        citation_llm : "Item 3: 4 (cuatro) LCD KVM Switch"
+        citation     : "m 1: 4 (cuatro) Servidores de aplicaciones tipo XEN
+                        Item 2: 4 (cuatro) Servidores de base de datos.
+                        Item 3: 4 (cuatro)"
+
+    La cita mostrada arranca en mitad de la palabra "Item", enumera dos ítems
+    que no tienen nada que ver con el dato, y NO contiene "LCD KVM Switch" --
+    es decir, la evidencia que se le muestra a la persona ya no menciona lo que
+    el item afirma. El resaltado la sigue fielmente y marca tres renglones
+    equivocados.
+
+    Dos invariantes ahora:
+      1. el resultado SIEMPRE contiene `content[start:end]` (salvo que el
+         núcleo solo ya no entre en `max_chars`, en cuyo caso se recorta ÉL --
+         nunca se lo reemplaza por texto vecino);
+      2. los dos bordes caen en límite de palabra.
+    """
     text = " ".join(str(content or "").split())
     if not text:
         return ""
 
-    left = max(0, start)
-    right = min(len(text), end)
+    core_start = max(0, min(int(start), len(text)))
+    core_end = max(core_start, min(int(end), len(text)))
+    core_len = core_end - core_start
+
+    # El núcleo es la evidencia. Si por sí solo excede el techo, se recorta el
+    # núcleo: seguimos dentro del texto que respalda el dato.
+    if core_len >= max_chars:
+        return clip_citation(text[core_start:core_end], max_chars=max_chars)
+
+    # Presupuesto de contexto: lo justo para llegar al mínimo legible, no 240
+    # caracteres. Un tercio antes del dato y el resto después -- la persona
+    # necesita saber de qué se está hablando, pero el dato tiene que quedar
+    # cerca del principio para que se lea como evidencia y no como párrafo.
+    budget = max(0, min(max_chars, max(min_chars, core_len)) - core_len)
+    lead = budget // 3
+
+    left = _word_start(text, max(0, core_start - lead))
+    right = _word_end(text, min(len(text), core_end + (budget - lead)))
+
+    # El redondeo a palabra entera puede pasarse del techo: se devuelve
+    # contexto, primero el de la derecha y después el de la izquierda, hasta
+    # entrar. El núcleo nunca se toca en este lazo.
+    while right - left > max_chars and right > core_end:
+        space = text.rfind(" ", core_end, right)
+        if space < 0:
+            break
+        right = space
+    while right - left > max_chars and left < core_start:
+        space = text.find(" ", left, core_start)
+        if space < 0:
+            break
+        left = space + 1
+
     snippet = text[left:right].strip()
-
-    if len(snippet) < min_chars:
-        left = max(0, left - 100)
-        right = min(len(text), right + 140)
-        snippet = text[left:right].strip()
-
-    return clip_citation(snippet)
+    return snippet if len(snippet) <= max_chars else clip_citation(snippet, max_chars=max_chars)
 
 
 # FIX (2026-08-13): estos tres tipos son siempre códigos o montos -- un
@@ -1358,6 +1527,14 @@ def run_extractor(
             keyword_query=keyword_query or None,
             category=result_key,
             correlation_id=correlation_id,
+        )
+
+        # CTX-02: primero el corte por relevancia, después el de presupuesto.
+        # Al revés, el presupuesto se gastaría en la cola irrelevante.
+        chunks = _drop_low_relevance_chunks(
+            chunks,
+            correlation_id=correlation_id,
+            category=result_key,
         )
 
         chunks = _truncate_to_token_budget(

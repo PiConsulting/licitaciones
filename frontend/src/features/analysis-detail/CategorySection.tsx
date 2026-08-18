@@ -8,6 +8,7 @@ import { PlazosTimeline } from "./components/PlazosTimeline";
 import { FieldBadge } from "./FieldBadge";
 import { FieldStateBadge } from "./FieldStateBadge";
 import type { CategoryData, CategoryId, Citation } from "./types";
+import { QualityNotice } from "./components/QualityNotice";
 import { getCategoryCounts } from "./utils/categoryStats";
 import { dedupeCitations } from "./utils/dedupeCitations";
 import { buildNarrativeBlocks } from "./utils/narrativeSynthesis";
@@ -33,7 +34,10 @@ export function CategorySection({ categoryId, category, onViewSource }: Category
   const categoryFullyNotApplicable =
     category.extraction_status === "not_applicable" && counts.extracted === 0 && counts.conflict === 0;
 
-  const state = category.extraction_status === "failed"
+  const state = category.extraction_status === "not_analyzed"
+    // CTX-03: fuera del alcance del análisis. No es un hallazgo sobre el pliego.
+    ? "no_analizada"
+    : category.extraction_status === "failed"
     ? "error"
     // Solo marcar como "no_aplica" si NO hay items extraídos (para evitar badge inconsistente)
     : categoryFullyNotApplicable
@@ -79,8 +83,14 @@ export function CategorySection({ categoryId, category, onViewSource }: Category
         </div>
       </div>
 
+      <QualityNotice quality={category.quality} />
+
       {categoryId === "plazos_clave" ? (
-        <PlazosTimeline items={category.items} onViewSource={onViewSource} />
+        <PlazosTimeline
+          items={category.items}
+          narrativeSources={narrative.sources}
+          onViewSource={onViewSource}
+        />
       ) : (
         <NarrativeBlocks narrative={narrative} onViewSource={onViewSource} />
       )}

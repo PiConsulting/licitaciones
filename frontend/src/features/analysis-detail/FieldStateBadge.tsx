@@ -2,7 +2,14 @@ import { AlertTriangle, CheckCircle, XCircle } from "lucide-react";
 
 import { Badge, type BadgeTone } from "../../components/Badge";
 
-type CategoryVisualState = "sin_revisar" | "revisada" | "critica" | "error" | "con_conflictos" | "no_aplica";
+type CategoryVisualState =
+  | "sin_revisar"
+  | "revisada"
+  | "critica"
+  | "error"
+  | "con_conflictos"
+  | "no_aplica"
+  | "no_analizada";
 
 const STATE_BADGES: Record<
   CategoryVisualState,
@@ -40,6 +47,14 @@ const STATE_BADGES: Record<
   no_aplica: {
     text: "NO APLICA",
     tone: "info",
+    icon: null,
+  },
+  // CTX-03: la categoría existe en el contrato pero ningún extractor la
+  // completa. Decir "no encontrado" acá es afirmar algo sobre el pliego que el
+  // sistema nunca verificó.
+  no_analizada: {
+    text: "NO ANALIZADA",
+    tone: "neutral",
     icon: null,
   },
 };

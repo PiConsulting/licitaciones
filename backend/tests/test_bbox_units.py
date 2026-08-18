@@ -122,13 +122,18 @@ def test_page_sizes_se_calculan_en_puntos() -> None:
     assert height == pytest.approx(841.7, abs=1.0)
 
 
+# El índice que produce `_build_para_id_index` es
+# `{(pagina, indice): {"bbox": [...], "content": "..."}}`. Estos tests lo
+# construyen a mano, así que tienen que usar ESA forma: con la forma vieja (una
+# lista de bbox pelada) pasaban vacíos y no verificaban nada -- la misma trampa
+# que dejó pasar ING-06.
 def test_un_bbox_fuera_de_la_hoja_se_descarta() -> None:
     from extraction.document_intelligence import _enrich_blocks_with_para_id
 
     blocks = [{"page_number": 1, "content": "texto", "source_order": 0}]
     fuera = [{"page": 1, "x": 50.0, "y": 5000.0, "width": 100.0, "height": 20.0}]
 
-    _enrich_blocks_with_para_id(blocks, {(1, 0): fuera}, {1: (595.3, 841.9)})
+    _enrich_blocks_with_para_id(blocks, {(1, 0): {"bbox": fuera, "content": "texto"}}, {1: (595.3, 841.9)})
 
     assert blocks[0]["bbox"] == []
 
@@ -139,7 +144,7 @@ def test_un_bbox_dentro_de_la_hoja_se_conserva() -> None:
     blocks = [{"page_number": 1, "content": "texto", "source_order": 0}]
     dentro = [{"page": 1, "x": 55.7, "y": 152.9, "width": 483.2, "height": 24.3}]
 
-    _enrich_blocks_with_para_id(blocks, {(1, 0): dentro}, {1: (595.3, 841.9)})
+    _enrich_blocks_with_para_id(blocks, {(1, 0): {"bbox": dentro, "content": "texto"}}, {1: (595.3, 841.9)})
 
     assert blocks[0]["bbox"] == dentro
 
@@ -152,6 +157,6 @@ def test_el_limite_viejo_hardcodeado_ya_no_decide() -> None:
     blocks = [{"page_number": 1, "content": "texto", "source_order": 0}]
     grande = [{"page": 1, "x": 200.0, "y": 2000.0, "width": 1800.0, "height": 40.0}]
 
-    _enrich_blocks_with_para_id(blocks, {(1, 0): grande}, {1: (2480.0, 3508.0)})
+    _enrich_blocks_with_para_id(blocks, {(1, 0): {"bbox": grande, "content": "texto"}}, {1: (2480.0, 3508.0)})
 
     assert blocks[0]["bbox"] == grande

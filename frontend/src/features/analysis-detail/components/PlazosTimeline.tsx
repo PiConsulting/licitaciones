@@ -1,14 +1,39 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Eye, Maximize2, MapPin, X } from "lucide-react";
+import { Maximize2, MapPin, X } from "lucide-react";
 
 import { getConfidenceLevel } from "../../../utils/confidence";
-import { ActionButton } from "../ActionButton";
+import { SourceEyeButton } from "./SourceEyeButton";
 import { FieldBadge } from "../FieldBadge";
 import type { Citation, ConfidenceLevel, FieldItem, NarrativeSource } from "../types";
 
 interface PlazosTimelineProps {
   items: FieldItem[];
+  /** Las fuentes de la narrativa de la categoría, con sus `highlight_regions`
+   * ya calculadas por el backend. Esta vista trabaja con `FieldItem` (flujo
+   * legado por-campo), que no las trae; se emparejan por documento, página y
+   * texto para no perder las coordenadas. */
+  narrativeSources?: NarrativeSource[];
   onViewSource?: (payload: { citation: Citation; citations: Citation[]; sources: NarrativeSource[] }) => void;
+}
+
+function normalizeForMatch(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/** Las `NarrativeSource` que corresponden a estas citas: mismo documento, misma
+ * página, y un texto que contiene al otro (la cita del ítem y la de la fuente
+ * pueden diferir en el recorte). */
+function matchSources(sources: NarrativeSource[], citations: Citation[]): NarrativeSource[] {
+  return sources.filter((source) =>
+    citations.some((citation) => {
+      if (source.document_id !== citation.document_id || source.page !== citation.page) {
+        return false;
+      }
+      const a = normalizeForMatch(source.text);
+      const b = normalizeForMatch(citation.text);
+      return a !== "" && b !== "" && (a.includes(b) || b.includes(a));
+    }),
+  );
 }
 
 const MIN_SPAN_DAYS = 14;
@@ -217,7 +242,10 @@ function TimelineChart({
                   ) : null}
                   {item.citations[0] ? (
                     <div className="mt-2">
-                      <ActionButton text="Ver fuente" icon={Eye} variant="ghost" onClick={() => onViewSource(item)} />
+                      <SourceEyeButton
+                        pages={item.citations.map((citation) => citation.page)}
+                        onClick={() => onViewSource(item)}
+                      />
                     </div>
                   ) : null}
                 </li>
@@ -239,7 +267,7 @@ function TimelineChart({
  * quedan listados aparte. El marcador de "Hoy" se calcula en cada render con
  * la fecha real del dispositivo, no la fecha en la que se corrio el analisis.
  */
-export function PlazosTimeline({ items, onViewSource }: PlazosTimelineProps) {
+export function PlazosTimeline({ items, narrativeSources = [], onViewSource }: PlazosTimelineProps) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -290,10 +318,15 @@ export function PlazosTimeline({ items, onViewSource }: PlazosTimelineProps) {
     if (!primary || !onViewSource) {
       return;
     }
-    // PlazosTimeline usa el flujo legado por-campo (FieldItem con citations),
-    // no tiene NarrativeSources con highlight_regions. Pasar array vacío para
-    // que el PDFViewer use el fallback de heurísticas de texto.
-    onViewSource({ citation: primary, citations: item.citations, sources: [] });
+    // FIX (2026-08-14): acá se mandaba `sources: []` a propósito, con el
+    // argumento de que esta vista usa el flujo legado por-campo y "no tiene
+    // NarrativeSources con highlight_regions". Pero la categoría SÍ tiene
+    // narrativa con sus coordenadas ya calculadas -- `CategorySection` la arma
+    // y hasta ahora la descartaba al enrutar plazos a este componente. Con el
+    // array vacío, Plazos Clave quedaba condenada al resaltado heurístico por
+    // texto, pasara lo que pasara en el backend.
+    const matched = matchSources(narrativeSources, item.citations);
+    onViewSource({ citation: primary, citations: item.citations, sources: matched });
   };
 
   return (
@@ -334,7 +367,10 @@ export function PlazosTimeline({ items, onViewSource }: PlazosTimelineProps) {
               <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-gray-400" aria-hidden="true" />
               <span className="flex-1 text-sm leading-relaxed text-gray-800">{text}</span>
               {item.citations[0] ? (
-                <ActionButton text="Ver fuente" icon={Eye} variant="ghost" onClick={() => handleViewSource(item)} />
+                <SourceEyeButton
+                  pages={item.citations.map((citation) => citation.page)}
+                  onClick={() => handleViewSource(item)}
+                />
               ) : null}
             </li>
           ))}

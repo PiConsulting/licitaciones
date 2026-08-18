@@ -62,6 +62,10 @@ Solo completás `fecha` cuando el pliego escribe una fecha calendaria explícita
 - NUNCA una palabra suelta o un número solo (mínimo 12 caracteres)
 - Si un mismo párrafo respalda varios datos distintos, **no copies el párrafo
   entero en todos**: recortá para cada ítem la parte que prueba ESE dato.
+- La cita tiene que contener el `valor` del ítem. Los campos de `metadata` son
+  secundarios: si alguno necesita su propia evidencia y no entra en los 120
+  caracteres, **agregá un segundo `source_reference`** en vez de alargar el
+  primero. Dos citas cortas se leen y se resaltan; una larga, no.
 
 Por qué importa: esta cita es lo único que la persona lee para verificar la
 respuesta, y es además lo que se resalta en el PDF. Una cita de párrafo produce

@@ -123,12 +123,35 @@ export interface CategoryData {
   items: FieldItem[];
   confidence: number;
   source_references: SourceReference[];
-  extraction_status: "success" | "partial" | "failed" | "not_found" | "not_applicable";
+  /** `not_analyzed` (CTX-03) es distinto de `not_found`: significa que el
+   * pipeline no cubre esa categoría, no que el pliego calle sobre ella. */
+  extraction_status:
+    | "success"
+    | "partial"
+    | "failed"
+    | "not_found"
+    | "not_applicable"
+    | "not_analyzed";
   summary: string;
   is_reviewed: boolean;
   /** Narrativa generada por el LLM de síntesis en el backend. Ausente cuando
    * la síntesis falló o todavía no corrió para este análisis. */
   narrative?: CategoryNarrative;
+  /** Cuántos hallazgos se descartaron en esta categoría y por qué (ATR-03).
+   * Sin esto, una categoría "parcial" no se distingue de una categoría en la
+   * que el modelo produjo hallazgos que no se pudieron respaldar. */
+  quality?: CategoryQuality;
+}
+
+export interface CategoryQuality {
+  /** Items descartados por no tener ninguna cita verificable contra los chunks. */
+  descartados_sin_evidencia?: number;
+  /** Items descartados por no cumplir su schema. */
+  descartados_por_formato?: number;
+  /** Items conservados cuya cita declarada no verificaba y hubo que reemplazar. */
+  con_evidencia_rescatada?: number;
+  /** Items que llegaron al usuario. */
+  conservados?: number;
 }
 
 export interface ConflictData {

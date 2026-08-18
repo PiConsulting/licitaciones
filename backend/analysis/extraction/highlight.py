@@ -699,7 +699,7 @@ def compute_highlights_for_sources(
         Lista de sources enriquecidas con campo "highlight_regions"
     """
     enriched_sources = []
-    stats = {"total": 0, "with_bbox": 0, "no_bbox": 0, "multiple_blocks": 0}
+    stats = {"total": 0, "with_bbox": 0, "no_bbox": 0}
     
     for source in sources:
         stats["total"] += 1
@@ -715,19 +715,17 @@ def compute_highlights_for_sources(
             enriched_sources.append(source_copy)
             continue
         
-        # Buscar chunk que contenga esta citation
-        regions = []
-
-        # FIX CRÍTICO (auditoría 2026-08-12, hallazgo C-2): intentar primero
-        # búsqueda viva con PyMuPDF sobre el PDF real (compute_highlight_regions),
-        # que ubica la citation directamente en el documento en vez de confiar en
-        # el bbox pre-computado en ingestion (el cual podía quedar desalineado
-        # por el bug posicional de _parse_markdown_blocks corregido en esta misma
-        # auditoría). Solo se intenta cuando tenemos una ruta real de PDF; si no
-        # hay PDF disponible o la búsqueda viva no encuentra nada, se cae al
-        # matching por bbox almacenado de más abajo (retrocompatible: todos los
-        # tests existentes pasan document_id_to_blob_path={}, por lo que este
-        # bloque nunca se activa para ellos).
+        # Un solo camino: PyMuPDF sobre el PDF real, que ubica la cita en el
+        # documento con precisión de renglón.
+        #
+        # FIX (2026-08-14, hallazgo HL-08): este comentario decía que si la
+        # búsqueda viva no encontraba nada "se cae al matching por bbox
+        # almacenado de más abajo". Ese camino se eliminó el mismo día -- emitía
+        # el rectángulo del párrafo entero, que era el "resaltado por párrafo"
+        # que reportó la usuaria. Quedó la variable `regions = []`, que ya no se
+        # asignaba nunca, y una rama `if regions:` inalcanzable con su propio
+        # log. Un lector razonable concluía que existe un fallback que no existe.
+        #
         # ATR-01 (auditoría 2026-08-13): el chunk que verificó la cita en
         # `_verify_citation_grounding` viaja en la source como `chunk_id`. Su
         # `section_path` es un hint MUCHO mejor que el nombre de la categoría
@@ -787,29 +785,23 @@ def compute_highlights_for_sources(
         # búsqueda viva (ver más arriba), que es donde su identidad realmente
         # sirve: elegir CUÁL de las apariciones de la cita en la página es la
         # correcta.
-        if regions:
-            stats["with_bbox"] += 1
-            logger.debug(
-                "highlight_from_azure_di_blocks",
-                correlation_id=correlation_id,
-                document_id=document_id,
-                page_number=page_number,
-                category_key=category_key,
-                regions_count=len(regions),
-            )
-        else:
-            stats["no_bbox"] += 1
-            logger.warning(
-                "highlight_no_blocks_available",
-                correlation_id=correlation_id,
-                document_id=document_id,
-                page_number=page_number,
-                category_key=category_key,
-                citation_preview=citation[:100],
-                message="No blocks found for source - highlighting disabled for precision",
-            )
-        
-        source_copy["highlight_regions"] = regions
+        # Llegar acá significa que la búsqueda viva no ubicó la cita en el PDF
+        # (o que no había PDF). No hay segundo camino: se emite sin regiones y
+        # el visor marca sobre la capa de texto de react-pdf.
+        stats["no_bbox"] += 1
+        logger.warning(
+            "highlight_live_search_found_nothing",
+            correlation_id=correlation_id,
+            document_id=document_id,
+            page_number=page_number,
+            category_key=category_key,
+            had_pdf=bool(pdf_path),
+            section_hint=section_hint,
+            citation_preview=citation[:100],
+            message="sin regiones: el visor cae al marcado sobre la capa de texto",
+        )
+
+        source_copy["highlight_regions"] = []
         enriched_sources.append(source_copy)
     
     # Log stats finales
@@ -821,7 +813,6 @@ def compute_highlights_for_sources(
         total_sources=stats["total"],
         with_bbox=stats["with_bbox"],
         no_bbox=stats["no_bbox"],
-        multiple_blocks_filtered=stats["multiple_blocks"],
         from_live_search=stats.get("from_live_search", 0),
         bbox_rate_pct=round(bbox_rate, 1),
     )

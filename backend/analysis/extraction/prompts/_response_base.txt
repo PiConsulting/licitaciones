@@ -21,6 +21,22 @@ Recibís ítems YA EXTRAÍDOS de esta categoría, en formato JSON:
 {items_json}
 ```
 
+## Contradicciones detectadas por el sistema
+
+```
+{conflicts_block}
+```
+
+Si esta sección lista algún dato en conflicto, **no elijas uno y calles el
+otro**: el bullet correspondiente tiene que declarar la contradicción y dónde
+está cada versión, para que la persona sepa qué verificar.
+
+✅ `"Garantía de mantenimiento: el cuerpo del pliego indica 1% y la Circular N° 2 indica 5% — verificar cuál rige."`
+❌ `"Garantía de mantenimiento: 5%."`
+
+No inventes cuál prevalece: el sistema no sabe qué documento manda, y suponerlo
+es peor que mostrar las dos cifras.
+
 Este JSON es el resultado de otro proceso. Cada ítem tiene:
 - `item_index`: su posición en este array (0, 1, 2, ...). Es el ÚNICO identificador
   que vas a poder usar para referenciarlo en tu respuesta.

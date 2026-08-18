@@ -24,6 +24,7 @@ from analysis.extraction.extractors.base import shorten_citation_to_evidence
 from analysis.extraction.schemas import (
     CITATION_MAX_CHARS,
     CITATION_MIN_CHARS,
+    NOT_ANALYZED_STATUS,
     AnexoObligatorioItem,
     CausalRechazoItem,
     CriterioEvaluacionItem,
@@ -710,6 +711,7 @@ def _keep_schema_valid_items(
     *,
     category: str,
     correlation_id: str,
+    quality: dict[str, dict[str, int]] | None = None,
 ) -> tuple[list[dict], str]:
     """Descarta los items que no cumplen su schema, en vez de dejar que uno solo
     haga fallar la validacion de `ExtractedData` entera.
@@ -749,13 +751,30 @@ def _keep_schema_valid_items(
         if normalized_status in {"success", "unknown"}:
             normalized_status = "partial"
 
+        if quality is not None:
+            registro = quality.setdefault(category, {})
+            registro["descartados_por_formato"] = registro.get("descartados_por_formato", 0) + len(invalid)
+            registro["conservados"] = len(valid)
+
     return valid, normalized_status
 
 
-def _drop_items_without_sources(items: list[dict], status: str) -> tuple[list[dict], str]:
+def _drop_items_without_sources(
+    items: list[dict],
+    status: str,
+    *,
+    category: str = "",
+    quality: dict[str, dict[str, int]] | None = None,
+) -> tuple[list[dict], str]:
     """El contrato final exige al menos una fuente por item persistido.
     Si el grounding dejó items sin citas verificables, se descartan y la
-    categoría baja a partial cuando antes figuraba como success."""
+    categoría baja a partial cuando antes figuraba como success.
+
+    ATR-03 (auditoría 2026-08-13): además se ANOTA cuántos se descartaron. El
+    descarte estaba bien hecho, pero era invisible: la categoría llegaba al
+    usuario como `partial` sin ninguna forma de distinguir "el pliego dice poco"
+    de "el modelo produjo hallazgos que no pudimos respaldar".
+    """
     items = _enforce_citation_contract(items)
     filtered = [item for item in items if list(item.get("source_references", []))]
     dropped = len(items) - len(filtered)
@@ -763,6 +782,19 @@ def _drop_items_without_sources(items: list[dict], status: str) -> tuple[list[di
 
     if dropped and normalized_status in {"success", "unknown"}:
         normalized_status = "partial"
+
+    if quality is not None and category:
+        registro = quality.setdefault(category, {})
+        if dropped:
+            registro["descartados_sin_evidencia"] = registro.get("descartados_sin_evidencia", 0) + dropped
+        # Items que sobrevivieron pero cuya cita tuvo que rescatarse: su
+        # evidencia declarada no verificaba (ver ATR-02).
+        rescatados = sum(
+            1 for item in filtered if str(item.get("_warning", "")) == "cita_reemplazada_por_rescate"
+        )
+        if rescatados:
+            registro["con_evidencia_rescatada"] = registro.get("con_evidencia_rescatada", 0) + rescatados
+        registro["conservados"] = len(filtered)
 
     return filtered, normalized_status
 
@@ -851,22 +883,32 @@ def merge_node(state: GraphState) -> GraphState:
         identificacion, lambda item: (str(item.get("tipo", "")), _normalized_valor_key(item))
     )
 
+    # ATR-03: contadores de calidad por categoría, para que el usuario pueda
+    # distinguir "el pliego dice poco" de "tuvimos que descartar hallazgos".
+    calidad: dict[str, dict[str, int]] = {}
+
     objeto_alcance, objeto_alcance_status = _drop_items_without_sources(
         objeto_alcance,
         str(state.get("objeto_alcance_status", "unknown")),
+        category="objeto_alcance",
+        quality=calidad,
     )
     requisitos_admisibilidad, requisitos_admisibilidad_status = _drop_items_without_sources(
         requisitos_admisibilidad,
         str(state.get("requisitos_admisibilidad_status", "unknown")),
+        category="requisitos_admisibilidad",
+        quality=calidad,
     )
-    plazos, plazos_status = _drop_items_without_sources(plazos, str(state.get("plazos_status", "unknown")))
-    garantias, garantias_status = _drop_items_without_sources(garantias, str(state.get("garantias_status", "unknown")))
-    causales, causales_status = _drop_items_without_sources(causales, str(state.get("causales_status", "unknown")))
-    anexos, anexos_status = _drop_items_without_sources(anexos, str(state.get("anexos_status", "unknown")))
-    criterios, criterios_status = _drop_items_without_sources(criterios, str(state.get("criterios_status", "unknown")))
+    plazos, plazos_status = _drop_items_without_sources(plazos, str(state.get("plazos_status", "unknown")), category="plazos_clave", quality=calidad)
+    garantias, garantias_status = _drop_items_without_sources(garantias, str(state.get("garantias_status", "unknown")), category="garantias", quality=calidad)
+    causales, causales_status = _drop_items_without_sources(causales, str(state.get("causales_status", "unknown")), category="causales_rechazo", quality=calidad)
+    anexos, anexos_status = _drop_items_without_sources(anexos, str(state.get("anexos_status", "unknown")), category="anexos_obligatorios", quality=calidad)
+    criterios, criterios_status = _drop_items_without_sources(criterios, str(state.get("criterios_status", "unknown")), category="criterios_evaluacion", quality=calidad)
     identificacion, identificacion_status = _drop_items_without_sources(
         identificacion,
         str(state.get("identificacion_status", "unknown")),
+        category="identificacion_procedimiento",
+        quality=calidad,
     )
 
     # Campo canónico: solo los ítems cuyo `tipo` cae en el enum
@@ -885,37 +927,40 @@ def merge_node(state: GraphState) -> GraphState:
     # categorias de una.
     objeto_alcance, objeto_alcance_status = _keep_schema_valid_items(
         objeto_alcance, ObjetoAlcanceItem, objeto_alcance_status,
-        category="objeto_alcance", correlation_id=correlation_id,
+        category="objeto_alcance", correlation_id=correlation_id, quality=calidad,
     )
     requisitos_admisibilidad, requisitos_admisibilidad_status = _keep_schema_valid_items(
         requisitos_admisibilidad, RequisitoAdmisibilidadItem, requisitos_admisibilidad_status,
-        category="requisitos_admisibilidad", correlation_id=correlation_id,
+        category="requisitos_admisibilidad", correlation_id=correlation_id, quality=calidad,
     )
     plazos, plazos_status = _keep_schema_valid_items(
-        plazos, PlazoItem, plazos_status, category="plazos_clave", correlation_id=correlation_id,
+        plazos, PlazoItem, plazos_status, category="plazos_clave", correlation_id=correlation_id, quality=calidad,
     )
     garantias, garantias_status = _keep_schema_valid_items(
         garantias, GarantiaItem, garantias_status,
-        category="garantias", correlation_id=correlation_id,
+        category="garantias", correlation_id=correlation_id, quality=calidad,
     )
     causales, causales_status = _keep_schema_valid_items(
         causales, CausalRechazoItem, causales_status,
-        category="causales_rechazo", correlation_id=correlation_id,
+        category="causales_rechazo", correlation_id=correlation_id, quality=calidad,
     )
     anexos, anexos_status = _keep_schema_valid_items(
         anexos, AnexoObligatorioItem, anexos_status,
-        category="anexos_obligatorios", correlation_id=correlation_id,
+        category="anexos_obligatorios", correlation_id=correlation_id, quality=calidad,
     )
     criterios, criterios_status = _keep_schema_valid_items(
         criterios, CriterioEvaluacionItem, criterios_status,
-        category="criterios_evaluacion", correlation_id=correlation_id,
+        category="criterios_evaluacion", correlation_id=correlation_id, quality=calidad,
     )
     identificacion_canonica, identificacion_status = _keep_schema_valid_items(
         identificacion_canonica, IdentificacionProcedimientoItem, identificacion_status,
-        category="identificacion_procedimiento", correlation_id=correlation_id,
+        category="identificacion_procedimiento", correlation_id=correlation_id, quality=calidad,
     )
 
     extracted_data = {
+        # ATR-03: viaja dentro de `extracted_data` porque es lo único que llega
+        # al frontend sin cambiar el contrato de la API.
+        "calidad_por_categoria": calidad,
         "objeto_alcance": objeto_alcance,
         "objeto_alcance_extraction_status": objeto_alcance_status,
         "objeto_alcance_confidence": _category_confidence(objeto_alcance),
@@ -950,18 +995,27 @@ def merge_node(state: GraphState) -> GraphState:
         "datos_procedimiento": identificacion,
         "datos_procedimiento_extraction_status": identificacion_status,
         "datos_procedimiento_confidence": _category_confidence(identificacion),
+        # FIX (auditoría 2026-08-13, hallazgo CTX-03): estos cuatro campos
+        # estaban en `not_found`, que en toda la UI significa "el pliego no lo
+        # dice". Pero ningún nodo del grafo los completa: los ocho extractores
+        # están listados en `_EXTRACTOR_NODES` y ninguno mapea acá. La verdad no
+        # es "no encontrado" sino "no analizado".
+        #
+        # La diferencia importa: para `estimacion_presupuesto`, un oferente que
+        # lee "no encontrado" puede concluir que el pliego no publica
+        # presupuesto oficial, cuando el sistema nunca lo buscó por esa vía.
         "documentos_requeridos": [],
-        "documentos_extraction_status": "not_found",
+        "documentos_extraction_status": NOT_ANALYZED_STATUS,
         "criterios_evaluacion": criterios,
         "criterios_evaluacion_extraction_status": criterios_status,
         "criterios_extraction_status": criterios_status,
         "criterios_evaluacion_confidence": _category_confidence(criterios),
         "restricciones_participacion": [],
-        "restricciones_extraction_status": "not_found",
+        "restricciones_extraction_status": NOT_ANALYZED_STATUS,
         "cronograma_proceso": [],
-        "cronograma_extraction_status": "not_found",
+        "cronograma_extraction_status": NOT_ANALYZED_STATUS,
         "estimacion_presupuesto": None,
-        "presupuesto_extraction_status": "not_found",
+        "presupuesto_extraction_status": NOT_ANALYZED_STATUS,
     }
 
     token_usage = {
@@ -1014,7 +1068,7 @@ def merge_node(state: GraphState) -> GraphState:
     validated = ExtractedData(**extracted_data)
     state["extracted_data"] = validated.model_dump()
     state["conflicts"] = conflicts
-    state["extraction_metadata"] = {"token_usage": token_usage}
+    state["extraction_metadata"] = {"token_usage": token_usage, "calidad_por_categoria": calidad}
 
     logger.info(
         "merge_node_completed",
@@ -1145,6 +1199,9 @@ def synthesize_node(state: GraphState) -> GraphState:
             items=items,
             correlation_id=correlation_id,
             chunks_by_id=chunks_by_id,
+            # CTX-04: los conflictos que detectó `merge_node` tienen que llegar
+            # a quien redacta la respuesta. Antes se quedaban en el estado.
+            conflicts=state.get("conflicts") or [],
         )
         if result is None:
             continue

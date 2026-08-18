@@ -149,4 +149,64 @@ describe("buildNarrativeBlocks", () => {
     expect(narrative.blocks[0]).toMatchObject({ type: "paragraph", confidence_level: "low" });
     expect(narrative.sources).toHaveLength(0);
   });
+
+  // FIX (2026-08-13): un item "no_aplica" trae obligatoriamente una `valor`
+  // explicando el motivo (ver backend/analysis/extraction/prompts/garantias.txt,
+  // Caso 4) -- antes este fallback la descartaba y mostraba siempre la misma
+  // frase genérica ("Garantías no aplica para este pliego."), sin importar la
+  // explicación real que vino con cita desde el pliego.
+  test("item no_aplica con explicacion muestra la explicacion, no una frase generica", () => {
+    const category = createCategory([
+      createField("mantenimiento_oferta", {
+        state: "no_aplica",
+        value: "El pliego sólo prevé garantía técnica del equipamiento, ninguna financiera",
+      }),
+    ]);
+
+    const narrative = buildNarrativeBlocks(category, "garantias");
+
+    expect(narrative.blocks).toHaveLength(1);
+    expect(narrative.blocks[0]).toMatchObject({
+      type: "paragraph",
+      text: expect.stringContaining(
+        "El pliego sólo prevé garantía técnica del equipamiento, ninguna financiera",
+      ),
+    });
+    // La cita que respalda la explicación no_aplica se preserva como fuente.
+    expect(narrative.sources).toHaveLength(1);
+  });
+
+  test("item no_aplica sin explicacion (valor vacio) no cuenta como dato util y cae al fallback", () => {
+    // Sin `valor`, un item no_aplica no aporta nada verificable -- distinto
+    // del caso con explicación, que sí debe mostrarse (test anterior).
+    const category = createCategory([
+      createField("mantenimiento_oferta", { state: "no_aplica", value: "" }),
+    ]);
+
+    const narrative = buildNarrativeBlocks(category, "garantias");
+
+    expect(narrative.blocks[0]).toMatchObject({
+      type: "paragraph",
+      text: expect.stringContaining("No se encontró información sobre"),
+    });
+  });
+
+  test("categoria compuesta solo por items no_aplica no cae al fallback 'no se encontro informacion'", () => {
+    // Antes, al no contar como "dato util", una categoria entera de items
+    // no_aplica caia en fallbackBlock ("No se encontró información sobre
+    // garantías..."), contradiciendo el badge "no aplica" que sí se muestra.
+    const category = createCategory([
+      createField("mantenimiento_oferta", {
+        state: "no_aplica",
+        value: "No se exige garantía; el pliego sólo regula su ajuste en caso de corresponder",
+      }),
+    ]);
+
+    const narrative = buildNarrativeBlocks(category, "garantias");
+
+    expect(narrative.blocks[0]).toMatchObject({
+      type: "paragraph",
+      text: expect.stringContaining("No se exige garantía"),
+    });
+  });
 });

@@ -26,8 +26,20 @@ function fieldSentence(field: FieldItem): string | null {
     }
     case "no_encontrado":
       return `No se encontró información sobre ${fieldLabel.toLowerCase()}.`;
-    case "no_aplica":
-      return `${fieldLabel} no aplica para este pliego.`;
+    case "no_aplica": {
+      // FIX (2026-08-13): antes se descartaba `field_value` acá y se mostraba
+      // siempre la misma frase genérica ("X no aplica para este pliego"),
+      // aunque el backend (ver `garantias.txt` Caso 4, y el mismo patrón para
+      // cualquier categoría) exige una `valor` explicando el motivo puntual
+      // ("el pliego sólo prevé garantía técnica del equipamiento, ninguna
+      // financiera", "exento por no superar el monto X", etc.) con cita
+      // obligatoria. Este fallback de frontend solo corre cuando el backend
+      // no llegó a emitir `narrative` (ver comentario de `buildNarrativeBlocks`
+      // más abajo) -- pero cuando corre, tiene que mostrar esa explicación en
+      // vez de perderla.
+      const value = normalizeText(field.field_value);
+      return value ? `${fieldLabel}: ${value}.` : `${fieldLabel} no aplica para este pliego.`;
+    }
     case "en_conflicto":
       return `${fieldLabel} presenta valores en conflicto entre documentos.`;
     default:
@@ -90,8 +102,16 @@ export function buildNarrativeBlocks(category: CategoryData, categoryId: Categor
     return { blocks: [fallbackBlock(categoryId)], sources: [] };
   }
 
+  // FIX (2026-08-13): un item "no_aplica" con explicación (ej. garantías
+  // financieras exentas, con `valor` obligatorio por prompt) SÍ es dato útil
+  // -- antes solo "extraido" contaba, así que una categoría compuesta
+  // enteramente por items no_aplica cae acá y mostraba "No se encontró
+  // información sobre..." (fallbackBlock), que contradice el badge "no
+  // aplica" que sí se muestra en `CategorySection` y esconde la explicación.
   const hasUsefulData = items.some(
-    (item) => item.field_state === "extraido" && normalizeText(item.field_value) !== "",
+    (item) =>
+      (item.field_state === "extraido" || item.field_state === "no_aplica") &&
+      normalizeText(item.field_value) !== "",
   );
   if (!hasUsefulData) {
     return { blocks: [fallbackBlock(categoryId)], sources: [] };

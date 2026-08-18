@@ -97,6 +97,13 @@ class SourceReference(BaseModel):
     )
 
 
+# CTX-03 (auditoria 2026-08-13): estado para las categorias que el pipeline
+# declara en el contrato pero NINGUN extractor completa. `not_found` significa
+# "el pliego no lo dice"; esto significa "no lo buscamos". Confundir las dos
+# cosas le hace creer al usuario que el pliego calla sobre algo que el sistema
+# nunca miro.
+NOT_ANALYZED_STATUS = "not_analyzed"
+
 ConfidenceLevel = Literal["alta", "media", "baja"]
 ExtractionStatus = Literal["success", "failed", "not_found", "partial", "not_applicable"]
 
@@ -602,6 +609,18 @@ class ExtractedData(BaseModel):
     - narrative: respuesta en lenguaje natural (opcional)
     """
     
+    # ATR-03 (auditoria 2026-08-13): cuantos hallazgos se descartaron por
+    # categoria y por que. El pipeline ya descartaba correctamente los items sin
+    # cita verificable, pero esa informacion moria en un log: el usuario veia la
+    # categoria como `partial` sin poder distinguir "el pliego dice poco" de
+    # "el modelo produjo tres items que no pudimos respaldar y los tiramos".
+    # Esa diferencia es justamente la senal de si conviene desconfiar.
+    #
+    # Va dentro de `extracted_data` -- y no en `extraction_metadata` -- porque
+    # es lo unico que ya viaja hasta el frontend sin cambiar el contrato de la
+    # API.
+    calidad_por_categoria: dict[str, dict[str, int]] = Field(default_factory=dict)
+
     # Objeto y Alcance
     objeto_alcance: list[ObjetoAlcanceItem] = Field(default_factory=list)
     objeto_alcance_extraction_status: str = "unknown"
@@ -708,7 +727,7 @@ class ExtractedData(BaseModel):
         default_factory=list,
         description="DEPRECATED: Usar 'anexos_obligatorios' en su lugar. Será eliminado en Q2 2027.",
     )
-    documentos_extraction_status: str = "unknown"
+    documentos_extraction_status: str = NOT_ANALYZED_STATUS
 
     # FIX (auditoría US-5.3, 2026-08-12): `merge_node` ya escribía estos tres
     # campos en el dict de `extracted_data`, pero no estaban declarados acá --
@@ -720,11 +739,11 @@ class ExtractedData(BaseModel):
     # implemente un extractor para alguna de las tres, sus datos se perderían en
     # silencio antes de llegar a la API -- igual que pasó antes.
     restricciones_participacion: list[GenericCategoryItem] = Field(default_factory=list)
-    restricciones_extraction_status: str = "not_found"
+    restricciones_extraction_status: str = NOT_ANALYZED_STATUS
     cronograma_proceso: list[GenericCategoryItem] = Field(default_factory=list)
-    cronograma_extraction_status: str = "not_found"
+    cronograma_extraction_status: str = NOT_ANALYZED_STATUS
     estimacion_presupuesto: PresupuestoItem | None = None
-    presupuesto_extraction_status: str = "not_found"
+    presupuesto_extraction_status: str = NOT_ANALYZED_STATUS
 
 
 # =============================================================================

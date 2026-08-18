@@ -7,8 +7,10 @@ import {
   type CategoryData,
   type CategoryId,
   type CategoryNarrative,
+  type CategoryQuality,
   type ConfidenceLevel,
   type FieldItem,
+  type HighlightRegion,
   type NarrativeBlockData,
   type NarrativeSource,
   type PlazoRawFields,
@@ -51,6 +53,41 @@ function toSourceIds(value: unknown): number[] {
   return value.map((id) => Number(id)).filter((id) => Number.isFinite(id));
 }
 
+/** Las coordenadas de resaltado que calculó el backend, tal cual vienen.
+ *
+ * FIX (2026-08-14): este mapper NO copiaba `highlight_regions`, y es el único
+ * constructor de `NarrativeSource` en todo el frontend. O sea que
+ * `getCombinedHighlightRegions()` devolvía SIEMPRE `[]`, `useCoordinateHighlight`
+ * era SIEMPRE `false`, y el visor caía SIEMPRE al resaltado heurístico por
+ * texto. El camino de coordenadas era código muerto en producción.
+ *
+ * Eso explica por qué varias correcciones del cálculo de coordenadas en el
+ * backend no cambiaron nada de lo que se veía: los números llegaban bien hasta
+ * el borde de la API y se descartaban acá. Los tests no lo detectaban porque
+ * mockean la respuesta ya mapeada o construyen las regiones a mano.
+ */
+function toHighlightRegions(value: unknown): HighlightRegion[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const regions: HighlightRegion[] = [];
+  for (const raw of value) {
+    if (!isRecord(raw)) {
+      continue;
+    }
+    const region = {
+      x: Number(raw.x),
+      y: Number(raw.y),
+      width: Number(raw.width),
+      height: Number(raw.height),
+    };
+    if (Object.values(region).every((n) => Number.isFinite(n))) {
+      regions.push(region);
+    }
+  }
+  return regions;
+}
+
 function toNarrativeSource(value: unknown): NarrativeSource | null {
   if (!isRecord(value)) {
     return null;
@@ -62,6 +99,7 @@ function toNarrativeSource(value: unknown): NarrativeSource | null {
     page: Number(value.page_number ?? 0),
     text: String(value.citation ?? ""),
     unverified: Boolean(value.unverified),
+    highlight_regions: toHighlightRegions(value.highlight_regions),
   };
 }
 
@@ -275,6 +313,7 @@ const FIELD_LABELS: Record<string, string> = {
   numero_procedimiento: "Procedimiento",
   tipo_procedimiento: "Tipo de procedimiento",
   jurisdiccion: "Jurisdicción",
+  denominacion: "Denominación",
   otro: "Otro",
   otra: "Otra",
 };
@@ -352,11 +391,22 @@ function fromBackendItem(value: unknown): FieldItem | null {
   const status = String(value.extraction_status ?? "success");
   const refsRaw = Array.isArray(value.source_references) ? value.source_references : [];
   const raw = toPlazoRawFields(value);
+  const fieldValue = backendItemValue(value);
+  const hasEvidence = refsRaw.some((ref) => {
+    if (!isRecord(ref)) {
+      return false;
+    }
+    const citation = String(ref.citation ?? "").trim();
+    return citation.length > 0;
+  });
+
+  const shouldOverrideNotFound = (status === "not_found" || status === "failed") && (fieldValue != null || hasEvidence);
+  const fieldState = shouldOverrideNotFound ? "extraido" : (STATE_BY_STATUS[status] ?? "extraido");
 
   return {
     field_name: humanizeTipo(String(value.tipo ?? "")),
-    field_value: backendItemValue(value),
-    field_state: STATE_BY_STATUS[status] ?? "extraido",
+    field_value: fieldValue,
+    field_state: fieldState,
     confidence: Number(value.confidence ?? 0),
     citations: refsRaw.filter(isRecord).map((ref) => ({
       text: String(ref.citation ?? ""),
@@ -453,6 +503,26 @@ function fromBackendArray(
  */
 const NORMALIZE_CATEGORY_IDS: CategoryId[] = [...CATEGORY_ORDER, "datos_procedimiento"];
 
+/** Los contadores de calidad que emite `merge_node` por categoría (ATR-03). */
+function toCategoryQuality(value: unknown): CategoryQuality | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const quality: CategoryQuality = {};
+  for (const key of [
+    "descartados_sin_evidencia",
+    "descartados_por_formato",
+    "con_evidencia_rescatada",
+    "conservados",
+  ] as const) {
+    const raw = Number(value[key]);
+    if (Number.isFinite(raw) && raw > 0) {
+      quality[key] = raw;
+    }
+  }
+  return Object.keys(quality).length > 0 ? quality : undefined;
+}
+
 function normalizeCategories(extractedData: unknown): Record<CategoryId, CategoryData> {
   const result = NORMALIZE_CATEGORY_IDS.reduce<Record<CategoryId, CategoryData>>((acc, categoryId) => {
     acc[categoryId] = emptyCategoryData();
@@ -473,6 +543,10 @@ function normalizeCategories(extractedData: unknown): Record<CategoryId, Categor
     requisitos_admisibilidad: ["documentos_requeridos", "restricciones_participacion"],
     datos_procedimiento: ["cronograma_proceso", "estimacion_presupuesto"],
   };
+
+  const calidadPorCategoria = isRecord(extractedData.calidad_por_categoria)
+    ? (extractedData.calidad_por_categoria as Record<string, unknown>)
+    : {};
 
   for (const categoryId of NORMALIZE_CATEGORY_IDS) {
     let rawCategory = extractedData[categoryId];
@@ -528,7 +602,14 @@ function normalizeCategories(extractedData: unknown): Record<CategoryId, Categor
       .filter((ref): ref is SourceReference => ref !== null);
 
     const statusValue = String(rawCategory.extraction_status ?? "partial");
-    const extractionStatus = ["success", "partial", "failed", "not_found", "not_applicable"].includes(statusValue)
+    const extractionStatus = [
+      "success",
+      "partial",
+      "failed",
+      "not_found",
+      "not_applicable",
+      "not_analyzed",
+    ].includes(statusValue)
       ? (statusValue as CategoryData["extraction_status"])
       : "partial";
 
@@ -540,6 +621,7 @@ function normalizeCategories(extractedData: unknown): Record<CategoryId, Categor
       summary: String(rawCategory.summary ?? "Sin resumen disponible."),
       is_reviewed: Boolean(rawCategory.is_reviewed) && hasClickableEvidence(items),
       narrative: toCategoryNarrative(rawCategory.narrative),
+      quality: toCategoryQuality(calidadPorCategoria[categoryId]),
     };
   }
 
