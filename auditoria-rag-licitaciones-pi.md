@@ -3099,3 +3099,101 @@ medirlo sobre los dos pliegos antes de escribir una línea de fix. Promover por
 `uppercase_ratio > 0.5` a ciegas convertiría en encabezado cualquier línea en
 mayúsculas —`PRESUPUESTO OFICIAL: $ X`, `APERTURA:`, `ITEMS:` ya aparecen en el
 log— y fabricar secciones falsas es tan malo como perderlas.
+
+---
+
+### ING-11 · media · Los escapes de markdown de DI rompían el mapeo al bbox
+
+`extraction/document_intelligence.py::_same_text`
+
+En modo markdown, Document Intelligence **escapa** la puntuación que markdown
+interpretaría como sintaxis: emite `1\. Etapa 1`, `\+ 10 Gb`, `\> Planificación`,
+`\- Intel Xeon`. Pero `result.paragraphs[].content` es texto plano, sin escapes.
+El mismo texto llega distinto por los dos caminos y el emparejamiento los daba
+por diferentes desde el segundo carácter.
+
+**Evidencia**, del PASO 4 sobre el PET de Bancor:
+
+```
+match_rate_pct=98.1  matched=707  no_match=14  total_blocks=721
+
+para_sin_parrafo_equivalente  page=17  '1\. Etapa 1 - Migración por el proveedor: el proveedor migrará…'
+para_sin_parrafo_equivalente  page=17  '2\. Etapa 2 - Acompañamiento presencial: el proveedor acompañará…'
+para_sin_parrafo_equivalente  page=18  '3\. Etapa 3 - Migración por Bancor con soporte del oferente…'
+```
+
+Las tres etapas de migración del apartado 3.1.10 — contenido de `plazos_clave`,
+no relleno. Se ve en los chunks 44 y 45 del reanálisis `7bce4799`:
+`"para_id": null, "bbox": []`.
+
+**Fix aplicado** — se sacan los escapes de markdown antes de comparar
+(`_unescape_markdown`, sólo el backslash que precede puntuación ASCII; una barra
+que no precede puntuación se conserva, porque ahí no es un escape).
+
+**Alcance real, medido, no prometido:** de los 14 bloques sin bbox de Bancor,
+ING-11 debería recuperar **7** — las tres etapas de migración y cuatro entradas
+del índice (`6\. Calidad…`, `7\. Metodología…`, `8\. Prohibiciones`,
+`9\. Anexos`), que CHK-13 descarta después igual. Los otros **7 siguen sin
+bbox** y son otra cosa: todos contienen `☐`, el glifo de casilla que DI reporta
+como *selection mark* y no dentro de `paragraphs`. No hay párrafo al que
+emparejarlos; `bbox: []` es la respuesta honesta.
+
+Cubierto por `backend/tests/test_escapes_de_markdown.py` (10 tests). Revirtiendo
+el desescapado fallan 2 — los otros 8 están marcados explícitamente como guardas
+porque **ya matcheaban sin el fix**: sólo rompe el emparejamiento el escape que
+cae dentro de los primeros 40 caracteres y no pega contra ningún borde. Un `\+`
+en el carácter 95 se salvaba por prefijo y un `\-` en el carácter 0 por sufijo.
+Suite: 621 passed / 7 failed (los 7 de base).
+
+**Instrumento nuevo contra mis propias regresiones.** El PASO 4 del diagnóstico
+ahora reevalúa cada bloque sin bbox contra todos los párrafos de su página **con
+la regla vieja** (contención libre, sin desescapar). Si la regla vieja los
+matcheaba, imprime `>> REGRESIÓN de ING-10/ING-11`. Sin eso, cada vez que toque
+`_same_text` tendría que creerle a mi propio razonamiento sobre si aflojé o
+apreté de más; ahora sale un número.
+
+---
+
+### CHK-21 · medido: el falso positivo que temía está, y es mayoría
+
+PASO 7 sobre los dos pliegos:
+
+```
+Rosario                                          Bancor
+  pág 3 · SUELTO · 54 · 'Item 1: 4 (cuatro) Servidores…'      sueltos : 0
+  pág 3 · SUELTO · 47 · 'Item 2: 4 (cuatro) Servidores…'      pegados : 0
+  pág 3 · SUELTO · 33 · 'Item 3: 4 (cuatro) LCD KVM Switch'
+  pág 4 · PEGADO · 582 · 'Artículo Nº 10: GARANTÍA DE ADJUDICACIÓN: En caso de…'
+  pág 4 · SUELTO · 29 · 'ARTÍCULO 12: PLAZO DE ENTREGA'
+  sueltos: 4   pegados: 1
+```
+
+**Tres de los cuatro "sueltos" NO hay que promoverlos.** Los `Item 1/2/3` de la
+página 3 son la lista de lo que se licita, colgando del encabezado
+`ITEMS LICITADOS:` — y las secciones técnicas de verdad, `ITEM1 - 4 (cuatro)
+Servidores de aplicaciones tipo XEN` y sus hermanas, están en las páginas 8-9 y
+**ya son encabezados**. Promover las de la página 3 fabricaría tres secciones
+duplicadas que además parten la lista en pedazos: exactamente el ruido que CHK-13
+vino a sacar con el índice.
+
+O sea que en dos pliegos, 45 + 10 páginas, lo que hay que promover es **un solo
+bloque**: `ARTÍCULO 12: PLAZO DE ENTREGA`. Y un solo bloque que partir: el
+Artículo 10 de 582 caracteres.
+
+Eso cambia la relación costo/beneficio del fix. Una heurística de promoción que
+acierte en 1 de 4 casos y cuyo error sea *fabricar secciones* no vale la pena con
+lo que sabemos hoy: el daño de inventar jerarquía es simétrico al de perderla, y
+ya vimos con CHK-19 lo lejos que se propaga un `section_path` equivocado.
+
+**Queda abierto, sin fix propuesto**, con dos condiciones para reabrirlo:
+
+1. una señal que distinga el título de sección del ítem de una lista **sin**
+   depender de mayúsculas — el candidato natural es geométrico (el bbox del
+   título arranca en el margen y el del ítem viene sangrado), que es la misma
+   familia de evidencia que usa CHK-12 y que ahora sí tenemos al 100%;
+2. un tercer pliego, para no calibrar contra los dos que ya conozco de memoria.
+
+Lo que sí conviene hacer ya, y es barato: `potential_missed_heading` está en
+`debug`. Subirlo a `info` no arregla nada pero deja el rastro en producción, que
+es lo que va a permitir juntar los casos del punto 2 sin pedirle al usuario que
+corra un script.

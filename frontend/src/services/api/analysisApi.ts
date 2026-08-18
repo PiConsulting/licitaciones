@@ -23,6 +23,31 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function isGenericDocumentLabel(value: string): boolean {
+  return value.trim().toLocaleLowerCase("es") === "documento";
+}
+
+function pickDocumentName(record: Record<string, unknown>): string {
+  const candidates = [
+    record.document_name,
+    record.documentName,
+    record.filename,
+    record.document_filename,
+    record.source_filename,
+    record.file_name,
+    record.fileName,
+  ];
+
+  for (const candidate of candidates) {
+    const text = String(candidate ?? "").trim();
+    if (text !== "") {
+      return text;
+    }
+  }
+
+  return "Documento";
+}
+
 function toSourceReference(value: unknown): SourceReference | null {
   if (!isRecord(value)) {
     return null;
@@ -92,12 +117,16 @@ function toNarrativeSource(value: unknown): NarrativeSource | null {
   if (!isRecord(value)) {
     return null;
   }
+
+  const page = Number(value.page_number ?? value.page ?? 0);
+  const text = String(value.citation ?? value.text ?? "");
+
   return {
     id: Number(value.id ?? 0),
     document_id: String(value.document_id ?? ""),
-    document_name: "Documento",
-    page: Number(value.page_number ?? 0),
-    text: String(value.citation ?? ""),
+    document_name: pickDocumentName(value),
+    page,
+    text,
     unverified: Boolean(value.unverified),
     highlight_regions: toHighlightRegions(value.highlight_regions),
   };
@@ -245,7 +274,7 @@ function toFieldItem(value: unknown): FieldItem | null {
         text: String(citation.text ?? ""),
         page: Number(citation.page ?? 0),
         document_id: String(citation.document_id ?? ""),
-        document_name: String(citation.document_name ?? "Documento"),
+        document_name: pickDocumentName(citation),
         value: citation.value == null ? undefined : String(citation.value),
       })),
     modified_by: value.modified_by == null ? undefined : String(value.modified_by),
@@ -412,7 +441,7 @@ function fromBackendItem(value: unknown): FieldItem | null {
       text: String(ref.citation ?? ""),
       page: Number(ref.page_number ?? 0),
       document_id: String(ref.document_id ?? ""),
-      document_name: "Documento",
+      document_name: pickDocumentName(ref),
     })),
     ...(raw ? { raw } : {}),
   };
@@ -645,17 +674,78 @@ function mapStatusToDetail(analysisId: string, statusPayload: AnalysisStatusResp
   };
 }
 
+function hydrateCategoryDocumentNames(
+  category: CategoryData,
+  documentsById: Map<string, string>,
+): CategoryData {
+  const items = category.items.map((item) => ({
+    ...item,
+    citations: item.citations.map((citation) => {
+      const mappedName = documentsById.get(citation.document_id);
+      const needsHydration = citation.document_name.trim() === "" || isGenericDocumentLabel(citation.document_name);
+      return {
+        ...citation,
+        document_name: needsHydration ? (mappedName ?? citation.document_name) : citation.document_name,
+      };
+    }),
+  }));
+
+  const narrative = category.narrative
+    ? {
+        ...category.narrative,
+        sources: category.narrative.sources.map((source) => {
+          const mappedName = documentsById.get(source.document_id);
+          const needsHydration = source.document_name.trim() === "" || isGenericDocumentLabel(source.document_name);
+          return {
+            ...source,
+            document_name: needsHydration ? (mappedName ?? source.document_name) : source.document_name,
+          };
+        }),
+      }
+    : category.narrative;
+
+  return {
+    ...category,
+    items,
+    narrative,
+  };
+}
+
+function hydrateAnalysisDocumentNames(payload: AnalysisDetail): AnalysisDetail {
+  const documentsById = new Map(payload.documents.map((document) => [document.id, document.filename]));
+  const extracted = payload.current_version?.extracted_data;
+  if (!extracted || documentsById.size === 0) {
+    return payload;
+  }
+
+  const hydrated = Object.fromEntries(
+    Object.entries(extracted).map(([categoryId, category]) => [
+      categoryId,
+      hydrateCategoryDocumentNames(category, documentsById),
+    ]),
+  ) as Record<CategoryId, CategoryData>;
+
+  return {
+    ...payload,
+    current_version: {
+      ...payload.current_version,
+      extracted_data: hydrated,
+    },
+  };
+}
+
 export async function getAnalysisById(analysisId: string): Promise<AnalysisDetail> {
   try {
     const response = await apiClient.get<AnalysisDetail>(`/analyses/${analysisId}`);
     const payload = response.data;
-    return {
+    const normalized = {
       ...payload,
       current_version: {
         ...payload.current_version,
         extracted_data: normalizeCategories(payload.current_version?.extracted_data),
       },
     };
+    return hydrateAnalysisDocumentNames(normalized);
   } catch (error) {
     if (error instanceof AxiosError && error.response?.status === 404) {
       const statusResponse = await apiClient.get<AnalysisStatusResponse>(`/analyses/${analysisId}/status`);

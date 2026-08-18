@@ -61,6 +61,14 @@ class SourceReference(BaseModel):
     """Referencia a la fuente en el pliego original."""
     document_id: str
     page_number: int
+    filename: str | None = Field(
+        default=None,
+        description="Nombre del documento de origen (ej. pliego.pdf, anexo-i.pdf).",
+    )
+    is_primary: bool | None = Field(
+        default=None,
+        description="True cuando la cita proviene del documento principal del análisis.",
+    )
     citation: str = Field(min_length=CITATION_MIN_CHARS, max_length=CITATION_MAX_CHARS)
     block_id: str | None = Field(
         default=None,

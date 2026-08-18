@@ -36,6 +36,7 @@ interface PDFViewerProps {
   documentName: string;
   citations: Citation[];
   documents: ViewerDocument[];
+  showDocumentSelector?: boolean;
   /** Cita puntual que el usuario clickeó (ej. una fuente específica de la
    * lista de "Fuentes verificables"), a diferencia de `citations`, que es el
    * conjunto completo por el que se puede navegar con "Cita anterior/siguiente".
@@ -85,11 +86,21 @@ function isForbiddenError(error: unknown): boolean {
  * cientos de páginas no reviente la memoria con un canvas por página. */
 const MAX_PAGES_RENDERED_AT_ONCE = 60;
 
-export function PDFViewer({ documentId, documentName, citations, documents, focusCitation, sources }: PDFViewerProps) {
+export function PDFViewer({
+  documentId,
+  documentName,
+  citations,
+  documents,
+  showDocumentSelector = true,
+  focusCitation,
+  sources,
+}: PDFViewerProps) {
   const [activeDocumentId, setActiveDocumentId] = useState(documentId);
   const initialIndex = findFocusIndex(citations, focusCitation);
+  const initialPage = citations[initialIndex]?.page ?? focusCitation?.page ?? 1;
   const [currentCitationIndex, setCurrentCitationIndex] = useState(initialIndex);
-  const [currentPage, setCurrentPage] = useState(citations[initialIndex]?.page ?? focusCitation?.page ?? 1);
+  const [currentPage, setCurrentPage] = useState(initialPage);
+  const [pagePositions, setPagePositions] = useState<Record<string, number>>(() => ({ [documentId]: initialPage }));
   const [numPages, setNumPages] = useState(0);
   const [zoomMode, setZoomMode] = useState<ZoomMode>("fit");
   const [displayScale, setDisplayScale] = useState(1);
@@ -129,8 +140,16 @@ export function PDFViewer({ documentId, documentName, citations, documents, focu
   useEffect(() => {
     setActiveDocumentId(documentId);
     const focusIndex = findFocusIndex(citations, focusCitation);
+    const focusedCitation = citations[focusIndex] ?? focusCitation ?? null;
+    const focusBelongsToTarget = focusedCitation?.document_id === documentId;
+    const firstCitationInTarget = citations.find((citation) => citation.document_id === documentId);
+    const focusPage = focusedCitation?.page ?? 1;
+    const restoredPage = pagePositions[documentId] ?? firstCitationInTarget?.page ?? 1;
+    const nextPage = focusBelongsToTarget ? focusPage : restoredPage;
+
     setCurrentCitationIndex(focusIndex);
-    setCurrentPage(citations[focusIndex]?.page ?? focusCitation?.page ?? 1);
+    setCurrentPage(nextPage);
+    setPagePositions((previous) => ({ ...previous, [documentId]: nextPage }));
     setFocusRequest((request) => request + 1);
   }, [documentId, citations, focusCitation]);
 
@@ -139,6 +158,8 @@ export function PDFViewer({ documentId, documentName, citations, documents, focu
   // and scrolled to — highlighting every citation on a page at once made it unclear
   // which one "Ver fuente" was actually pointing at.
   const activeCitation = citations[currentCitationIndex] ?? null;
+  const activeCitationInDocument =
+    activeCitation && activeCitation.document_id === activeDocumentId ? activeCitation : null;
 
   // FIX (2026-08-14): se pasaban TODAS las sources a cada página, y
   // `getCombinedHighlightRegions` acumula las regiones de toda source cuya
@@ -148,7 +169,7 @@ export function PDFViewer({ documentId, documentName, citations, documents, focu
   // activa; el overlay de coordenadas no.
   const activeSources = useMemo(
     () =>
-      activeCitation
+      activeCitationInDocument
         ? (sources ?? []).filter((source) =>
             isSameCitation(
               {
@@ -157,11 +178,11 @@ export function PDFViewer({ documentId, documentName, citations, documents, focu
                 text: source.text,
                 document_name: source.document_name,
               },
-              activeCitation,
+              activeCitationInDocument,
             ),
           )
         : [],
-    [sources, activeCitation],
+    [sources, activeCitationInDocument],
   );
 
   const pagesToRender = useMemo(() => {
@@ -228,16 +249,16 @@ export function PDFViewer({ documentId, documentName, citations, documents, focu
 
   /** Y de la primera línea del resaltado, en puntos de la página sin escalar. */
   const activeRegionTop = useMemo(() => {
-    if (!activeCitation || activeCitation.page !== currentPage) {
+    if (!activeCitationInDocument || activeCitationInDocument.page !== currentPage) {
       return null;
     }
     const tops = activeSources.flatMap((source) =>
       (source.highlight_regions ?? []).map((region) => region.y),
     );
     return tops.length > 0 ? Math.min(...tops) : null;
-  }, [activeSources, activeCitation, currentPage]);
+  }, [activeSources, activeCitationInDocument, currentPage]);
 
-  const focusKey = `${focusRequest}|${activeDocumentId}|${currentPage}|${activeCitation?.text ?? ""}`;
+  const focusKey = `${focusRequest}|${activeDocumentId}|${currentPage}|${activeCitationInDocument?.text ?? ""}`;
 
   useEffect(() => {
     focusDoneRef.current = null;
@@ -276,12 +297,20 @@ export function PDFViewer({ documentId, documentName, citations, documents, focu
   }, [focusKey, renderTick, currentPage, pagesToRender, activeRegionTop, displayScale]);
 
   const activeDocumentName = documents.find((doc) => doc.id === activeDocumentId)?.filename ?? documentName;
+  const hasMultipleDocuments = documents.length > 1;
 
   const onCitationChange = (nextIndex: number) => {
     const target = citations[nextIndex];
     if (!target) {
       return;
     }
+
+    setPagePositions((previous) => ({
+      ...previous,
+      [activeDocumentId]: currentPage,
+      [target.document_id]: target.page,
+    }));
+
     setCurrentCitationIndex(nextIndex);
     setCurrentPage(target.page);
     setFocusRequest((request) => request + 1);
@@ -326,18 +355,25 @@ export function PDFViewer({ documentId, documentName, citations, documents, focu
 
   return (
     <div className="flex h-full min-w-0 flex-col" data-testid="pdf-viewer">
-      <div className="flex items-center gap-2 border-b border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700">
-        <span className="truncate">{activeDocumentName}</span>
-        <DocumentSelector
-          documents={documents}
-          value={activeDocumentId}
-          onChange={(nextDocumentId) => {
-            setActiveDocumentId(nextDocumentId);
-            setCurrentCitationIndex(0);
-            const firstCitationInDocument = citations.find((citation) => citation.document_id === nextDocumentId);
-            setCurrentPage(firstCitationInDocument?.page ?? 1);
-          }}
-        />
+      <div className="border-b border-gray-200 px-3 py-2">
+        {showDocumentSelector && hasMultipleDocuments && (
+          <div className="mb-1.5 flex items-center justify-start">
+            <DocumentSelector
+              documents={documents}
+              value={activeDocumentId}
+              onChange={(nextDocumentId) => {
+                setCurrentCitationIndex(0);
+                setPagePositions((previous) => ({ ...previous, [activeDocumentId]: currentPage }));
+                const firstCitationInDocument = citations.find((citation) => citation.document_id === nextDocumentId);
+                const nextPage = pagePositions[nextDocumentId] ?? firstCitationInDocument?.page ?? 1;
+                setActiveDocumentId(nextDocumentId);
+                setCurrentPage(nextPage);
+                setPagePositions((previous) => ({ ...previous, [nextDocumentId]: nextPage }));
+              }}
+            />
+          </div>
+        )}
+        <span className="block truncate text-[11px] font-medium text-gray-500">{activeDocumentName}</span>
       </div>
 
       <PDFControls
@@ -345,7 +381,10 @@ export function PDFViewer({ documentId, documentName, citations, documents, focu
         totalPages={numPages}
         zoom={displayScale}
         isFitMode={zoomMode === "fit"}
-        onPageChange={(page) => setCurrentPage(page)}
+        onPageChange={(page) => {
+          setCurrentPage(page);
+          setPagePositions((previous) => ({ ...previous, [activeDocumentId]: page }));
+        }}
         onZoomIn={() =>
           setZoomMode((previous) =>
             Math.min((typeof previous === "number" ? previous : displayScale) + PAGE_ZOOM_STEP, PAGE_MAX_ZOOM),
@@ -397,7 +436,11 @@ export function PDFViewer({ documentId, documentName, citations, documents, focu
                   ? Math.floor(Math.max(containerWidth - PAGE_FIT_SAFETY_MARGIN, 0))
                   : undefined
               }
-              citationTexts={activeCitation && activeCitation.page === page ? [activeCitation.text] : []}
+              citationTexts={
+                activeCitationInDocument && activeCitationInDocument.page === page
+                  ? [activeCitationInDocument.text]
+                  : []
+              }
               sources={activeSources}
               onScaleResolved={setDisplayScale}
               onRendered={handlePageRendered}

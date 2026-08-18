@@ -65,10 +65,10 @@ describe("Step1UploadFiles", () => {
     expect(screen.queryByText("test.pdf")).not.toBeInTheDocument();
   });
 
-  test("muestra error cuando supera cantidad máxima (MVP: un solo archivo)", async () => {
+  test("muestra error cuando supera cantidad máxima de archivos", async () => {
     render(<Step1UploadFiles onNext={() => undefined} />);
 
-    const files = Array.from({ length: 2 }, (_, index) =>
+    const files = Array.from({ length: 11 }, (_, index) =>
       createMockFile(`file-${index}.pdf`, "application/pdf", 1024),
     );
 
@@ -76,7 +76,7 @@ describe("Step1UploadFiles", () => {
     fireEvent.change(input, { target: { files } });
 
     await waitFor(() => {
-      expect(screen.getByText(/por ahora solo podés subir un archivo/i)).toBeInTheDocument();
+      expect(screen.getByText(/podés subir hasta 10 archivos/i)).toBeInTheDocument();
     });
   });
 });

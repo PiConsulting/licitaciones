@@ -759,6 +759,19 @@ def _keep_schema_valid_items(
     return valid, normalized_status
 
 
+def _source_order_key(item: dict) -> tuple[int, str, int, str]:
+    refs = item.get("source_references") or []
+    if not isinstance(refs, list) or not refs:
+        return (1, "", 0, "")
+
+    first_ref = refs[0] if isinstance(refs[0], dict) else {}
+    is_primary = bool(first_ref.get("is_primary"))
+    filename = str(first_ref.get("filename") or "").lower()
+    page_number = int(first_ref.get("page_number") or 0)
+    document_id = str(first_ref.get("document_id") or "")
+    return (0 if is_primary else 1, filename, page_number, document_id)
+
+
 def _drop_items_without_sources(
     items: list[dict],
     status: str,
@@ -956,6 +969,16 @@ def merge_node(state: GraphState) -> GraphState:
         identificacion_canonica, IdentificacionProcedimientoItem, identificacion_status,
         category="identificacion_procedimiento", correlation_id=correlation_id, quality=calidad,
     )
+
+    objeto_alcance.sort(key=_source_order_key)
+    requisitos_admisibilidad.sort(key=_source_order_key)
+    plazos.sort(key=_source_order_key)
+    garantias.sort(key=_source_order_key)
+    causales.sort(key=_source_order_key)
+    anexos.sort(key=_source_order_key)
+    criterios.sort(key=_source_order_key)
+    identificacion.sort(key=_source_order_key)
+    identificacion_canonica.sort(key=_source_order_key)
 
     extracted_data = {
         # ATR-03: viaja dentro de `extracted_data` porque es lo único que llega

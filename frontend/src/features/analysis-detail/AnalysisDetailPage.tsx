@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { AnalysisDetailHeader } from "./AnalysisDetailHeader";
 import { AnalysisSummaryStrip } from "./AnalysisSummaryStrip";
 import { CategoryList } from "./CategoryList";
+import { DocumentSelector } from "../pdf-viewer/DocumentSelector";
 import { PDFViewer } from "../pdf-viewer/PDFViewer";
 import { useAnalysisDetail } from "./hooks/useAnalysisDetail";
 import type { Citation, NarrativeSource } from "./types";
@@ -14,6 +15,7 @@ interface AnalysisDetailPageProps {
 export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
   const query = useAnalysisDetail(analysisId);
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
+  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
   const [selectedCitations, setSelectedCitations] = useState<Citation[]>([]);
   const [selectedSources, setSelectedSources] = useState<NarrativeSource[]>([]);
   const documentsById = useMemo(() => {
@@ -33,9 +35,9 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
   }
 
   const primaryDocument = query.data.documents.find((document) => document.is_primary) ?? query.data.documents[0];
-  const activeDocumentId = selectedCitation?.document_id ?? primaryDocument?.id;
-  const activeDocumentName = selectedCitation
-    ? (documentsById.get(selectedCitation.document_id)?.filename ?? selectedCitation.document_name)
+  const activeDocumentId = selectedDocumentId ?? selectedCitation?.document_id ?? primaryDocument?.id;
+  const activeDocumentName = activeDocumentId
+    ? (documentsById.get(activeDocumentId)?.filename ?? selectedCitation?.document_name ?? "Documento")
     : primaryDocument?.filename;
   const activeCitations = selectedCitations.length > 0 ? selectedCitations : selectedCitation ? [selectedCitation] : [];
 
@@ -45,12 +47,24 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
         <AnalysisDetailHeader analysis={query.data} />
       </div>
 
+      {query.data.documents.length > 1 && activeDocumentId && (
+        <div className="rounded-md border border-gray-200 bg-white px-4 py-3" data-testid="attachments-selector-panel">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Archivos adjuntos</p>
+          <DocumentSelector
+            documents={query.data.documents}
+            value={activeDocumentId}
+            onChange={(documentId) => setSelectedDocumentId(documentId)}
+          />
+        </div>
+      )}
+
       <div className="flex min-w-0 flex-col gap-6 xl:flex-row">
         <div data-testid="categories-panel" className="min-w-0 w-full rounded-md border border-gray-200 bg-white p-5 xl:w-[60%] 2xl:w-[55%]">
           <AnalysisSummaryStrip analysis={query.data} />
           <CategoryList
             analysis={query.data}
             onViewSource={({ citation, citations, sources }) => {
+              setSelectedDocumentId(citation.document_id);
               setSelectedCitation(citation);
               setSelectedCitations(citations);
               setSelectedSources(sources);
@@ -60,15 +74,15 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
 
         <aside
           data-testid="pdf-viewer-panel"
-          className="min-w-0 w-full rounded-md border border-gray-200 bg-white p-2 text-sm text-gray-600 xl:sticky xl:top-4 xl:h-[calc(100vh-6rem)] xl:w-[40%] 2xl:w-[45%]"
+          className="min-w-0 w-full rounded-md border border-gray-200 bg-white p-2 text-sm text-gray-600 xl:sticky xl:top-4 xl:h-[calc(100vh-2rem)] xl:w-[40%] 2xl:w-[45%]"
         >
           {activeDocumentId ? (
             <PDFViewer
-              key={activeDocumentId}
               documentId={activeDocumentId}
               documentName={activeDocumentName ?? "Documento"}
               citations={activeCitations}
               documents={query.data.documents}
+              showDocumentSelector={false}
               focusCitation={selectedCitation}
               sources={selectedSources}
             />

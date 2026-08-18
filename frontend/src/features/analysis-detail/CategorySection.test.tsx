@@ -299,7 +299,7 @@ describe("CategorySection", () => {
 
     render(<CategorySection category={category} categoryId="objeto_alcance" onViewSource={onViewSource} />);
 
-    const sourceButton = screen.getByRole("button", { name: /Pliego Principal.pdf · pág. 12/i });
+    const sourceButton = screen.getByRole("button", { name: /Pliego Principal\.pdf · pág. 12/i });
     await user.click(sourceButton);
 
     expect(onViewSource).toHaveBeenCalledWith(

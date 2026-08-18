@@ -1,4 +1,5 @@
-import type { CategoryNarrative, Citation, NarrativeSource } from "../types";
+import type { CategoryNarrative, Citation, NarrativeBlockData, NarrativeSource } from "../types";
+import { DocumentSourceDivider } from "./DocumentSourceDivider";
 import { SourceEyeButton as EyeButton } from "./SourceEyeButton";
 
 interface NarrativeBlocksProps {
@@ -30,9 +31,9 @@ function filterVerifiedSources(sources: NarrativeSource[]): NarrativeSource[] {
  * lectura corrida, así que su evidencia sigue yendo al listado del pie. Es el
  * caso de categorías como Objeto y Alcance, que son un párrafo y no una lista.
  */
-function collectParagraphSourceIds(narrative: CategoryNarrative): Set<number> {
+function collectParagraphSourceIds(blocks: NarrativeBlockData[]): Set<number> {
   const ids = new Set<number>();
-  for (const block of narrative.blocks) {
+  for (const block of blocks) {
     if (block.type === "paragraph") {
       block.source_ids.forEach((id) => ids.add(id));
     }
@@ -43,9 +44,9 @@ function collectParagraphSourceIds(narrative: CategoryNarrative): Set<number> {
 /** Todos los `source_ids` que efectivamente usa algún bloque/bullet/fila.
  * Una fuente que ningún elemento referencia no puede aparecer en ningún lado:
  * mostrarla sugiere una trazabilidad que no existe. */
-function collectReferencedSourceIds(narrative: CategoryNarrative): Set<number> {
+function collectReferencedSourceIds(blocks: NarrativeBlockData[]): Set<number> {
   const ids = new Set<number>();
-  for (const block of narrative.blocks) {
+  for (const block of blocks) {
     if (block.type === "paragraph") {
       block.source_ids.forEach((id) => ids.add(id));
     } else if (block.type === "bullet_list") {
@@ -55,6 +56,23 @@ function collectReferencedSourceIds(narrative: CategoryNarrative): Set<number> {
     }
   }
   return ids;
+}
+
+interface BulletDocumentGroup {
+  key: string;
+  documentName: string;
+  items: Array<{
+    text: string;
+    sourceIds: number[];
+  }>;
+}
+
+function isPrimaryDocumentName(name: string): boolean {
+  return name.replace(/\.pdf$/i, "").trim().toLocaleLowerCase("es").startsWith("pliego");
+}
+
+function isGenericDocumentLabel(name: string): boolean {
+  return name.trim().toLocaleLowerCase("es") === "documento";
 }
 
 /**
@@ -76,8 +94,8 @@ function collectReferencedSourceIds(narrative: CategoryNarrative): Set<number> {
  *     no hay un ítem discreto donde anclar el botón.
  */
 export function NarrativeBlocks({ narrative, onViewSource }: NarrativeBlocksProps) {
-  const referencedSourceIds = collectReferencedSourceIds(narrative);
-  const paragraphSourceIds = collectParagraphSourceIds(narrative);
+  const referencedSourceIds = collectReferencedSourceIds(narrative.blocks);
+  const paragraphSourceIds = collectParagraphSourceIds(narrative.blocks);
 
   const verifiedSources = filterVerifiedSources(narrative.sources).filter((source) =>
     referencedSourceIds.has(source.id),
@@ -149,16 +167,67 @@ export function NarrativeBlocks({ narrative, onViewSource }: NarrativeBlocksProp
           }
 
           if (block.type === "bullet_list") {
+            const groupedMap = new Map<string, BulletDocumentGroup>();
+
+            for (const item of block.items) {
+              const firstSource = resolveSources(item.source_ids)[0];
+              const key = firstSource?.document_id ?? "__unknown__";
+              const rawName = firstSource?.document_name ?? "";
+              const name = rawName.trim() === "" || isGenericDocumentLabel(rawName)
+                ? "Sin archivo"
+                : rawName;
+
+              const current = groupedMap.get(key);
+              if (current) {
+                current.items.push({ text: item.text, sourceIds: item.source_ids });
+              } else {
+                groupedMap.set(key, {
+                  key,
+                  documentName: name,
+                  items: [{ text: item.text, sourceIds: item.source_ids }],
+                });
+              }
+            }
+
+            const groupedBullets = Array.from(groupedMap.values()).sort((left, right) => {
+              const leftPrimary = isPrimaryDocumentName(left.documentName);
+              const rightPrimary = isPrimaryDocumentName(right.documentName);
+
+              if (leftPrimary && !rightPrimary) {
+                return -1;
+              }
+              if (!leftPrimary && rightPrimary) {
+                return 1;
+              }
+
+              return left.documentName.localeCompare(right.documentName, "es", { sensitivity: "base" });
+            });
+
+            const shouldShowDocumentGrouping = groupedBullets.length > 1;
+
             return (
-              <ul key={index} className="space-y-1.5" data-testid="narrative-bullet-list">
-                {block.items.map((item, itemIndex) => (
-                  <li key={itemIndex} className="flex items-start gap-2" data-testid="narrative-bullet-item">
-                    <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-gray-400" aria-hidden="true" />
-                    <span className="flex-1 text-sm leading-relaxed text-gray-800">{item.text}</span>
-                    <SourceEyeButton sourceIds={item.source_ids} />
-                  </li>
+              <div key={index} data-testid="narrative-bullet-list">
+                {groupedBullets.map((group, groupIndex) => (
+                  <div key={group.key} className={groupIndex > 0 ? "mt-3" : ""}>
+                    {shouldShowDocumentGrouping ? (
+                      <DocumentSourceDivider
+                        documentName={group.documentName}
+                        showTopBorder={groupIndex > 0}
+                      />
+                    ) : null}
+
+                    <ul className="space-y-1.5">
+                      {group.items.map((item, itemIndex) => (
+                        <li key={itemIndex} className="flex items-start gap-2" data-testid="narrative-bullet-item">
+                          <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-gray-400" aria-hidden="true" />
+                          <span className="flex-1 text-sm leading-relaxed text-gray-800">{item.text}</span>
+                          <SourceEyeButton sourceIds={item.sourceIds} />
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 ))}
-              </ul>
+              </div>
             );
           }
 

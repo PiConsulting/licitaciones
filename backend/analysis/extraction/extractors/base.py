@@ -1336,6 +1336,14 @@ def _attach_chunk_identity(ref: dict[str, Any], chunk: dict[str, Any] | None) ->
     if chunk_id:
         ref["chunk_id"] = str(chunk_id)
 
+    source = chunk.get("source")
+    if isinstance(source, dict):
+        filename = source.get("filename")
+        if filename:
+            ref["filename"] = str(filename)
+        if source.get("is_primary") is not None:
+            ref["is_primary"] = bool(source.get("is_primary"))
+
     if ref.get("block_id"):
         return
 
@@ -1343,7 +1351,6 @@ def _attach_chunk_identity(ref: dict[str, Any], chunk: dict[str, Any] | None) ->
     if not citation_normalized:
         return
 
-    source = chunk.get("source")
     blocks = source.get("blocks", []) if isinstance(source, dict) else (chunk.get("blocks") or [])
     if not isinstance(blocks, list):
         return

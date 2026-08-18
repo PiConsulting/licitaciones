@@ -57,6 +57,25 @@ def test_la_referencia_verificada_registra_el_chunk_que_la_respalda() -> None:
     assert ref["chunk_id"] == "an-1--doc-1--7"
 
 
+def test_la_referencia_verificada_arrastra_metadata_de_documento() -> None:
+    citation = "La garantía de mantenimiento de oferta será del 1% del presupuesto"
+    chunk = _chunk("an-1--doc-1--7", f"Artículo 12. {citation}.")
+    chunk["source"] = {
+        "page": 4,
+        "block_type": "paragraph",
+        "blocks": [],
+        "filename": "pliego.pdf",
+        "is_primary": True,
+    }
+    items = [_item(citation)]
+
+    _verify_citation_grounding(items, [chunk], category="garantias", correlation_id="atr01")
+
+    ref = items[0]["source_references"][0]
+    assert ref["filename"] == "pliego.pdf"
+    assert ref["is_primary"] is True
+
+
 def test_elige_el_chunk_correcto_cuando_la_frase_se_repite_en_la_pagina() -> None:
     """El caso que motivó el hallazgo: misma frase, dos chunks, misma página."""
     chunks = [

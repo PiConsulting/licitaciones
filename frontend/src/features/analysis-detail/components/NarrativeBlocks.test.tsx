@@ -153,6 +153,39 @@ describe("categorías de ítems: un ojo por ítem", () => {
 
     expect(within(screen.getByTestId("narrative-table")).getAllByTestId("item-source-button")).toHaveLength(2);
   });
+
+  test("agrupa bullets por documento con divisor minimalista", () => {
+    const narrative: CategoryNarrative = {
+      blocks: [
+        {
+          type: "bullet_list",
+          items: [
+            { text: "Req pliego", confidence_level: "high", source_ids: [0] },
+            { text: "Req anexo A", confidence_level: "high", source_ids: [1] },
+            { text: "Req anexo B", confidence_level: "high", source_ids: [2] },
+          ],
+        },
+      ],
+      sources: [
+        { ...source(0, 1, "req pliego"), document_id: "doc-p", document_name: "Pliego Principal.pdf" },
+        { ...source(1, 2, "req anexo a"), document_id: "doc-a", document_name: "Anexo A.pdf" },
+        { ...source(2, 3, "req anexo b"), document_id: "doc-b", document_name: "Anexo B.pdf" },
+      ],
+    };
+
+    render(<NarrativeBlocks narrative={narrative} />);
+
+    const dividerLabels = screen.getAllByTestId("document-source-group-label").map((node) => node.textContent?.trim());
+    expect(dividerLabels).toEqual(["Pliego Principal.pdf", "Anexo A.pdf", "Anexo B.pdf"]);
+    expect(screen.getAllByTestId("document-source-divider")).toHaveLength(3);
+  });
+
+  test("si hay un solo documento en bullets no muestra divisores ni labels de documento", () => {
+    render(<NarrativeBlocks narrative={BULLETS} />);
+
+    expect(screen.queryByTestId("document-source-divider")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("document-source-group-label")).not.toBeInTheDocument();
+  });
 });
 
 describe("categorías de párrafo: se conserva el listado", () => {
@@ -190,4 +223,48 @@ describe("categorías de párrafo: se conserva el listado", () => {
     expect(within(listado).queryByRole("button", { name: /pág\. 5/i })).not.toBeInTheDocument();
     expect(screen.getAllByTestId("item-source-button")).toHaveLength(1);
   });
+
+  test("si hay múltiples fuentes de párrafo se muestran juntas sin divisor", () => {
+    const narrative: CategoryNarrative = {
+      blocks: [
+        {
+          type: "paragraph",
+          text: "Resumen.",
+          confidence_level: "high",
+          source_ids: [0, 1, 2],
+        },
+      ],
+      sources: [
+        {
+          id: 0,
+          document_id: "doc-a",
+          document_name: "Anexo B.pdf",
+          page: 3,
+          text: "texto b",
+        },
+        {
+          id: 1,
+          document_id: "doc-p",
+          document_name: "Pliego Principal.pdf",
+          page: 1,
+          text: "texto pliego",
+        },
+        {
+          id: 2,
+          document_id: "doc-c",
+          document_name: "Anexo A.pdf",
+          page: 2,
+          text: "texto a",
+        },
+      ],
+    };
+
+    render(<NarrativeBlocks narrative={narrative} />);
+
+    expect(screen.queryByTestId("document-source-divider")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Pliego Principal\.pdf · pág\. 1/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Anexo A\.pdf · pág\. 2/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Anexo B\.pdf · pág\. 3/i })).toBeInTheDocument();
+  });
+
 });

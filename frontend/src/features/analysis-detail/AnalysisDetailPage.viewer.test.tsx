@@ -114,10 +114,10 @@ describe("AnalysisDetailPage PDF integration", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Pliego Principal.pdf · pág. 15/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Pliego Principal\.pdf · pág. 15/i })).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole("button", { name: /Pliego Principal.pdf · pág. 15/i }));
+    await user.click(screen.getByRole("button", { name: /Pliego Principal\.pdf · pág. 15/i }));
 
     expect(screen.getByTestId("pdf-viewer-mock")).toHaveTextContent("viewer:doc-1:1");
   });

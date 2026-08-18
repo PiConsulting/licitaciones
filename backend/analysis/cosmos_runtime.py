@@ -260,6 +260,34 @@ def _query_documents(analysis_id: str, *, include_deleted: bool = False) -> list
     )
 
 
+def _upsert_document(document: dict, event: str) -> None:
+    document["event"] = event
+    document["updated_at"] = datetime.now(UTC).isoformat()
+    get_cosmos_container().upsert_item(document)
+
+
+def _derive_page_count_from_blocks(blocks: list[dict]) -> int:
+    page_numbers = [int(block.get("page_number") or 0) for block in blocks if isinstance(block, dict)]
+    return max(page_numbers, default=0)
+
+
+def _enrich_chunk_source_metadata(chunks: list[dict], document: dict) -> list[dict]:
+    document_id = str(document.get("document_id") or "")
+    filename = str(document.get("filename") or "")
+    is_primary = bool(document.get("is_primary"))
+
+    for chunk in chunks:
+        raw_source = chunk.get("source")
+        source = dict(raw_source) if isinstance(raw_source, dict) else {}
+        source["document_id"] = document_id
+        source["filename"] = filename
+        source["is_primary"] = is_primary
+        source.setdefault("page", int(chunk.get("page_number", 0) or 0))
+        chunk["source"] = source
+
+    return chunks
+
+
 def _get_latest_version(analysis_id: str) -> dict | None:
     container = get_cosmos_container()
     versions = list(
@@ -471,6 +499,8 @@ def create_analysis_with_documents_cosmos(
                 "is_primary": index == primary_file_index,
                 "sha256_hash": sha256(incoming_file.content).hexdigest(),
                 "content_hash": calculate_content_hash(incoming_file.content),
+                "extraction_status": "pending",
+                "extraction_error": None,
                 "created_by": user_id,
                 "uploaded_at": now,
                 "deleted": False,
@@ -892,6 +922,8 @@ def extract_and_index_cosmos(analysis_id: str) -> None:
     try:
         all_chunks: list[dict] = []
         total_docs = len(documents)
+        failed_documents: list[dict] = []
+        processed_documents = 0
 
         for index, document in enumerate(documents, start=1):
             # FIX (auditoría 2026-08-12, hallazgo #1 y #2): antes esto solo
@@ -907,22 +939,58 @@ def extract_and_index_cosmos(analysis_id: str) -> None:
             analysis["extraction_metadata"] = metadata
             _upsert_analysis(analysis, "analysis_processing")
 
+            document["extraction_status"] = "processing"
+            document["extraction_error"] = None
+            _upsert_document(document, "document_extraction_processing")
+
             blob_url = blob_storage.generate_download_url(str(document["blob_name"]))
             try:
                 pages = extract_text(blob_url, str(document["document_id"]), str(correlation_id))
             except DocumentTextExtractionError as exc:
-                _finalize_analysis_cosmos(
-                    analysis_id,
-                    "analysis_error",
-                    lambda fresh, filename=document["filename"], detail=str(exc): fresh.update(
-                        status="error",
-                        current_stage=CurrentStage.COMPLETED.value,
-                        error_message=f"No se pudo leer el texto de {filename}: {detail}",
-                    ),
+                document["extraction_status"] = "failed"
+                document["extraction_error"] = str(exc)
+                _upsert_document(document, "document_extraction_failed")
+                failed_documents.append(
+                    {
+                        "document_id": str(document.get("document_id") or ""),
+                        "filename": str(document.get("filename") or ""),
+                        "error": str(exc),
+                    }
                 )
-                return
+                continue
+
             chunks = create_chunks(pages, str(document["document_id"]), str(correlation_id))
+            chunks = _enrich_chunk_source_metadata(chunks, document)
             all_chunks.extend(chunks)
+
+            extracted_page_count = _derive_page_count_from_blocks(pages)
+            if extracted_page_count > 0:
+                document["page_count"] = extracted_page_count
+            document["extraction_status"] = "completed"
+            document["extraction_error"] = None
+            _upsert_document(document, "document_extraction_completed")
+            processed_documents += 1
+
+        if processed_documents == 0:
+            _finalize_analysis_cosmos(
+                analysis_id,
+                "analysis_error",
+                lambda fresh: fresh.update(
+                    status="error",
+                    current_stage=CurrentStage.COMPLETED.value,
+                    error_message="No se pudo leer el texto de ningun documento del analisis.",
+                ),
+            )
+            return
+
+        if failed_documents:
+            metadata = analysis.get("extraction_metadata") or {}
+            metadata["partial_extraction"] = {
+                "message": f"{len(failed_documents)} de {total_docs} documentos fallaron durante la extraccion",
+                "failed_documents": failed_documents,
+            }
+            analysis["extraction_metadata"] = metadata
+            _upsert_analysis(analysis, "analysis_processing")
 
         # FIX (auditoría 2026-08-12, hallazgo #2): SQL mode chequea
         # cancelación/timeout antes de indexar Y antes de analizar (ver
@@ -969,6 +1037,9 @@ def extract_and_index_cosmos(analysis_id: str) -> None:
         extracted_data = result.get("extracted_data", {})
         conflicts = result.get("conflicts", [])
         runtime_metadata = result.get("extraction_metadata", {})
+        partial_extraction = (analysis.get("extraction_metadata") or {}).get("partial_extraction")
+        if partial_extraction:
+            runtime_metadata["partial_extraction"] = partial_extraction
         runtime_metadata["cost"] = _compute_cost(runtime_metadata)
         runtime_metadata["stage_progress"] = build_stage_progress(CurrentStage.COMPLETED)
 

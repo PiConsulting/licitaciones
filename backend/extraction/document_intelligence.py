@@ -444,6 +444,25 @@ _PARA_MATCH_PREFIX_CHARS = 40
 # Por debajo de este largo se exige igualdad exacta en vez de contención.
 _PARA_MATCH_EXACT_BELOW_CHARS = 8
 
+# FIX (auditoría 2026-08-14, hallazgo ING-11): en modo markdown, Document
+# Intelligence ESCAPA la puntuación que markdown interpretaría como sintaxis:
+# emite `1\. Etapa 1`, `\+ 10 Gb`, `\> Planificación`, `\- Intel Xeon`. Pero
+# `result.paragraphs[].content` es texto plano, sin escapes. O sea, el mismo
+# texto llega distinto por los dos caminos y `_same_text` los daba por
+# diferentes desde el segundo carácter.
+#
+# Medido sobre el PET de Bancor: 14 de 721 bloques sin bbox (`match_rate 98.1%`),
+# y entre ellos las tres etapas de migración del apartado 3.1.10 --
+# `"1\. Etapa 1 - Migración por el proveedor…"` -- que es contenido de
+# `plazos_clave`, no relleno. Se ve en los chunks 44 y 45 del reanálisis
+# `7bce4799`: `"para_id": null, "bbox": []`.
+_MD_ESCAPE_RE = re.compile(r"\\([-+.>#*_\[\]()!`~])")
+
+
+def _unescape_markdown(texto: str) -> str:
+    """Saca los escapes de markdown que DI mete y el texto plano no tiene."""
+    return _MD_ESCAPE_RE.sub(r"\1", texto)
+
 
 def _same_text(block_content: object, para_content: object) -> bool:
     """¿El bloque del parser y el párrafo de DI son el mismo texto?
@@ -474,8 +493,8 @@ def _same_text(block_content: object, para_content: object) -> bool:
     vocabulario compartido, que es exactamente lo que este emparejamiento NO
     tiene que usar.
     """
-    izquierda = " ".join(str(block_content or "").split()).lower()
-    derecha = " ".join(str(para_content or "").split()).lower()
+    izquierda = _unescape_markdown(" ".join(str(block_content or "").split()).lower())
+    derecha = _unescape_markdown(" ".join(str(para_content or "").split()).lower())
     if not izquierda or not derecha:
         return False
 
