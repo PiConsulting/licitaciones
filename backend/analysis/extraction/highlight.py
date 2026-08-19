@@ -12,6 +12,7 @@ puede usar para dibujar rectangles de highlight sin falsos positivos/negativos.
 
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 from typing import Any
@@ -380,6 +381,147 @@ def _fold(text: str) -> str:
     return _ALNUM_RE.sub("", stripped.lower())
 
 
+def pagina_sin_capa_de_texto(pdf_path: str, page_number: int) -> bool:
+    """¿La página no tiene texto embebido? (HL-09)
+
+    Es la compuerta de todo el camino OCR, y está escrita para ser CONSERVADORA:
+    ante cualquier duda --no se pudo abrir el PDF, la página no existe, PyMuPDF
+    tiró una excepción-- devuelve `False`, o sea "tiene texto", que es el camino
+    de siempre. Un falso positivo acá activaría el camino nuevo en un documento
+    que ya andaba bien, y eso es exactamente lo que no puede pasar.
+    """
+    if not pdf_path:
+        return False
+    try:
+        import fitz  # PyMuPDF; se importa acá como en el resto del módulo
+
+        with fitz.open(pdf_path) as documento:
+            indice = int(page_number) - 1
+            if indice < 0 or indice >= len(documento):
+                return False
+            return not documento[indice].get_text().strip()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _renglones_del_chunk(chunk: dict[str, Any] | None, page_number: int) -> list[dict[str, Any]]:
+    """La geometría por renglón que dejó la indexación, para esta página."""
+    if not chunk:
+        return []
+    origen = chunk.get("source")
+    if isinstance(origen, str):
+        try:
+            origen = json.loads(origen)
+        except (ValueError, TypeError):
+            return []
+    if not isinstance(origen, dict):
+        return []
+
+    renglones: list[dict[str, Any]] = []
+    for bloque in origen.get("blocks") or []:
+        if not isinstance(bloque, dict):
+            continue
+        # El bloque puede ser de otra página del mismo chunk.
+        paginas = {
+            _safe_int_page(caja.get("page"))
+            for caja in (bloque.get("bbox") or [])
+            if isinstance(caja, dict)
+        }
+        if paginas and page_number not in paginas:
+            continue
+        for renglon in bloque.get("lines") or []:
+            if isinstance(renglon, dict) and renglon.get("t"):
+                renglones.append(renglon)
+    return renglones
+
+
+def _safe_int_page(valor: Any) -> int:
+    try:
+        return int(valor)
+    except (TypeError, ValueError):
+        return 0
+
+
+def regiones_desde_renglones_ocr(
+    renglones: list[dict[str, Any]], citation: str
+) -> list[dict[str, float]]:
+    """Ubica la cita entre los renglones que leyó Azure DI (HL-09).
+
+    Es el reemplazo de `page.search_for` para PDF escaneados, donde no hay texto
+    embebido que buscar. Trabaja sobre la geometría por renglón que la indexación
+    guardó (`_build_line_index` en `document_intelligence.py`).
+
+    Por qué renglones y no el párrafo: pintar el párrafo entero es lo que se sacó
+    en HL-08 por no señalar nada. Y por qué renglones y no palabras: son ~10
+    veces menos --importa, porque esto viaja en cada chunk del índice-- y en un
+    PDF con texto los rectángulos que hoy se ven son justamente del alto de un
+    renglón, así que el resultado es comparable.
+
+    El recorte horizontal de los extremos es proporcional: dentro de un renglón,
+    los caracteres se reparten a lo ancho de forma razonablemente pareja. Es una
+    aproximación, y por eso sólo se aplica a los bordes del match -- los
+    renglones del medio van enteros, que ahí es exacto.
+    """
+    if not renglones or not citation:
+        return []
+
+    buscada = _fold(citation)
+    if not buscada:
+        return []
+
+    # Concatenación plegada de todos los renglones + de dónde salió cada carácter.
+    concatenado: list[str] = []
+    procedencia: list[tuple[int, int, int]] = []  # (índice de renglón, offset, largo del renglón)
+    for indice, renglon in enumerate(renglones):
+        plegado = _fold(str(renglon.get("t") or ""))
+        for offset, caracter in enumerate(plegado):
+            concatenado.append(caracter)
+            procedencia.append((indice, offset, len(plegado)))
+    texto = "".join(concatenado)
+    if not texto:
+        return []
+
+    comienzo = texto.find(buscada)
+    if comienzo < 0:
+        return []
+    final = comienzo + len(buscada) - 1
+
+    # Qué porción de cada renglón toca el match.
+    por_renglon: dict[int, tuple[int, int, int]] = {}
+    for posicion in range(comienzo, final + 1):
+        indice, offset, largo = procedencia[posicion]
+        if indice in por_renglon:
+            desde, _hasta, _l = por_renglon[indice]
+            por_renglon[indice] = (desde, offset, largo)
+        else:
+            por_renglon[indice] = (offset, offset, largo)
+
+    regiones: list[dict[str, float]] = []
+    for indice in sorted(por_renglon):
+        desde, hasta, largo = por_renglon[indice]
+        renglon = renglones[indice]
+        try:
+            x = float(renglon["x"])
+            y = float(renglon["y"])
+            ancho = float(renglon["width"])
+            alto = float(renglon["height"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if largo <= 0 or ancho <= 0:
+            continue
+        inicio_rel = desde / largo
+        fin_rel = (hasta + 1) / largo
+        regiones.append(
+            {
+                "x": round(x + ancho * inicio_rel, 2),
+                "y": round(y, 2),
+                "width": round(ancho * (fin_rel - inicio_rel), 2),
+                "height": round(alto, 2),
+            }
+        )
+    return regiones
+
+
 def _search_citation_by_words(page: Any, citation: str) -> list[list[Any]]:
     """Ubica la cita en la página comparando PALABRAS, no la cadena entera.
 
@@ -699,7 +841,7 @@ def compute_highlights_for_sources(
         Lista de sources enriquecidas con campo "highlight_regions"
     """
     enriched_sources = []
-    stats = {"total": 0, "with_bbox": 0, "no_bbox": 0, "multiple_blocks": 0}
+    stats = {"total": 0, "with_bbox": 0, "no_bbox": 0}
     
     for source in sources:
         stats["total"] += 1
@@ -715,19 +857,17 @@ def compute_highlights_for_sources(
             enriched_sources.append(source_copy)
             continue
         
-        # Buscar chunk que contenga esta citation
-        regions = []
-
-        # FIX CRÍTICO (auditoría 2026-08-12, hallazgo C-2): intentar primero
-        # búsqueda viva con PyMuPDF sobre el PDF real (compute_highlight_regions),
-        # que ubica la citation directamente en el documento en vez de confiar en
-        # el bbox pre-computado en ingestion (el cual podía quedar desalineado
-        # por el bug posicional de _parse_markdown_blocks corregido en esta misma
-        # auditoría). Solo se intenta cuando tenemos una ruta real de PDF; si no
-        # hay PDF disponible o la búsqueda viva no encuentra nada, se cae al
-        # matching por bbox almacenado de más abajo (retrocompatible: todos los
-        # tests existentes pasan document_id_to_blob_path={}, por lo que este
-        # bloque nunca se activa para ellos).
+        # Un solo camino: PyMuPDF sobre el PDF real, que ubica la cita en el
+        # documento con precisión de renglón.
+        #
+        # FIX (2026-08-14, hallazgo HL-08): este comentario decía que si la
+        # búsqueda viva no encontraba nada "se cae al matching por bbox
+        # almacenado de más abajo". Ese camino se eliminó el mismo día -- emitía
+        # el rectángulo del párrafo entero, que era el "resaltado por párrafo"
+        # que reportó la usuaria. Quedó la variable `regions = []`, que ya no se
+        # asignaba nunca, y una rama `if regions:` inalcanzable con su propio
+        # log. Un lector razonable concluía que existe un fallback que no existe.
+        #
         # ATR-01 (auditoría 2026-08-13): el chunk que verificó la cita en
         # `_verify_citation_grounding` viaja en la source como `chunk_id`. Su
         # `section_path` es un hint MUCHO mejor que el nombre de la categoría
@@ -787,29 +927,61 @@ def compute_highlights_for_sources(
         # búsqueda viva (ver más arriba), que es donde su identidad realmente
         # sirve: elegir CUÁL de las apariciones de la cita en la página es la
         # correcta.
-        if regions:
-            stats["with_bbox"] += 1
-            logger.debug(
-                "highlight_from_azure_di_blocks",
-                correlation_id=correlation_id,
-                document_id=document_id,
-                page_number=page_number,
-                category_key=category_key,
-                regions_count=len(regions),
+        # HL-09: hay UN segundo camino, y sólo para PDF escaneados.
+        #
+        # El comentario de arriba decía "el visor cae al marcado sobre la capa de
+        # texto de react-pdf". Eso es cierto en un PDF con texto -- y es por qué
+        # HL-08 pudo sacar el rectángulo de párrafo sin dejar a nadie a oscuras.
+        # En un escaneo esa capa TAMBIÉN está vacía (`PDFPage.tsx:83`), así que
+        # ahí no hay red: la persona no ve nada. En Santa Fe eso es el 100% de
+        # las fuentes del pliego principal y del Anexo 2.
+        #
+        # La compuerta es "esta página no tiene texto embebido", y es deliberada:
+        # si el PDF tiene capa de texto, este camino NO se toca ni siquiera
+        # cuando la búsqueda viva falló, porque ahí el marcado sobre la capa de
+        # texto sigue funcionando y es mejor. O sea que para todo documento que
+        # hoy anda, el comportamiento es idéntico byte a byte.
+        if pdf_path and pagina_sin_capa_de_texto(pdf_path, page_number):
+            regiones_ocr = regiones_desde_renglones_ocr(
+                _renglones_del_chunk(source_chunk, page_number), citation
             )
-        else:
-            stats["no_bbox"] += 1
-            logger.warning(
-                "highlight_no_blocks_available",
-                correlation_id=correlation_id,
-                document_id=document_id,
-                page_number=page_number,
-                category_key=category_key,
-                citation_preview=citation[:100],
-                message="No blocks found for source - highlighting disabled for precision",
-            )
-        
-        source_copy["highlight_regions"] = regions
+            if regiones_ocr:
+                source_copy["highlight_regions"] = regiones_ocr
+                stats["with_bbox"] += 1
+                stats["from_ocr_lines"] = stats.get("from_ocr_lines", 0) + 1
+                logger.info(
+                    "highlight_from_ocr_lines",
+                    correlation_id=correlation_id,
+                    document_id=document_id,
+                    page_number=page_number,
+                    category_key=category_key,
+                    regions_count=len(regiones_ocr),
+                    message="PDF escaneado: se usó la geometría por renglón de Document Intelligence",
+                )
+                enriched_sources.append(source_copy)
+                continue
+            # Escaneado y tampoco se pudo ubicar por renglones. Es el caso que
+            # antes era indistinguible de "no encontré la cita": se marca para
+            # que el visor pueda decir que este documento es un escaneo en vez
+            # de no mostrar nada sin explicación.
+            source_copy["highlight_unavailable_reason"] = "documento_escaneado"
+
+        # Llegar acá significa que la búsqueda viva no ubicó la cita en el PDF
+        # (o que no había PDF).
+        stats["no_bbox"] += 1
+        logger.warning(
+            "highlight_live_search_found_nothing",
+            correlation_id=correlation_id,
+            document_id=document_id,
+            page_number=page_number,
+            category_key=category_key,
+            had_pdf=bool(pdf_path),
+            section_hint=section_hint,
+            citation_preview=citation[:100],
+            message="sin regiones: el visor cae al marcado sobre la capa de texto",
+        )
+
+        source_copy["highlight_regions"] = []
         enriched_sources.append(source_copy)
     
     # Log stats finales
@@ -821,8 +993,10 @@ def compute_highlights_for_sources(
         total_sources=stats["total"],
         with_bbox=stats["with_bbox"],
         no_bbox=stats["no_bbox"],
-        multiple_blocks_filtered=stats["multiple_blocks"],
         from_live_search=stats.get("from_live_search", 0),
+        # HL-09: cuántas se resolvieron por el camino OCR. Si este número es > 0
+        # en un análisis, ese documento es un escaneo.
+        from_ocr_lines=stats.get("from_ocr_lines", 0),
         bbox_rate_pct=round(bbox_rate, 1),
     )
     

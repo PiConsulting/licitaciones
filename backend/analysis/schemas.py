@@ -96,3 +96,4 @@ class AnalysisDetailResponse(BaseModel):
     current_version: AnalysisVersionResponse
     documents: list[DocumentResponse]
     created_by: str | None = None
+    tracking: dict | None = None

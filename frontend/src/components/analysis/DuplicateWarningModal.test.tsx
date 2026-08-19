@@ -39,4 +39,51 @@ describe("DuplicateWarningModal", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Cerrar$/i }));
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
+
+  test("agrupa en una sola decisión cuando todos los duplicados vienen del mismo análisis", () => {
+    const onConfirm = vi.fn();
+    const onCancel = vi.fn();
+
+    render(
+      <DuplicateWarningModal
+        duplicates={[
+          {
+            document_id: "doc-1",
+            filename: "pliego.pdf",
+            existing_analysis_id: "analysis-123",
+            created_at: "2026-08-01T10:00:00Z",
+            created_by: "juan@example.com",
+            status: "completed",
+          },
+          {
+            document_id: "doc-2",
+            filename: "anexo-i.pdf",
+            existing_analysis_id: "analysis-123",
+            created_at: "2026-08-01T10:00:00Z",
+            created_by: "juan@example.com",
+            status: "completed",
+          },
+        ]}
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+      />,
+    );
+
+    expect(screen.getByText(/¿Qué querés hacer con este análisis completo/i)).toBeInTheDocument();
+
+    const select = screen.getByRole("combobox");
+    fireEvent.change(select, { target: { value: "analyze_again" } });
+    fireEvent.click(screen.getByRole("button", { name: /Confirmar decisiones/i }));
+
+    expect(onConfirm).toHaveBeenCalledWith([
+      {
+        document_id: "doc-1",
+        action: "analyze_again",
+      },
+      {
+        document_id: "doc-2",
+        action: "analyze_again",
+      },
+    ]);
+  });
 });

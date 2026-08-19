@@ -736,12 +736,75 @@ def _has_usable_content(items: list[dict[str, Any]]) -> bool:
     return any(str(item.get("extraction_status", "")) in _USABLE_STATUSES for item in items)
 
 
+# Mapa de la clave con que `merge_node` registra un conflicto a la categoría de
+# narrativa correspondiente. Los nombres no coinciden por razones históricas.
+_CONFLICT_CATEGORY_TO_NARRATIVE = {
+    "plazos": "plazos_clave",
+    "garantias": "garantias",
+}
+
+
+def _conflict_block(category_key: str, conflicts: list[dict[str, Any]] | None) -> str:
+    """El bloque de prompt que le avisa al redactor qué datos se contradicen.
+
+    FIX (auditoría 2026-08-13, hallazgo CTX-04): `merge_node` detecta conflictos
+    -- dos fechas distintas para el mismo hito, dos montos distintos para la
+    misma garantía -- y los guarda en `state["conflicts"]`. Pero la síntesis
+    nunca los recibía: el prompt se armaba sólo con `{items_json}`.
+
+    El resultado era que la narrativa decía las dos cosas en dos bullets
+    seguidos, sin ninguna marca de que se contradicen. El caso típico es un
+    pliego cuyo cuerpo dice 1% y cuya circular modificatoria dice 5%: el sistema
+    LO SABE y no lo dice.
+    """
+    if not conflicts:
+        return "(sin contradicciones detectadas)"
+
+    relevantes = [
+        conflict
+        for conflict in conflicts
+        if _CONFLICT_CATEGORY_TO_NARRATIVE.get(str(conflict.get("category", ""))) == category_key
+    ]
+    if not relevantes:
+        return "(sin contradicciones detectadas)"
+
+    lineas: list[str] = []
+    for conflict in relevantes:
+        valores = []
+        for item in conflict.get("values", []) or []:
+            etiqueta = (
+                item.get("valor")
+                or item.get("fecha")
+                or item.get("expresion_relativa")
+                or item.get("monto_porcentaje")
+                or item.get("monto_valor")
+            )
+            paginas = sorted(
+                {
+                    str(ref.get("page_number"))
+                    for ref in (item.get("source_references") or [])
+                    if ref.get("page_number")
+                }
+            )
+            ubicacion = f" (pág. {', '.join(paginas)})" if paginas else ""
+            if etiqueta is not None:
+                valores.append(f"{etiqueta}{ubicacion}")
+        if valores:
+            lineas.append(
+                f"- `{conflict.get('tipo', 'dato')}`: {conflict.get('reason', 'valores en conflicto')} "
+                f"-> {' vs. '.join(valores)}"
+            )
+
+    return "\n".join(lineas) if lineas else "(sin contradicciones detectadas)"
+
+
 def run_synthesis(
     *,
     category_key: str,
     items: list[dict[str, Any]],
     correlation_id: str,
     chunks_by_id: dict[str, dict] | None = None,
+    conflicts: list[dict[str, Any]] | None = None,
 ) -> tuple[CategoryNarrative, dict[str, int]] | None:
     """Convierte los items ya extraidos de una categoria en una respuesta de
     experto: bloques en lenguaje natural (parrafo/lista/tabla), nunca metadata
@@ -767,6 +830,7 @@ def run_synthesis(
             .replace("{items_json}", _serialize_items(items))
             .replace("{category_label}", category_label)
             .replace("{category_output_contract}", category_contract)
+            .replace("{conflicts_block}", _conflict_block(category_key, conflicts))
         )
 
         raw, token_usage = extractors_base._call_llm(messages=[("human", prompt)], correlation_id=correlation_id)

@@ -186,7 +186,12 @@ Precio (60%) y Antecedentes (40%). Se exige un puntaje técnico mínimo de 70 pu
         {
           "document_id": "7c9e",
           "page_number": 5,
-          "citation": "La adjudicación recaerá en la oferta que obtenga mayor puntaje, ponderando Precio (60%) y Antecedentes (40%). Se exige un puntaje técnico mínimo de 70 puntos."
+          "citation": "La adjudicación recaerá en la oferta que obtenga mayor puntaje, ponderando Precio (60%) y Antecedentes (40%)"
+        },
+        {
+          "document_id": "7c9e",
+          "page_number": 5,
+          "citation": "Se exige un puntaje técnico mínimo de 70 puntos."
         }
       ],
       "extraction_status": "success"

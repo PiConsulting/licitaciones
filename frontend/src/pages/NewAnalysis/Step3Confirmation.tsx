@@ -1,5 +1,5 @@
 import { isAxiosError } from "axios";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { DuplicateWarningModal } from "../../components/analysis/DuplicateWarningModal";
 import { Button } from "../../components/Button";
@@ -21,6 +21,22 @@ export function Step3Confirmation({ files, primaryIndex, onBack, onContinueToSta
   const [warnings, setWarnings] = useState<DocumentWarning[]>([]);
   const [duplicates, setDuplicates] = useState<DuplicateWarning[]>([]);
   const [pendingAnalysisId, setPendingAnalysisId] = useState<string | null>(null);
+
+  const filesForDisplay = useMemo(
+    () =>
+      files
+        .map((file, index) => ({ file, index }))
+        .sort((left, right) => {
+          const leftIsPrimary = left.index === primaryIndex;
+          const rightIsPrimary = right.index === primaryIndex;
+
+          if (leftIsPrimary === rightIsPrimary) {
+            return left.index - right.index;
+          }
+          return leftIsPrimary ? -1 : 1;
+        }),
+    [files, primaryIndex],
+  );
 
   const { mutateAsync, isPending } = useDocumentUpload();
 
@@ -60,7 +76,7 @@ export function Step3Confirmation({ files, primaryIndex, onBack, onContinueToSta
       <p className="text-sm text-gray-600">Revisá y comenzá el análisis de documentos.</p>
 
       <ul className="space-y-2">
-        {files.map((file, index) => (
+        {filesForDisplay.map(({ file, index }) => (
           <li key={file.id} className="rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-700">
             {file.file.name}
             {index === primaryIndex ? " (Principal)" : ""}

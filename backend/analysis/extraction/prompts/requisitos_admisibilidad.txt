@@ -212,7 +212,12 @@ oferta.
         {
           "document_id": "7c9e",
           "page_number": 3,
-          "citation": "a) Constancia de inscripción en el Registro de Proveedores del Municipio. Requisito legal, obligatorio, a presentar con la oferta."
+          "citation": "a) Constancia de inscripción en el Registro de Proveedores del Municipio"
+        },
+        {
+          "document_id": "7c9e",
+          "page_number": 3,
+          "citation": "Requisito legal, obligatorio, a presentar con la oferta"
         }
       ],
       "extraction_status": "success"

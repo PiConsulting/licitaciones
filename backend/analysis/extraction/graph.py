@@ -24,6 +24,7 @@ from analysis.extraction.extractors.base import shorten_citation_to_evidence
 from analysis.extraction.schemas import (
     CITATION_MAX_CHARS,
     CITATION_MIN_CHARS,
+    NOT_ANALYZED_STATUS,
     AnexoObligatorioItem,
     CausalRechazoItem,
     CriterioEvaluacionItem,
@@ -115,6 +116,221 @@ def _cleanup_temp_highlights(analysis_id: str) -> None:
 
 
 
+class _DocumentoDelAnalisis:
+    """Los datos de un documento que necesitan las dos capas: highlighting y prompt."""
+
+    def __init__(self, doc_id: str, blob_name: str, filename: str = "", is_primary: bool = False):
+        self.id = doc_id
+        self.blob_name = blob_name
+        self.filename = filename
+        self.is_primary = bool(is_primary)
+
+
+def _fetch_analysis_documents(analysis_id: str, db_session: Any) -> list[Any]:
+    """Los documentos de un análisis, venga el estado de PostgreSQL o de Cosmos.
+
+    Extraído de `_build_document_mapping` sin cambiarle el comportamiento: las
+    tres ramas (PostgreSQL / Cosmos / sin sesión) y sus logs son los mismos. Se
+    separó porque el mapeo a blob path no es el único consumidor -- CTX-05
+    necesita el nombre y el rol de cada documento para armar el prompt, y
+    duplicar acá la lógica de tres modos era pedir que se desincronizaran.
+    """
+    from shared.config import get_settings
+    settings = get_settings()
+
+    if db_session is not None:
+        # Path normal: PostgreSQL. Los modelos ya traen id/blob_name/filename/is_primary.
+        from documents.models import Document
+        return (
+            db_session.query(Document)
+            .filter(Document.analysis_id == analysis_id, Document.deleted_at.is_(None))
+            .all()
+        )
+
+    if settings.is_cosmos_only_mode():
+        try:
+            from analysis.cosmos_runtime import get_cosmos_container
+
+            container = get_cosmos_container()
+            query = (
+                "SELECT c.document_id, c.blob_name, c.filename, c.is_primary FROM c "
+                "WHERE c.type = 'document' AND c.analysis_id = @analysis_id AND c.deleted = false"
+            )
+            items = container.query_items(
+                query=query,
+                parameters=[{"name": "@analysis_id", "value": analysis_id}],
+                partition_key=analysis_id,
+            )
+
+            documents = [
+                _DocumentoDelAnalisis(
+                    item["document_id"],
+                    item["blob_name"],
+                    item.get("filename") or "",
+                    item.get("is_primary") or False,
+                )
+                for item in items
+            ]
+
+            logger.info(
+                "build_document_mapping_cosmos_source",
+                analysis_id=analysis_id,
+                documents_found=len(documents),
+            )
+            return documents
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "build_document_mapping_cosmos_query_failed",
+                analysis_id=analysis_id,
+                error=str(exc),
+            )
+            return []
+
+    if settings.is_production:
+        # Producción sin db_session ni cosmos_only_mode: error
+        logger.error(
+            "build_document_mapping_failed_no_session",
+            analysis_id=analysis_id,
+            reason="db_session is None in production context without cosmos_only_mode",
+        )
+        raise RuntimeError(
+            f"Cannot build document mapping for analysis {analysis_id}: "
+            "db_session is required in production for highlight computation"
+        )
+
+    # Development/test sin db_session: solo advertir
+    logger.warning(
+        "build_document_mapping_skipped",
+        analysis_id=analysis_id,
+        reason="db_session not available (test context)",
+    )
+    return []
+
+
+def _build_document_labels(analysis_id: str, db_session: Any) -> dict[str, dict[str, Any]]:
+    """Mapeo `document_id -> {nombre, es_principal}` para el prompt (CTX-05).
+
+    HALLAZGO CTX-05: desde que un análisis acepta varios documentos -- uno
+    principal y el resto anexos -- el encabezado que ve el modelo identifica la
+    fuente con un UUID y nada más:
+
+        [Fragmento: F3, Documento: 149d9358-af60-4a65-a101-53c01f19126c, Página: 8, …]
+
+    Con un solo documento eso alcanzaba. Con varios, el modelo tiene que
+    resolver algo que antes no existía: qué pasa cuando el pliego y un anexo
+    dicen cosas distintas. Y la única instrucción que hay al respecto es
+    "Consolidalo si es coherente", que presupone que todos los documentos
+    pesan igual. En una licitación no pesan igual: el pliego rige y los anexos
+    son subordinados -- y varios de ellos ni siquiera son normativos (el "Anexo
+    II Equipamiento Actual Bancor.xlsx" es el inventario del equipamiento que el
+    Banco YA tiene, y el "Anexo I - Planilla de Cotización" es un formulario
+    vacío).
+
+    Sin nombre ni rol, el modelo no puede preferir el principal ante un
+    conflicto ni decir de dónde sacó cada dato. El UUID se sigue mostrando
+    porque el prompt exige copiarlo en `source_references[].document_id`.
+    """
+    # Las etiquetas son degradables y el mapeo a blob path no: si no se pueden
+    # armar, el prompt vuelve al encabezado con UUID (y el propio prompt dice
+    # qué hacer en ese caso), pero el análisis sigue. `_fetch_analysis_documents`
+    # LEVANTA en producción sin sesión porque para el highlighting eso sí es
+    # fatal; acá no puede serlo, o una nicety del prompt tumbaría el análisis
+    # entero.
+    try:
+        documents = _fetch_analysis_documents(analysis_id, db_session)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "document_labels_no_disponibles",
+            analysis_id=analysis_id,
+            error=str(exc),
+            impact="el prompt identifica los documentos por UUID, como antes de CTX-05",
+        )
+        return {}
+
+    etiquetas: dict[str, dict[str, Any]] = {}
+    for documento in documents:
+        document_id = str(getattr(documento, "id", "") or "")
+        if not document_id:
+            continue
+        etiquetas[document_id] = {
+            "nombre": str(getattr(documento, "filename", "") or "").strip(),
+            "es_principal": bool(getattr(documento, "is_primary", False)),
+        }
+
+    principales = [doc_id for doc_id, datos in etiquetas.items() if datos["es_principal"]]
+    if etiquetas and not principales:
+        # No es fatal -- el prompt degrada a mostrar sólo los nombres -- pero es
+        # una inconsistencia de datos que conviene ver: alguien subió documentos
+        # sin designar cuál es el pliego.
+        logger.warning(
+            "document_labels_sin_principal",
+            analysis_id=analysis_id,
+            documentos=len(etiquetas),
+        )
+    elif len(principales) > 1:
+        logger.warning(
+            "document_labels_varios_principales",
+            analysis_id=analysis_id,
+            principales=len(principales),
+        )
+
+    logger.info(
+        "document_labels_built",
+        analysis_id=analysis_id,
+        documentos=len(etiquetas),
+        con_principal=bool(principales),
+    )
+    return etiquetas
+
+
+def _stampar_nombre_de_documento(nodo: Any, etiquetas: dict[str, dict[str, Any]]) -> None:
+    """CTX-06: escribe `filename`/`is_primary` en cada referencia a una fuente.
+
+    HALLAZGO CTX-06: la lista "Fuentes verificables" que la persona lee debajo
+    de cada categoría muestra el nombre del documento, y ese nombre era la
+    constante `"Documento"` (`analysisApi.ts:98` y `:415`; el tercer caso,
+    `:248`, lo leía del backend pero el backend no lo emitía nunca). Con un solo
+    documento eso era inútil; con el pliego y cuatro anexos de Santa Fe, las
+    cinco fuentes se leen `"Documento · pág. 3"` y no hay forma de distinguirlas
+    -- ni de notar que "pág. 3" del pliego y "pág. 3" de un anexo son páginas
+    distintas de archivos distintos.
+
+    El dato ya existía en dos lados: el `document_id` viaja correcto de punta a
+    punta (el resaltado depende de él y funciona) y `_build_document_labels`
+    (CTX-05) ya arma `document_id -> {nombre, es_principal}` en `setup_node`.
+    Lo único que faltaba era cruzarlos.
+
+    Se resuelve acá, en el backend, y no en el frontend, por dos razones: los
+    campos `filename`/`is_primary` ya estaban declarados en la salida (llegaban
+    en `null` en las 20 referencias del análisis de Santa Fe, o sea el hueco
+    estaba hecho y nadie lo llenaba), y así cualquier consumidor de la API
+    -- no sólo esta pantalla -- ve de qué documento sale cada cita.
+
+    Recorre la estructura entera en vez de enumerar rutas
+    (`categoria[].source_references[]`, `categoria_narrative.sources[]`,
+    `estimacion_presupuesto.source_references[]`, …) porque esas rutas ya son
+    cuatro formas distintas y agregar una quinta no debería requerir tocar esto.
+    La marca de "esto es una referencia a una fuente" es tener `document_id` y
+    `citation` a la vez.
+    """
+    if not etiquetas:
+        # Degradable, igual que CTX-05: sin etiquetas los campos quedan como
+        # estaban y el consumidor cae al comportamiento anterior.
+        return
+
+    if isinstance(nodo, dict):
+        if "document_id" in nodo and "citation" in nodo:
+            datos = etiquetas.get(str(nodo.get("document_id") or ""))
+            if isinstance(datos, dict):
+                nodo["filename"] = str(datos.get("nombre") or "") or None
+                nodo["is_primary"] = bool(datos.get("es_principal"))
+        for valor in nodo.values():
+            _stampar_nombre_de_documento(valor, etiquetas)
+    elif isinstance(nodo, list):
+        for valor in nodo:
+            _stampar_nombre_de_documento(valor, etiquetas)
+
+
 def _build_document_mapping(analysis_id: str, db_session: Any) -> dict[str, str]:
     """Construye mapeo document_id → ruta absoluta del PDF en blob storage.
     
@@ -137,78 +353,13 @@ def _build_document_mapping(analysis_id: str, db_session: Any) -> dict[str, str]
         En Azure, descarga PDFs a /tmp/highlights-{analysis_id}/. Estos archivos
         deben limpiarse manualmente después de calcular highlights.
     """
+    documents = _fetch_analysis_documents(analysis_id, db_session)
+    if not documents:
+        return {}
+
     from shared.config import get_settings
     settings = get_settings()
-    
-    # Obtener documentos según el modo de persistencia
-    documents = []
-    
-    if db_session is not None:
-        # Path normal: PostgreSQL
-        from documents.models import Document
-        documents = (
-            db_session.query(Document)
-            .filter(Document.analysis_id == analysis_id, Document.deleted_at.is_(None))
-            .all()
-        )
-        # Convertir a formato común (lista de objetos con .id y .blob_name)
-        # SQLAlchemy models ya tienen estos atributos
-    elif settings.is_cosmos_only_mode():
-        # Path Cosmos: obtener documentos desde Cosmos DB
-        try:
-            from analysis.cosmos_runtime import get_cosmos_container
-            
-            container = get_cosmos_container()
-            query = (
-                "SELECT c.document_id, c.blob_name FROM c "
-                "WHERE c.type = 'document' AND c.analysis_id = @analysis_id AND c.deleted = false"
-            )
-            items = container.query_items(
-                query=query,
-                parameters=[{"name": "@analysis_id", "value": analysis_id}],
-                partition_key=analysis_id,
-            )
-            
-            # Convertir a objetos simples con .id y .blob_name para compatibilidad
-            class DocumentDTO:
-                def __init__(self, doc_id: str, blob_name: str):
-                    self.id = doc_id
-                    self.blob_name = blob_name
-            
-            documents = [DocumentDTO(item["document_id"], item["blob_name"]) for item in items]
-            
-            logger.info(
-                "build_document_mapping_cosmos_source",
-                analysis_id=analysis_id,
-                documents_found=len(documents),
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "build_document_mapping_cosmos_query_failed",
-                analysis_id=analysis_id,
-                error=str(exc),
-            )
-            return {}
-    elif settings.is_production:
-        # Producción sin db_session ni cosmos_only_mode: error
-        logger.error(
-            "build_document_mapping_failed_no_session",
-            analysis_id=analysis_id,
-            reason="db_session is None in production context without cosmos_only_mode",
-        )
-        raise RuntimeError(
-            f"Cannot build document mapping for analysis {analysis_id}: "
-            "db_session is required in production for highlight computation"
-        )
-    else:
-        # Development/test sin db_session: solo advertir
-        logger.warning(
-            "build_document_mapping_skipped",
-            analysis_id=analysis_id,
-            reason="db_session not available (test context)",
-        )
-        return {}
-    
+
     # Construir mapeo con los documentos obtenidos (PostgreSQL o Cosmos)
     try:
         from shared.adapters.azure_blob_storage import AzureBlobStorageAdapter
@@ -574,12 +725,24 @@ def calculate_confidence(source_references: list[dict], extraction_status: str) 
     elif len(source_references) == 1:
         confidence += 0.2
 
-    if source_references:
-        avg_citation_length = sum(len(str(ref.get("citation", ""))) for ref in source_references) / len(source_references)
-        if avg_citation_length > 100:
-            confidence += 0.2
-        elif avg_citation_length < 25:
-            confidence -= 0.2
+    # FIX (auditoría 2026-08-13, hallazgo SYN-05): acá había un ajuste por LARGO
+    # de la cita: +0.2 por encima de 100 caracteres, -0.2 por debajo de 25.
+    #
+    # El largo de la cita no mide la calidad de la evidencia: mide una decisión
+    # del propio pipeline. `_expand_short_paragraph_citation`,
+    # `_widen_citation_with_chunk_context` y `_rescue_paragraph_citation`
+    # ensanchan la cita hasta llegar a `CITATION_PREFERRED_MIN_CHARS`. O sea que
+    # el sistema alargaba la cita y después se premiaba a sí mismo por tenerla
+    # larga.
+    #
+    # Y desde que `CITATION_MAX_CHARS` bajó a 120 (las citas ahora son cortas a
+    # propósito, ver el hallazgo de legibilidad), el bonus de +0.2 pasó a ser
+    # casi inalcanzable: habría bajado la confianza de todas las categorías sin
+    # que cambiara nada de la evidencia.
+    #
+    # Lo que sí mide calidad de evidencia -- cuántas fuentes independientes
+    # respaldan el dato, y si la extracción fue completa o parcial -- ya está
+    # contemplado arriba y abajo.
 
     if extraction_status == "partial":
         confidence -= 0.2
@@ -596,13 +759,35 @@ def get_confidence_level(confidence: float) -> str:
 
 
 def _normalize_confidence(item: dict) -> dict:
+    """La confianza que ve el usuario se CALCULA; no se le pregunta al modelo.
+
+    FIX (auditoría 2026-08-13, hallazgo SYN-05): antes, si el item traía
+    `confidence` -- y el prompt se lo pide explícitamente al LLM, así que casi
+    siempre lo trae -- se respetaba ese número y `calculate_confidence` no corría
+    nunca. Lo que el usuario leía como "confianza alta" era la autoevaluación del
+    mismo modelo que produjo el dato.
+
+    No es una opinión de más entre varias: `get_confidence_level` marca "alta" a
+    partir de 0.8, y el prompt define ese rango como "usable sin abrir el PDF".
+    Un modelo que se equivoca al extraer se equivoca también al puntuarse.
+
+    Ahora la confianza sale siempre de `calculate_confidence`, que es
+    determinista y auditable: cuántas fuentes verificadas respaldan el dato y si
+    la extracción quedó completa o parcial. La autoevaluación del modelo se
+    conserva en `confidence_llm` -- sirve para telemetría (¿el modelo sabe
+    cuándo se está equivocando?), no para decidir qué se le muestra a la
+    persona.
+    """
     status = str(item.get("extraction_status", "success"))
     refs = list(item.get("source_references", []))
-    if "confidence" not in item:
-        item["confidence"] = calculate_confidence(refs, status)
-    else:
-        conf = float(item.get("confidence", 0.0) or 0.0)
-        item["confidence"] = max(0.0, min(conf, 1.0))
+
+    if "confidence" in item:
+        try:
+            item["confidence_llm"] = max(0.0, min(float(item.get("confidence") or 0.0), 1.0))
+        except (TypeError, ValueError):
+            item["confidence_llm"] = None
+
+    item["confidence"] = calculate_confidence(refs, status)
     item["confidence_level"] = get_confidence_level(float(item.get("confidence", 0.0) or 0.0))
     return item
 
@@ -676,6 +861,7 @@ def _keep_schema_valid_items(
     *,
     category: str,
     correlation_id: str,
+    quality: dict[str, dict[str, int]] | None = None,
 ) -> tuple[list[dict], str]:
     """Descarta los items que no cumplen su schema, en vez de dejar que uno solo
     haga fallar la validacion de `ExtractedData` entera.
@@ -715,13 +901,30 @@ def _keep_schema_valid_items(
         if normalized_status in {"success", "unknown"}:
             normalized_status = "partial"
 
+        if quality is not None:
+            registro = quality.setdefault(category, {})
+            registro["descartados_por_formato"] = registro.get("descartados_por_formato", 0) + len(invalid)
+            registro["conservados"] = len(valid)
+
     return valid, normalized_status
 
 
-def _drop_items_without_sources(items: list[dict], status: str) -> tuple[list[dict], str]:
+def _drop_items_without_sources(
+    items: list[dict],
+    status: str,
+    *,
+    category: str = "",
+    quality: dict[str, dict[str, int]] | None = None,
+) -> tuple[list[dict], str]:
     """El contrato final exige al menos una fuente por item persistido.
     Si el grounding dejó items sin citas verificables, se descartan y la
-    categoría baja a partial cuando antes figuraba como success."""
+    categoría baja a partial cuando antes figuraba como success.
+
+    ATR-03 (auditoría 2026-08-13): además se ANOTA cuántos se descartaron. El
+    descarte estaba bien hecho, pero era invisible: la categoría llegaba al
+    usuario como `partial` sin ninguna forma de distinguir "el pliego dice poco"
+    de "el modelo produjo hallazgos que no pudimos respaldar".
+    """
     items = _enforce_citation_contract(items)
     filtered = [item for item in items if list(item.get("source_references", []))]
     dropped = len(items) - len(filtered)
@@ -729,6 +932,19 @@ def _drop_items_without_sources(items: list[dict], status: str) -> tuple[list[di
 
     if dropped and normalized_status in {"success", "unknown"}:
         normalized_status = "partial"
+
+    if quality is not None and category:
+        registro = quality.setdefault(category, {})
+        if dropped:
+            registro["descartados_sin_evidencia"] = registro.get("descartados_sin_evidencia", 0) + dropped
+        # Items que sobrevivieron pero cuya cita tuvo que rescatarse: su
+        # evidencia declarada no verificaba (ver ATR-02).
+        rescatados = sum(
+            1 for item in filtered if str(item.get("_warning", "")) == "cita_reemplazada_por_rescate"
+        )
+        if rescatados:
+            registro["con_evidencia_rescatada"] = registro.get("con_evidencia_rescatada", 0) + rescatados
+        registro["conservados"] = len(filtered)
 
     return filtered, normalized_status
 
@@ -738,7 +954,10 @@ def setup_node(state: GraphState) -> GraphState:
     
     # Construir mapeo document_id → blob_path para highlight pre-computado
     document_mapping = _build_document_mapping(state["analysis_id"], state.get("db_session"))
-    
+    # CTX-05: nombre y rol de cada documento, para que el prompt no identifique
+    # la fuente con un UUID pelado cuando el análisis tiene pliego + anexos.
+    document_labels = _build_document_labels(state["analysis_id"], state.get("db_session"))
+
     state.update(
         {
             "objeto_alcance": [],
@@ -759,6 +978,7 @@ def setup_node(state: GraphState) -> GraphState:
             "identificacion_status": "pending",
             "conflicts": [],
             "document_id_to_blob_path": document_mapping,
+            "document_labels": document_labels,
         }
     )
     logger.info("setup_node_completed", correlation_id=state["correlation_id"])
@@ -817,22 +1037,32 @@ def merge_node(state: GraphState) -> GraphState:
         identificacion, lambda item: (str(item.get("tipo", "")), _normalized_valor_key(item))
     )
 
+    # ATR-03: contadores de calidad por categoría, para que el usuario pueda
+    # distinguir "el pliego dice poco" de "tuvimos que descartar hallazgos".
+    calidad: dict[str, dict[str, int]] = {}
+
     objeto_alcance, objeto_alcance_status = _drop_items_without_sources(
         objeto_alcance,
         str(state.get("objeto_alcance_status", "unknown")),
+        category="objeto_alcance",
+        quality=calidad,
     )
     requisitos_admisibilidad, requisitos_admisibilidad_status = _drop_items_without_sources(
         requisitos_admisibilidad,
         str(state.get("requisitos_admisibilidad_status", "unknown")),
+        category="requisitos_admisibilidad",
+        quality=calidad,
     )
-    plazos, plazos_status = _drop_items_without_sources(plazos, str(state.get("plazos_status", "unknown")))
-    garantias, garantias_status = _drop_items_without_sources(garantias, str(state.get("garantias_status", "unknown")))
-    causales, causales_status = _drop_items_without_sources(causales, str(state.get("causales_status", "unknown")))
-    anexos, anexos_status = _drop_items_without_sources(anexos, str(state.get("anexos_status", "unknown")))
-    criterios, criterios_status = _drop_items_without_sources(criterios, str(state.get("criterios_status", "unknown")))
+    plazos, plazos_status = _drop_items_without_sources(plazos, str(state.get("plazos_status", "unknown")), category="plazos_clave", quality=calidad)
+    garantias, garantias_status = _drop_items_without_sources(garantias, str(state.get("garantias_status", "unknown")), category="garantias", quality=calidad)
+    causales, causales_status = _drop_items_without_sources(causales, str(state.get("causales_status", "unknown")), category="causales_rechazo", quality=calidad)
+    anexos, anexos_status = _drop_items_without_sources(anexos, str(state.get("anexos_status", "unknown")), category="anexos_obligatorios", quality=calidad)
+    criterios, criterios_status = _drop_items_without_sources(criterios, str(state.get("criterios_status", "unknown")), category="criterios_evaluacion", quality=calidad)
     identificacion, identificacion_status = _drop_items_without_sources(
         identificacion,
         str(state.get("identificacion_status", "unknown")),
+        category="identificacion_procedimiento",
+        quality=calidad,
     )
 
     # Campo canónico: solo los ítems cuyo `tipo` cae en el enum
@@ -851,37 +1081,40 @@ def merge_node(state: GraphState) -> GraphState:
     # categorias de una.
     objeto_alcance, objeto_alcance_status = _keep_schema_valid_items(
         objeto_alcance, ObjetoAlcanceItem, objeto_alcance_status,
-        category="objeto_alcance", correlation_id=correlation_id,
+        category="objeto_alcance", correlation_id=correlation_id, quality=calidad,
     )
     requisitos_admisibilidad, requisitos_admisibilidad_status = _keep_schema_valid_items(
         requisitos_admisibilidad, RequisitoAdmisibilidadItem, requisitos_admisibilidad_status,
-        category="requisitos_admisibilidad", correlation_id=correlation_id,
+        category="requisitos_admisibilidad", correlation_id=correlation_id, quality=calidad,
     )
     plazos, plazos_status = _keep_schema_valid_items(
-        plazos, PlazoItem, plazos_status, category="plazos_clave", correlation_id=correlation_id,
+        plazos, PlazoItem, plazos_status, category="plazos_clave", correlation_id=correlation_id, quality=calidad,
     )
     garantias, garantias_status = _keep_schema_valid_items(
         garantias, GarantiaItem, garantias_status,
-        category="garantias", correlation_id=correlation_id,
+        category="garantias", correlation_id=correlation_id, quality=calidad,
     )
     causales, causales_status = _keep_schema_valid_items(
         causales, CausalRechazoItem, causales_status,
-        category="causales_rechazo", correlation_id=correlation_id,
+        category="causales_rechazo", correlation_id=correlation_id, quality=calidad,
     )
     anexos, anexos_status = _keep_schema_valid_items(
         anexos, AnexoObligatorioItem, anexos_status,
-        category="anexos_obligatorios", correlation_id=correlation_id,
+        category="anexos_obligatorios", correlation_id=correlation_id, quality=calidad,
     )
     criterios, criterios_status = _keep_schema_valid_items(
         criterios, CriterioEvaluacionItem, criterios_status,
-        category="criterios_evaluacion", correlation_id=correlation_id,
+        category="criterios_evaluacion", correlation_id=correlation_id, quality=calidad,
     )
     identificacion_canonica, identificacion_status = _keep_schema_valid_items(
         identificacion_canonica, IdentificacionProcedimientoItem, identificacion_status,
-        category="identificacion_procedimiento", correlation_id=correlation_id,
+        category="identificacion_procedimiento", correlation_id=correlation_id, quality=calidad,
     )
 
     extracted_data = {
+        # ATR-03: viaja dentro de `extracted_data` porque es lo único que llega
+        # al frontend sin cambiar el contrato de la API.
+        "calidad_por_categoria": calidad,
         "objeto_alcance": objeto_alcance,
         "objeto_alcance_extraction_status": objeto_alcance_status,
         "objeto_alcance_confidence": _category_confidence(objeto_alcance),
@@ -916,18 +1149,27 @@ def merge_node(state: GraphState) -> GraphState:
         "datos_procedimiento": identificacion,
         "datos_procedimiento_extraction_status": identificacion_status,
         "datos_procedimiento_confidence": _category_confidence(identificacion),
+        # FIX (auditoría 2026-08-13, hallazgo CTX-03): estos cuatro campos
+        # estaban en `not_found`, que en toda la UI significa "el pliego no lo
+        # dice". Pero ningún nodo del grafo los completa: los ocho extractores
+        # están listados en `_EXTRACTOR_NODES` y ninguno mapea acá. La verdad no
+        # es "no encontrado" sino "no analizado".
+        #
+        # La diferencia importa: para `estimacion_presupuesto`, un oferente que
+        # lee "no encontrado" puede concluir que el pliego no publica
+        # presupuesto oficial, cuando el sistema nunca lo buscó por esa vía.
         "documentos_requeridos": [],
-        "documentos_extraction_status": "not_found",
+        "documentos_extraction_status": NOT_ANALYZED_STATUS,
         "criterios_evaluacion": criterios,
         "criterios_evaluacion_extraction_status": criterios_status,
         "criterios_extraction_status": criterios_status,
         "criterios_evaluacion_confidence": _category_confidence(criterios),
         "restricciones_participacion": [],
-        "restricciones_extraction_status": "not_found",
+        "restricciones_extraction_status": NOT_ANALYZED_STATUS,
         "cronograma_proceso": [],
-        "cronograma_extraction_status": "not_found",
+        "cronograma_extraction_status": NOT_ANALYZED_STATUS,
         "estimacion_presupuesto": None,
-        "presupuesto_extraction_status": "not_found",
+        "presupuesto_extraction_status": NOT_ANALYZED_STATUS,
     }
 
     token_usage = {
@@ -980,7 +1222,7 @@ def merge_node(state: GraphState) -> GraphState:
     validated = ExtractedData(**extracted_data)
     state["extracted_data"] = validated.model_dump()
     state["conflicts"] = conflicts
-    state["extraction_metadata"] = {"token_usage": token_usage}
+    state["extraction_metadata"] = {"token_usage": token_usage, "calidad_por_categoria": calidad}
 
     logger.info(
         "merge_node_completed",
@@ -1111,6 +1353,9 @@ def synthesize_node(state: GraphState) -> GraphState:
             items=items,
             correlation_id=correlation_id,
             chunks_by_id=chunks_by_id,
+            # CTX-04: los conflictos que detectó `merge_node` tienen que llegar
+            # a quien redacta la respuesta. Antes se quedaban en el estado.
+            conflicts=state.get("conflicts") or [],
         )
         if result is None:
             continue
@@ -1130,6 +1375,12 @@ def synthesize_node(state: GraphState) -> GraphState:
         extracted_data[f"{category_key}_narrative"] = narrative.model_dump()
         token_usage_by_category[f"{category_key}_synthesis"] = token_usage
         synthesized += 1
+
+    # CTX-06: acá y no en `merge_node` porque las `sources` de las narrativas
+    # -- que son las que el frontend lista bajo "Fuentes verificables" -- se
+    # acaban de agregar recién en este nodo. Un solo recorrido cubre las
+    # referencias de los ítems y las de las narrativas.
+    _stampar_nombre_de_documento(extracted_data, state.get("document_labels") or {})
 
     metadata["token_usage"] = token_usage_by_category
     state["extracted_data"] = extracted_data

@@ -15,6 +15,7 @@ from extraction.ai_search import validate_index_contract
 from shared.config import get_settings
 from shared.database import engine
 from shared.logging import configure_logging
+from tracking.routes import tracking_router
 from users.routes import auth_router, protected_router
 
 logger = logging.getLogger(__name__)
@@ -224,6 +225,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(protected_router, prefix="/api/v1")
     app.include_router(analysis_router, prefix="/api/v1")
+    app.include_router(tracking_router, prefix="/api/v1")
     app.include_router(documents_router, prefix="/api/v1")
     
     # 🔧 DEBUG - quitar antes de commitear

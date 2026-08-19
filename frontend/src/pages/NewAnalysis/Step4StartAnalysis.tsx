@@ -114,7 +114,7 @@ export function Step4StartAnalysis({ analysisId, initialDecisions = [], onBack }
   return (
     <section className="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
       <h2 className="text-lg font-semibold text-gray-900">Paso 4: Iniciar análisis</h2>
-      <p className="text-sm text-gray-600">Confirmá el inicio. Si hay duplicados, vas a poder decidir por cada archivo.</p>
+      <p className="text-sm text-gray-600">Confirmá el inicio. Si hay duplicados, vas a poder resolverlos por archivo o en bloque cuando corresponda.</p>
 
       <div className="space-y-2">
         <label htmlFor="analysis-name" className="text-sm font-medium text-gray-700">

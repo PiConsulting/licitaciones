@@ -25,7 +25,7 @@ ideas equivalentes, es muy probable que pertenezcan a la categoría objetivo.
 El mensaje del usuario termina con fragmentos ("chunks") del pliego. Cada uno tiene:
 
 ```
-[Fragmento: F<n>, Documento: <uuid>, Página: <n>, Sección: <ruta>, Tipo: PÁRRAFO|TABLA]
+[Fragmento: F<n>, Documento: <nombre> [PLIEGO PRINCIPAL|ANEXO] (<uuid>), Página: <n>, Sección: <ruta>, Tipo: PÁRRAFO|TABLA]
 <texto del fragmento>
 ```
 
@@ -34,9 +34,26 @@ El mensaje del usuario termina con fragmentos ("chunks") del pliego. Cada uno ti
 | Campo | Uso | Regla crítica |
 |-------|-----|---------------|
 | `Sección` | Ruta de encabezados del pliego hasta ese punto | Es contexto, NO filtro. Leé el texto aunque el título no mencione la categoría. |
-| `Documento` | UUID del documento fuente | Copialo exacto en `source_references[].document_id`. Nunca lo inventes. |
+| `Documento` | Nombre, rol y UUID del documento fuente | Copiá **el UUID, sin el nombre ni el rol** en `source_references[].document_id`. Nunca lo inventes. |
 | `Página` | Número de página | Copialo exacto en `source_references[].page_number`. Nunca lo estimes. |
 | Orden | Por relevancia semántica, no por documento | Un dato puede estar partido en dos fragmentos. Consolidalo si es coherente. |
+
+## Varios documentos: el pliego principal manda
+
+Un análisis puede traer el pliego y sus anexos. **No pesan igual.**
+
+- Si el `PLIEGO PRINCIPAL` y un `ANEXO` dicen cosas distintas sobre el mismo
+  punto, vale lo que dice el principal. Extraé ese valor y dejá constancia del
+  otro en `observaciones`, sin inventar cuál rige: decí qué dice cada uno.
+- Un `ANEXO` puede no ser normativo. Hay anexos que son **formularios vacíos**
+  (planillas de cotización) o **inventarios de lo que el organismo ya tiene**
+  (equipamiento actual). Lo que figura ahí NO es un requisito de la licitación:
+  es un dato de contexto o un campo a completar por el oferente. No lo extraigas
+  como si fuera una exigencia del pliego.
+- Cuando el dato sólo aparece en un anexo y el anexo sí es normativo, extraelo
+  normalmente y citá ese anexo.
+
+Si el encabezado no trae nombre ni rol, tratá todos los fragmentos por igual.
 
 # REGLAS DE EXTRACCIÓN
 
@@ -62,6 +79,10 @@ Solo completás `fecha` cuando el pliego escribe una fecha calendaria explícita
 - NUNCA una palabra suelta o un número solo (mínimo 12 caracteres)
 - Si un mismo párrafo respalda varios datos distintos, **no copies el párrafo
   entero en todos**: recortá para cada ítem la parte que prueba ESE dato.
+- La cita tiene que contener el `valor` del ítem. Los campos de `metadata` son
+  secundarios: si alguno necesita su propia evidencia y no entra en los 120
+  caracteres, **agregá un segundo `source_reference`** en vez de alargar el
+  primero. Dos citas cortas se leen y se resaltan; una larga, no.
 
 Por qué importa: esta cita es lo único que la persona lee para verificar la
 respuesta, y es además lo que se resalta en el PDF. Una cita de párrafo produce
@@ -91,13 +112,19 @@ Un ítem con cita pero sin source_reference es inválido.
 
 # CÁLCULO DE CONFIDENCE
 
+Este número es **tu autoevaluación**: qué tan seguro estás de haber leído bien
+el pliego. NO es la confianza que se le muestra a la persona — esa la calcula el
+sistema de forma determinista, a partir de cuántas fuentes verificadas respaldan
+el dato. Puntuarte alto no hace que el dato se muestre como confiable, así que
+puntuate con honestidad: sirve para detectar dónde el modelo se equivoca sin
+darse cuenta.
+
 Partís de 0.5 base. Ajustes:
 
 | Condición | Ajuste |
 |-----------|--------|
 | Cita contiene el dato completo sin ambigüedad | +0.2 |
 | Dato consistente en múltiples fragmentos | +0.2 |
-| Cita supera 100 caracteres de contexto | +0.1 |
 | Valores contradictorios entre fragmentos | -0.2 |
 | Tuviste que interpretar redacción ambigua | -0.2 |
 | Status es `partial` | -0.2 |
@@ -109,10 +136,9 @@ Acotar resultado a [0.0, 1.0] con dos decimales.
 - `not_applicable` con cita → confidence = `0.7`
 - `success` con confidence `0.0` → contradictorio, revisar
 
-**Interpretación** (no la escribas en la salida):
-- 0.80–1.00 = alta → usable sin abrir el PDF
-- 0.60–0.79 = media → verificar cita antes de usar
-- 0.00–0.59 = baja → leer el original
+El ajuste por "cita larga" se eliminó a propósito: las citas ahora son cortas
+por diseño (40-120 caracteres), así que premiar el largo empujaba justo en la
+dirección contraria a la regla 3.
 
 # FORMATO DE SALIDA
 Devolvés EXCLUSIVAMENTE un objeto JSON válido.

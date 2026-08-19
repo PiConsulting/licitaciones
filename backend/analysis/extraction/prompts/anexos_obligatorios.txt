@@ -209,7 +209,7 @@ de Habilidad para Contratar, que deberá completarse y suscribirse por el repres
         {
           "document_id": "7c9e",
           "page_number": 8,
-          "citation": "Forman parte integrante del presente el Anexo II — Declaración Jurada de Habilidad para Contratar, que deberá completarse y suscribirse por el representante legal."
+          "citation": "el Anexo II — Declaración Jurada de Habilidad para Contratar, que deberá completarse y suscribirse"
         }
       ],
       "extraction_status": "success"

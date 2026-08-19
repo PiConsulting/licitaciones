@@ -281,7 +281,12 @@ desde la fecha de apertura.
         {
           "document_id": "7c9e",
           "page_number": 4,
-          "citation": "Los oferentes deberán constituir una garantía equivalente al 1% (uno por ciento) del presupuesto oficial, mediante póliza de seguro de caución. Vigencia: 90 días corridos desde la fecha de apertura."
+          "citation": "garantía equivalente al 1% (uno por ciento) del presupuesto oficial, mediante póliza de seguro de caución"
+        },
+        {
+          "document_id": "7c9e",
+          "page_number": 4,
+          "citation": "Vigencia: 90 días corridos desde la fecha de apertura"
         }
       ],
       "extraction_status": "success"

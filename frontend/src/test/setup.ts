@@ -5,3 +5,13 @@ import "@testing-library/jest-dom";
 if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {};
 }
+
+
+// jsdom no implementa ResizeObserver, que usa `useContainerWidth` para medir el
+// ancho del panel del PDF.
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+globalThis.ResizeObserver = globalThis.ResizeObserver ?? (ResizeObserverStub as never);

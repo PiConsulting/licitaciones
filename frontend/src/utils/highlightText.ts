@@ -1,14 +1,50 @@
-// react-pdf/pdfjs fragmenta cada línea en muchos spans de texto (a veces una
-// sola palabra). Para resaltar correctamente una frase completa, necesitamos
-// reconstruir el texto de múltiples spans y buscar la cita como frase continua.
-// Este algoritmo acumula spans hasta encontrar la frase completa o determinar
-// que no está presente en esa secuencia.
+// Resaltado de respaldo, sobre la capa de texto de react-pdf.
+//
+// Este camino sólo corre cuando el backend NO pudo calcular coordenadas para la
+// cita (ver `coordinateBasedHighlight.tsx` y `PDFPage.tsx`). Es una degradación
+// deliberada: marca el texto que react-pdf ya posicionó, así que nunca queda
+// desalineado, pero no puede recortar dentro de un span.
+//
+// FIX (2026-08-14): la versión anterior mantenía un BUFFER GLOBAL de los
+// últimos 20 spans y devolvía `true` en cuanto el 75% de las palabras de la
+// cita hubiera aparecido en ese buffer. Como todas las palabras de una cita
+// están, por construcción, en el mismo párrafo, el buffer se llenaba mientras
+// el párrafo se pintaba y a partir de ahí TODO span siguiente daba `true`.
+// Sumado a que `createCitationTextRenderer` envuelve el span ENTERO, el
+// resultado era el párrafo completo resaltado. Peor todavía: el buffer era de
+// módulo y el visor renderiza hasta 5 páginas a la vez, así que se contaminaba
+// entre páginas, y el reset era por tiempo (1 segundo), no por página.
+//
+// El contrato correcto -- el que los tests de este archivo ya describían -- es
+// mucho más chico: un span se marca sólo si su texto está literalmente dentro
+// de la cita, como palabra completa. Sin buffers, sin estado, sin porcentajes.
 
-// Buffer de contexto: cuántos spans consecutivos acumular para buscar la frase
-const SPAN_CONTEXT_WINDOW = 20;
+/** Mínimo de caracteres para que un fragmento sea discriminante. Por debajo de
+ * esto son preposiciones y artículos que aparecen en cualquier cita. */
+const MIN_FRAGMENT_LENGTH = 4;
 
-// Mínimo de longitud de palabra individual para considerar como parte de cita
-const MIN_WORD_LENGTH = 8;
+/** Palabras de 4+ letras tan frecuentes en un pliego que marcarlas no señala
+ * nada: aparecen en casi toda cita y en casi todo párrafo. */
+const STOPWORDS = new Set([
+  "para",
+  "como",
+  "esta",
+  "este",
+  "sobre",
+  "entre",
+  "desde",
+  "hasta",
+  "cuando",
+  "donde",
+  "porque",
+  "pero",
+  "sera",
+  "seran",
+  "deberá",
+  "debera",
+  "deberán",
+  "deberan",
+]);
 
 export function normalizeText(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
@@ -18,103 +54,50 @@ function escapeHtml(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-/**
- * Determina si un span de texto es parte de alguna citation.
- * 
- * ESTRATEGIA MEJORADA:
- * 1. Si el span es largo (>= MIN_WORD_LENGTH), verificar si es palabra significativa de la cita
- * 2. Mantener un buffer global de spans recientes para detectar frases completas
- * 3. Solo marcar spans que sean parte de una frase verificable
- * 
- * NOTA: Esta función se llama span por span durante el render. Para mejorar
- * la precisión, react-pdf necesitaría exponer el texto completo de la página,
- * pero esa API no está disponible. Esta es la mejor aproximación dentro de
- * las limitaciones de la biblioteca.
- */
-
-// Buffer global para acumular texto entre llamadas consecutivas
-let spanBuffer: Array<{ text: string; normalized: string }> = [];
-let lastResetTime = Date.now();
-
-export function isPartOfCitation(itemText: string, citationTexts: string[]): boolean {
-  // Reset buffer si pasó mucho tiempo (indica nueva página/render)
-  if (Date.now() - lastResetTime > 1000) {
-    spanBuffer = [];
-  }
-  lastResetTime = Date.now();
-
-  const normalizedItem = normalizeText(itemText);
-  if (!normalizedItem) {
-    return false;
-  }
-
-  // Agregar span actual al buffer
-  spanBuffer.push({ text: itemText, normalized: normalizedItem });
-  if (spanBuffer.length > SPAN_CONTEXT_WINDOW) {
-    spanBuffer.shift();
-  }
-
-  // Reconstruir texto del buffer
-  const bufferedText = spanBuffer.map((s) => s.normalized).join(" ");
-
-  // Estrategia 1: Buscar la frase completa en el buffer
-  for (const citationText of citationTexts) {
-    const normalizedCitation = normalizeText(citationText);
-    
-    // Si encontramos la frase completa (o gran parte) en el buffer, este span es parte
-    if (bufferedText.includes(normalizedCitation)) {
+/** ¿`fragment` aparece en `text` como palabra completa? Evita que "de" matchee
+ * dentro de "deberán" y que "oferta" matchee dentro de "ofertante". */
+function containsAsWord(text: string, fragment: string): boolean {
+  let from = 0;
+  for (;;) {
+    const index = text.indexOf(fragment, from);
+    if (index === -1) {
+      return false;
+    }
+    const before = index === 0 ? " " : text[index - 1];
+    const afterIndex = index + fragment.length;
+    const after = afterIndex >= text.length ? " " : text[afterIndex];
+    const isWordChar = (ch: string) => /[\p{L}\p{N}]/u.test(ch);
+    if (!isWordChar(before) && !isWordChar(after)) {
       return true;
     }
-    
-    // Si la cita está contenida en el buffer con ligeras variaciones (75% match)
-    const citationWords = normalizedCitation.split(" ").filter((w) => w.length >= 4);
-    if (citationWords.length >= 3) {
-      const matchedWords = citationWords.filter((word) => bufferedText.includes(word));
-      if (matchedWords.length / citationWords.length >= 0.75) {
-        return true;
-      }
-    }
+    from = index + 1;
   }
-
-  // Estrategia 2: Si el span es una palabra larga significativa de la cita
-  if (normalizedItem.length >= MIN_WORD_LENGTH) {
-    for (const citationText of citationTexts) {
-      const normalizedCitation = normalizeText(citationText);
-      // Solo marcar si es palabra significativa (no común) Y aparece en la cita
-      if (normalizedCitation.includes(normalizedItem)) {
-        // Verificar que no sea una palabra demasiado común
-        const commonWords = [
-          "documento",
-          "oferta",
-          "oferente",
-          "presentar",
-          "garantia",
-          "requisito",
-          "vigente",
-        ];
-        if (!commonWords.includes(normalizedItem)) {
-          return true;
-        }
-      }
-    }
-  }
-
-  return false;
 }
 
 /**
- * Builds a react-pdf `customTextRenderer`: for each text item rendered on the page,
- * wraps it in a `<mark>` when it's part of one of `citationTexts`. This highlights the
- * real, rendered text directly (via react-pdf's own text layer), so it stays correctly
- * positioned at any zoom/fit level instead of relying on separately-computed pixel
- * coordinates that drift out of sync when the page's render size changes.
+ * Determina si un span de la capa de texto forma parte de alguna cita.
+ *
+ * Criterio único: el texto del span tiene que estar CONTENIDO en la cita, como
+ * palabra completa, y ser lo bastante largo como para discriminar. Nada de
+ * coincidencias parciales ni acumuladas — marcar de más es peor que no marcar,
+ * porque le dice a la persona que la evidencia es más grande de lo que es.
  */
+export function isPartOfCitation(itemText: string, citationTexts: string[]): boolean {
+  const fragment = normalizeText(itemText);
+  if (fragment.length < MIN_FRAGMENT_LENGTH || STOPWORDS.has(fragment)) {
+    return false;
+  }
+
+  return citationTexts.some((citationText) =>
+    containsAsWord(normalizeText(citationText), fragment),
+  );
+}
+
 // Semitransparente (no opaco) para que el texto real, renderizado en el canvas
-// de abajo, se siga leyendo debajo de la marca — antes cubría el texto por
-// completo. `box-decoration-break: clone` hace que los distintos spans del
-// text layer que caen en una misma linea (react-pdf fragmenta el texto en
-// varios spans) se vean como un unico bloque continuo de resaltador, en vez
-// de "chips" opacos salteados con espacios entre palabras.
+// de abajo, se siga leyendo debajo de la marca. `box-decoration-break: clone`
+// hace que los distintos spans del text layer que caen en una misma línea se
+// vean como un único bloque continuo de resaltador, en vez de "chips" opacos
+// salteados con espacios entre palabras.
 const HIGHLIGHT_STYLE =
   "background-color:rgba(250,204,21,0.35);color:inherit;padding:0.05em 0;" +
   "box-decoration-break:clone;-webkit-box-decoration-break:clone;";

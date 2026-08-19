@@ -108,7 +108,126 @@ def test_extract_and_index_cosmos_uses_configured_concurrency_and_validates_prom
     assert analysis["current_stage"] == "completed"
 
 
-def test_extract_and_index_cosmos_preserves_document_text_error(
+def test_extract_and_index_cosmos_continues_when_one_document_fails(
+    cosmos_only,
+    monkeypatch,
+) -> None:
+    container, user_id, _token = cosmos_only
+    analysis_id = str(uuid4())
+    correlation_id = str(uuid4())
+    document_id_fail = str(uuid4())
+    document_id_ok = str(uuid4())
+
+    container.add(
+        {
+            "id": f"analysis::{analysis_id}",
+            "type": "analysis",
+            "partition_key": analysis_id,
+            "analysis_id": analysis_id,
+            "created_by": user_id,
+            "correlation_id": correlation_id,
+            "status": "queued",
+            "current_stage": "queued",
+            "progress_percentage": 0,
+            "deleted": False,
+            "extraction_metadata": {},
+        }
+    )
+    container.add(
+        {
+            "id": f"document::{document_id_fail}",
+            "type": "document",
+            "partition_key": analysis_id,
+            "analysis_id": analysis_id,
+            "document_id": document_id_fail,
+            "filename": "pliego-rosario.pdf",
+            "blob_name": f"{analysis_id}/pliego-rosario.pdf",
+            "page_count": 10,
+            "is_primary": True,
+            "uploaded_at": "2026-01-01T00:00:00+00:00",
+            "deleted": False,
+        }
+    )
+    container.add(
+        {
+            "id": f"document::{document_id_ok}",
+            "type": "document",
+            "partition_key": analysis_id,
+            "analysis_id": analysis_id,
+            "document_id": document_id_ok,
+            "filename": "anexo-i.pdf",
+            "blob_name": f"{analysis_id}/anexo-i.pdf",
+            "page_count": 5,
+            "is_primary": False,
+            "uploaded_at": "2026-01-01T00:00:00+00:00",
+            "deleted": False,
+        }
+    )
+
+    class _FakeBlobStorage:
+        def generate_download_url(self, blob_name: str) -> str:
+            return f"blob://{blob_name}"
+
+    monkeypatch.setattr(cosmos_runtime, "_build_blob_storage", lambda: _FakeBlobStorage())
+
+    def _extract_text(blob_url: str, *_args, **_kwargs):
+        if blob_url.endswith("pliego-rosario.pdf"):
+            raise DocumentTextExtractionError("No se detectó texto útil en el documento")
+        return [{"page_number": 1, "content": "contenido del anexo"}]
+
+    monkeypatch.setattr(
+        cosmos_runtime,
+        "extract_text",
+        _extract_text,
+    )
+    monkeypatch.setattr(
+        cosmos_runtime,
+        "create_chunks",
+        lambda pages, document_id, *_args, **_kwargs: [
+            {
+                "document_id": document_id,
+                "page_number": 1,
+                "chunk_index": 0,
+                "heading_path": [],
+                "heading_level": 0,
+                "section_path": "general",
+                "block_type": "paragraph",
+                "content": pages[0]["content"],
+                "token_count": 3,
+                "source": {"page": 1, "block_type": "paragraph", "blocks": []},
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        cosmos_runtime,
+        "generate_embeddings",
+        lambda chunks, *_args, **_kwargs: [dict(chunk, embedding=[0.1, 0.2]) for chunk in chunks],
+    )
+    monkeypatch.setattr(cosmos_runtime, "upload_chunks", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cosmos_runtime, "validate_prompt_inventory", lambda: None)
+    monkeypatch.setattr(
+        cosmos_runtime.graph,
+        "invoke",
+        lambda *_args, **_kwargs: {"extracted_data": {}, "conflicts": [], "extraction_metadata": {"token_usage": {}}},
+    )
+
+    cosmos_runtime.extract_and_index_cosmos(analysis_id)
+
+    analysis = container.items[f"analysis::{analysis_id}"]
+    assert analysis["status"] == "analyzed"
+    assert analysis["current_stage"] == "completed"
+    partial = analysis["extraction_metadata"].get("partial_extraction")
+    assert partial is not None
+    assert partial["failed_documents"][0]["document_id"] == document_id_fail
+
+    failed_document = container.items[f"document::{document_id_fail}"]
+    ok_document = container.items[f"document::{document_id_ok}"]
+    assert failed_document["extraction_status"] == "failed"
+    assert "No se detectó texto útil" in failed_document["extraction_error"]
+    assert ok_document["extraction_status"] == "completed"
+
+
+def test_extract_and_index_cosmos_fails_when_all_documents_fail(
     cosmos_only,
     monkeypatch,
 ) -> None:
@@ -139,9 +258,10 @@ def test_extract_and_index_cosmos_preserves_document_text_error(
             "partition_key": analysis_id,
             "analysis_id": analysis_id,
             "document_id": document_id,
-            "filename": "pliego-rosario.pdf",
-            "blob_name": f"{analysis_id}/pliego-rosario.pdf",
-            "page_count": 10,
+            "filename": "pliego.pdf",
+            "blob_name": f"{analysis_id}/pliego.pdf",
+            "page_count": 1,
+            "is_primary": True,
             "uploaded_at": "2026-01-01T00:00:00+00:00",
             "deleted": False,
         }
@@ -155,7 +275,7 @@ def test_extract_and_index_cosmos_preserves_document_text_error(
     monkeypatch.setattr(
         cosmos_runtime,
         "extract_text",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(DocumentTextExtractionError("No se detectó texto útil en el documento")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(DocumentTextExtractionError("sin texto")),
     )
 
     cosmos_runtime.extract_and_index_cosmos(analysis_id)
@@ -163,9 +283,10 @@ def test_extract_and_index_cosmos_preserves_document_text_error(
     analysis = container.items[f"analysis::{analysis_id}"]
     assert analysis["status"] == "error"
     assert analysis["current_stage"] == "completed"
-    assert analysis["error_message"] == (
-        "No se pudo leer el texto de pliego-rosario.pdf: No se detectó texto útil en el documento"
-    )
+    assert "ningun documento" in analysis["error_message"]
+
+    failed_document = container.items[f"document::{document_id}"]
+    assert failed_document["extraction_status"] == "failed"
 
 
 def test_delete_analysis_cosmos_hard_deletes_error_analysis(cosmos_only, monkeypatch) -> None:

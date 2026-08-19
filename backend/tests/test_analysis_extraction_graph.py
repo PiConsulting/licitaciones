@@ -965,6 +965,67 @@ def test_dedup_no_cambia_comportamiento_de_plazos_y_garantias() -> None:
     assert len(result["extracted_data"]["garantias"]) == 1
 
 
+def test_merge_ordena_items_por_documento_primario_y_filename() -> None:
+    state = _dedup_base_state()
+    state["requisitos_admisibilidad"] = [
+        {
+            "tipo": "documento",
+            "valor": "Constancia fiscal vigente.",
+            "confidence": 0.9,
+            "source_references": [
+                {
+                    "document_id": "doc-2",
+                    "page_number": 8,
+                    "filename": "anexo-b.pdf",
+                    "is_primary": False,
+                    "citation": "Se requiere constancia fiscal vigente para la presentación.",
+                }
+            ],
+            "extraction_status": "success",
+        },
+        {
+            "tipo": "capacidad_minima",
+            "valor": "Memoria técnica firmada.",
+            "confidence": 0.88,
+            "source_references": [
+                {
+                    "document_id": "doc-1",
+                    "page_number": 3,
+                    "filename": "pliego.pdf",
+                    "is_primary": True,
+                    "citation": "Presentar memoria técnica firmada por representante autorizado.",
+                }
+            ],
+            "extraction_status": "success",
+        },
+        {
+            "tipo": "otra",
+            "valor": "Formulario de inscripción.",
+            "confidence": 0.87,
+            "source_references": [
+                {
+                    "document_id": "doc-3",
+                    "page_number": 2,
+                    "filename": "anexo-a.pdf",
+                    "is_primary": False,
+                    "citation": "Debe adjuntarse formulario de inscripción completo y firmado.",
+                }
+            ],
+            "extraction_status": "success",
+        },
+    ]
+    state["requisitos_admisibilidad_status"] = "success"
+
+    result = merge_node(state)
+    requisitos = result["extracted_data"]["requisitos_admisibilidad"]
+
+    assert [item["source_references"][0]["filename"] for item in requisitos] == [
+        "pliego.pdf",
+        "anexo-a.pdf",
+        "anexo-b.pdf",
+    ]
+
+
 # ---------------------------------------------------------------------------
 # REGRESIÓN SYN-03 (auditoría 2026-08-13): una sola enumeración por análisis.
 #

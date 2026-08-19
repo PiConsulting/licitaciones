@@ -110,7 +110,35 @@ def _build_messages(
     return [("system", system_prompt), ("human", user_prompt)]
 
 
-def _format_chunks(chunks: list[dict[str, Any]]) -> str:
+def _describe_document(document_id: str, labels: dict[str, dict[str, Any]] | None) -> str:
+    """Cómo se nombra la fuente en el encabezado del fragmento (CTX-05).
+
+    Sin etiquetas se devuelve el UUID solo, que es lo que hacía antes de que un
+    análisis pudiera tener varios documentos. Con etiquetas se antepone el
+    nombre y el rol, porque el modelo necesita saber si está leyendo el pliego o
+    un anexo antes de decidir qué hacer cuando dicen cosas distintas.
+
+    El UUID no se saca nunca: el prompt exige copiarlo en
+    `source_references[].document_id`, y de ahí sale el resaltado.
+    """
+    if not document_id:
+        return "desconocido"
+
+    datos = (labels or {}).get(document_id)
+    if not isinstance(datos, dict):
+        return document_id
+
+    nombre = str(datos.get("nombre") or "").strip()
+    rol = "PLIEGO PRINCIPAL" if datos.get("es_principal") else "ANEXO"
+    if not nombre:
+        return f"{rol} ({document_id})"
+    return f"{nombre} [{rol}] ({document_id})"
+
+
+def _format_chunks(
+    chunks: list[dict[str, Any]],
+    document_labels: dict[str, dict[str, Any]] | None = None,
+) -> str:
     if not chunks:
         return ""
 
@@ -118,7 +146,7 @@ def _format_chunks(chunks: list[dict[str, Any]]) -> str:
     for position, chunk in enumerate(chunks, start=1):
         header = (
             f"[Fragmento: F{position}, "
-            f"Documento: {chunk.get('document_id', 'desconocido')}, "
+            f"Documento: {_describe_document(str(chunk.get('document_id') or ''), document_labels)}, "
             f"Página: {chunk.get('page_number', 0)}, "
             f"Sección: {chunk.get('section_path', 'general')}, "
             f"Tipo: {'TABLA' if chunk.get('block_type') == 'table' else 'PÁRRAFO'}"
@@ -387,6 +415,95 @@ def _count_tokens(text: str) -> int:
     return len(text.split())
 
 
+# CTX-02: cuántos chunks entran al prompt sí o sí, sin mirar el score. Es el
+# piso que impide que un corte por relevancia se lleve evidencia real cuando
+# toda la categoría tiene scores parejos y bajos.
+_RELEVANCE_MIN_CHUNKS = 10
+# Y por debajo de qué fracción del mejor score se descarta el resto. Relativo y
+# no absoluto porque los scores de RRF no son comparables entre consultas.
+_RELEVANCE_MIN_RATIO = 0.4
+
+
+def _drop_low_relevance_chunks(
+    chunks: list[dict[str, Any]],
+    *,
+    correlation_id: str | None = None,
+    category: str | None = None,
+) -> list[dict[str, Any]]:
+    """Saca la cola de chunks que el retrieval trajo por completar el `top_k`.
+
+    FIX (auditoría 2026-08-13, hallazgo CTX-02): se recuperaban `category_top_k`
+    chunks y sólo se recortaban por presupuesto de tokens. No había ningún corte
+    por relevancia, así que el chunk en la posición 35 —con un score de RRF
+    típicamente la mitad del primero— entraba al prompt con el mismo peso visual
+    que el primero.
+
+    Dónde duele: una categoría que en ESE pliego no tiene evidencia real (por
+    ejemplo `criterios_evaluacion` en un pliego que adjudica por menor precio,
+    sin matriz de puntajes) igual llenaba sus 25-35 chunks con secciones
+    tangenciales. Al modelo se le pide ser "un analista experto que reconoce el
+    concepto aunque el vocabulario cambie", y después se le da mucho material
+    del cual construir un criterio que el pliego no tiene. La instrucción de no
+    inventar está; la presión del contexto va en contra.
+
+    El corte es deliberadamente tímido, porque el error caro es el inverso:
+    descartar el chunk que sí tenía el dato reproduce exactamente la falla que
+    esta auditoría viene persiguiendo (una categoría respondiendo "no
+    encontrado" sobre un pliego que sí lo dice). Por eso los primeros
+    `_RELEVANCE_MIN_CHUNKS` entran siempre, y un chunk sin score no se juzga.
+    """
+    if len(chunks) <= _RELEVANCE_MIN_CHUNKS:
+        return chunks
+
+    def score_de(chunk: dict[str, Any]) -> float | None:
+        valor = chunk.get("search_score")
+        try:
+            numero = float(valor)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+        return numero if numero > 0 else None
+
+    scores = [score_de(chunk) for chunk in chunks]
+    conocidos = [s for s in scores if s is not None]
+    if not conocidos:
+        # Mocks y fuentes legacy no traen `search_score`. Sin score no hay
+        # criterio, y no tenerlo no puede costar chunks.
+        return chunks
+
+    umbral = max(conocidos) * _RELEVANCE_MIN_RATIO
+    # El piso se cuenta por score, no por posición: la expansión
+    # children→parent puede alterar el orden de la lista.
+    protegidos = {
+        indice
+        for indice, _score in sorted(
+            enumerate(scores),
+            key=lambda par: (par[1] is None, -(par[1] or 0.0)),
+        )[:_RELEVANCE_MIN_CHUNKS]
+    }
+
+    conservados: list[dict[str, Any]] = []
+    descartados: list[float] = []
+    for indice, chunk in enumerate(chunks):
+        score = scores[indice]
+        if indice in protegidos or score is None or score >= umbral:
+            conservados.append(chunk)
+        else:
+            descartados.append(score)
+
+    if descartados:
+        logger.info(
+            "extraction_chunks_dropped_low_relevance",
+            correlation_id=correlation_id,
+            category=category,
+            chunks_kept=len(conservados),
+            chunks_dropped=len(descartados),
+            score_max=round(max(conocidos), 5),
+            score_umbral=round(umbral, 5),
+            score_descartado_max=round(max(descartados), 5),
+        )
+    return conservados
+
+
 def _truncate_to_token_budget(
     chunks: list[dict[str, Any]],
     budget: int,
@@ -523,7 +640,10 @@ def _widen_citation_with_chunk_context(
         widened = _build_context_citation(
             content, start, start + len(collapsed_citation), min_chars=target_chars
         )
-        if len(widened) > len(collapsed_citation):
+        # ATR-07: ensanchar es agregarle contexto a la cita, no cambiarla por
+        # otra. Si el resultado ya no contiene lo que el modelo citó, la mejora
+        # falló y se devuelve la cita original -- corta pero fiel.
+        if len(widened) > len(collapsed_citation) and needle in widened.lower():
             return widened
     return citation
 
@@ -828,21 +948,98 @@ def _normalized_identificacion_tipo(raw_tipo: str) -> str:
     return raw_tipo.strip().lower() or "otro"
 
 
-def _build_context_citation(content: str, start: int, end: int, *, min_chars: int = CITATION_MIN_CHARS) -> str:
+def _word_start(text: str, index: int) -> int:
+    """Inicio de la palabra que contiene `index`. Expande hacia afuera."""
+    index = max(0, min(index, len(text)))
+    while index > 0 and not text[index - 1].isspace():
+        index -= 1
+    return index
+
+
+def _word_end(text: str, index: int) -> int:
+    """Fin (exclusivo) de la palabra que contiene `index - 1`. Expande hacia afuera."""
+    index = max(0, min(index, len(text)))
+    while index < len(text) and not text[index].isspace():
+        index += 1
+    return index
+
+
+def _build_context_citation(
+    content: str,
+    start: int,
+    end: int,
+    *,
+    min_chars: int = CITATION_MIN_CHARS,
+    max_chars: int = CITATION_MAX_CHARS,
+) -> str:
+    """Ensancha `content[start:end]` con el texto que lo rodea, sin perderlo.
+
+    FIX (auditoría 2026-08-14, hallazgo ATR-07): la versión anterior ensanchaba
+    con dos constantes ciegas -- 100 caracteres a la izquierda y 140 a la
+    derecha -- y después llamaba a `clip_citation`, que recorta un PREFIJO. Con
+    un núcleo de 33 caracteres eso da una ventana de 273 que arranca 100 antes
+    del dato; el prefijo de 120 se queda con los primeros 120 de esa ventana y
+    el núcleo, que vivía en el offset 100, quedaba cortado por la mitad o
+    directamente afuera.
+
+    Visto en un análisis real (`objeto_alcance`, fuente 3):
+
+        citation_llm : "Item 3: 4 (cuatro) LCD KVM Switch"
+        citation     : "m 1: 4 (cuatro) Servidores de aplicaciones tipo XEN
+                        Item 2: 4 (cuatro) Servidores de base de datos.
+                        Item 3: 4 (cuatro)"
+
+    La cita mostrada arranca en mitad de la palabra "Item", enumera dos ítems
+    que no tienen nada que ver con el dato, y NO contiene "LCD KVM Switch" --
+    es decir, la evidencia que se le muestra a la persona ya no menciona lo que
+    el item afirma. El resaltado la sigue fielmente y marca tres renglones
+    equivocados.
+
+    Dos invariantes ahora:
+      1. el resultado SIEMPRE contiene `content[start:end]` (salvo que el
+         núcleo solo ya no entre en `max_chars`, en cuyo caso se recorta ÉL --
+         nunca se lo reemplaza por texto vecino);
+      2. los dos bordes caen en límite de palabra.
+    """
     text = " ".join(str(content or "").split())
     if not text:
         return ""
 
-    left = max(0, start)
-    right = min(len(text), end)
+    core_start = max(0, min(int(start), len(text)))
+    core_end = max(core_start, min(int(end), len(text)))
+    core_len = core_end - core_start
+
+    # El núcleo es la evidencia. Si por sí solo excede el techo, se recorta el
+    # núcleo: seguimos dentro del texto que respalda el dato.
+    if core_len >= max_chars:
+        return clip_citation(text[core_start:core_end], max_chars=max_chars)
+
+    # Presupuesto de contexto: lo justo para llegar al mínimo legible, no 240
+    # caracteres. Un tercio antes del dato y el resto después -- la persona
+    # necesita saber de qué se está hablando, pero el dato tiene que quedar
+    # cerca del principio para que se lea como evidencia y no como párrafo.
+    budget = max(0, min(max_chars, max(min_chars, core_len)) - core_len)
+    lead = budget // 3
+
+    left = _word_start(text, max(0, core_start - lead))
+    right = _word_end(text, min(len(text), core_end + (budget - lead)))
+
+    # El redondeo a palabra entera puede pasarse del techo: se devuelve
+    # contexto, primero el de la derecha y después el de la izquierda, hasta
+    # entrar. El núcleo nunca se toca en este lazo.
+    while right - left > max_chars and right > core_end:
+        space = text.rfind(" ", core_end, right)
+        if space < 0:
+            break
+        right = space
+    while right - left > max_chars and left < core_start:
+        space = text.find(" ", left, core_start)
+        if space < 0:
+            break
+        left = space + 1
+
     snippet = text[left:right].strip()
-
-    if len(snippet) < min_chars:
-        left = max(0, left - 100)
-        right = min(len(text), right + 140)
-        snippet = text[left:right].strip()
-
-    return clip_citation(snippet)
+    return snippet if len(snippet) <= max_chars else clip_citation(snippet, max_chars=max_chars)
 
 
 # FIX (2026-08-13): estos tres tipos son siempre códigos o montos -- un
@@ -1000,6 +1197,7 @@ def _verify_citation_grounding(
 
     total_items = 0
     unverified_items = 0
+    rescued_items = 0
 
     for item in items:
         status = str(item.get("extraction_status", ""))
@@ -1009,6 +1207,7 @@ def _verify_citation_grounding(
 
         total_items += 1
         any_verified = False
+        rescued_refs_count = 0
         verified_refs: list[dict[str, Any]] = []
         for ref in refs:
             if not isinstance(ref, dict):
@@ -1064,6 +1263,17 @@ def _verify_citation_grounding(
                 # ventana que contiene el dato del item, no al prefijo -- ver
                 # `shorten_citation_to_evidence`.
                 normalized_ref["citation"] = shorten_citation_to_evidence(final_citation, item)
+                # ATR-02 (auditoría 2026-08-13): qué relación tiene lo que se
+                # muestra con lo que el modelo realmente citó. Sin esto, tres
+                # transformaciones distintas reescriben la cita después de
+                # verificarla y nada aguas abajo puede distinguir el texto del
+                # modelo del texto que puso el pipeline.
+                normalized_ref["citation_llm"] = citation
+                normalized_ref["citation_origin"] = (
+                    "llm"
+                    if _normalize_for_grounding(final_citation) == _normalize_for_grounding(citation)
+                    else "ensanchada"
+                )
                 verified_refs.append(normalized_ref)
                 continue
 
@@ -1071,9 +1281,28 @@ def _verify_citation_grounding(
                 rescued_citation = _rescue_paragraph_citation(item, candidates, category=category)
 
             if rescued_citation:
-                any_verified = True
+                # FIX (auditoría 2026-08-13, hallazgo ATR-02): acá se hacía
+                # `any_verified = True` y el item quedaba en `success`.
+                #
+                # Pero este camino se toma justamente cuando la cita QUE EL
+                # MODELO DECLARÓ COMO EVIDENCIA no se pudo verificar contra
+                # ningún chunk. El rescate busca si el `valor` o el
+                # `texto_original` del item aparecen literalmente en algún chunk
+                # y, si aparecen, los usa como cita. Que ese otro texto exista
+                # en la página no prueba que respalde ESTE dato: puede ser el
+                # mismo porcentaje de otra garantía, o la misma fecha de otro
+                # plazo. La verificación anti-alucinación falló, y el sistema
+                # la reemplazaba por otra que sí pasa.
+                #
+                # Se conserva el rescate -- tirar el item entero sería peor, y
+                # el texto rescatado sí es literal del pliego -- pero deja de
+                # contar como verificación: el item baja a `partial` y lleva una
+                # marca explícita.
+                rescued_refs_count += 1
                 normalized_ref = dict(ref)
                 normalized_ref["citation"] = rescued_citation
+                normalized_ref["citation_llm"] = citation
+                normalized_ref["citation_origin"] = "rescatada"
                 # La cita rescatada también tiene su chunk de respaldo: es el
                 # que hizo pasar `_verify_reference_grounded` dentro de
                 # `_rescue_paragraph_citation`.
@@ -1085,7 +1314,15 @@ def _verify_citation_grounding(
         if verified_refs:
             item["source_references"] = verified_refs
 
-        if not any_verified:
+        # Un item que sólo se sostiene con citas rescatadas no está verificado:
+        # su evidencia declarada no existía en los chunks (ver arriba).
+        if not any_verified and rescued_refs_count:
+            rescued_items += 1
+            if status == "success":
+                item["extraction_status"] = "partial"
+            item["_warning"] = "cita_reemplazada_por_rescate"
+
+        if not any_verified and not rescued_refs_count:
             unverified_items += 1
             item["source_references"] = []
             if status == "success":
@@ -1099,6 +1336,7 @@ def _verify_citation_grounding(
             category=category,
             total_items=total_items,
             unverified_items=unverified_items,
+            rescued_items=rescued_items,
         )
 
     return items
@@ -1319,6 +1557,14 @@ def run_extractor(
             correlation_id=correlation_id,
         )
 
+        # CTX-02: primero el corte por relevancia, después el de presupuesto.
+        # Al revés, el presupuesto se gastaría en la cola irrelevante.
+        chunks = _drop_low_relevance_chunks(
+            chunks,
+            correlation_id=correlation_id,
+            category=result_key,
+        )
+
         chunks = _truncate_to_token_budget(
             chunks,
             settings.extraction_max_context_tokens,
@@ -1371,7 +1617,7 @@ def run_extractor(
 
         messages = _build_messages(
             prompt_file_name=prompt_file_name,
-            chunks_block=_format_chunks(chunks),
+            chunks_block=_format_chunks(chunks, state.get("document_labels")),
             glossary_block=build_prompt_glossary_block(result_key),
             root_key=result_key,
         )

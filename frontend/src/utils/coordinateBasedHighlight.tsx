@@ -1,11 +1,5 @@
 /**
  * Highlight basado en coordenadas pre-computadas en el backend.
- * 
- * FIX CRÍTICO (2026-08): Reemplaza el sistema de heurísticas frágiles de
- * highlightText.ts con coordenadas exactas calculadas usando PyMuPDF.
- * 
- * Este módulo maneja el rendering de rectangles de highlight sobre el canvas
- * del PDF usando las coordenadas que vienen en source.highlight_regions.
  */
 
 interface HighlightRegion {
@@ -17,22 +11,33 @@ interface HighlightRegion {
 
 interface HighlightOverlayProps {
   regions: HighlightRegion[];
+  /** Escala EFECTIVA de la página renderizada respecto de su tamaño nativo en
+   * puntos (`page.width / page.originalWidth`). No es el zoom que eligió el
+   * usuario: en modo ancho-de-columna react-pdf renderiza a una escala que el
+   * componente nunca fijó. */
   scale: number;
-  pageHeight: number;
 }
 
 /**
- * Dibuja un highlight overlay sobre una página del PDF.
- * 
- * NOTA: PyMuPDF usa coordenadas bottom-left origin, pero react-pdf usa
- * top-left origin. Necesitamos transformar las coordenadas.
- * 
- * @param regions - Regiones de highlight (output de backend)
- * @param scale - Factor de escala actual del PDF
- * @param pageHeight - Altura de la página en puntos (para transformar Y)
+ * Dibuja los rectángulos de resaltado sobre una página del PDF.
+ *
+ * CONTRATO DE COORDENADAS (FIX HL-01, auditoría 2026-08-13)
+ * ---------------------------------------------------------
+ * El backend (`analysis/extraction/highlight.py`) emite cada región con:
+ *   - origen ARRIBA-IZQUIERDA de la página (el de PyMuPDF y el de CSS),
+ *   - unidades en PUNTOS de la página SIN escalar,
+ *   - `y` = borde superior del rectángulo.
+ *
+ * Por lo tanto lo único que corresponde hacer acá es multiplicar por la escala.
+ *
+ * Antes se aplicaba `pageHeight - region.y - region.height` con la altura YA
+ * renderizada. Eso era una segunda inversión de eje: el backend también
+ * invertía, así que las dos juntas se cancelaban -- pero SÓLO con scale === 1.
+ * Con cualquier otra escala (y el visor arranca en ancho-de-columna, que casi
+ * nunca es 1) el recuadro caía en otro renglón, o fuera de la página.
  */
-export function HighlightOverlay({ regions, scale, pageHeight }: HighlightOverlayProps): JSX.Element {
-  if (!regions || regions.length === 0) {
+export function HighlightOverlay({ regions, scale }: HighlightOverlayProps): JSX.Element | null {
+  if (!regions || regions.length === 0 || !scale || scale <= 0) {
     return null;
   }
 
@@ -48,27 +53,21 @@ export function HighlightOverlay({ regions, scale, pageHeight }: HighlightOverla
         zIndex: 1,
       }}
     >
-      {regions.map((region, index) => {
-        // Transformar coordenadas de PyMuPDF (bottom-left) a react-pdf (top-left)
-        const transformedY = pageHeight - region.y - region.height;
-        
-        return (
-          <div
-            key={index}
-            style={{
-              position: 'absolute',
-              left: `${region.x * scale}px`,
-              top: `${transformedY * scale}px`,
-              width: `${region.width * scale}px`,
-              height: `${region.height * scale}px`,
-              backgroundColor: 'rgba(250, 204, 21, 0.35)', // Mismo color que antes
-              pointerEvents: 'none',
-              // Borde sutil para mejor visibilidad
-              border: '1px solid rgba(250, 204, 21, 0.6)',
-            }}
-          />
-        );
-      })}
+      {regions.map((region, index) => (
+        <div
+          key={index}
+          style={{
+            position: 'absolute',
+            left: `${region.x * scale}px`,
+            top: `${region.y * scale}px`,
+            width: `${region.width * scale}px`,
+            height: `${region.height * scale}px`,
+            backgroundColor: 'rgba(250, 204, 21, 0.35)',
+            pointerEvents: 'none',
+            border: '1px solid rgba(250, 204, 21, 0.6)',
+          }}
+        />
+      ))}
     </div>
   );
 }
@@ -77,21 +76,20 @@ export function HighlightOverlay({ regions, scale, pageHeight }: HighlightOverla
  * Combina highlight_regions de múltiples sources para una página.
  * 
  * @param sources - Lista de sources que apuntan a esta página
- * @param pageNumber - Número de página (1-indexed)
+ * Deduplica regiones idénticas.
  */
 export function getCombinedHighlightRegions(
-  sources: Array<{ page_number: number; highlight_regions?: HighlightRegion[] }>,
+  sources: Array<{ page: number; highlight_regions?: HighlightRegion[] }>,
   pageNumber: number
 ): HighlightRegion[] {
   const regions: HighlightRegion[] = [];
   
   for (const source of sources) {
-    if (source.page_number === pageNumber && source.highlight_regions) {
+    if (source.page === pageNumber && source.highlight_regions) {
       regions.push(...source.highlight_regions);
     }
   }
   
-  // Deduplicar regiones overlapping exactas (mismo x, y, width, height)
   const seen = new Set<string>();
   return regions.filter((region) => {
     const key = `${region.x},${region.y},${region.width},${region.height}`;
@@ -103,16 +101,4 @@ export function getCombinedHighlightRegions(
   });
 }
 
-/**
- * Determina si una source tiene highlights disponibles.
- * 
- * IMPORTANTE: Si highlight_regions está vacío, puede significar:
- * 1. PyMuPDF no está instalado en el backend
- * 2. La citation no se encontró en el PDF (error de extracción)
- * 3. El análisis es anterior al fix de highlights
- * 
- * El frontend debe manejar este caso mostrando la página pero sin highlight.
- */
-export function hasHighlightRegions(source: { highlight_regions?: HighlightRegion[] }): boolean {
-  return Array.isArray(source.highlight_regions) && source.highlight_regions.length > 0;
-}
+

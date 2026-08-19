@@ -1,9 +1,11 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { CategorySection } from "./CategorySection";
 import type { CategoryData, CategoryId, CategoryNarrative, FieldItem } from "./types";
 import { CATEGORY_ICONS } from "../../utils/categoryIcons";
+import type { TrackingCategory } from "../../types/tracking";
 
 function createField(
   field_name: string,
@@ -89,14 +91,14 @@ function createMockCategory(
 }
 
 describe("CategorySection", () => {
-  test("T1: Categoría crítica sin revisar muestra borde índigo y badge CRÍTICA", () => {
+  test("T1: Categoría crítica sin revisar muestra borde índigo sin badge CRÍTICA", () => {
     const category = createMockCategory({ is_reviewed: false });
 
     render(<CategorySection category={category} categoryId="garantias" />);
 
     const wrapper = document.getElementById("category-garantias");
     expect(wrapper).toHaveClass("border-l-highlight");
-    expect(screen.getByText(/CRÍTICA/i)).toBeInTheDocument();
+    expect(screen.queryByText(/CRÍTICA/i)).not.toBeInTheDocument();
   });
 
   test("T2: Categoría revisada muestra borde verde y badge REVISADA", () => {
@@ -299,7 +301,7 @@ describe("CategorySection", () => {
 
     render(<CategorySection category={category} categoryId="objeto_alcance" onViewSource={onViewSource} />);
 
-    const sourceButton = screen.getByRole("button", { name: /Pliego Principal.pdf · pág. 12/i });
+    const sourceButton = screen.getByRole("button", { name: /Pliego Principal\.pdf · pág. 12/i });
     await user.click(sourceButton);
 
     expect(onViewSource).toHaveBeenCalledWith(
@@ -328,7 +330,7 @@ describe("CategorySection", () => {
 
     expect(screen.getByTestId("category-sources-empty")).toBeInTheDocument();
     expect(screen.queryByText(/^REVISADA$/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/CRÍTICA/i)).toBeInTheDocument();
+    expect(screen.queryByText(/CRÍTICA/i)).not.toBeInTheDocument();
   });
 
   test("T11: Plazos Clave renderiza la línea de tiempo en vez de la respuesta narrativa", () => {
@@ -345,5 +347,126 @@ describe("CategorySection", () => {
 
     expect(screen.getByTestId("plazos-timeline")).toBeInTheDocument();
     expect(screen.queryByTestId("narrative-blocks")).not.toBeInTheDocument();
+  });
+
+  test("T12: Los ítems accionables se marcan inline y no como una sección checklist aparte", async () => {
+    const user = userEvent.setup();
+    const onChangeTrackingItemStatus = vi.fn();
+    const category = createMockCategory({
+      items: [createField("Constancia RUP", { value: "Debe estar vigente" })],
+    });
+    const trackingCategory: TrackingCategory = {
+      category_key: "requisitos_admisibilidad",
+      status: "in_review",
+      comments_count: 0,
+      items: [
+        {
+          tracking_item_id: "tracking-item-1",
+          category_key: "requisitos_admisibilidad",
+          status: "not_evaluated",
+          source_item_ref: {
+            version_id: "version-1",
+            field_name: "Constancia RUP",
+          },
+        },
+      ],
+    };
+
+    render(
+      <CategorySection
+        category={category}
+        categoryId="requisitos_admisibilidad"
+        trackingCategory={trackingCategory}
+        onChangeTrackingItemStatus={onChangeTrackingItemStatus}
+      />,
+    );
+
+    expect(screen.queryByLabelText(/Checklist de seguimiento/i)).not.toBeInTheDocument();
+    const response = screen.getByTestId("narrative-blocks");
+    const cumpleButton = within(response).getByRole("button", { name: "Cumple: Constancia RUP" });
+
+    await user.click(cumpleButton);
+
+    expect(onChangeTrackingItemStatus).toHaveBeenCalledWith(
+      "requisitos_admisibilidad",
+      "tracking-item-1",
+      "compliant",
+    );
+  });
+
+  test("T12b: tracking global completado no muestra controles de terminar categoría", () => {
+    const category = createMockCategory({
+      items: [createField("Constancia RUP", { value: "Vigente" })],
+    });
+    const trackingCategory: TrackingCategory = {
+      category_key: "requisitos_admisibilidad",
+      status: "in_review",
+      comments_count: 1,
+      items: [
+        {
+          tracking_item_id: "tracking-item-1",
+          category_key: "requisitos_admisibilidad",
+          status: "not_evaluated",
+          source_item_ref: {
+            version_id: "version-1",
+            field_name: "Constancia RUP",
+          },
+        },
+      ],
+    };
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <CategorySection
+          analysisId="analysis-1"
+          category={category}
+          categoryId="requisitos_admisibilidad"
+          trackingCategory={trackingCategory}
+          trackingReadOnly
+          onCreateTrackingComment={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.queryByRole("button", { name: "Terminar categoría" })).not.toBeInTheDocument();
+  });
+
+  test("T12c: en read-only sin comentarios no renderiza panel de comentarios", () => {
+    const category = createMockCategory({
+      items: [createField("Constancia RUP", { value: "Vigente" })],
+    });
+    const trackingCategory: TrackingCategory = {
+      category_key: "requisitos_admisibilidad",
+      status: "in_review",
+      comments_count: 0,
+      items: [
+        {
+          tracking_item_id: "tracking-item-1",
+          category_key: "requisitos_admisibilidad",
+          status: "not_evaluated",
+          source_item_ref: {
+            version_id: "version-1",
+            field_name: "Constancia RUP",
+          },
+        },
+      ],
+    };
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <CategorySection
+          analysisId="analysis-1"
+          category={category}
+          categoryId="requisitos_admisibilidad"
+          trackingCategory={trackingCategory}
+          trackingReadOnly
+          onCreateTrackingComment={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.queryByText("Comentarios")).not.toBeInTheDocument();
   });
 });

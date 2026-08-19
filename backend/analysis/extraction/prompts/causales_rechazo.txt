@@ -229,7 +229,12 @@ efectuará en el acto de apertura.
         {
           "document_id": "7c9e",
           "page_number": 6,
-          "citation": "Serán rechazadas sin más trámite las ofertas que no acompañen la garantía de mantenimiento, no siendo dicha omisión subsanable."
+          "citation": "Serán rechazadas sin más trámite las ofertas que no acompañen la garantía de mantenimiento"
+        },
+        {
+          "document_id": "7c9e",
+          "page_number": 6,
+          "citation": "la garantía de mantenimiento, no siendo dicha omisión subsanable"
         }
       ],
       "extraction_status": "success"

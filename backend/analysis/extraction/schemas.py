@@ -76,7 +76,48 @@ class SourceReference(BaseModel):
         default=None,
         description="ID del chunk recuperado del que se verificó esta cita.",
     )
+    # ATR-02 (auditoria 2026-08-13): el pipeline reescribe la cita despues de
+    # verificarla -- la ensancha con el contexto del chunk, la reemplaza por
+    # `texto_original`, o la rescata desde el `valor` del item. Estos dos campos
+    # hacen visible esa diferencia en vez de borrarla: `citation` es lo que se
+    # muestra, `citation_llm` es lo que el modelo declaro como evidencia, y
+    # `citation_origin` dice cual de las dos cosas es.
+    citation_llm: str | None = Field(
+        default=None,
+        description="La cita tal como la emitio el LLM, antes de cualquier reescritura.",
+    )
+    citation_origin: Literal["llm", "ensanchada", "rescatada"] | None = Field(
+        default=None,
+        description=(
+            "'llm': la cita mostrada es la que emitio el modelo. "
+            "'ensanchada': se amplio con texto del mismo chunk para que se lea sola. "
+            "'rescatada': la cita del modelo NO verifico y se reemplazo por otro "
+            "texto literal del item -- el item baja a `partial`."
+        ),
+    )
+    # CTX-06 (auditoria 2026-08-19): nombre y rol del documento fuente. El
+    # `document_id` es un UUID y no se le puede mostrar a nadie; la lista de
+    # "Fuentes verificables" mostraba la constante "Documento" para las cinco
+    # fuentes de un analisis con pliego + cuatro anexos. Se resuelven aca, del
+    # lado del backend, porque `_build_document_labels` (CTX-05) ya tiene el
+    # mapa armado y en el estado. `None` significa "no se pudo resolver": el
+    # consumidor degrada al comportamiento anterior, no inventa un nombre.
+    filename: str | None = Field(
+        default=None,
+        description="Nombre del archivo del que sale la cita. None si no se pudo resolver.",
+    )
+    is_primary: bool | None = Field(
+        default=None,
+        description="True si la cita sale del pliego principal, False si sale de un anexo.",
+    )
 
+
+# CTX-03 (auditoria 2026-08-13): estado para las categorias que el pipeline
+# declara en el contrato pero NINGUN extractor completa. `not_found` significa
+# "el pliego no lo dice"; esto significa "no lo buscamos". Confundir las dos
+# cosas le hace creer al usuario que el pliego calla sobre algo que el sistema
+# nunca miro.
+NOT_ANALYZED_STATUS = "not_analyzed"
 
 ConfidenceLevel = Literal["alta", "media", "baja"]
 ExtractionStatus = Literal["success", "failed", "not_found", "partial", "not_applicable"]
@@ -85,6 +126,11 @@ ExtractionStatus = Literal["success", "failed", "not_found", "partial", "not_app
 class ExtractedItem(BaseModel):
     """Base para todos los items extraídos."""
     confidence: float = Field(ge=0.0, le=1.0)
+    # SYN-05 (auditoria 2026-08-13): la autoevaluacion del LLM. NO es la que ve
+    # el usuario -- `confidence` la calcula `calculate_confidence` de forma
+    # determinista. Este campo se conserva para telemetria: permite medir si el
+    # modelo sabe cuando se esta equivocando, comparandolo contra la formula.
+    confidence_llm: float | None = Field(default=None, ge=0.0, le=1.0)
     source_references: list[SourceReference] = Field(min_length=1)
     extraction_status: ExtractionStatus = "success"
 
@@ -116,6 +162,18 @@ class NarrativeSource(BaseModel):
     # FIX CRÍTICO (2026-08): Resuelve el problema de highlight frágil identificado
     # en la auditoría RAG (falsos positivos/negativos por heurísticas de matching).
     highlight_regions: list[dict[str, float]] = Field(default_factory=list)
+    # CTX-06: mismo par que en `SourceReference`. Esta es la lista que el
+    # frontend renderiza literalmente bajo "Fuentes verificables", asi que es
+    # donde la constante "Documento" se veia.
+    filename: str | None = None
+    is_primary: bool | None = None
+    # HL-09: por que esta fuente no tiene `highlight_regions`. Hoy el unico
+    # valor es "documento_escaneado". Sin esto, "el PDF es una imagen y no se
+    # puede senalar nada" y "no encontre la cita" se ven exactamente igual:
+    # nada. Declarado, y no como clave suelta en el dict, por la misma razon que
+    # `unverified` y `chunk_id` -- `enrich_narrative_with_highlights` revalida
+    # con `CategoryNarrative.model_validate` y lo que no esta declarado se cae.
+    highlight_unavailable_reason: str | None = None
 
 
 class NarrativeParagraphBlock(BaseModel):
@@ -578,6 +636,18 @@ class ExtractedData(BaseModel):
     - narrative: respuesta en lenguaje natural (opcional)
     """
     
+    # ATR-03 (auditoria 2026-08-13): cuantos hallazgos se descartaron por
+    # categoria y por que. El pipeline ya descartaba correctamente los items sin
+    # cita verificable, pero esa informacion moria en un log: el usuario veia la
+    # categoria como `partial` sin poder distinguir "el pliego dice poco" de
+    # "el modelo produjo tres items que no pudimos respaldar y los tiramos".
+    # Esa diferencia es justamente la senal de si conviene desconfiar.
+    #
+    # Va dentro de `extracted_data` -- y no en `extraction_metadata` -- porque
+    # es lo unico que ya viaja hasta el frontend sin cambiar el contrato de la
+    # API.
+    calidad_por_categoria: dict[str, dict[str, int]] = Field(default_factory=dict)
+
     # Objeto y Alcance
     objeto_alcance: list[ObjetoAlcanceItem] = Field(default_factory=list)
     objeto_alcance_extraction_status: str = "unknown"
@@ -684,7 +754,7 @@ class ExtractedData(BaseModel):
         default_factory=list,
         description="DEPRECATED: Usar 'anexos_obligatorios' en su lugar. Será eliminado en Q2 2027.",
     )
-    documentos_extraction_status: str = "unknown"
+    documentos_extraction_status: str = NOT_ANALYZED_STATUS
 
     # FIX (auditoría US-5.3, 2026-08-12): `merge_node` ya escribía estos tres
     # campos en el dict de `extracted_data`, pero no estaban declarados acá --
@@ -696,11 +766,11 @@ class ExtractedData(BaseModel):
     # implemente un extractor para alguna de las tres, sus datos se perderían en
     # silencio antes de llegar a la API -- igual que pasó antes.
     restricciones_participacion: list[GenericCategoryItem] = Field(default_factory=list)
-    restricciones_extraction_status: str = "not_found"
+    restricciones_extraction_status: str = NOT_ANALYZED_STATUS
     cronograma_proceso: list[GenericCategoryItem] = Field(default_factory=list)
-    cronograma_extraction_status: str = "not_found"
+    cronograma_extraction_status: str = NOT_ANALYZED_STATUS
     estimacion_presupuesto: PresupuestoItem | None = None
-    presupuesto_extraction_status: str = "not_found"
+    presupuesto_extraction_status: str = NOT_ANALYZED_STATUS
 
 
 # =============================================================================
