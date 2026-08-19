@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from time import sleep
+from typing import Any
 from uuid import UUID
 
 import structlog
@@ -262,6 +263,139 @@ def _page_sizes_in_points(
         except (TypeError, ValueError):
             continue
     return sizes
+
+
+# HL-09: cuántos puntos puede sobresalir un renglón del bbox de su bloque para
+# seguir considerándose parte de él. Azure DI da el bbox del párrafo como la
+# envolvente de sus renglones, así que en teoría la contención es exacta; el
+# margen absorbe el redondeo de la conversión a puntos.
+_TOLERANCIA_DE_CONTENCION_PT = 2.0
+
+
+def _build_line_index(
+    result: object, unit_scales: dict[int, float] | None = None
+) -> dict[int, list[dict[str, Any]]]:
+    """Geometría por RENGLÓN de cada página, en puntos (HL-09).
+
+    HALLAZGO HL-09: en el análisis de Santa Fe el resaltado falla al 100 % en
+    exactamente dos de los cinco documentos -- el pliego principal y el Anexo 2 --
+    y al 100 % de las veces funciona en los otros tres. Los dos que fallan son
+    escaneos. `compute_highlight_regions` usa PyMuPDF `search_for`, que sólo
+    encuentra texto EMBEBIDO en el PDF; Azure DI hace OCR y por eso el análisis
+    sale completo mientras el resaltado sale vacío, en silencio.
+
+    Y no hay red debajo: cuando no hay regiones, el visor cae a decorar la capa
+    de texto de react-pdf (`PDFPage.tsx:83`), que en un escaneo también está
+    vacía. O sea que en esos documentos la persona no ve NADA -- ni el rectángulo
+    ni el texto marcado.
+
+    La geometría, sin embargo, existe: DI devuelve dónde leyó cada cosa. Hoy sólo
+    guardamos el bbox del PÁRRAFO, y pintar el párrafo entero es justo lo que se
+    quitó en HL-08 por no señalar nada. Los renglones son el punto medio: DI los
+    devuelve en `result.pages[].lines[]`, son ~10 veces menos que las palabras
+    --lo que importa porque esto engorda cada chunk del índice-- y alcanzan para
+    reproducir lo que hoy se ve en un PDF con texto, donde los rectángulos son
+    justamente del alto de un renglón.
+
+    Devuelve `{page_number: [{"x","y","width","height","t"}, ...]}` ordenado por
+    posición de lectura. `t` es el texto del renglón: sin él no se puede saber
+    QUÉ renglón corresponde a la cita.
+    """
+    index: dict[int, list[dict[str, Any]]] = {}
+    for page in list(getattr(result, "pages", None) or []):
+        page_number = _safe_int(getattr(page, "page_number", None), default=0)
+        if page_number <= 0:
+            continue
+        renglones: list[dict[str, Any]] = []
+        for line in list(getattr(page, "lines", None) or []):
+            contenido = str(getattr(line, "content", "") or "").strip()
+            if not contenido:
+                continue
+            # `lines` trae `polygon` directo, no `bounding_regions`. Se envuelve
+            # para reusar la conversión a puntos que ya resolvió ING-03/ING-06,
+            # en vez de repetir acá la aritmética de polígono y escala.
+            caja = _extract_bounding_boxes(
+                _RegionDeRenglon(page_number, getattr(line, "polygon", None)), unit_scales
+            )
+            if not caja:
+                continue
+            renglon = dict(caja[0])
+            renglon.pop("page", None)
+            renglon["t"] = contenido
+            renglones.append(renglon)
+        if renglones:
+            renglones.sort(key=lambda r: (round(r["y"], 1), r["x"]))
+            index[page_number] = renglones
+    return index
+
+
+class _RegionDeRenglon:
+    """Adaptador mínimo: le da a un `line` de DI la forma que espera
+    `_extract_bounding_boxes` (un item con `bounding_regions`)."""
+
+    def __init__(self, page_number: int, polygon: object) -> None:
+        self.bounding_regions = [_PoligonoDeRenglon(page_number, polygon)]
+
+
+class _PoligonoDeRenglon:
+    def __init__(self, page_number: int, polygon: object) -> None:
+        self.page_number = page_number
+        self.polygon = polygon
+
+
+def _attach_lines_to_blocks(
+    blocks: list[dict], line_index: dict[int, list[dict[str, Any]]]
+) -> None:
+    """Cuelga de cada bloque los renglones que caen dentro de su bbox (HL-09).
+
+    Se guarda por bloque y no por página porque el consumidor
+    (`highlight.py`) ya resuelve el CHUNK que respaldó la cita
+    (ATR-01, vía `chunk_id`) y de ahí llega al bloque. Guardarlo por página
+    obligaría a arrastrar la página entera en cada chunk que la toca.
+
+    No falla si no hay renglones: el bloque simplemente no lleva la clave, y el
+    consumidor tiene que tratar su ausencia como "no disponible". Es lo que pasa
+    con todo lo ya indexado antes de este cambio.
+    """
+    if not line_index:
+        return
+
+    for block in blocks:
+        cajas = [caja for caja in (block.get("bbox") or []) if isinstance(caja, dict)]
+        if not cajas:
+            continue
+        adentro: list[dict[str, Any]] = []
+        for caja in cajas:
+            pagina = _safe_int(caja.get("page"), default=0)
+            for renglon in line_index.get(pagina, []):
+                if _renglon_dentro_de(renglon, caja) and renglon not in adentro:
+                    adentro.append(renglon)
+        if adentro:
+            block["lines"] = adentro
+
+
+def _renglon_dentro_de(renglon: dict[str, Any], caja: dict[str, Any]) -> bool:
+    """El centro del renglón cae dentro de la caja, con tolerancia.
+
+    Por el centro y no por las cuatro esquinas: un renglón que sobresale un
+    punto por el borde derecho sigue siendo del párrafo, y descartarlo dejaría
+    justo el renglón más largo --el que más probablemente contiene la cita--
+    afuera.
+    """
+    try:
+        centro_x = float(renglon["x"]) + float(renglon["width"]) / 2
+        centro_y = float(renglon["y"]) + float(renglon["height"]) / 2
+        x = float(caja.get("x", 0.0))
+        y = float(caja.get("y", 0.0))
+        ancho = float(caja.get("width", 0.0))
+        alto = float(caja.get("height", 0.0))
+    except (TypeError, ValueError, KeyError):
+        return False
+    margen = _TOLERANCIA_DE_CONTENCION_PT
+    return (
+        x - margen <= centro_x <= x + ancho + margen
+        and y - margen <= centro_y <= y + alto + margen
+    )
 
 
 def _first_span_offset(item: object, fallback: int) -> int:
@@ -860,6 +994,13 @@ def _build_markdown_blocks(result: object) -> tuple[list[dict], EventDict]:
 
     bbox_by_para_id = _build_para_id_index(paragraphs, unit_scales)
     _enrich_blocks_with_para_id(blocks, bbox_by_para_id, _page_sizes_in_points(result, unit_scales))
+
+    # HL-09: geometría por renglón, para poder resaltar en PDF escaneados, donde
+    # PyMuPDF no tiene texto que buscar. Se cuelga después del bbox de párrafo
+    # porque la contención se calcula contra ese bbox. Es aditivo: nada de lo que
+    # ya existía lee esta clave, así que indexar con o sin ella no cambia ningún
+    # comportamiento actual.
+    _attach_lines_to_blocks(blocks, _build_line_index(result, unit_scales))
 
     total_table_rows = 0
     tables_placed_in_reading_order = 0

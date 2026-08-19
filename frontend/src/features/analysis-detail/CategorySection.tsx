@@ -12,14 +12,47 @@ import { QualityNotice } from "./components/QualityNotice";
 import { getCategoryCounts } from "./utils/categoryStats";
 import { dedupeCitations } from "./utils/dedupeCitations";
 import { buildNarrativeBlocks } from "./utils/narrativeSynthesis";
+import { TrackingCommentsPanel } from "./components/TrackingCommentsPanel";
+import type { TrackingCategoryStatus, TrackingItemStatus, TrackingCategory } from "../../types/tracking";
 
 interface CategorySectionProps {
+  analysisId?: string;
   categoryId: CategoryId;
   category: CategoryData;
   onViewSource?: (payload: { citation: Citation; citations: Citation[]; sources: NarrativeSource[] }) => void;
+  trackingCategory?: TrackingCategory;
+  onChangeTrackingStatus?: (categoryKey: string, status: TrackingCategoryStatus) => void;
+  onChangeTrackingItemStatus?: (categoryKey: string, trackingItemId: string, status: TrackingItemStatus) => void;
+  onCreateTrackingComment?: (payload: {
+    categoryKey: string;
+    content: string;
+  }) => Promise<void>;
+  onUpdateTrackingComment?: (payload: {
+    categoryKey: string;
+    commentId: string;
+    content: string;
+  }) => Promise<void>;
+  onDeleteTrackingComment?: (payload: { categoryKey: string; commentId: string }) => Promise<void>;
+  trackingReadOnly?: boolean;
+  trackingActionLoading?: boolean;
+  trackingItemLoadingId?: string | null;
 }
 
-export function CategorySection({ categoryId, category, onViewSource }: CategorySectionProps) {
+export function CategorySection({
+  analysisId,
+  categoryId,
+  category,
+  onViewSource,
+  trackingCategory,
+  onChangeTrackingStatus,
+  onChangeTrackingItemStatus,
+  onCreateTrackingComment,
+  onUpdateTrackingComment,
+  onDeleteTrackingComment,
+  trackingReadOnly = false,
+  trackingActionLoading = false,
+  trackingItemLoadingId = null,
+}: CategorySectionProps) {
   const isCritical = CRITICAL_CATEGORIES.has(categoryId);
   const Icon = CATEGORY_ICONS[categoryId];
   const name = CATEGORY_NAMES[categoryId];
@@ -71,7 +104,15 @@ export function CategorySection({ categoryId, category, onViewSource }: Category
 
         <div className="flex flex-wrap items-center gap-1.5">
           {confidenceLevel ? <FieldBadge level={confidenceLevel} /> : null}
-          {counts.extracted > 0 ? <Badge tone="success">{`${counts.extracted} extraídos`}</Badge> : null}
+          {counts.extracted > 0 ? (
+            <Badge
+              tone="success"
+              title="Cantidad de datos extraídos por esta categoría"
+              className="normal-case px-1.5 py-0.5 text-[10px] font-medium opacity-80"
+            >
+              {`${counts.extracted} extraídos`}
+            </Badge>
+          ) : null}
           {counts.notFound > 0 ? <Badge tone="warning">{`${counts.notFound} no encontrados`}</Badge> : null}
           {counts.conflict > 0 ? (
             <Badge tone="error" icon={AlertTriangle}>{`${counts.conflict} ${conflictWord}`}</Badge>
@@ -79,7 +120,7 @@ export function CategorySection({ categoryId, category, onViewSource }: Category
           {categoryFullyNotApplicable && counts.notApplicable > 0 ? (
             <Badge tone="info">{`${counts.notApplicable} no aplica`}</Badge>
           ) : null}
-          {state !== "sin_revisar" ? <FieldStateBadge state={state} /> : null}
+          {state !== "sin_revisar" && state !== "critica" ? <FieldStateBadge state={state} /> : null}
         </div>
       </div>
 
@@ -92,8 +133,36 @@ export function CategorySection({ categoryId, category, onViewSource }: Category
           onViewSource={onViewSource}
         />
       ) : (
-        <NarrativeBlocks narrative={narrative} onViewSource={onViewSource} />
+        <NarrativeBlocks
+          narrative={narrative}
+          onViewSource={onViewSource}
+          trackingItems={trackingCategory?.items}
+          isTrackingClosed={trackingReadOnly || trackingCategory?.status === "closed"}
+          loadingTrackingItemId={trackingItemLoadingId}
+          onChangeTrackingItemStatus={(trackingItemId, status) =>
+            onChangeTrackingItemStatus?.(categoryId, trackingItemId, status)
+          }
+        />
       )}
+
+      {trackingCategory && onCreateTrackingComment && (!trackingReadOnly || trackingCategory.comments_count > 0) ? (
+        <TrackingCommentsPanel
+          analysisId={analysisId}
+          category={trackingCategory}
+          isClosed={trackingReadOnly || trackingCategory.status === "closed"}
+          loading={trackingActionLoading}
+          isReadOnly={trackingReadOnly}
+          onCreateComment={async ({ content }) => {
+            await onCreateTrackingComment({ categoryKey: categoryId, content });
+          }}
+          onUpdateComment={async ({ commentId, content }) => {
+            await onUpdateTrackingComment?.({ categoryKey: categoryId, commentId, content });
+          }}
+          onDeleteComment={async ({ commentId }) => {
+            await onDeleteTrackingComment?.({ categoryKey: categoryId, commentId });
+          }}
+        />
+      ) : null}
     </article>
   );
 }

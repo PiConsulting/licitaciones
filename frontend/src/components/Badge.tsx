@@ -20,11 +20,13 @@ interface BadgeProps {
   icon?: LucideIcon;
   children: ReactNode;
   className?: string;
+  title?: string;
 }
 
-export function Badge({ tone, icon: Icon, children, className }: BadgeProps) {
+export function Badge({ tone, icon: Icon, children, className, title }: BadgeProps) {
   return (
     <span
+      title={title}
       className={cn(
         "inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold uppercase",
         TONE_CLASSES[tone],

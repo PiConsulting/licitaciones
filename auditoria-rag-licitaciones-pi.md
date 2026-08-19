@@ -3197,3 +3197,1015 @@ Lo que sí conviene hacer ya, y es barato: `potential_missed_heading` está en
 `debug`. Subirlo a `info` no arregla nada pero deja el rastro en producción, que
 es lo que va a permitir juntar los casos del punto 2 sin pedirle al usuario que
 corra un script.
+
+---
+
+## Apéndice V · El análisis con varios documentos (2026-08-14)
+
+Dato nuevo: un análisis ahora acepta **varios documentos, uno designado
+principal y el resto anexos**. La auditoría entera se hizo sobre análisis de un
+solo documento, así que lo primero fue mirar qué supuestos se rompen.
+
+**Lo que aguanta.** El chunking corre por documento —`create_chunks(document_id=…)`
+recibe uno solo—, así que nada de lo de la capa 2 se contamina entre documentos:
+el membrete de un pliego no cuenta páginas del otro (CHK-15), el índice de uno no
+descarta secciones del otro (CHK-13) y las jerarquías de encabezados no se
+mezclan (CHK-19). El `chunk_id` ya era `{analysis_id}--{document_id}--{índice}`.
+
+### CTX-05 · alta · El modelo veía un UUID y nada más
+
+`analysis/extraction/extractors/base.py::_format_chunks`
+
+```
+[Fragmento: F3, Documento: 149d9358-af60-4a65-a101-53c01f19126c, Página: 8, Sección: …]
+```
+
+Con un documento eso alcanzaba. Con varios, el modelo tiene que resolver algo que
+antes no existía —qué pasa cuando el pliego y un anexo dicen cosas distintas— y
+lo único que el prompt decía al respecto era, textual:
+
+> `| Orden | Por relevancia semántica, no por documento | Un dato puede estar
+> partido en dos fragmentos. **Consolidalo si es coherente**. |`
+
+Eso presupone que todos los documentos pesan igual. En una licitación no pesan
+igual: **el pliego rige y los anexos son subordinados**. Y hay anexos que
+directamente **no son normativos**. Los dos del PET de Bancor:
+
+- `Anexo II Equipamiento Actual Bancor.xlsx` — el inventario de lo que el Banco
+  **ya tiene**. El propio pliego lo dice: es la BASE para que el oferente
+  dimensione, no el requerimiento. Un chunk de ahí, sin rol, se lee como si fuera
+  una exigencia de la licitación.
+- `Anexo I - Planilla de Cotización` — un formulario **vacío**. Sus encabezados
+  de columna parecen requisitos.
+
+El daño concreto: `objeto_alcance` podría reportar el hardware actual del Banco
+como lo que se licita, y ante un conflicto de plazos entre pliego y anexo el
+modelo no tenía con qué preferir el principal ni con qué decir de dónde salió
+cada dato.
+
+**Fix aplicado**, en las tres capas que hacían falta para que no quedara inerte:
+
+1. `_build_document_labels` (nuevo, `graph.py`) arma
+   `document_id -> {nombre, es_principal}`. Reusa la búsqueda de documentos que
+   ya existía para el highlighting: se extrajo `_fetch_analysis_documents` con
+   sus tres ramas (PostgreSQL / Cosmos / sin sesión) **sin cambiarles el
+   comportamiento**, en vez de duplicar la lógica y que se desincronizaran.
+2. `setup_node` lo deja en el estado (`document_labels`), al lado del mapeo a
+   blob path que ya calculaba ahí mismo.
+3. `_format_chunks` lo usa:
+
+```
+[Fragmento: F3, Documento: Pliego - Bancor.pdf [PLIEGO PRINCIPAL] (149d9358-…), Página: 8, …]
+[Fragmento: F7, Documento: Anexo II Equipamiento Actual Bancor.xlsx [ANEXO] (e987dc44-…), Página: 2, …]
+```
+
+El UUID no se saca nunca: el prompt exige copiarlo en
+`source_references[].document_id`, y de ahí sale el resaltado.
+
+Y en `_base_system.txt`, la regla que faltaba: el principal manda ante un
+conflicto (dejando constancia del otro en `observaciones`, sin inventar cuál
+rige); un anexo puede ser un formulario vacío o un inventario y eso **no** es un
+requisito; si el encabezado no trae nombre ni rol, tratar todo por igual.
+
+**Degradación explícita, y me la marcó un test.** La primera versión dejaba
+propagar la excepción de `_fetch_analysis_documents`, que en producción sin
+sesión levanta `RuntimeError` a propósito —para el highlighting eso sí es fatal—.
+Resultado: `test_document_mapping_fluye_de_setup_a_synthesize_para_highlights`
+empezó a fallar, porque mockea `_build_document_mapping` y llama a `setup_node`
+con `db_session=None`. **Era un problema de diseño, no del test**: perder los
+nombres de los documentos no puede tumbar el análisis entero. Ahora
+`_build_document_labels` atrapa, loguea `document_labels_no_disponibles` con su
+impacto, y devuelve `{}` — el prompt vuelve al encabezado con UUID, que es
+exactamente lo que hacía antes, y el propio prompt dice qué hacer en ese caso.
+
+También quedan dos avisos de inconsistencia de datos: ningún documento designado
+principal (`document_labels_sin_principal`) y más de uno
+(`document_labels_varios_principales`).
+
+Cubierto por `backend/tests/test_pliego_principal_y_anexos.py` (14 tests, siete
+de ellos de degradación: sin etiquetas, documento que no está en el mapa,
+documento sin nombre, chunk sin `document_id`, etiqueta malformada). Revirtiendo
+`_describe_document` fallan 2. Suite: **635 passed / 7 failed** (los 7 de base).
+
+### Lo que el multi-documento abre y NO toqué
+
+- **CTX-02 ahora corta entre documentos.** `_drop_low_relevance_chunks` compara
+  scores de RRF de una sola consulta, y esa consulta trae chunks de todos los
+  documentos. Un chunk del principal y uno de un anexo compiten en la misma
+  escala. No digo que esté mal — digo que se diseñó y se midió con un solo
+  documento.
+- **El `top_k` por categoría es global.** Con cinco documentos, los 25-35 chunks
+  se reparten entre todos; si un anexo es largo puede desplazar al principal.
+  Medible sobre un análisis real de varios documentos, que todavía no tengo.
+- **La síntesis.** No revisé si el texto que ve la persona nombra el documento
+  del que salió cada dato, ahora que hay más de uno.
+
+Las tres necesitan un análisis real con pliego + anexos para medirlas. Es lo
+primero que miraría con uno a mano.
+
+---
+
+# Apéndice VI · Las tres preguntas del multi-documento, contestadas sobre el código
+
+Cerré el Apéndice V diciendo que las tres preguntas que abre el multi-documento
+"necesitan un análisis real con pliego + anexos para medirlas". Eso sigue siendo
+cierto para dos de ellas. La tercera no: se contesta leyendo el código, y la
+respuesta es peor de lo que suponía.
+
+**Nota de método, antes que nada.** El análisis de Santa Fe
+(`18a86363-39ac-4b52-a2e2-1b1146b89ff8`, 5 documentos, 19 chunks) que me pasaste
+ya **no está en mi contexto** — la sesión se compactó y el JSON no quedó en
+disco. Lo que sigue está verificado contra el código del repo, con archivo y
+línea. Lo que dependía de esa salida lo dejo marcado como pendiente y lo mido
+apenas la vuelvas a pegar; no lo voy a afirmar de memoria, que es exactamente el
+error que me costó CHK-18.
+
+---
+
+## CTX-06 · La persona nunca ve de qué documento salió el dato: dice "Documento"
+
+**Severidad: alta.** Es el único de los tres que puedo dar por confirmado, y es
+un problema de correctitud de cara al usuario, no una sutileza de retrieval.
+
+La lista "Fuentes verificables" que se muestra debajo de cada categoría renderiza
+el nombre del documento:
+
+`frontend/src/features/analysis-detail/components/NarrativeBlocks.tsx:209`
+```tsx
+<span className="font-semibold">{source.document_name}</span>
+<span>{` · pág. ${source.page}`}</span>
+```
+
+Y `document_name` es una constante:
+
+`frontend/src/services/api/analysisApi.ts:91-99` — `toNarrativeSource`, el mapper
+de **todas** las fuentes de la narrativa:
+```ts
+return {
+  id: Number(value.id ?? 0),
+  document_id: String(value.document_id ?? ""),
+  document_name: "Documento",          // ← literal
+  page: Number(value.page_number ?? 0),
+```
+
+Lo mismo en `analysisApi.ts:415` (mapper de los ítems de `plazos_clave`). Y el
+tercer caso, `analysisApi.ts:248`, aparenta leerlo del backend pero cae al mismo
+default:
+```ts
+document_name: String(citation.document_name ?? "Documento"),
+```
+porque **el backend no emite `document_name` en ninguna cita**. Verificado:
+`grep -rn "document_name" backend/ --include=*.py` devuelve sólo
+`primary_document_name`, que es el nombre del pliego a nivel análisis
+(`analysis/service.py:452`, `analysis/schemas.py:68`), nunca por fuente. El
+esquema `SourceReference` (`analysis/extraction/schemas.py:60-97`) tiene
+`document_id`, `page_number`, `citation`, `block_id`, `chunk_id`, `citation_llm`,
+`citation_origin` — no tiene nombre de documento. `NarrativeSource`
+(`schemas.py:127-138`) tampoco.
+
+**Escenario de falla concreto.** Santa Fe: pliego + cuatro anexos. La persona
+abre `garantias` y ve:
+
+```
+Fuentes verificables
+  Documento · pág. 3
+  Documento · pág. 2
+  Documento · pág. 3
+```
+
+Tres fuentes que pueden ser de tres archivos distintos, y no hay forma de
+distinguirlas. Peor: "pág. 3" del `Pliego - Santa Fe.pdf` y "pág. 3" del
+`ANEXO IV` se leen como la misma página. Y esto llega justo después de CTX-05,
+donde le enseñamos al modelo que el principal manda y un anexo puede ser un
+formulario vacío: el modelo ahora sabe distinguirlos, y la interfaz borra esa
+distinción antes de mostrarla. Con un solo documento la constante era
+simplemente inútil; con cinco, engaña.
+
+**El dato existe y ya se resuelve en otro lado.** A tres archivos de distancia,
+`AnalysisDetailPage.tsx:37-38` hace exactamente la resolución que falta:
+```ts
+const activeDocumentName = selectedCitation
+  ? (documentsById.get(selectedCitation.document_id)?.filename ?? selectedCitation.document_name)
+  : primaryDocument?.filename;
+```
+Es decir: el visor de PDF **sí** muestra el nombre correcto al abrir la cita; la
+lista de fuentes, no. El `document_id` viaja bien de punta a punta (el resaltado
+depende de él y funciona). Lo único que falta es cruzarlo contra
+`payload.documents` en el mapper, que hoy sólo recibe
+`payload.current_version.extracted_data` (`analysisApi.ts:648-660`).
+
+**Nota a favor del código existente:** la deduplicación de fuentes SÍ es
+consciente del documento, en las dos capas — `dedupeCitations.ts:19-21`
+(`if (a.document_id !== b.document_id || a.page !== b.page) return false`) y la
+del backend, con clave `(document_id, page_number, citation_normalizada)`
+(`synthesis.py:375`). Así que dos citas homónimas en dos anexos distintos no se
+fusionan. El defecto es de presentación, no de datos.
+
+**No lo toqué todavía**, según la regla de un fix por vez. Es el que
+implementaría primero de los tres.
+
+---
+
+## CTX-02 entre documentos · confirmado como mecánica, no medido
+
+`_drop_low_relevance_chunks` calcula **un solo umbral sobre la lista mezclada**:
+
+`backend/analysis/extraction/extractors/base.py:473`
+```python
+umbral = max(conocidos) * _RELEVANCE_MIN_RATIO   # 0.4
+```
+
+No hay partición por documento en ninguna parte de la función (líneas 427-504).
+El piso de `_RELEVANCE_MIN_CHUNKS = 10` protege a los diez de mejor score —pero
+esos diez pueden ser los diez del anexo—. Así que la mecánica del riesgo está
+confirmada: un anexo con vocabulario más literal que el del pliego puede quedarse
+con la parte alta de la escala y empujar al principal por debajo del 40 %.
+
+Lo que **no** puedo afirmar es que pase en la práctica, ni con qué frecuencia.
+Eso necesita la salida real.
+
+## El `top_k` global · confirmado como mecánica, no medido
+
+`_retrieve_with_category_priority` ordena todos los candidatos juntos y corta:
+
+`base.py:1485-1486`
+```python
+scored_chunks.sort(key=lambda x: x[0], reverse=True)
+final_chunks = [chunk for _score, chunk in scored_chunks[:top_k]]
+```
+
+y `search_hybrid` filtra sólo por `analysis_id`, nunca por documento
+(`shared/ports/azure_search.py:582-609`). No hay ninguna cuota, ni un mínimo
+garantizado para el principal. Con `extraction_top_k = 25` por defecto
+(`shared/config.py:66-70`) y 35 para `garantias`, `plazos_clave` y
+`causales_rechazo` (`glossary.json`), un anexo largo puede llenar el cupo.
+
+**Salvedad importante para Santa Fe:** ese análisis tenía 19 chunks en total.
+19 < 25, así que **todos** los chunks entraron en todas las categorías y el
+`top_k` no recortó nada. Si en esa corrida hubo categorías vacías
+(`garantias`, `criterios_evaluacion`), la causa **no** es el `top_k`. Sí podría
+haber intervenido el corte por relevancia, porque 19 > 10. Habría que mirar el
+log `extraction_chunks_dropped_low_relevance` de esa corrida.
+
+## Lo que hace falta para medir las dos: instrumentar antes de calibrar
+
+Hoy **ninguna de las dos es observable en producción**. El log de retrieval
+reporta la distribución por categoría y nada más:
+
+`base.py:1489-1516`
+```python
+category_distribution[primary] = category_distribution.get(primary, 0) + 1
+...
+logger.info("retrieval_hybrid_scoring", ..., category_distribution=category_distribution, ...)
+```
+
+No hay una sola línea que diga **de qué documento** salieron los chunks que
+entraron al prompt. Lo mismo en `extraction_chunks_dropped_low_relevance`
+(`base.py:494-503`): informa cuántos se descartaron y con qué scores, no de dónde
+eran.
+
+Antes de tocar el corte o el `top_k` propondría agregar `document_distribution` a
+esos dos logs — el mismo `document_labels` que CTX-05 ya deja en el estado
+alcanza para que salga con nombres legibles. Es barato, no cambia ningún
+comportamiento, y convierte las dos preguntas en algo que se mide en vez de
+estimarse. Calibrar un umbral sin ese dato es lo que en CHK-21 decidí no hacer.
+
+---
+
+## Pendiente, cuando vuelvas a pegar la salida de Santa Fe
+
+Lo que quiero mirar de esa corrida, con la salida delante:
+
+1. Si esa corrida usó el prompt de CTX-05 (el análisis se creó ~15:29 UTC y el
+   commit fue ~15:07, pero no sé si el backend se reinició). El indicador: si
+   `datos_procedimiento` conserva los dos `tipo_procedimiento` en conflicto sin
+   dejar constancia en `observaciones`, el prompt nuevo no estaba activo.
+2. El log `extraction_chunks_dropped_low_relevance` de `garantias` y
+   `criterios_evaluacion`, para separar "el retrieval no trajo nada" de "el corte
+   se lo llevó".
+3. Las `highlight_regions: []` de los sources de Anexo 2. El camino
+   (`highlight.py:746`) resuelve el PDF por `document_id`, así que hay dos causas
+   posibles y se distinguen en el log: falta el blob path de ese documento, o la
+   búsqueda viva de PyMuPDF no ubicó la cita.
+4. Los chunks de 43 caracteres con sólo el membrete (`"Ministerio de Gobierno\ne
+   Innovación Pública"`, `section_path: "general"`) en cuatro de los cinco
+   documentos — el residual de CHK-15 que ya había quedado abierto.
+
+---
+
+# Apéndice VII · Santa Fe medido: 5 documentos, 19 chunks, 8 páginas
+
+Con la salida delante. Análisis `18a86363-39ac-4b52-a2e2-1b1146b89ff8`:
+
+| Documento | Rol | Págs | Chunks |
+|---|---|---|---|
+| `Pliego - Santa Fe.pdf` (`ebe9dca5`) | **PRINCIPAL** | 2 | 6 |
+| `ANEXO V.- Santa Fe.pdf` (`8bcb0e72`) | anexo | 3 | 6 |
+| `ANEXO IV - Santa Fe.pdf` (`c7ebfe58`) | anexo | 1 | 3 |
+| `ANEXO III - Santa Fe.pdf` (`e7a8d85d`) | anexo | 1 | 2 |
+| `Anexo 2 - Santa Fe.pdf` (`2af5720e`) | anexo | 1 | 2 |
+
+**Primero lo que anda.** Dos cosas que temía y no pasaron:
+
+- **`top_k` no recortó nada.** 19 chunks totales contra un `top_k` de 25 (35 en
+  `garantias`): todas las categorías vieron los cinco documentos. La pregunta
+  del Apéndice V queda sin medir por falta de volumen, no contestada.
+- **`garantias` y `criterios_evaluacion` en `not_found` son correctos.** Revisé
+  los 19 chunks uno por uno: no hay ninguna cláusula de garantía ni matriz de
+  puntajes en ninguno de los cinco documentos. Es un verdadero negativo, no una
+  falla de recuperación. El corte por relevancia (19 > 10, así que pudo actuar)
+  tampoco pasó hambre: `requisitos_admisibilidad` cita tres documentos distintos
+  y `anexos_obligatorios` otros tres.
+
+Lo demás sí tiene problemas, y son de multi-documento.
+
+---
+
+## CTX-07 · Dos valores contradictorios en la misma categoría, y `conflicts: []`
+
+**Severidad: alta.** Es el caso exacto que motivó CTX-05, y el detector de
+conflictos no lo ve.
+
+`datos_procedimiento` trae **dos ítems con el mismo `tipo`**:
+
+```json
+{"tipo": "tipo_procedimiento", "valor": "Contratación Directa",
+ "source_references": [{"document_id": "ebe9dca5…"}]}          ← PLIEGO
+{"tipo": "tipo_procedimiento", "valor": "Contratación Directa por Urgencia",
+ "source_references": [{"document_id": "2af5720e…"}]}          ← Anexo 2
+```
+
+y `"conflicts": []`.
+
+**Causa, con línea.** `merge_node` sólo busca conflictos en dos categorías:
+
+`backend/analysis/extraction/graph.py:1138-1172`
+```python
+conflicts: list[dict] = []
+plazos_by_tipo = defaultdict(list)      # ← plazos
+...
+garantias_by_tipo = defaultdict(list)   # ← garantías
+...
+state["conflicts"] = conflicts
+```
+
+No hay una tercera rama. `identificacion_procedimiento`,
+`requisitos_admisibilidad`, `objeto_alcance`, `causales_rechazo` y
+`anexos_obligatorios` no se revisan nunca. El detalle que lo confirma: los
+`reason` ya dicen *"en distintos documentos"* — la función se escribió pensando
+en varios documentos, pero sólo para dos de las ocho categorías.
+
+**Qué ve la persona.** Dos filas con la misma etiqueta y valores distintos, sin
+ninguna marca de que se contradicen, y —por CTX-06— sin saber de qué archivo
+salió cada una. La síntesis de esa categoría es `null`, así que ni siquiera hay
+un párrafo que lo explique.
+
+**Matiz que importa para el fix.** Acá el anexo es *más preciso* que el
+principal, no lo contradice: "Contratación Directa por Urgencia" es la misma
+figura con la causal. Si CTX-05 hubiera resuelto la precedencia a favor del
+principal, el resultado habría sido **peor**. Es un contraejemplo a la regla que
+escribí, y lo anoto como tal: la regla sirve para conflictos, no para
+refinamientos, y el prompt no distingue las dos cosas. El fix correcto acá no es
+elegir uno, es **detectar que hay dos y decirlo**.
+
+---
+
+## CTX-08 · Los formularios en blanco se leen como requisitos del pliego
+
+**Severidad: alta.** Es el escenario que CTX-05 describía en prosa, ocurriendo.
+
+De los **6** ítems de `requisitos_admisibilidad`, **4 salen de anexos que son
+declaraciones juradas en blanco**, y **3 dicen lo contrario de lo que se
+extrajo**.
+
+`ANEXO III` es un formulario donde el oferente declara que ciertos papeles **ya
+están en el registro**. Su texto literal (chunk `e7a8d85d--1`):
+
+> "manifestamos que la documentación detallada a continuación **se encuentra en
+> custodia y vigente en el Registro Único de Proveedores y Contratistas de la
+> Provincia** durante el procedimiento de selección"
+
+y lo que el sistema extrajo de esos tres renglones:
+
+```json
+{"tipo": "documento", "valor": "Declaración Jurada - Ley 17.250, Formulario 522/A…",
+ "metadata": {"obligatorio": "si", "momento_presentacion": "con_la_oferta"}}
+```
+
+`momento_presentacion: "con_la_oferta"` es exactamente lo que el anexo dice que
+**no** hace falta. Idem con la Constancia de Cumplimiento Fiscal (API) y el
+certificado del R.D.A.M. Un oferente que lea el análisis va a juntar tres
+certificados que el pliego no le pide.
+
+El cuarto sale de `Anexo 2`, que es la plantilla de nota (`"Santa Fe, XX de XXXXX
+de 2026."`, `"Correo electrónico Nº 1:"`, `"Firma:"`, `"Aclaración:"` — todos los
+campos vacíos). De ahí se extrajo como requisito el texto que el propio oferente
+va a firmar: *"no encontrarse comprendidos en ninguna de las causales de
+inhabilidad"*.
+
+**No es un requisito del pliego: es el texto de la declaración que el oferente
+presenta.** El prompt de CTX-05 ya dice esto ("Hay anexos que son formularios
+vacíos… Lo que figura ahí NO es un requisito de la licitación"). No sé si esta
+corrida lo tenía: el análisis se creó a las 15:29 UTC y el commit fue ~15:07,
+pero no sé si se reinició el backend. **Se resuelve mirando un log**: si en esa
+corrida aparece `document_labels_built` (`graph.py:276-281`), el prompt nuevo
+estaba activo y entonces la regla no alcanza; si no aparece, hay que repetir la
+prueba antes de sacar conclusiones. Es la primera cosa que miraría.
+
+Lo que sí puedo afirmar sin depender de eso: **la señal existe en los datos y
+nadie la usa.** El chunk sabe que es un formulario en blanco — `"Santa Fe, XX de
+XXXXX de 2026."`, `"Correo electrónico Nº 1:"` seguido de nada, `"Firma:"`
+seguido de nada. Eso es detectable sin LLM.
+
+---
+
+## HL-09 · El resaltado falla al 100 % en exactamente dos documentos
+
+**13 de 18 fuentes tienen `highlight_regions`. Los 5 fallos se concentran en dos
+archivos, y en esos dos el fallo es total:**
+
+| Documento | con resaltado |
+|---|---|
+| `ANEXO V` (`8bcb0e72`) | 6 / 6 |
+| `ANEXO III` (`e7a8d85d`) | 4 / 4 |
+| `ANEXO IV` (`c7ebfe58`) | 3 / 3 |
+| **`Pliego` (`ebe9dca5`)** | **0 / 2** |
+| **`Anexo 2` (`2af5720e`)** | **0 / 3** |
+
+Un corte tan limpio por documento no se explica por la forma de las citas: son
+citas de todo tipo en los dos grupos. `highlight.py:746` resuelve el PDF por
+`document_id`, así que la partición apunta al archivo, no a la cita.
+
+**Hipótesis principal: esos dos PDF no tienen capa de texto.** Azure DI hace OCR
+y extrae bien; PyMuPDF `search_for` no encuentra nada porque no hay texto que
+buscar. Encaja con los tamaños: `Anexo 2` pesa 190 KB en **1** página y el
+`Pliego` 271 KB en **2** — 190 y 136 KB/página, contra 88-109 KB/página de los
+tres que funcionan.
+
+**Prueba que la decide, sobre los PDF originales:**
+
+```python
+import fitz
+for f in ["Pliego - Santa Fe.pdf", "Anexo 2 - Santa Fe.pdf", "ANEXO III - Santa Fe.pdf"]:
+    d = fitz.open(f)
+    print(f, [len(p.get_text().strip()) for p in d])
+```
+
+Si los dos primeros dan ceros y el tercero no, está confirmado. **No propongo
+fix hasta tener ese número** — si es esto, el fix no es tocar el matcher sino
+detectar el caso y decirlo (hoy la ausencia de resaltado es silenciosa y se
+confunde con "no se encontró la cita").
+
+Que el **pliego principal** sea uno de los dos es lo que lo vuelve urgente: es
+el documento que la persona más va a querer verificar.
+
+---
+
+## HL-10 · Dos formas de cita que no se pueden resaltar nunca
+
+Independientes de HL-09, y visibles en la salida:
+
+**(a) Citas de tabla.** `objeto_alcance` fuente 1:
+
+```
+"col_1: 1 col_2: 1 col_3: 1 col_4: Sistema de almacenamiento de Datos compuesto por 2 (dos) subsistemas"
+```
+
+Ese texto **no existe en el PDF**: `col_1:` es el serializado del chunk. Ninguna
+búsqueda literal lo va a encontrar. El prompt pide otro formato para tablas
+(`_base_system.txt:94-95`, `Encabezado: … | Fila: … | Valor: …`) que el modelo
+ignoró — pero ese tampoco existe en el PDF. **Todo dato que salga de una tabla es
+estructuralmente no resaltable**, y en este pliego el objeto y la planilla de
+cotización son tablas.
+
+**(b) Citas que cruzan dos párrafos no contiguos.** `anexos_obligatorios` fuente 0:
+
+```
+"NOTA DECLARACIÓN JURADA Santa Fe, XX de XXXXX de 2026."
+```
+
+Son dos párrafos distintos de DI —`[1,3]` en y=174 y `[1,4]` en y=212, con 38
+puntos de aire entre medio— que `_format_chunks` pega con un renglón en blanco.
+El modelo los citó como si fueran una frase. En el PDF esa frase no es contigua.
+
+---
+
+## GRD-01 · La verificación de grounding acepta una cita que no es subcadena
+
+`requisitos_admisibilidad` fuente 5:
+
+```json
+{"citation": "Que no nos encontramos comprendidos en ninguna de las causales de inhabilidad",
+ "citation_origin": "llm", "unverified": false}
+```
+
+El texto del PDF (chunk `2af5720e--1`, párrafo `[1,8]`) dice:
+
+> "2\\. Que **declaro que** no nos encontramos comprendidos en ninguna de las
+> causales de inhabilidad"
+
+El modelo se comió "declaro que". La cita pasó como **verificada y sin
+reescritura** (`citation_origin: "llm"`, `unverified: false`), y después la
+búsqueda en el PDF no la encontró.
+
+Son dos nociones distintas de "la cita está en el texto" en el mismo pipeline:
+`_verify_citation_grounding` la da por buena y `compute_highlight_regions` no.
+La regla 3 del prompt dice "texto copiado literal, sin cambiar ni una coma", así
+que la laxa es la que está mal. Cada vez que difieren, la persona ve una cita
+marcada como verificada que no se puede señalar en el documento.
+
+---
+
+## ING-12 · Los escapes de markdown llegan a la cita que ve la persona
+
+`datos_procedimiento`, `jurisdiccion`:
+
+```json
+{"citation": "la Administración Pública Provincial. 3\\.", "citation_origin": "ensanchada"}
+```
+
+Ese `3\.` con la barra se muestra tal cual. El fix de ING-11 desescapa **para
+comparar** (`_same_text` en `document_intelligence.py`), pero el contenido del
+chunk se guarda escapado — se ve en toda la salida: `"1\. Que el mero hecho…"`,
+`"\- Declaración Jurada - Ley 17.250"`, `"2\. Que declaro…"`. Así que los escapes
+llegan a tres lugares: al prompt, a la cita que copia el modelo, y a la búsqueda
+en el PDF (donde `3\.` nunca va a matchear, porque en el PDF dice `3.`).
+
+Acá encima lo produjo el ensanchado: la cita del modelo era
+`"Administración Pública Provincial."` y el pipeline la estiró hasta comerse el
+`3\.` del renglón siguiente. Una cita de 40 caracteres que termina en un número
+de ítem del párrafo que sigue no prueba nada mejor que la original.
+
+---
+
+## CTX-06 · confirmado, y con el campo ya reservado
+
+Lo del Apéndice VI se confirma, y aparece algo que no había visto: en la salida
+real, **cada `source_reference` trae `filename` y `is_primary`, y los dos están
+en `null`**, en las 20 referencias sin excepción:
+
+```json
+{"document_id": "ebe9dca5-ba5d-432f-a658-8d7026974e8b", "page_number": 1,
+ "filename": null, "is_primary": null, "citation": "…"}
+```
+
+En la copia del repo que tengo, `SourceReference`
+(`analysis/extraction/schemas.py:60-97`) **no declara esos dos campos** — así que
+los agregaste vos al armar el multi-documento, y **ningún código los escribe**.
+El hueco está hecho y esperando. Eso simplifica el fix: el nombre puede
+resolverse en el backend, donde `_build_document_labels` (CTX-05) ya tiene el
+mapa `document_id → {nombre, es_principal}` armado y en el estado, en vez de
+cruzarlo en el frontend.
+
+---
+
+## CHK-15 · el residual, ahora con número
+
+**3 de 19 chunks (16 %) son sólo el membrete**, idénticos entre sí, 43
+caracteres, `section_path: "general"`, `title: null`:
+
+```
+"Ministerio de Gobierno\ne Innovación Pública"
+```
+
+en `Anexo 2`, `ANEXO III` y `ANEXO IV` (en el `Pliego` el membrete quedó pegado
+al objeto, y `ANEXO V` no lo tiene en la primera página). Se indexan, se
+embeben y compiten en el retrieval. Con 19 chunks totales, uno de cada seis no
+dice nada.
+
+---
+
+## Orden que propongo
+
+1. **CTX-06** — el nombre del documento en las fuentes. Chico, alto impacto, y
+   ahora sé que el campo ya existe.
+2. **CTX-07** — detección de conflictos para las ocho categorías, no dos.
+3. **HL-09** — pero primero la prueba de capa de texto, antes de tocar nada.
+4. **GRD-01 / ING-12 / HL-10** — la familia de "la cita no es lo que dice el PDF".
+5. **CTX-08** — es el de más valor de producto y el más difícil de hacer bien;
+   antes hay que saber si esta corrida tenía el prompt de CTX-05.
+
+---
+
+## CTX-06 · IMPLEMENTADO
+
+**El problema.** `NarrativeBlocks.tsx:209` renderiza
+`{source.document_name} · pág. {source.page}`, y `document_name` era la
+constante `"Documento"` en los tres mappers de `analysisApi.ts` (`:98`, `:415`,
+y `:248` que la leía del backend pero el backend no la emitía). En Santa Fe, las
+fuentes de una categoría se leían todas igual, y "pág. 1" de dos archivos
+distintos era el mismo renglón dos veces.
+
+**Dónde se resolvió: en el backend.** Dos razones. Primera: en la salida real
+las 20 `source_references` ya traían `"filename": null, "is_primary": null` — el
+hueco estaba hecho y nadie lo llenaba, así que llenarlo desde el frontend habría
+dejado el campo del backend mintiendo para siempre. Segunda: `document_labels`
+(CTX-05) ya está en el estado con `document_id -> {nombre, es_principal}`; sólo
+faltaba cruzarlo. Así lo ve cualquier consumidor de la API, no sólo esta
+pantalla.
+
+**Backend** — `graph.py::_stampar_nombre_de_documento`, llamado al final de
+`synthesize_node`:
+
+```python
+if isinstance(nodo, dict):
+    if "document_id" in nodo and "citation" in nodo:
+        datos = etiquetas.get(str(nodo.get("document_id") or ""))
+        if isinstance(datos, dict):
+            nodo["filename"] = str(datos.get("nombre") or "") or None
+            nodo["is_primary"] = bool(datos.get("es_principal"))
+    for valor in nodo.values():
+        _stampar_nombre_de_documento(valor, etiquetas)
+```
+
+Recorre la estructura entera en vez de enumerar rutas porque ya hay cuatro
+formas distintas (`categoria[].source_references[]`,
+`categoria_narrative.sources[]`, `estimacion_presupuesto.source_references[]`,
+…) y agregar una quinta no debería requerir volver acá. La marca de "esto es una
+referencia a una fuente" es tener `document_id` **y** `citation`: `document_id`
+solo no alcanza, porque los chunks y el mapeo a blob path también lo tienen.
+
+Va en `synthesize_node` y no en `merge_node` porque las `sources` de las
+narrativas —que son LAS que el frontend lista— recién se agregan en ese nodo. Un
+solo recorrido cubre las dos formas.
+
+**Los campos hay que declararlos o pydantic los tira.** `SourceReference` y
+`NarrativeSource` ahora tienen `filename: str | None` e `is_primary: bool | None`,
+ambos con default `None`. Es el mismo bug que ya se corrigió dos veces en este
+mismo archivo (`unverified` y `chunk_id`, ATR-05): un campo no declarado
+sobrevive en el dict y desaparece en el primer `model_validate`. Hay un test
+dedicado para eso.
+
+**Frontend** — un solo helper, `toDocumentName`, usado en los tres mappers:
+
+```ts
+const fromBackend = String(value.filename ?? "").trim();
+if (fromBackend) return fromBackend;
+const alreadyMapped = String(value.document_name ?? "").trim();
+return alreadyMapped || "Documento";
+```
+
+El default se conserva a propósito: un análisis ya persistido antes de este fix,
+o una fuente de un documento borrado, tiene que seguir mostrándose.
+
+**Degradación.** Sin etiquetas (`_build_document_labels` devuelve `{}` cuando no
+hay sesión) la función no toca nada: no escribe `filename: null`, deja la
+referencia como estaba, y el frontend cae a `"Documento"` — exactamente el
+comportamiento anterior.
+
+**Tests.** `backend/tests/test_nombre_del_documento_en_las_fuentes.py` (13) y
+`frontend/src/services/api/nombreDelDocumentoEnLasFuentes.test.ts` (7). Verificados
+revirtiendo, en los tres pedazos por separado:
+
+- revirtiendo el recorrido del backend → 6 de 13 fallan
+- revirtiendo los campos del esquema → 3 de 13 fallan
+- revirtiendo la lectura de `filename` en el frontend → 5 de 7 fallan
+
+Los que sobreviven a cada revert son las guardas de degradación, que es
+justamente lo que tienen que hacer.
+
+**Suites.** Backend: **648 passed / 7 failed** (los mismos 7 de base; eran 635
+antes, +13 nuevos). Frontend: **97 passed / 14 archivos** (eran 90 / 13). `tsc`
+sigue con los mismos 24 errores preexistentes; ninguno en lo que toqué (el de
+`analysisApi.ts:657` está en `mapStatusToDetail`, que no toqué).
+
+**Lo que NO hice, a propósito.** No mostré el rol (`[PLIEGO PRINCIPAL]` /
+`[ANEXO]`) en el renglón de la fuente. `is_primary` ya viaja y está disponible,
+pero la regla de UX es que la cita se lea corta; si al usarlo hace falta
+distinguir el principal de un vistazo, se agrega ahí y no antes.
+
+---
+
+## HL-09 · IMPLEMENTADO · Resaltado en PDF escaneados
+
+Confirmado por la usuaria: el `Pliego - Santa Fe.pdf` y el `Anexo 2` son
+escaneos. Eso cierra el hallazgo: 0/2 y 0/3 fuentes con resaltado en esos dos,
+13/13 en los otros tres.
+
+**Por qué no había red debajo.** El 2026-08-14 (HL-08) se sacó el camino de
+"bbox almacenado" porque pintaba el párrafo entero, y el argumento fue: sin
+regiones, el visor marca sobre la capa de texto de react-pdf, "degradado, pero
+acotado al texto de la cita". Ese argumento era correcto **y suponía que había
+capa de texto**. Verificado en `PDFPage.tsx:83`: el fallback es
+`customTextRenderer`, que decora la capa de texto. En un escaneo esa capa está
+vacía. Así que en estos dos documentos el trade-off no era "párrafo entero vs.
+marcado preciso" sino **párrafo entero vs. nada**.
+
+**Por qué renglones.** La geometría existe: DI hace OCR y devuelve dónde leyó
+cada cosa. Hoy guardábamos sólo el bbox del PÁRRAFO. `result.pages[].lines[]`
+son el punto medio: ~10 veces menos datos que las palabras --importa, porque
+esto viaja en cada chunk del índice-- y en un PDF con texto los rectángulos que
+hoy se ven son justamente del alto de un renglón, así que el resultado es
+comparable. Los extremos del match se recortan horizontalmente en proporción al
+carácter; los renglones del medio van enteros, que ahí es exacto.
+
+Se descartó meterle capa de texto al PDF con OCRmyPDF/Tesseract: ese OCR **no
+coincide** con el de DI, y la cita viene de DI. Volveríamos a fallos
+impredecibles, más una dependencia pesada.
+
+**La restricción — no romper lo que anda — está garantizada por construcción.**
+La compuerta no es "la búsqueda viva falló" sino "la búsqueda viva falló **Y**
+esta página no tiene texto embebido":
+
+```python
+if pdf_path and pagina_sin_capa_de_texto(pdf_path, page_number):
+```
+
+En un PDF con capa de texto el camino nuevo no se toca **nunca**, ni siquiera
+cuando la búsqueda viva falla, porque ahí el marcado sobre la capa de texto
+sigue funcionando y es mejor. Y `pagina_sin_capa_de_texto` es conservadora a
+propósito: ante cualquier error --PDF ilegible, página fuera de rango,
+excepción-- devuelve `False`, o sea "tiene texto", que es el camino de siempre.
+Un falso positivo activaría el camino nuevo en un documento que ya andaba bien,
+y eso es justo lo que no puede pasar.
+
+Hay un test dedicado a esa garantía
+(`test_en_un_pdf_con_texto_una_cita_que_no_esta_sigue_saliendo_vacia`): el chunk
+TIENE geometría por renglón que haría match, y aun así no se usa. Sacando la
+compuerta, ese test falla.
+
+**Y el silencio se rompe.** Cuando el documento es un escaneo y tampoco se pudo
+ubicar por renglones, la fuente sale con
+`highlight_unavailable_reason: "documento_escaneado"`. Antes, ese caso y "no
+encontré la cita" se veían exactamente igual: nada.
+
+**Tres capas, cada una revertida por separado:**
+
+| Revert | Fallan |
+|---|---|
+| el colgado de renglones por bloque (`document_intelligence.py`) | 3 de 15 |
+| la propagación en el serializador de chunking (comprehension) | 1 de 15 |
+| la propagación en las copias intermedias (`block`) | 1 de 15 |
+| la compuerta de "sin capa de texto" | 1 de 21 — el test de la garantía |
+| el camino OCR entero | 2 de 21 |
+| el campo `highlight_unavailable_reason` en el esquema | 2 de 21 |
+
+**Un test vacuo, agarrado por la reversión (tercera vez en esta auditoría).** El
+test de propagación en chunking pasaba con y sin el fix: usaba el retorno
+temprano de `_blocks_data_for` (`if not merged_blocks`), no el comprehension del
+final, que es el camino normal. Se agregó el caso de bloque fusionado desde
+varios párrafos, y ahora cada rama tiene su test discriminante.
+
+**Suite: 684 passed / 7 failed** (los mismos 7 de base; eran 648 antes de esto,
++15 de geometría, +21 de resaltado).
+
+**Lo que HL-09 NO arregla, y hay que decirlo:**
+
+- **Documentos ya indexados.** La geometría por renglón se guarda en la
+  indexación, así que Santa Fe hay que reanalizarlo para que aparezca. Lo ya
+  indexado se degrada al comportamiento anterior: la clave no está y
+  `_renglones_del_chunk` devuelve `[]`.
+- **Las citas de tabla (HL-10).** El texto `col_1: …` no existe en el documento,
+  ni con capa de texto ni sin ella. Ningún camino de resaltado lo va a
+  encontrar.
+- **El visor todavía no muestra el motivo.** `highlight_unavailable_reason` viaja
+  hasta el borde de la API; falta que el frontend lo lea y lo diga.
+
+---
+
+# Apéndice VIII · HL-09 y CTX-06 medidos sobre el reanálisis
+
+Análisis `31a21b71-d0e0-4d2f-aedf-df09c6df06e8`, mismos cinco documentos.
+
+## El resultado
+
+| Documento | antes | ahora |
+|---|---|---|
+| **Pliego - Santa Fe.pdf** (escaneado, principal) | **0 / 2** | **2 / 3** |
+| **Anexo 2 - Santa Fe.pdf** (escaneado) | **0 / 3** | **3 / 3** |
+| ANEXO III | 4 / 4 | 2 / 2 |
+| ANEXO IV | 3 / 3 | 3 / 3 |
+| ANEXO V | 6 / 6 | 4 / 4 |
+| **Total** | **13 / 18 (72 %)** | **16 / 17 (94 %)** |
+
+En los dos escaneados: **de 0 de 5 a 5 de 6**. (Los totales por documento cambian
+porque el modelo produjo distinta cantidad de ítems; lo comparable es la tasa.)
+
+## La restricción se cumplió: los PDF con texto no se movieron
+
+No alcanza con que el número suba. Comparé **rectángulo por rectángulo** las
+citas idénticas entre las dos corridas, en los tres documentos con capa de texto:
+
+| Cita | antes | ahora |
+|---|---|---|
+| ANEXO IV · "debiendo el oferente contar con una antigüedad…" | `[{383.874, 198.095, 153.877, 10}, {67.5, 210.302, 208.811, 10}]` | idéntico |
+| ANEXO III · "Certificado negativo expedido por el REGISTRO…" | `[{153.996, 535.395, 384.357, 13.289}, {138, 556.094, 150.041, 13.289}]` | idéntico |
+| ANEXO III · "Mediante la presente nota… la documentación" | `[{67.5, 383.566, 467.777, 12.182}]` | idéntico |
+| ANEXO V · "Si con la información suministrada…" | `[{259.512, 700.919, 266.727, 13.406}, {72, 715.319, 296.121, 13.406}]` | idéntico |
+| ANEXO V · "la Provincia dispondrá de un plazo máximo…" | `[{455.596, 144.257, 70.613, 13.406}, {72, 158.657, 432.901, 13.406}]` | idéntico |
+
+Hay **una** diferencia, y no es del fix: ANEXO V · "siendo causal de
+desestimación…" pasó de ancho `343.536` a `340.200` en el segundo rectángulo.
+La cita también cambió — antes terminaba en `"del bien."` y ahora en `"del
+bien"`, sin el punto. Un carácter menos, un rectángulo más corto: es el
+matcher de siempre haciendo lo suyo sobre una cita distinta que emitió el
+modelo.
+
+## Se puede ver que el camino nuevo es el que actuó
+
+Las regiones del camino OCR salen redondeadas a 2 decimales y coinciden con la
+geometría de `lines` guardada en el chunk. Ejemplo, `requisitos_admisibilidad`
+fuente 4, Anexo 2:
+
+- renglón indexado: `{"x": 84.6216, "width": 451.7784, "t": "2. Que declaro que no nos encontramos comprendidos en ninguna de las causales de inhabilidad"}`
+- cita: `"Que declaro que no nos encontramos comprendidos en ninguna de las causales de inhabilidad"`
+- región emitida: `{"x": 90.49, "y": 459.3, "width": 445.91, "height": 13.81}`
+
+El recorte proporcional se comió exactamente el `"2. "` del principio:
+`84.62 + 451.78 × (1/78) ≈ 90.4`. Está señalando la frase, no el renglón entero
+ni el párrafo.
+
+**Y un efecto colateral bueno**: `anexos_obligatorios` fuente 0 es
+`"NOTA DECLARACIÓN JURADA Santa Fe, XX de XXXXX de 2026."`, la cita que en el
+Apéndice VII marqué como estructuralmente irresaltable (HL-10 b) porque cruza
+dos párrafos NO contiguos, con 38 puntos de aire entre medio. Ahora resuelve en
+dos rectángulos, uno por párrafo: `[{217.97, 174.2, …}, {379.43, 212.92, …}]`.
+El matcher por renglones concatena a través de bloques, así que ese caso deja de
+existir — **en los escaneados**. En un PDF con texto sigue fallando, porque ahí
+el camino nuevo no se activa (por diseño).
+
+## CTX-06 confirmado
+
+Las 17 `source_references` traen ahora `filename` e `is_primary` poblados:
+
+```json
+{"document_id": "74db4660-…", "filename": "Pliego - Santa Fe.pdf", "is_primary": true}
+{"document_id": "2741e7c8-…", "filename": "Anexo 2 - Santa Fe.pdf", "is_primary": false}
+```
+
+Y `highlight_unavailable_reason` sobrevivió la revalidación de pydantic: viaja
+como `null` en las que sí tienen resaltado, y con valor en la que no.
+
+## HL-11 · El único fallo que queda, y su causa exacta
+
+`objeto_alcance` fuente 2, del pliego:
+
+```json
+{"citation": "OPCIONALES: Servicios profesionales de Consultoría - Módulos de 10 (diez) horas hombre.",
+ "chunk_id": "…--74db4660-…--3",
+ "highlight_regions": [], "highlight_unavailable_reason": "documento_escaneado"}
+```
+
+Ese texto **sí tiene geometría**: es el renglón `[1, 14]` del chunk **`--2`**,
+`{"x": 66.96, "y": 456.10, "width": 420.95, "t": "OPCIONALES: Servicios profesionales de Consultoría - Módulos de 10 (diez) horas hombre."}`.
+
+Pero la cita se verificó contra el chunk **`--3`**, que es una TABLA. El
+`content` de un chunk de tabla arrastra el párrafo anterior como contexto —por
+eso el texto está ahí y el grounding matcheó— pero sus `blocks` son sólo las
+filas de la tabla, sin `lines`. Así que `_renglones_del_chunk` devuelve `[]`.
+
+**El desajuste es entre `content` y `blocks` del mismo chunk**: el primero cruza
+el límite del chunk, el segundo no. No es específico del camino OCR — es la
+misma razón por la que `chunk_id` puede apuntar a un chunk cuya geometría no
+contiene la cita.
+
+Fix natural y acotado: si el chunk resuelto no tiene renglones para esa página,
+buscar en los demás chunks del mismo documento y página antes de rendirse. Lo
+dejo abierto: es un caso de 1 en 17 y prefiero no tocar el matcher recién
+medido sin decidirlo aparte.
+
+## Lo que este reanálisis muestra y NO es de HL-09
+
+Cosas que cambiaron entre corridas por variabilidad del modelo, no por el fix.
+Las anoto para que no se lean como efectos del cambio:
+
+- **`plazos_clave` clasificó mal.** El plazo de 15 días corridos para otorgar la
+  F.A.D. salió como `tipo: "mantenimiento_oferta"`. No es eso: es el plazo que
+  tiene la Provincia para dar la aceptación definitiva, no la validez de la
+  oferta. En la corrida anterior el mismo hecho salió como `plazo_ejecucion`,
+  que era correcto. Además desapareció el ítem `apertura_ofertas`.
+- **`criterios_evaluacion` quedó en `partial` con cero ítems**
+  (`descartados_sin_evidencia: 1`). Antes era `not_found`. Una categoría en
+  `partial` sin un solo ítem es un estado contradictorio: `partial` significa
+  "hay evidencia pero falta parte", y no quedó nada que mostrar.
+- **`conflicts: []` otra vez**, pero esta vez el modelo emitió un solo
+  `tipo_procedimiento`, así que no hubo duplicado que detectar. **CTX-07 sigue
+  sin verificarse contra un caso real** — el detector sigue mirando sólo
+  `plazos` y `garantias`.
+- **ING-12 intacto**: `"la Administración Pública Provincial. 3\\."` sigue
+  llegando con la barra a la vista.
+- **CHK-15 intacto**: los mismos 3 chunks de 43 caracteres con sólo el membrete.
+
+---
+
+# EXT-01 · La extracción no es reproducible, y el código supone que sí
+
+**Severidad: la más alta de la auditoría.** Todo lo demás son detalles al lado de
+esto.
+
+La usuaria lo señaló al ver el Apéndice VIII: si la clasificación de
+`plazos_clave` cambió entre corridas, entonces el problema no es el resaltado, es
+el contenido. Tiene razón, y ahora se puede medir, porque hay **dos análisis del
+mismo input**.
+
+## El experimento, que salió gratis
+
+| | corrida A | corrida B |
+|---|---|---|
+| análisis | `18a86363-…` | `31a21b71-…` |
+| documentos | los mismos 5 | los mismos 5 |
+| chunks | 19 | 19 |
+| contenido de los chunks | idéntico | idéntico |
+| bbox de los chunks | idénticos | idénticos |
+
+Verifiqué los dos volcados de chunks: **mismo texto, mismas coordenadas, mismo
+`section_path`, misma segmentación**. Document Intelligence fue determinista acá
+y el chunking también. Y el prompt no cambió entre las dos: CTX-06 tocó
+`graph.py`/`schemas.py`/el frontend, y HL-09 tocó la indexación y el resaltado.
+Ninguno toca `_format_chunks` ni `_base_system.txt`, así que **lo que el modelo
+leyó fue lo mismo**.
+
+## Lo que salió distinto
+
+De las 8 categorías, **5 cambiaron de forma material**:
+
+| Categoría | corrida A | corrida B |
+|---|---|---|
+| `plazos_clave` | 3 ítems, status `success` | **2 ítems**, status `partial` |
+| ↳ el plazo de 15 días para la F.A.D. | `plazo_ejecucion` ✅ | **`mantenimiento_oferta`** ❌ |
+| ↳ `apertura_ofertas` | presente (`partial`) | **desapareció** |
+| `criterios_evaluacion` | `not_found`, 0 ítems | **`partial`, 0 ítems** |
+| `anexos_obligatorios` | 3 ítems, `success` | **4 ítems**, `partial` |
+| `requisitos_admisibilidad` · antigüedad | `capacidad_minima` | **`experiencia_minima`** |
+| `requisitos_admisibilidad` · metadata | `momento_presentacion: "con_la_oferta"` en los 6 | **`"no_especificado"` en los 6** |
+| `identificacion_procedimiento` | 7 ítems, **dos** `tipo_procedimiento` | 6 ítems, **uno** |
+| ↳ "Contratación Directa por Urgencia" | presente (de Anexo 2) | **desapareció** |
+
+Estables: `objeto_alcance`, `garantias` (`not_found` en ambas, y correcto),
+`causales_rechazo`.
+
+**El mismo hecho, la misma cita, dos clasificaciones distintas.** El plazo de
+quince días corridos para que la Provincia otorgue la F.A.D. es un plazo de
+ejecución; llamarlo `mantenimiento_oferta` --la validez de la oferta-- es un
+error de lectura con consecuencia práctica para el que lee el análisis.
+
+Y no hay una corrida "buena": B acierta donde A fallaba (el
+`momento_presentacion: "con_la_oferta"` de los documentos del ANEXO III era el
+error de CTX-08, y en B quedó en `"no_especificado"`, que es correcto), y falla
+donde A acertaba. **No se puede saber cuál mirar.**
+
+## La causa, y la frase del código que esto desmiente
+
+`shared/ports/azure_openai.py:31`
+
+```python
+temperature=0.0,
+```
+
+y ocho líneas más abajo, en el comentario del `max_tokens`:
+
+> `# Con temperatura 0 los 3 reintentos son deterministas, así`
+> `# que reintentar no ayuda: o entra, o se pierde la categoría.`
+
+**Esa suposición es falsa, y hay una estrategia de reintentos diseñada sobre
+ella.** Temperatura 0 hace el muestreo greedy, pero no garantiza reproducibilidad
+en un servicio: el ruteo entre réplicas, el batching y la no-asociatividad de la
+aritmética de punto flotante alcanzan para cambiar el token elegido cuando dos
+candidatos están cerca. Y "cerca" es exactamente donde viven
+`plazo_ejecucion` vs `mantenimiento_oferta`.
+
+**Lo que NO puedo descartar todavía**, y hay que medirlo antes de tocar nada: que
+lo que cambió sea el **orden de recuperación**. Los dos análisis tienen
+`analysis_id` distinto, o sea embeddings reindexados; si el orden de los chunks
+que entran al prompt cambió, el modelo vio lo mismo en distinta secuencia, que
+también mueve la salida. Se resuelve mirando un dato que ya se loguea:
+`retrieval_hybrid_scoring` trae `category_distribution` y `final_chunks` por
+categoría. Si son iguales en las dos corridas, el orden no fue.
+
+## Por qué esto cambia el orden de todo lo demás
+
+Vengo entregando arreglos verificados con una metodología estricta --implementar,
+testear, revertir para verificar, correr la suite-- y esa metodología funciona
+porque el código es determinista: si reviertó el fix, el test falla. **La capa de
+extracción no tiene esa propiedad**, y por lo tanto:
+
+1. **Ningún hallazgo de contenido que haya reportado desde una sola corrida está
+   verificado.** CTX-08 (los formularios en blanco leídos como requisitos) lo
+   reporté desde la corrida A con evidencia textual; en la corrida B, la mitad de
+   ese problema no aparece. El hallazgo sigue siendo real --el sistema PUEDE
+   hacer eso-- pero su frecuencia es desconocida, y sin frecuencia no se puede
+   priorizar ni saber si un fix funcionó.
+2. **CTX-07 no se pudo verificar** contra un caso real justamente por esto: el
+   conflicto de `tipo_procedimiento` que motivó el hallazgo no volvió a aparecer.
+3. **Cualquier cambio de prompt que haga de acá en más es incomprobable con una
+   corrida.** Si toco el prompt y el resultado mejora, no sé si mejoró el prompt
+   o me tocó una buena tirada.
+
+## Lo que hay que hacer, y no es otro parche
+
+El fix no es corregir la clasificación del F.A.D. Es dejar de trabajar a ciegas:
+
+1. **Medir la varianza.** Correr el mismo análisis N veces (5 alcanza) sin tocar
+   nada y contar en cuántas categorías coincide consigo mismo. Eso da el piso de
+   ruido contra el que hay que comparar cualquier mejora. Es lo primero y no
+   requiere escribir código de producción.
+2. **Descartar el orden de recuperación** con los logs de
+   `retrieval_hybrid_scoring`, como está arriba.
+3. **Un set con respuestas correctas.** Los pliegos de Santa Fe, Bancor y Rosario
+   ya están; falta escribir a mano qué debería salir en cada categoría. Sin eso
+   no hay forma de decir si una corrida es mejor que otra --sólo distinta.
+4. Recién después, tocar prompts o clasificación, midiendo contra ese set.
+
+Es también la respuesta a por qué CHK-08 sigue esperando "un set etiquetado"
+desde el principio de la auditoría: es el mismo agujero, y ya bloqueó tres
+hallazgos distintos.

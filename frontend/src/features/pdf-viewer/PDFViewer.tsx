@@ -6,7 +6,7 @@ import {
   offsetWithinContainer,
   scrollContainerTo,
 } from "./scrollWithinContainer";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2, X } from "lucide-react";
 import { Document } from "react-pdf";
 
 import "react-pdf/dist/Page/AnnotationLayer.css";
@@ -47,6 +47,7 @@ interface PDFViewerProps {
    * Si está presente, PDFPage usa highlight basado en coordenadas en lugar de
    * heurísticas frágiles. */
   sources?: NarrativeSource[];
+  onClose?: () => void;
 }
 
 /** Misma cita: mismo documento, página, y texto igual o uno subcadena del
@@ -94,6 +95,7 @@ export function PDFViewer({
   showDocumentSelector = true,
   focusCitation,
   sources,
+  onClose,
 }: PDFViewerProps) {
   const [activeDocumentId, setActiveDocumentId] = useState(documentId);
   const initialIndex = findFocusIndex(citations, focusCitation);
@@ -373,7 +375,20 @@ export function PDFViewer({
             />
           </div>
         )}
-        <span className="block truncate text-[11px] font-medium text-gray-500">{activeDocumentName}</span>
+        <div className="flex items-center justify-between gap-2">
+          <span className="block min-w-0 truncate text-[11px] font-medium text-gray-500">{activeDocumentName}</span>
+          {onClose ? (
+            <button
+              type="button"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-gray-500 hover:bg-gray-100 hover:text-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+              onClick={onClose}
+              aria-label="Ocultar visor PDF"
+              title="Ocultar visor PDF"
+            >
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <PDFControls

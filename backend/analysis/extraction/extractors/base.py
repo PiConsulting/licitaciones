@@ -110,7 +110,35 @@ def _build_messages(
     return [("system", system_prompt), ("human", user_prompt)]
 
 
-def _format_chunks(chunks: list[dict[str, Any]]) -> str:
+def _describe_document(document_id: str, labels: dict[str, dict[str, Any]] | None) -> str:
+    """Cómo se nombra la fuente en el encabezado del fragmento (CTX-05).
+
+    Sin etiquetas se devuelve el UUID solo, que es lo que hacía antes de que un
+    análisis pudiera tener varios documentos. Con etiquetas se antepone el
+    nombre y el rol, porque el modelo necesita saber si está leyendo el pliego o
+    un anexo antes de decidir qué hacer cuando dicen cosas distintas.
+
+    El UUID no se saca nunca: el prompt exige copiarlo en
+    `source_references[].document_id`, y de ahí sale el resaltado.
+    """
+    if not document_id:
+        return "desconocido"
+
+    datos = (labels or {}).get(document_id)
+    if not isinstance(datos, dict):
+        return document_id
+
+    nombre = str(datos.get("nombre") or "").strip()
+    rol = "PLIEGO PRINCIPAL" if datos.get("es_principal") else "ANEXO"
+    if not nombre:
+        return f"{rol} ({document_id})"
+    return f"{nombre} [{rol}] ({document_id})"
+
+
+def _format_chunks(
+    chunks: list[dict[str, Any]],
+    document_labels: dict[str, dict[str, Any]] | None = None,
+) -> str:
     if not chunks:
         return ""
 
@@ -118,7 +146,7 @@ def _format_chunks(chunks: list[dict[str, Any]]) -> str:
     for position, chunk in enumerate(chunks, start=1):
         header = (
             f"[Fragmento: F{position}, "
-            f"Documento: {chunk.get('document_id', 'desconocido')}, "
+            f"Documento: {_describe_document(str(chunk.get('document_id') or ''), document_labels)}, "
             f"Página: {chunk.get('page_number', 0)}, "
             f"Sección: {chunk.get('section_path', 'general')}, "
             f"Tipo: {'TABLA' if chunk.get('block_type') == 'table' else 'PÁRRAFO'}"
@@ -1336,14 +1364,6 @@ def _attach_chunk_identity(ref: dict[str, Any], chunk: dict[str, Any] | None) ->
     if chunk_id:
         ref["chunk_id"] = str(chunk_id)
 
-    source = chunk.get("source")
-    if isinstance(source, dict):
-        filename = source.get("filename")
-        if filename:
-            ref["filename"] = str(filename)
-        if source.get("is_primary") is not None:
-            ref["is_primary"] = bool(source.get("is_primary"))
-
     if ref.get("block_id"):
         return
 
@@ -1351,6 +1371,7 @@ def _attach_chunk_identity(ref: dict[str, Any], chunk: dict[str, Any] | None) ->
     if not citation_normalized:
         return
 
+    source = chunk.get("source")
     blocks = source.get("blocks", []) if isinstance(source, dict) else (chunk.get("blocks") or [])
     if not isinstance(blocks, list):
         return
@@ -1596,7 +1617,7 @@ def run_extractor(
 
         messages = _build_messages(
             prompt_file_name=prompt_file_name,
-            chunks_block=_format_chunks(chunks),
+            chunks_block=_format_chunks(chunks, state.get("document_labels")),
             glossary_block=build_prompt_glossary_block(result_key),
             root_key=result_key,
         )

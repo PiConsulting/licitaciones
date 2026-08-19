@@ -1433,6 +1433,9 @@ def _to_intermediate_blocks(blocks: list[dict]) -> list[dict]:
                 "is_heading": False,
                 "para_id": block.get("para_id"),  # DEFINITIVO V2: Propagar para_id
                 "bbox": block.get("bbox", []),
+                # HL-09: la geometría por renglón se pierde en cada copia si no se
+                # propaga -- mismo bug que ya costó `unverified` y `chunk_id`.
+                **({"lines": block["lines"]} if block.get("lines") else {}),
             }
         )
 
@@ -1572,6 +1575,9 @@ def _merge_intermediate_blocks(blocks: list[dict]) -> list[dict]:
                         previous["merged_blocks"] = [{
                             "para_id": previous.get("para_id"),
                             "bbox": previous.get("bbox", []),
+                            # HL-09: la geometría por renglón se pierde en cada copia si no se
+                            # propaga -- mismo bug que ya costó `unverified` y `chunk_id`.
+                            **({"lines": previous["lines"]} if previous.get("lines") else {}),
                             "content": original_content,
                         }]
                     
@@ -1587,6 +1593,9 @@ def _merge_intermediate_blocks(blocks: list[dict]) -> list[dict]:
                         block["merged_blocks"] = [{
                             "para_id": block.get("para_id"),
                             "bbox": block.get("bbox", []),
+                            # HL-09: la geometría por renglón se pierde en cada copia si no se
+                            # propaga -- mismo bug que ya costó `unverified` y `chunk_id`.
+                            **({"lines": block["lines"]} if block.get("lines") else {}),
                             "content": block.get("content", ""),
                         }]
                         merged.append(block)
@@ -1596,6 +1605,9 @@ def _merge_intermediate_blocks(blocks: list[dict]) -> list[dict]:
                     previous["merged_blocks"].append({
                         "para_id": block.get("para_id"),
                         "bbox": block.get("bbox", []),
+                        # HL-09: la geometría por renglón se pierde en cada copia si no se
+                        # propaga -- mismo bug que ya costó `unverified` y `chunk_id`.
+                        **({"lines": block["lines"]} if block.get("lines") else {}),
                         "content": block.get("content", ""),
                     })
                     
@@ -1613,6 +1625,9 @@ def _merge_intermediate_blocks(blocks: list[dict]) -> list[dict]:
                 block["merged_blocks"] = [{
                     "para_id": block.get("para_id"),
                     "bbox": block.get("bbox", []),
+                    # HL-09: la geometría por renglón se pierde en cada copia si no se
+                    # propaga -- mismo bug que ya costó `unverified` y `chunk_id`.
+                    **({"lines": block["lines"]} if block.get("lines") else {}),
                     "content": block.get("content", ""),
                 }]
             merged.append(block)
@@ -1641,12 +1656,18 @@ def _merge_intermediate_blocks(blocks: list[dict]) -> list[dict]:
                     previous["merged_blocks"] = [{
                         "para_id": previous.get("para_id"),
                         "bbox": previous.get("bbox", []),
+                        # HL-09: la geometría por renglón se pierde en cada copia si no se
+                        # propaga -- mismo bug que ya costó `unverified` y `chunk_id`.
+                        **({"lines": previous["lines"]} if previous.get("lines") else {}),
                         "content": original_content,
                     }]
                 # Agregar el block actual
                 previous["merged_blocks"].append({
                     "para_id": block.get("para_id"),
                     "bbox": block.get("bbox", []),
+                    # HL-09: la geometría por renglón se pierde en cada copia si no se
+                    # propaga -- mismo bug que ya costó `unverified` y `chunk_id`.
+                    **({"lines": block["lines"]} if block.get("lines") else {}),
                     "content": block.get("content", ""),
                 })
                 # Actualizar contenido mergeado
@@ -1658,6 +1679,9 @@ def _merge_intermediate_blocks(blocks: list[dict]) -> list[dict]:
             block["merged_blocks"] = [{
                 "para_id": block.get("para_id"),
                 "bbox": block.get("bbox", []),
+                # HL-09: la geometría por renglón se pierde en cada copia si no se
+                # propaga -- mismo bug que ya costó `unverified` y `chunk_id`.
+                **({"lines": block["lines"]} if block.get("lines") else {}),
                 "content": block.get("content", ""),
             }]
         merged.append(block)
@@ -2025,6 +2049,9 @@ def _blocks_data_for(block: dict, texto: str, page_number: int) -> list[dict]:
                 "para_id": block.get("para_id"),
                 "page": page_number,
                 "bbox": block.get("bbox", []),
+                # HL-09: la geometría por renglón se pierde en cada copia si no se
+                # propaga -- mismo bug que ya costó `unverified` y `chunk_id`.
+                **({"lines": block["lines"]} if block.get("lines") else {}),
                 "content": block.get("content", ""),
             }
         ]
@@ -2048,6 +2075,9 @@ def _blocks_data_for(block: dict, texto: str, page_number: int) -> list[dict]:
             "para_id": mb.get("para_id"),
             "page": page_number,
             "bbox": mb.get("bbox", []),
+            # HL-09: la geometría por renglón se pierde en cada copia si no se
+            # propaga -- mismo bug que ya costó `unverified` y `chunk_id`.
+            **({"lines": mb["lines"]} if mb.get("lines") else {}),
             "content": mb.get("content", ""),
         }
         for mb in incluidos

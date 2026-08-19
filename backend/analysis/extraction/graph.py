@@ -116,6 +116,221 @@ def _cleanup_temp_highlights(analysis_id: str) -> None:
 
 
 
+class _DocumentoDelAnalisis:
+    """Los datos de un documento que necesitan las dos capas: highlighting y prompt."""
+
+    def __init__(self, doc_id: str, blob_name: str, filename: str = "", is_primary: bool = False):
+        self.id = doc_id
+        self.blob_name = blob_name
+        self.filename = filename
+        self.is_primary = bool(is_primary)
+
+
+def _fetch_analysis_documents(analysis_id: str, db_session: Any) -> list[Any]:
+    """Los documentos de un análisis, venga el estado de PostgreSQL o de Cosmos.
+
+    Extraído de `_build_document_mapping` sin cambiarle el comportamiento: las
+    tres ramas (PostgreSQL / Cosmos / sin sesión) y sus logs son los mismos. Se
+    separó porque el mapeo a blob path no es el único consumidor -- CTX-05
+    necesita el nombre y el rol de cada documento para armar el prompt, y
+    duplicar acá la lógica de tres modos era pedir que se desincronizaran.
+    """
+    from shared.config import get_settings
+    settings = get_settings()
+
+    if db_session is not None:
+        # Path normal: PostgreSQL. Los modelos ya traen id/blob_name/filename/is_primary.
+        from documents.models import Document
+        return (
+            db_session.query(Document)
+            .filter(Document.analysis_id == analysis_id, Document.deleted_at.is_(None))
+            .all()
+        )
+
+    if settings.is_cosmos_only_mode():
+        try:
+            from analysis.cosmos_runtime import get_cosmos_container
+
+            container = get_cosmos_container()
+            query = (
+                "SELECT c.document_id, c.blob_name, c.filename, c.is_primary FROM c "
+                "WHERE c.type = 'document' AND c.analysis_id = @analysis_id AND c.deleted = false"
+            )
+            items = container.query_items(
+                query=query,
+                parameters=[{"name": "@analysis_id", "value": analysis_id}],
+                partition_key=analysis_id,
+            )
+
+            documents = [
+                _DocumentoDelAnalisis(
+                    item["document_id"],
+                    item["blob_name"],
+                    item.get("filename") or "",
+                    item.get("is_primary") or False,
+                )
+                for item in items
+            ]
+
+            logger.info(
+                "build_document_mapping_cosmos_source",
+                analysis_id=analysis_id,
+                documents_found=len(documents),
+            )
+            return documents
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "build_document_mapping_cosmos_query_failed",
+                analysis_id=analysis_id,
+                error=str(exc),
+            )
+            return []
+
+    if settings.is_production:
+        # Producción sin db_session ni cosmos_only_mode: error
+        logger.error(
+            "build_document_mapping_failed_no_session",
+            analysis_id=analysis_id,
+            reason="db_session is None in production context without cosmos_only_mode",
+        )
+        raise RuntimeError(
+            f"Cannot build document mapping for analysis {analysis_id}: "
+            "db_session is required in production for highlight computation"
+        )
+
+    # Development/test sin db_session: solo advertir
+    logger.warning(
+        "build_document_mapping_skipped",
+        analysis_id=analysis_id,
+        reason="db_session not available (test context)",
+    )
+    return []
+
+
+def _build_document_labels(analysis_id: str, db_session: Any) -> dict[str, dict[str, Any]]:
+    """Mapeo `document_id -> {nombre, es_principal}` para el prompt (CTX-05).
+
+    HALLAZGO CTX-05: desde que un análisis acepta varios documentos -- uno
+    principal y el resto anexos -- el encabezado que ve el modelo identifica la
+    fuente con un UUID y nada más:
+
+        [Fragmento: F3, Documento: 149d9358-af60-4a65-a101-53c01f19126c, Página: 8, …]
+
+    Con un solo documento eso alcanzaba. Con varios, el modelo tiene que
+    resolver algo que antes no existía: qué pasa cuando el pliego y un anexo
+    dicen cosas distintas. Y la única instrucción que hay al respecto es
+    "Consolidalo si es coherente", que presupone que todos los documentos
+    pesan igual. En una licitación no pesan igual: el pliego rige y los anexos
+    son subordinados -- y varios de ellos ni siquiera son normativos (el "Anexo
+    II Equipamiento Actual Bancor.xlsx" es el inventario del equipamiento que el
+    Banco YA tiene, y el "Anexo I - Planilla de Cotización" es un formulario
+    vacío).
+
+    Sin nombre ni rol, el modelo no puede preferir el principal ante un
+    conflicto ni decir de dónde sacó cada dato. El UUID se sigue mostrando
+    porque el prompt exige copiarlo en `source_references[].document_id`.
+    """
+    # Las etiquetas son degradables y el mapeo a blob path no: si no se pueden
+    # armar, el prompt vuelve al encabezado con UUID (y el propio prompt dice
+    # qué hacer en ese caso), pero el análisis sigue. `_fetch_analysis_documents`
+    # LEVANTA en producción sin sesión porque para el highlighting eso sí es
+    # fatal; acá no puede serlo, o una nicety del prompt tumbaría el análisis
+    # entero.
+    try:
+        documents = _fetch_analysis_documents(analysis_id, db_session)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "document_labels_no_disponibles",
+            analysis_id=analysis_id,
+            error=str(exc),
+            impact="el prompt identifica los documentos por UUID, como antes de CTX-05",
+        )
+        return {}
+
+    etiquetas: dict[str, dict[str, Any]] = {}
+    for documento in documents:
+        document_id = str(getattr(documento, "id", "") or "")
+        if not document_id:
+            continue
+        etiquetas[document_id] = {
+            "nombre": str(getattr(documento, "filename", "") or "").strip(),
+            "es_principal": bool(getattr(documento, "is_primary", False)),
+        }
+
+    principales = [doc_id for doc_id, datos in etiquetas.items() if datos["es_principal"]]
+    if etiquetas and not principales:
+        # No es fatal -- el prompt degrada a mostrar sólo los nombres -- pero es
+        # una inconsistencia de datos que conviene ver: alguien subió documentos
+        # sin designar cuál es el pliego.
+        logger.warning(
+            "document_labels_sin_principal",
+            analysis_id=analysis_id,
+            documentos=len(etiquetas),
+        )
+    elif len(principales) > 1:
+        logger.warning(
+            "document_labels_varios_principales",
+            analysis_id=analysis_id,
+            principales=len(principales),
+        )
+
+    logger.info(
+        "document_labels_built",
+        analysis_id=analysis_id,
+        documentos=len(etiquetas),
+        con_principal=bool(principales),
+    )
+    return etiquetas
+
+
+def _stampar_nombre_de_documento(nodo: Any, etiquetas: dict[str, dict[str, Any]]) -> None:
+    """CTX-06: escribe `filename`/`is_primary` en cada referencia a una fuente.
+
+    HALLAZGO CTX-06: la lista "Fuentes verificables" que la persona lee debajo
+    de cada categoría muestra el nombre del documento, y ese nombre era la
+    constante `"Documento"` (`analysisApi.ts:98` y `:415`; el tercer caso,
+    `:248`, lo leía del backend pero el backend no lo emitía nunca). Con un solo
+    documento eso era inútil; con el pliego y cuatro anexos de Santa Fe, las
+    cinco fuentes se leen `"Documento · pág. 3"` y no hay forma de distinguirlas
+    -- ni de notar que "pág. 3" del pliego y "pág. 3" de un anexo son páginas
+    distintas de archivos distintos.
+
+    El dato ya existía en dos lados: el `document_id` viaja correcto de punta a
+    punta (el resaltado depende de él y funciona) y `_build_document_labels`
+    (CTX-05) ya arma `document_id -> {nombre, es_principal}` en `setup_node`.
+    Lo único que faltaba era cruzarlos.
+
+    Se resuelve acá, en el backend, y no en el frontend, por dos razones: los
+    campos `filename`/`is_primary` ya estaban declarados en la salida (llegaban
+    en `null` en las 20 referencias del análisis de Santa Fe, o sea el hueco
+    estaba hecho y nadie lo llenaba), y así cualquier consumidor de la API
+    -- no sólo esta pantalla -- ve de qué documento sale cada cita.
+
+    Recorre la estructura entera en vez de enumerar rutas
+    (`categoria[].source_references[]`, `categoria_narrative.sources[]`,
+    `estimacion_presupuesto.source_references[]`, …) porque esas rutas ya son
+    cuatro formas distintas y agregar una quinta no debería requerir tocar esto.
+    La marca de "esto es una referencia a una fuente" es tener `document_id` y
+    `citation` a la vez.
+    """
+    if not etiquetas:
+        # Degradable, igual que CTX-05: sin etiquetas los campos quedan como
+        # estaban y el consumidor cae al comportamiento anterior.
+        return
+
+    if isinstance(nodo, dict):
+        if "document_id" in nodo and "citation" in nodo:
+            datos = etiquetas.get(str(nodo.get("document_id") or ""))
+            if isinstance(datos, dict):
+                nodo["filename"] = str(datos.get("nombre") or "") or None
+                nodo["is_primary"] = bool(datos.get("es_principal"))
+        for valor in nodo.values():
+            _stampar_nombre_de_documento(valor, etiquetas)
+    elif isinstance(nodo, list):
+        for valor in nodo:
+            _stampar_nombre_de_documento(valor, etiquetas)
+
+
 def _build_document_mapping(analysis_id: str, db_session: Any) -> dict[str, str]:
     """Construye mapeo document_id → ruta absoluta del PDF en blob storage.
     
@@ -138,78 +353,13 @@ def _build_document_mapping(analysis_id: str, db_session: Any) -> dict[str, str]
         En Azure, descarga PDFs a /tmp/highlights-{analysis_id}/. Estos archivos
         deben limpiarse manualmente después de calcular highlights.
     """
+    documents = _fetch_analysis_documents(analysis_id, db_session)
+    if not documents:
+        return {}
+
     from shared.config import get_settings
     settings = get_settings()
-    
-    # Obtener documentos según el modo de persistencia
-    documents = []
-    
-    if db_session is not None:
-        # Path normal: PostgreSQL
-        from documents.models import Document
-        documents = (
-            db_session.query(Document)
-            .filter(Document.analysis_id == analysis_id, Document.deleted_at.is_(None))
-            .all()
-        )
-        # Convertir a formato común (lista de objetos con .id y .blob_name)
-        # SQLAlchemy models ya tienen estos atributos
-    elif settings.is_cosmos_only_mode():
-        # Path Cosmos: obtener documentos desde Cosmos DB
-        try:
-            from analysis.cosmos_runtime import get_cosmos_container
-            
-            container = get_cosmos_container()
-            query = (
-                "SELECT c.document_id, c.blob_name FROM c "
-                "WHERE c.type = 'document' AND c.analysis_id = @analysis_id AND c.deleted = false"
-            )
-            items = container.query_items(
-                query=query,
-                parameters=[{"name": "@analysis_id", "value": analysis_id}],
-                partition_key=analysis_id,
-            )
-            
-            # Convertir a objetos simples con .id y .blob_name para compatibilidad
-            class DocumentDTO:
-                def __init__(self, doc_id: str, blob_name: str):
-                    self.id = doc_id
-                    self.blob_name = blob_name
-            
-            documents = [DocumentDTO(item["document_id"], item["blob_name"]) for item in items]
-            
-            logger.info(
-                "build_document_mapping_cosmos_source",
-                analysis_id=analysis_id,
-                documents_found=len(documents),
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "build_document_mapping_cosmos_query_failed",
-                analysis_id=analysis_id,
-                error=str(exc),
-            )
-            return {}
-    elif settings.is_production:
-        # Producción sin db_session ni cosmos_only_mode: error
-        logger.error(
-            "build_document_mapping_failed_no_session",
-            analysis_id=analysis_id,
-            reason="db_session is None in production context without cosmos_only_mode",
-        )
-        raise RuntimeError(
-            f"Cannot build document mapping for analysis {analysis_id}: "
-            "db_session is required in production for highlight computation"
-        )
-    else:
-        # Development/test sin db_session: solo advertir
-        logger.warning(
-            "build_document_mapping_skipped",
-            analysis_id=analysis_id,
-            reason="db_session not available (test context)",
-        )
-        return {}
-    
+
     # Construir mapeo con los documentos obtenidos (PostgreSQL o Cosmos)
     try:
         from shared.adapters.azure_blob_storage import AzureBlobStorageAdapter
@@ -759,19 +909,6 @@ def _keep_schema_valid_items(
     return valid, normalized_status
 
 
-def _source_order_key(item: dict) -> tuple[int, str, int, str]:
-    refs = item.get("source_references") or []
-    if not isinstance(refs, list) or not refs:
-        return (1, "", 0, "")
-
-    first_ref = refs[0] if isinstance(refs[0], dict) else {}
-    is_primary = bool(first_ref.get("is_primary"))
-    filename = str(first_ref.get("filename") or "").lower()
-    page_number = int(first_ref.get("page_number") or 0)
-    document_id = str(first_ref.get("document_id") or "")
-    return (0 if is_primary else 1, filename, page_number, document_id)
-
-
 def _drop_items_without_sources(
     items: list[dict],
     status: str,
@@ -817,7 +954,10 @@ def setup_node(state: GraphState) -> GraphState:
     
     # Construir mapeo document_id → blob_path para highlight pre-computado
     document_mapping = _build_document_mapping(state["analysis_id"], state.get("db_session"))
-    
+    # CTX-05: nombre y rol de cada documento, para que el prompt no identifique
+    # la fuente con un UUID pelado cuando el análisis tiene pliego + anexos.
+    document_labels = _build_document_labels(state["analysis_id"], state.get("db_session"))
+
     state.update(
         {
             "objeto_alcance": [],
@@ -838,6 +978,7 @@ def setup_node(state: GraphState) -> GraphState:
             "identificacion_status": "pending",
             "conflicts": [],
             "document_id_to_blob_path": document_mapping,
+            "document_labels": document_labels,
         }
     )
     logger.info("setup_node_completed", correlation_id=state["correlation_id"])
@@ -969,16 +1110,6 @@ def merge_node(state: GraphState) -> GraphState:
         identificacion_canonica, IdentificacionProcedimientoItem, identificacion_status,
         category="identificacion_procedimiento", correlation_id=correlation_id, quality=calidad,
     )
-
-    objeto_alcance.sort(key=_source_order_key)
-    requisitos_admisibilidad.sort(key=_source_order_key)
-    plazos.sort(key=_source_order_key)
-    garantias.sort(key=_source_order_key)
-    causales.sort(key=_source_order_key)
-    anexos.sort(key=_source_order_key)
-    criterios.sort(key=_source_order_key)
-    identificacion.sort(key=_source_order_key)
-    identificacion_canonica.sort(key=_source_order_key)
 
     extracted_data = {
         # ATR-03: viaja dentro de `extracted_data` porque es lo único que llega
@@ -1244,6 +1375,12 @@ def synthesize_node(state: GraphState) -> GraphState:
         extracted_data[f"{category_key}_narrative"] = narrative.model_dump()
         token_usage_by_category[f"{category_key}_synthesis"] = token_usage
         synthesized += 1
+
+    # CTX-06: acá y no en `merge_node` porque las `sources` de las narrativas
+    # -- que son las que el frontend lista bajo "Fuentes verificables" -- se
+    # acaban de agregar recién en este nodo. Un solo recorrido cubre las
+    # referencias de los ítems y las de las narrativas.
+    _stampar_nombre_de_documento(extracted_data, state.get("document_labels") or {})
 
     metadata["token_usage"] = token_usage_by_category
     state["extracted_data"] = extracted_data

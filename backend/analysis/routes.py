@@ -54,6 +54,7 @@ from documents.models import Document
 from extraction.ai_search import validate_index_contract
 from shared.config import get_settings
 from shared.database import SessionLocal
+from tracking.service import get_tracking
 from users.service import get_current_user, http_bearer
 
 analysis_router = APIRouter(prefix="/analyses", tags=["analyses"])
@@ -152,6 +153,7 @@ async def get_analysis_detail(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={"error": {"code": "FORBIDDEN", "message": "No tenés permisos para este análisis"}},
             ) from exc
+        payload["tracking"] = get_tracking(analysis_id, current_user.id)
         return AnalysisDetailResponse(**payload)
 
     db = SessionLocal()
@@ -189,6 +191,7 @@ async def get_analysis_detail(
                 created_by=current_version.created_by,
             ),
             documents=[to_document_response(document) for document in documents],
+            tracking=None,
         )
     finally:
         db.close()

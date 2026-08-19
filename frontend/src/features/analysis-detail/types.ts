@@ -1,3 +1,5 @@
+import type { AnalysisTracking } from "../../types/tracking";
+
 export type CategoryId =
   | "objeto_alcance"
   | "requisitos_admisibilidad"
@@ -186,4 +188,5 @@ export interface AnalysisDetail {
     page_count?: number;
   }>;
   created_by?: string;
+  tracking?: AnalysisTracking | null;
 }

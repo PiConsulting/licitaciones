@@ -40,7 +40,7 @@ describe("Step2DesignatePrimary", () => {
 
     const nextButton = screen.getByRole("button", { name: /siguiente/i });
     expect(nextButton).toBeDisabled();
-    expect(screen.getByText("Seleccioná cuál es el pliego principal")).toBeInTheDocument();
+    expect(screen.queryByText("Seleccioná cuál es el pliego principal")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText(/a.pdf/i));
     expect(nextButton).toBeEnabled();

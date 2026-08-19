@@ -1,3 +1,6 @@
+import { Check, Circle, CircleSlash, X } from "lucide-react";
+
+import type { TrackingItem, TrackingItemStatus } from "../../../types/tracking";
 import type { CategoryNarrative, Citation, NarrativeBlockData, NarrativeSource } from "../types";
 import { DocumentSourceDivider } from "./DocumentSourceDivider";
 import { SourceEyeButton as EyeButton } from "./SourceEyeButton";
@@ -5,7 +8,48 @@ import { SourceEyeButton as EyeButton } from "./SourceEyeButton";
 interface NarrativeBlocksProps {
   narrative: CategoryNarrative;
   onViewSource?: (payload: { citation: Citation; citations: Citation[]; sources: NarrativeSource[] }) => void;
+  trackingItems?: TrackingItem[];
+  isTrackingClosed?: boolean;
+  loadingTrackingItemId?: string | null;
+  onChangeTrackingItemStatus?: (trackingItemId: string, status: TrackingItemStatus) => void;
 }
+
+const TRACKING_ITEM_STATUS_OPTIONS: Array<{
+  value: TrackingItemStatus;
+  label: string;
+  icon: typeof Circle;
+  selectedClassName: string;
+  idleClassName: string;
+}> = [
+  {
+    value: "not_evaluated",
+    label: "Sin evaluar",
+    icon: Circle,
+    selectedClassName: "border-gray-500 bg-gray-500 text-white",
+    idleClassName: "border-gray-200 bg-white text-gray-600 hover:border-gray-500 hover:text-gray-700",
+  },
+  {
+    value: "compliant",
+    label: "Cumple",
+    icon: Check,
+    selectedClassName: "border-success bg-success text-white",
+    idleClassName: "border-gray-200 bg-white text-success hover:border-success hover:bg-success-light",
+  },
+  {
+    value: "non_compliant",
+    label: "No cumple",
+    icon: X,
+    selectedClassName: "border-error bg-error text-white",
+    idleClassName: "border-gray-200 bg-white text-error hover:border-error hover:bg-error-light",
+  },
+  {
+    value: "not_applicable",
+    label: "No aplica",
+    icon: CircleSlash,
+    selectedClassName: "border-info bg-info text-white",
+    idleClassName: "border-gray-200 bg-white text-info hover:border-info hover:bg-info-light",
+  },
+];
 
 function sourceToCitation(source: NarrativeSource): Citation {
   return {
@@ -64,7 +108,60 @@ interface BulletDocumentGroup {
   items: Array<{
     text: string;
     sourceIds: number[];
+    trackingItemIndex: number;
   }>;
+}
+
+interface TrackingItemControlsProps {
+  item: TrackingItem;
+  isClosed: boolean;
+  isLoading: boolean;
+  onChangeStatus?: (trackingItemId: string, status: TrackingItemStatus) => void;
+}
+
+function TrackingItemControls({ item, isClosed, isLoading, onChangeStatus }: TrackingItemControlsProps) {
+  if (isClosed) {
+    const selected = TRACKING_ITEM_STATUS_OPTIONS.find((option) => option.value === item.status);
+    if (!selected) {
+      return null;
+    }
+    const Icon = selected.icon;
+    return (
+      <div className="flex shrink-0 items-center gap-1" data-testid={`inline-tracking-item-${item.tracking_item_id}`}>
+        <span
+          className={`inline-flex h-7 w-7 items-center justify-center rounded border text-xs ${selected.selectedClassName}`}
+          aria-label={`${selected.label}: ${item.source_item_ref.field_name}`}
+          title={selected.label}
+        >
+          <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex shrink-0 items-center gap-1" data-testid={`inline-tracking-item-${item.tracking_item_id}`}>
+      {TRACKING_ITEM_STATUS_OPTIONS.map((option) => {
+        const Icon = option.icon;
+        const isSelected = item.status === option.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            className={`inline-flex h-7 w-7 items-center justify-center rounded border text-xs transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ${
+              isSelected ? option.selectedClassName : option.idleClassName
+            }`}
+            disabled={isClosed || isLoading || !onChangeStatus}
+            onClick={() => onChangeStatus?.(item.tracking_item_id, option.value)}
+            aria-label={`${option.label}: ${item.source_item_ref.field_name}`}
+            title={option.label}
+          >
+            <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 function isPrimaryDocumentName(name: string): boolean {
@@ -93,7 +190,14 @@ function isGenericDocumentLabel(name: string): boolean {
  *   - **párrafos** mantienen el listado "Fuentes verificables" al pie, porque
  *     no hay un ítem discreto donde anclar el botón.
  */
-export function NarrativeBlocks({ narrative, onViewSource }: NarrativeBlocksProps) {
+export function NarrativeBlocks({
+  narrative,
+  onViewSource,
+  trackingItems = [],
+  isTrackingClosed = false,
+  loadingTrackingItemId = null,
+  onChangeTrackingItemStatus,
+}: NarrativeBlocksProps) {
   const referencedSourceIds = collectReferencedSourceIds(narrative.blocks);
   const paragraphSourceIds = collectParagraphSourceIds(narrative.blocks);
 
@@ -152,6 +256,23 @@ export function NarrativeBlocks({ narrative, onViewSource }: NarrativeBlocksProp
     );
   }
 
+  function InlineTrackingControls({ itemIndex }: { itemIndex: number }) {
+    const item = trackingItems[itemIndex];
+    if (!item) {
+      return null;
+    }
+    return (
+      <TrackingItemControls
+        item={item}
+        isClosed={isTrackingClosed}
+        isLoading={loadingTrackingItemId === item.tracking_item_id}
+        onChangeStatus={onChangeTrackingItemStatus}
+      />
+    );
+  }
+
+  let trackingItemIndex = 0;
+
   return (
     <section className="mt-3 rounded-md border border-gray-200 bg-gray-50 p-3" data-testid="narrative-blocks">
       <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-700">Respuesta</h4>
@@ -160,9 +281,10 @@ export function NarrativeBlocks({ narrative, onViewSource }: NarrativeBlocksProp
         {narrative.blocks.map((block, index) => {
           if (block.type === "paragraph") {
             return (
-              <p key={index} className="text-sm leading-relaxed text-gray-800" data-testid="narrative-paragraph">
-                {block.text}
-              </p>
+              <div key={index} className="flex items-start gap-2" data-testid="narrative-paragraph">
+                <p className="flex-1 text-sm leading-relaxed text-gray-800">{block.text}</p>
+                {trackingItems.length === 1 ? <InlineTrackingControls itemIndex={0} /> : null}
+              </div>
             );
           }
 
@@ -170,6 +292,8 @@ export function NarrativeBlocks({ narrative, onViewSource }: NarrativeBlocksProp
             const groupedMap = new Map<string, BulletDocumentGroup>();
 
             for (const item of block.items) {
+              const currentTrackingItemIndex = trackingItemIndex;
+              trackingItemIndex += 1;
               const firstSource = resolveSources(item.source_ids)[0];
               const key = firstSource?.document_id ?? "__unknown__";
               const rawName = firstSource?.document_name ?? "";
@@ -179,12 +303,12 @@ export function NarrativeBlocks({ narrative, onViewSource }: NarrativeBlocksProp
 
               const current = groupedMap.get(key);
               if (current) {
-                current.items.push({ text: item.text, sourceIds: item.source_ids });
+                current.items.push({ text: item.text, sourceIds: item.source_ids, trackingItemIndex: currentTrackingItemIndex });
               } else {
                 groupedMap.set(key, {
                   key,
                   documentName: name,
-                  items: [{ text: item.text, sourceIds: item.source_ids }],
+                  items: [{ text: item.text, sourceIds: item.source_ids, trackingItemIndex: currentTrackingItemIndex }],
                 });
               }
             }
@@ -221,6 +345,7 @@ export function NarrativeBlocks({ narrative, onViewSource }: NarrativeBlocksProp
                         <li key={itemIndex} className="flex items-start gap-2" data-testid="narrative-bullet-item">
                           <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-gray-400" aria-hidden="true" />
                           <span className="flex-1 text-sm leading-relaxed text-gray-800">{item.text}</span>
+                          <InlineTrackingControls itemIndex={item.trackingItemIndex} />
                           <SourceEyeButton sourceIds={item.sourceIds} />
                         </li>
                       ))}
@@ -245,7 +370,10 @@ export function NarrativeBlocks({ narrative, onViewSource }: NarrativeBlocksProp
                   </tr>
                 </thead>
                 <tbody>
-                  {block.rows.map((row, rowIndex) => (
+                  {block.rows.map((row, rowIndex) => {
+                    const currentTrackingItemIndex = trackingItemIndex;
+                    trackingItemIndex += 1;
+                    return (
                     <tr key={rowIndex} className="border-b border-gray-100">
                       {row.cells.map((cell, cellIndex) => (
                         <td key={cellIndex} className="px-2 py-1.5 text-gray-800">
@@ -253,10 +381,14 @@ export function NarrativeBlocks({ narrative, onViewSource }: NarrativeBlocksProp
                         </td>
                       ))}
                       <td className="px-2 py-1.5 align-top">
+                        <div className="flex items-center justify-end gap-2">
+                          <InlineTrackingControls itemIndex={currentTrackingItemIndex} />
                         <SourceEyeButton sourceIds={row.source_ids} />
+                        </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

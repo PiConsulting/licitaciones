@@ -61,14 +61,6 @@ class SourceReference(BaseModel):
     """Referencia a la fuente en el pliego original."""
     document_id: str
     page_number: int
-    filename: str | None = Field(
-        default=None,
-        description="Nombre del documento de origen (ej. pliego.pdf, anexo-i.pdf).",
-    )
-    is_primary: bool | None = Field(
-        default=None,
-        description="True cuando la cita proviene del documento principal del análisis.",
-    )
     citation: str = Field(min_length=CITATION_MIN_CHARS, max_length=CITATION_MAX_CHARS)
     block_id: str | None = Field(
         default=None,
@@ -102,6 +94,21 @@ class SourceReference(BaseModel):
             "'rescatada': la cita del modelo NO verifico y se reemplazo por otro "
             "texto literal del item -- el item baja a `partial`."
         ),
+    )
+    # CTX-06 (auditoria 2026-08-19): nombre y rol del documento fuente. El
+    # `document_id` es un UUID y no se le puede mostrar a nadie; la lista de
+    # "Fuentes verificables" mostraba la constante "Documento" para las cinco
+    # fuentes de un analisis con pliego + cuatro anexos. Se resuelven aca, del
+    # lado del backend, porque `_build_document_labels` (CTX-05) ya tiene el
+    # mapa armado y en el estado. `None` significa "no se pudo resolver": el
+    # consumidor degrada al comportamiento anterior, no inventa un nombre.
+    filename: str | None = Field(
+        default=None,
+        description="Nombre del archivo del que sale la cita. None si no se pudo resolver.",
+    )
+    is_primary: bool | None = Field(
+        default=None,
+        description="True si la cita sale del pliego principal, False si sale de un anexo.",
     )
 
 
@@ -155,6 +162,18 @@ class NarrativeSource(BaseModel):
     # FIX CRÍTICO (2026-08): Resuelve el problema de highlight frágil identificado
     # en la auditoría RAG (falsos positivos/negativos por heurísticas de matching).
     highlight_regions: list[dict[str, float]] = Field(default_factory=list)
+    # CTX-06: mismo par que en `SourceReference`. Esta es la lista que el
+    # frontend renderiza literalmente bajo "Fuentes verificables", asi que es
+    # donde la constante "Documento" se veia.
+    filename: str | None = None
+    is_primary: bool | None = None
+    # HL-09: por que esta fuente no tiene `highlight_regions`. Hoy el unico
+    # valor es "documento_escaneado". Sin esto, "el PDF es una imagen y no se
+    # puede senalar nada" y "no encontre la cita" se ven exactamente igual:
+    # nada. Declarado, y no como clave suelta en el dict, por la misma razon que
+    # `unverified` y `chunk_id` -- `enrich_narrative_with_highlights` revalida
+    # con `CategoryNarrative.model_validate` y lo que no esta declarado se cae.
+    highlight_unavailable_reason: str | None = None
 
 
 class NarrativeParagraphBlock(BaseModel):

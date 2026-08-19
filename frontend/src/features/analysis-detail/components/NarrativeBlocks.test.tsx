@@ -20,6 +20,7 @@ import { describe, expect, test, vi } from "vitest";
 
 import { NarrativeBlocks } from "./NarrativeBlocks";
 import type { CategoryNarrative, NarrativeSource } from "../types";
+import type { TrackingItem } from "../../../types/tracking";
 
 function source(id: number, page: number, text: string): NarrativeSource {
   return {
@@ -58,6 +59,18 @@ const PARRAFO: CategoryNarrative = {
   ],
   sources: [source(0, 1, "servicio de limpieza integral de los edificios municipales")],
 };
+
+function trackingItem(id: string, fieldName: string): TrackingItem {
+  return {
+    tracking_item_id: id,
+    category_key: "requisitos_admisibilidad",
+    status: "not_evaluated",
+    source_item_ref: {
+      version_id: "version-1",
+      field_name: fieldName,
+    },
+  };
+}
 
 describe("categorías de ítems: un ojo por ítem", () => {
   test("cada bullet lleva su propio botón de fuente", () => {
@@ -185,6 +198,27 @@ describe("categorías de ítems: un ojo por ítem", () => {
 
     expect(screen.queryByTestId("document-source-divider")).not.toBeInTheDocument();
     expect(screen.queryByTestId("document-source-group-label")).not.toBeInTheDocument();
+  });
+
+  test("los controles de checklist se renderizan dentro de cada bullet", async () => {
+    const user = userEvent.setup();
+    const onChangeTrackingItemStatus = vi.fn();
+
+    render(
+      <NarrativeBlocks
+        narrative={BULLETS}
+        trackingItems={[trackingItem("item-1", "Constancia RUP"), trackingItem("item-2", "Antecedentes")]}
+        onChangeTrackingItemStatus={onChangeTrackingItemStatus}
+      />,
+    );
+
+    const bullets = screen.getAllByTestId("narrative-bullet-item");
+    expect(within(bullets[0]).getByRole("button", { name: "Cumple: Constancia RUP" })).toBeInTheDocument();
+    expect(within(bullets[1]).getByRole("button", { name: "No cumple: Antecedentes" })).toBeInTheDocument();
+
+    await user.click(within(bullets[1]).getByRole("button", { name: "No cumple: Antecedentes" }));
+
+    expect(onChangeTrackingItemStatus).toHaveBeenCalledWith("item-2", "non_compliant");
   });
 });
 
