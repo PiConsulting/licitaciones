@@ -72,7 +72,7 @@ Thumbs.db
 .engram/*.db-*
 
 # Ignore internal docs draft folder
-docs/ 
+/docs
 
 .claude/
 
