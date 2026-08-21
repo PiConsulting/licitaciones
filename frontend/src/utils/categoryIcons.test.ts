@@ -4,13 +4,14 @@ import type { CategoryId } from "../features/analysis-detail/types";
 
 describe("categoryIcons", () => {
   describe("CATEGORY_ORDER", () => {
-    it("debe tener exactamente 7 categorías (sin datos_procedimiento)", () => {
-      expect(CATEGORY_ORDER).toHaveLength(7);
+    it("debe tener exactamente 8 categorías (sin datos_procedimiento)", () => {
+      expect(CATEGORY_ORDER).toHaveLength(8);
     });
 
     it("debe seguir el orden canónico de negocio", () => {
       const expectedOrder: CategoryId[] = [
         "objeto_alcance",
+        "riesgos",
         "requisitos_admisibilidad",
         "garantias",
         "plazos_clave",
@@ -28,6 +29,7 @@ describe("categoryIcons", () => {
 
     it("debe incluir todas las categorías canónicas", () => {
       expect(CATEGORY_ORDER).toContain("objeto_alcance");
+      expect(CATEGORY_ORDER).toContain("riesgos");
       expect(CATEGORY_ORDER).toContain("requisitos_admisibilidad");
       expect(CATEGORY_ORDER).toContain("garantias");
       expect(CATEGORY_ORDER).toContain("plazos_clave");
@@ -39,6 +41,7 @@ describe("categoryIcons", () => {
 
   describe("CRITICAL_CATEGORIES", () => {
     it("debe mantener las categorías críticas para reglas de validación", () => {
+      expect(CRITICAL_CATEGORIES.has("riesgos")).toBe(true);
       expect(CRITICAL_CATEGORIES.has("plazos_clave")).toBe(true);
       expect(CRITICAL_CATEGORIES.has("garantias")).toBe(true);
       expect(CRITICAL_CATEGORIES.has("causales_rechazo")).toBe(true);

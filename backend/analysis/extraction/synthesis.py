@@ -34,6 +34,7 @@ CATEGORY_LABELS = {
     "criterios_evaluacion": "Criterios de Evaluación",
     "causales_rechazo": "Causales de Rechazo",
     "anexos_obligatorios": "Anexos Obligatorios",
+    "riesgos": "Riesgos",
 }
 
 CATEGORY_OUTPUT_CONTRACTS = {
@@ -55,9 +56,40 @@ CATEGORY_OUTPUT_CONTRACTS = {
         "- Priorizar formato escaneable: una garantia por item, sin texto ornamental."
     ),
     "plazos_clave": (
-        "- Devolver unicamente hitos clave: apertura, mantenimiento de oferta, entrega/ejecucion, consultas e impugnaciones.\n"
+        "- Hitos tipicos: apertura, mantenimiento de oferta, entrega/ejecucion, consultas e\n"
+        "  impugnaciones. NO es una lista cerrada: un pliego puede tener otros plazos\n"
+        "  igual de relevantes para el oferente que no encajan en ninguno de esos tipos\n"
+        "  (ej. un plazo administrativo interno del organismo). Esos tambien se devuelven,\n"
+        "  con la misma calidad de descripcion que los tipicos -- no se omiten por no\n"
+        "  tener un tipo conocido.\n"
         "- No inferir fechas; usar solo lo textual extraido.\n"
-        "- Preferir `bullet_list` con etiquetas breves por hito (ej: 'Apertura: 14/09/2026 10:00 hs')."
+        "- Usar `bullet_list`, un item por plazo distinto.\n"
+        "- FIX (2026-08-20, reportado por la usuaria): si el hito tiene fecha/hora limpia\n"
+        "  y sin condicion (apertura, presentacion, vencimientos simples), usar etiqueta\n"
+        "  breve: 'Apertura: 14/09/2026 10:00 hs'. Pero si el plazo depende de una\n"
+        "  condicion o disparador (ej: 'a partir de la recepcion provisoria de cada hito,\n"
+        "  dispone de 15 dias corridos para...'), NO lo recortes a una etiqueta corta ni lo\n"
+        "  partas en mas de un bullet solo para que quepa en el formato 'etiqueta: dato':\n"
+        "  expresa la oracion completa y bien formada, sin perder a que se refiere el plazo\n"
+        "  ni la condicion que lo activa.\n"
+        "- Si dos bullets terminarian describiendo el mismo plazo con fragmentos distintos\n"
+        "  de la misma oracion (la condicion en uno, la duracion en otro), es un error:\n"
+        "  consolidalos en un solo bullet.\n"
+        "- CRITICO -- el tipo interno 'otro' NUNCA es una etiqueta valida para el oferente:\n"
+        "  es una clasificacion tecnica que usa el sistema, no informacion. Prohibido\n"
+        "  empezar un bullet con 'Otro:' o escribir la palabra 'otro' como si describiera\n"
+        "  el plazo. Un item de tipo 'otro' se identifica SOLO por lo que dice, igual que\n"
+        "  cualquier otro plazo: arranca el bullet contando a que se refiere (que tiene que\n"
+        "  pasar, quien lo debe cumplir) y recien despues el dato de duracion/fecha. Nunca\n"
+        "  un numero o duracion suelta sin decir de que plazo se trata.\n"
+        "  Ejemplo -- item con tipo='otro' y texto_original 'A partir de la fecha de\n"
+        "  recepcion provisoria de cada uno de los HITOS establecidos en el PLAN DE\n"
+        "  ENTREGA y SERVICIOS, la Provincia dispondra de un plazo maximo de quince (15)\n"
+        "  dias corridos para otorgar la F.A.D.':\n"
+        "  MAL:  'Otro: quince (15) dias corridos.'\n"
+        "  BIEN: 'La Provincia dispone de un plazo maximo de 15 dias corridos desde la\n"
+        "  recepcion provisoria de cada hito del Plan de Entrega y Servicios para otorgar\n"
+        "  la F.A.D.'"
     ),
     "criterios_evaluacion": (
         "- Devolver como se pondera precio vs tecnica y si existe puntaje minimo.\n"
@@ -73,6 +105,12 @@ CATEGORY_OUTPUT_CONTRACTS = {
         "- Devolver solo formularios/anexos que deben completarse y presentarse si o si.\n"
         "- No incluir certificados externos ni documentacion de terceros (eso va en admisibilidad).\n"
         "- Formato recomendado: `bullet_list` con nombre de anexo + accion requerida."
+    ),
+    "riesgos": (
+        "- Listar riesgos identificables que puedan afectar la participación o ejecución del contrato.\n"
+        "- Incluir consecuencias de incumplimientos (multas, penalizaciones, rescisión).\n"
+        "- Usar `bullet_list` con descripción clara y concisa del riesgo.\n"
+        "- No duplicar causales de rechazo ni requisitos (van en sus categorías propias)."
     ),
 }
 

@@ -70,26 +70,6 @@ def _select_best_instance(
     correlation_id: str,
 ) -> list[Any]:
     """Selecciona la instancia más relevante cuando hay múltiples matches.
-    
-    FIX DEFINITIVO (2026-08): Resuelve el problema de highlighting cruzado
-    entre secciones. Cuando el mismo texto aparece en múltiples lugares de
-    la página (ej: "adquisición de insumos" en "Objeto" y en "Requisitos"),
-    selecciona la instancia más cercana al título de la sección esperada.
-    
-    Args:
-        page: Página de PyMuPDF
-        instances: Lista de rectángulos donde se encontró el texto
-        section_hint: Hint de sección (ej: "Objeto y Alcance", "Requisitos")
-        correlation_id: ID para logging
-    
-    Returns:
-        Lista con la mejor instancia (o todas si no se puede decidir)
-    
-    Algoritmo:
-        1. Extraer todos los textos en tamaño grande (probables títulos)
-        2. Buscar títulos que matcheen con section_hint
-        3. Para cada instancia, calcular distancia al título más cercano
-        4. Retornar la instancia más cercana a un título relevante
     """
     try:
         import fitz
@@ -97,15 +77,6 @@ def _select_best_instance(
         # Extraer todos los bloques de texto de la página con su posición
         blocks = page.get_text("dict")["blocks"]
         
-        # Buscar títulos/headings grandes que contengan palabras del section_hint
-        #
-        # FIX (2026-08-14): esto comparaba palabras SIN sacar la puntuación, y
-        # los títulos de un pliego son "Artículo 10. Garantías." -- con punto
-        # pegado. Así, "garantias." nunca igualaba a "garantias" y la única
-        # palabra que llegaba a coincidir era "articulo", que está en TODOS los
-        # títulos. El bonus por palabras en común quedaba inerte y la elección
-        # degeneraba en "el encabezado más cercano", que ante dos apariciones
-        # equidistantes de su propio título devuelve siempre la primera.
         section_words = _heading_tokens(section_hint)
         relevant_headings = []
         
@@ -228,42 +199,6 @@ def _normalize_for_search(text: str) -> str:
 
 def _group_rects_by_occurrence(instances: list[Any]) -> list[list[Any]]:
     """Agrupa los rectángulos de `page.search_for()` por APARICIÓN.
-
-    FIX (auditoría 2026-08-13): PyMuPDF devuelve UN RECTÁNGULO POR RENGLÓN
-    cuando el texto buscado ocupa varias líneas. Una cita de 3 renglones
-    devuelve 3 rects de una sola aparición:
-
-        x0=60.0 y0=88.2  ancho=318.5
-        x0=60.0 y0=100.2 ancho=314.2
-        x0=60.0 y0=112.2 ancho=120.5   <- el sobrante del último renglón
-
-    El código anterior interpretaba `len(text_instances) > 1` como "el texto
-    aparece en varios lugares de la página" y llamaba a `_select_best_instance`,
-    que se queda con UNO. Para una cita multilínea -- o sea, casi todas las de
-    un pliego -- eso tiraba 2 de cada 3 fragmentos y a veces conservaba el más
-    chico. Se vio en producción: una cita de 154 caracteres resaltada con un
-    recuadro de `width: 8.93` px.
-
-    Una misma aparición también se parte DENTRO de un renglón cuando el texto
-    cambia de span. Medido sobre el pliego auditado, la cita
-    "c) Propuesta Técnica debidamente firmada: ..." devuelve:
-
-        x0= 56.8 x1= 65.7 y0=448.5 ancho=  8.9   <- "c)"
-        x0= 68.8 x1=538.2 y0=448.5 ancho=469.4   <- resto del primer renglón
-        x0= 56.8 x1=299.1 y0=460.0 ancho=242.3   <- segundo renglón
-
-    `_select_best_instance` se quedaba con el primero: los 8.9 px que se vieron
-    en producción.
-
-    Criterio de agrupación -- dos rectángulos consecutivos son la misma
-    aparición si:
-      - están en el mismo renglón y separados por un hueco chico (continuación
-        del match tras un cambio de span), o
-      - el segundo empieza un renglón más abajo.
-
-    Dos rects a la misma altura pero MUY separados horizontalmente son
-    apariciones distintas (caso real: "GARANT" aparece dos veces en la línea
-    y=548.7, en x=129 y x=482).
     """
     if not instances:
         return []
@@ -367,10 +302,7 @@ def _select_from_occurrences(
     return occurrences[0]
 
 
-# Caracteres que se conservan al comparar la cita contra el texto del PDF.
-# Todo lo demás -- espacios, saltos de renglón, guiones de corte, comillas
-# tipográficas, puntuación -- se descarta, porque es exactamente donde el texto
-# del PDF y el de la cita difieren.
+
 _ALNUM_RE = re.compile(r"[^a-z0-9]")
 
 
@@ -446,21 +378,6 @@ def regiones_desde_renglones_ocr(
     renglones: list[dict[str, Any]], citation: str
 ) -> list[dict[str, float]]:
     """Ubica la cita entre los renglones que leyó Azure DI (HL-09).
-
-    Es el reemplazo de `page.search_for` para PDF escaneados, donde no hay texto
-    embebido que buscar. Trabaja sobre la geometría por renglón que la indexación
-    guardó (`_build_line_index` en `document_intelligence.py`).
-
-    Por qué renglones y no el párrafo: pintar el párrafo entero es lo que se sacó
-    en HL-08 por no señalar nada. Y por qué renglones y no palabras: son ~10
-    veces menos --importa, porque esto viaja en cada chunk del índice-- y en un
-    PDF con texto los rectángulos que hoy se ven son justamente del alto de un
-    renglón, así que el resultado es comparable.
-
-    El recorte horizontal de los extremos es proporcional: dentro de un renglón,
-    los caracteres se reparten a lo ancho de forma razonablemente pareja. Es una
-    aproximación, y por eso sólo se aplica a los bordes del match -- los
-    renglones del medio van enteros, que ahí es exacto.
     """
     if not renglones or not citation:
         return []
@@ -524,28 +441,6 @@ def regiones_desde_renglones_ocr(
 
 def _search_citation_by_words(page: Any, citation: str) -> list[list[Any]]:
     """Ubica la cita en la página comparando PALABRAS, no la cadena entera.
-
-    FIX (2026-08-14): `page.search_for()` busca la cadena literal en el texto
-    del PDF y falla cuando la cita cruza cualquier costura del maquetado.
-    Medido contra el pliego real del usuario, 3 de 6 citas devolvían CERO
-    rectángulos:
-
-      - "...la oferta econó|mica."  -> el PDF corta la palabra en dos renglones;
-      - "...de cinco |(5) días hábiles" -> salto de renglón en el medio;
-      - 'llama a Licitación P|RIVADA para la "Adquisición...' -> el título está
-        maquetado con espaciado entre letras, así que "PRIVADA" son dos spans
-        distintos, y además las comillas del PDF son tipográficas (“ ”) mientras
-        que las de la cita son rectas (").
-
-    Ninguna de esas diferencias existe para el LLM: la cita salió del texto que
-    devuelve Azure Document Intelligence, que ya viene reflowed y limpio. Es un
-    desajuste entre el texto con el que se GENERA la cita y el texto con el que
-    se la BUSCA.
-
-    Esta función compara sobre `_fold()` -- sólo letras y dígitos -- así que los
-    saltos de renglón, los guiones de corte, la puntuación y las comillas dejan
-    de importar. Devuelve una lista de apariciones; cada aparición es la lista
-    de rectángulos de las palabras que la componen, en orden de lectura.
     """
     import fitz  # PyMuPDF
 
@@ -633,44 +528,6 @@ def compute_highlight_regions(
     section_hint: str | None = None,
 ) -> list[dict[str, float]]:
     """Calcula las coordenadas exactas donde aparece una citation en el PDF.
-    
-    FIX DEFINITIVO (2026-08): Cuando hay múltiples instancias del mismo texto,
-    usa section_hint para seleccionar la instancia correcta basándose en
-    proximidad a headings/títulos de la sección.
-    
-    Args:
-        pdf_path: Ruta absoluta al PDF
-        page_number: Número de página (1-indexed)
-        citation: Texto a buscar (puede venir del chunk original)
-        correlation_id: ID para logging
-        section_hint: Hint de sección (ej: "Objeto y Alcance") para disambiguación
-    
-    Returns:
-        Lista de rectángulos con coordenadas top-left origin (estándar web):
-        [{"x": float, "y": float, "width": float, "height": float}]
-        Lista vacía si no se encuentra el texto.
-
-    Note:
-        CONTRATO DE COORDENADAS (fijado en la auditoría 2026-08-13, hallazgo
-        HL-01) -- toda función de este módulo que devuelva `highlight_regions`
-        debe respetarlo:
-
-          - origen TOP-LEFT: (0, 0) es la esquina superior izquierda de la
-            página y `y` crece hacia abajo;
-          - `y` es la distancia desde el borde SUPERIOR de la página hasta el
-            borde SUPERIOR del rectángulo;
-          - unidad: PUNTOS de PDF, en el sistema de la página SIN escalar
-            (el consumidor multiplica por su propio factor de zoom).
-
-        MuPDF ya normaliza el PDF a origen top-left: `page.rect` es
-        (0, 0, width, height) con `y` creciendo hacia abajo, y `search_for()`
-        devuelve `Rect` en ese mismo sistema. Por eso `rect.y0` se devuelve
-        tal cual: NO hay ninguna conversión que hacer. La versión anterior
-        aplicaba `page_height - rect.y1` bajo la premisa (falsa) de que
-        PyMuPDF usa bottom-left, lo que espejaba verticalmente cada región.
-        El visor compensaba con una segunda inversión, así que el resultado
-        solo era correcto en zoom exactamente 1.0 y para este camino; el
-        camino de bbox almacenado (que ya emitía top-left) salía espejado.
     """
     try:
         import fitz  # PyMuPDF
@@ -710,7 +567,6 @@ def compute_highlight_regions(
         
         page = doc[page_number - 1]  # PyMuPDF usa 0-indexed
 
-        # Estrategia 1: Búsqueda exacta (case-insensitive por defecto en PyMuPDF)
         text_instances = page.search_for(citation)
         
         if text_instances:
@@ -729,13 +585,7 @@ def compute_highlight_regions(
             )
             return regions
         
-        # Estrategia 2: búsqueda por palabras, tolerante a las costuras del
-        # maquetado del PDF (saltos de renglón dentro de una palabra, espaciado
-        # entre letras, comillas tipográficas, guiones de corte). Reemplaza al
-        # viejo camino "por ancla", que buscaba las primeras 10 palabras con
-        # `search_for` -- o sea, la misma búsqueda literal que ya había fallado,
-        # sólo que sobre menos texto y por lo tanto MÁS ambigua. Ver
-        # `_search_citation_by_words` para el detalle de qué falla y por qué.
+        
         occurrences = _search_citation_by_words(page, citation)
         if occurrences:
             selected = _select_from_occurrences(
@@ -822,23 +672,6 @@ def compute_highlights_for_sources(
     chunks_by_doc_page: dict[tuple[str, int], list[dict[str, Any]]] | None = None,
 ) -> list[dict[str, Any]]:
     """Enriquece una lista de sources con highlight_regions pre-computadas.
-    
-    SOLUCIÓN DEFINITIVA V4 (2026-08): Usa campo 'source' estructurado.
-    - Migrado de campo legacy 'blocks' a nuevo campo 'source.blocks'
-    - Estructura: source.blocks = [{block_id, bbox, text}]
-    - Filtra qué block específico contiene la citation
-    - Solo agrega bbox del block que matchea (no todos los blocks del chunk)
-    - Si no hay source o no matchea, deja highlight_regions vacío
-    
-    Args:
-        sources: Lista de sources (output de synthesis)
-        document_id_to_blob_path: Mapeo document_id → ruta absoluta del PDF (NO usado)
-        correlation_id: ID para logging
-        category_key: Clave de categoría (ej: "objeto_alcance") para logs
-        chunks_by_doc_page: Índice de chunks por (document_id, page_number) para lookup de source
-    
-    Returns:
-        Lista de sources enriquecidas con campo "highlight_regions"
     """
     enriched_sources = []
     stats = {"total": 0, "with_bbox": 0, "no_bbox": 0}
@@ -857,23 +690,7 @@ def compute_highlights_for_sources(
             enriched_sources.append(source_copy)
             continue
         
-        # Un solo camino: PyMuPDF sobre el PDF real, que ubica la cita en el
-        # documento con precisión de renglón.
-        #
-        # FIX (2026-08-14, hallazgo HL-08): este comentario decía que si la
-        # búsqueda viva no encontraba nada "se cae al matching por bbox
-        # almacenado de más abajo". Ese camino se eliminó el mismo día -- emitía
-        # el rectángulo del párrafo entero, que era el "resaltado por párrafo"
-        # que reportó la usuaria. Quedó la variable `regions = []`, que ya no se
-        # asignaba nunca, y una rama `if regions:` inalcanzable con su propio
-        # log. Un lector razonable concluía que existe un fallback que no existe.
-        #
-        # ATR-01 (auditoría 2026-08-13): el chunk que verificó la cita en
-        # `_verify_citation_grounding` viaja en la source como `chunk_id`. Su
-        # `section_path` es un hint MUCHO mejor que el nombre de la categoría
-        # para desambiguar entre varias apariciones de la misma frase en la
-        # página: dice en qué artículo del pliego estaba la evidencia, no a qué
-        # categoría pertenece el dato.
+    
         source_chunk = _resolve_source_chunk(source, chunks_by_doc_page, correlation_id)
         section_hint = None
         if source_chunk:
@@ -909,38 +726,6 @@ def compute_highlights_for_sources(
                 enriched_sources.append(source_copy)
                 continue
 
-        # FIX (2026-08-14): acá vivía el "camino de bbox almacenado". Cuando la
-        # búsqueda viva no encontraba la cita, se emitía el bbox del BLOQUE de
-        # Azure Document Intelligence que la contenía -- y ese bbox es el del
-        # PÁRRAFO completo (`min/max` sobre el polígono del párrafo, ver
-        # `extraction/document_intelligence.py::_extract_bounding_boxes`). Una
-        # cita de 100 caracteres dentro de un párrafo de 600 producía un
-        # rectángulo del párrafo entero: ESE era el "resaltado por párrafo".
-        #
-        # Pintar un párrafo entero es peor que no pintar nada. Le dice a la
-        # persona "la evidencia es todo esto", que no es cierto, y no deja
-        # ninguna señal de que el sistema no supo ubicar la cita. Sin regiones,
-        # el visor marca sobre la capa de texto de react-pdf -- degradado, pero
-        # acotado al texto de la cita y siempre bien posicionado.
-        #
-        # El chunk NO se dejó de usar: pasó a alimentar el `section_hint` de la
-        # búsqueda viva (ver más arriba), que es donde su identidad realmente
-        # sirve: elegir CUÁL de las apariciones de la cita en la página es la
-        # correcta.
-        # HL-09: hay UN segundo camino, y sólo para PDF escaneados.
-        #
-        # El comentario de arriba decía "el visor cae al marcado sobre la capa de
-        # texto de react-pdf". Eso es cierto en un PDF con texto -- y es por qué
-        # HL-08 pudo sacar el rectángulo de párrafo sin dejar a nadie a oscuras.
-        # En un escaneo esa capa TAMBIÉN está vacía (`PDFPage.tsx:83`), así que
-        # ahí no hay red: la persona no ve nada. En Santa Fe eso es el 100% de
-        # las fuentes del pliego principal y del Anexo 2.
-        #
-        # La compuerta es "esta página no tiene texto embebido", y es deliberada:
-        # si el PDF tiene capa de texto, este camino NO se toca ni siquiera
-        # cuando la búsqueda viva falló, porque ahí el marcado sobre la capa de
-        # texto sigue funcionando y es mejor. O sea que para todo documento que
-        # hoy anda, el comportamiento es idéntico byte a byte.
         if pdf_path and pagina_sin_capa_de_texto(pdf_path, page_number):
             regiones_ocr = regiones_desde_renglones_ocr(
                 _renglones_del_chunk(source_chunk, page_number), citation
@@ -960,14 +745,10 @@ def compute_highlights_for_sources(
                 )
                 enriched_sources.append(source_copy)
                 continue
-            # Escaneado y tampoco se pudo ubicar por renglones. Es el caso que
-            # antes era indistinguible de "no encontré la cita": se marca para
-            # que el visor pueda decir que este documento es un escaneo en vez
-            # de no mostrar nada sin explicación.
+            
             source_copy["highlight_unavailable_reason"] = "documento_escaneado"
 
-        # Llegar acá significa que la búsqueda viva no ubicó la cita en el PDF
-        # (o que no había PDF).
+     
         stats["no_bbox"] += 1
         logger.warning(
             "highlight_live_search_found_nothing",

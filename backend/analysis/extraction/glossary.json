@@ -302,5 +302,60 @@
       "secondary": 0.10
     },
     "weight": 0.8
+  },
+  "riesgos": {
+    "query_terms": [
+      "multa",
+      "penalizacion",
+      "sancion",
+      "incumplimiento",
+      "rescision",
+      "resolucion del contrato",
+      "consecuencia",
+      "responsabilidad",
+      "descalificacion",
+      "penalidad"
+    ],
+    "aliases": [
+      "penalizacion economica",
+      "multa por incumplimiento",
+      "multa por demora",
+      "penalidad por atraso",
+      "multa diaria",
+      "penalizacion por dia",
+      "rescision de contrato",
+      "resolucion contractual",
+      "rescision de pleno derecho",
+      "incumplimiento contractual",
+      "incumplimiento de obligaciones",
+      "falta grave",
+      "omision",
+      "mora",
+      "demora injustificada",
+      "atraso en la entrega",
+      "consecuencia legal",
+      "consecuencia economica",
+      "responsabilidad civil",
+      "responsabilidad solidaria",
+      "descalificacion del oferente",
+      "inhabilitacion para contratar",
+      "suspension del registro",
+      "ejecucion de garantia",
+      "perdida de garantia",
+      "daño y perjuicio",
+      "daños y perjuicios",
+      "indemnizacion",
+      "reparacion",
+      "subsanar",
+      "incumplimiento grave",
+      "falta de entrega",
+      "penalidad contractual"
+    ],
+    "top_k": 35,
+    "thresholds": {
+      "primary": 0.35,
+      "secondary": 0.15
+    },
+    "weight": 1.2
   }
 }

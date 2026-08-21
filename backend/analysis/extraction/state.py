@@ -43,6 +43,9 @@ class GraphState(TypedDict, total=False):
     identificacion: list[dict[str, Any]]
     identificacion_status: str
 
+    riesgos: list[dict[str, Any]]
+    riesgos_status: str
+
     presupuesto: dict[str, Any]
     presupuesto_status: str
 

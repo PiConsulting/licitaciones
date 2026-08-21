@@ -93,6 +93,46 @@ export function CategorySection({
   }
 
   const conflictWord = counts.conflict === 1 ? "conflicto" : "conflictos";
+  const shouldShowComplianceSummary = Boolean(
+    trackingCategory &&
+      trackingCategory.items.length > 0 &&
+      (trackingReadOnly || trackingCategory.status === "closed"),
+  );
+
+  const complianceStats = trackingCategory
+    ? trackingCategory.items.reduce(
+        (acc, item) => {
+          if (item.status === "compliant") {
+            acc.compliant += 1;
+          } else if (item.status === "non_compliant") {
+            acc.nonCompliant += 1;
+          } else if (item.status === "not_evaluated") {
+            acc.notEvaluated += 1;
+          } else if (item.status === "not_applicable") {
+            acc.notApplicable += 1;
+          }
+
+          return acc;
+        },
+        { compliant: 0, nonCompliant: 0, notEvaluated: 0, notApplicable: 0 },
+      )
+    : { compliant: 0, nonCompliant: 0, notEvaluated: 0, notApplicable: 0 };
+
+  const totalTrackingItems =
+    complianceStats.compliant +
+    complianceStats.nonCompliant +
+    complianceStats.notEvaluated +
+    complianceStats.notApplicable;
+  const compliancePercentage =
+    totalTrackingItems > 0
+      ? Math.round(((complianceStats.compliant + complianceStats.notApplicable) / totalTrackingItems) * 100)
+      : 0;
+  const complianceToneClass =
+    compliancePercentage >= 80
+      ? "text-success"
+      : compliancePercentage >= 50
+        ? "text-warning"
+        : "text-error";
 
   return (
     <article id={`category-${categoryId}`} className={`border-l-4 py-5 pl-4 ${accentClass}`}>
@@ -123,6 +163,24 @@ export function CategorySection({
           {state !== "sin_revisar" && state !== "critica" ? <FieldStateBadge state={state} /> : null}
         </div>
       </div>
+
+      {shouldShowComplianceSummary ? (
+        <div
+          className="mt-2 rounded-sm border border-gray-200/70 bg-gray-50/70 px-3 py-2 text-xs text-gray-700"
+          data-testid="category-compliance-summary"
+        >
+          <p className="text-sm font-semibold text-gray-800">
+            <span>Cumplimiento </span>
+            <span className={complianceToneClass}>{`${compliancePercentage}%`}</span>
+          </p>
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+            <span className="font-medium text-gray-600">{`${complianceStats.compliant} cumplen`}</span>
+            <span className="font-medium text-gray-600">{`${complianceStats.nonCompliant} no cumplen`}</span>
+            <span className="font-medium text-gray-600">{`${complianceStats.notEvaluated} sin evaluar`}</span>
+            <span className="font-medium text-gray-600">{`${complianceStats.notApplicable} no aplica`}</span>
+          </p>
+        </div>
+      ) : null}
 
       <QualityNotice quality={category.quality} />
 

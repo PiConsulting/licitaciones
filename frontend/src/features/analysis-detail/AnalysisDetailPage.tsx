@@ -2,24 +2,25 @@ import { useMemo, useState } from "react";
 
 import { CompleteTrackingConfirmModal } from "../../components/analysis/CompleteTrackingConfirmModal";
 import { StartTrackingConfirmModal } from "../../components/analysis/StartTrackingConfirmModal";
+import { Button } from "../../components/Button";
 import { useToast } from "../../components/ToastContainer";
-import { AnalysisDetailHeader } from "./AnalysisDetailHeader";
 import { AnalysisSummaryStrip } from "./AnalysisSummaryStrip";
 import { CategoryList } from "./CategoryList";
+import { AnalysisDetailHeader } from "./AnalysisDetailHeader";
 import { TrackingProgressSummary } from "./components/TrackingProgressSummary";
-import { DocumentSelector } from "../pdf-viewer/DocumentSelector";
-import { PDFViewer } from "../pdf-viewer/PDFViewer";
 import { useAnalysisDetail } from "./hooks/useAnalysisDetail";
 import {
   useCompleteTracking,
   useCreateTrackingComment,
   useDeleteTrackingComment,
   useStartTracking,
-  useUpdateTrackingComment,
   useUpdateTrackingCategoryStatus,
+  useUpdateTrackingComment,
   useUpdateTrackingItemStatus,
 } from "./hooks/useTrackingMutations";
 import type { Citation, NarrativeSource } from "./types";
+import { DocumentSelector } from "../pdf-viewer/DocumentSelector";
+import { PDFViewer } from "../pdf-viewer/PDFViewer";
 
 interface AnalysisDetailPageProps {
   analysisId: string;
@@ -35,6 +36,7 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
   const createCommentMutation = useCreateTrackingComment();
   const updateCommentMutation = useUpdateTrackingComment();
   const deleteCommentMutation = useDeleteTrackingComment();
+
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
   const [selectedCitations, setSelectedCitations] = useState<Citation[]>([]);
@@ -43,6 +45,7 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
   const [showStartTrackingModal, setShowStartTrackingModal] = useState(false);
   const [showCompleteTrackingModal, setShowCompleteTrackingModal] = useState(false);
   const [showPdfViewer, setShowPdfViewer] = useState(true);
+
   const documentsById = useMemo(() => {
     return new Map((query.data?.documents ?? []).map((document) => [document.id, document]));
   }, [query.data?.documents]);
@@ -65,11 +68,12 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
     ? (documentsById.get(activeDocumentId)?.filename ?? selectedCitation?.document_name ?? "Documento")
     : primaryDocument?.filename;
   const activeCitations = selectedCitations.length > 0 ? selectedCitations : selectedCitation ? [selectedCitation] : [];
+
   const canStartTracking =
     (!query.data.tracking && (query.data.status === "analyzed" || query.data.status === "validated")) ||
     query.data.tracking?.status === "completed";
   const isResumeTracking = query.data.tracking?.status === "completed";
-  const canCompleteTracking = query.data.tracking?.status === "active";
+  const isTrackingActive = query.data.tracking?.status === "active";
 
   const handleStartTracking = async () => {
     try {
@@ -94,13 +98,7 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
   return (
     <section className="flex min-w-0 flex-col gap-6">
       <div data-testid="detail-summary-panel" className="-mx-6 -mt-6 border-b border-gray-200 bg-surface px-6 pt-6 pb-4">
-        <AnalysisDetailHeader
-          analysis={query.data}
-          showStartTrackingAction={canStartTracking}
-          startTrackingLabel={isResumeTracking ? "Reanudar seguimiento" : "Iniciar seguimiento"}
-          startTrackingLoading={startTrackingMutation.isPending}
-          onStartTracking={() => setShowStartTrackingModal(true)}
-        />
+        <AnalysisDetailHeader analysis={query.data} />
       </div>
 
       {query.data.documents.length > 1 && activeDocumentId && (
@@ -121,7 +119,7 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
             showPdfViewer ? "xl:w-[60%] 2xl:w-[55%]" : "xl:w-full"
           }`}
         >
-          {query.data.tracking ? <TrackingProgressSummary tracking={query.data.tracking} /> : null}
+          {query.data.tracking?.status === "active" ? <TrackingProgressSummary tracking={query.data.tracking} /> : null}
 
           <AnalysisSummaryStrip analysis={query.data} />
           <CategoryList
@@ -150,11 +148,7 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
                 .finally(() => setLoadingItemId(null));
             }}
             onCreateTrackingComment={async ({ categoryKey, content }) => {
-              await createCommentMutation.mutateAsync({
-                analysisId,
-                categoryKey,
-                content,
-              });
+              await createCommentMutation.mutateAsync({ analysisId, categoryKey, content });
               addToast("success", "Comentario guardado.");
             }}
             onUpdateTrackingComment={async ({ categoryKey, commentId, content }) => {
@@ -193,14 +187,26 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
 
       {!showPdfViewer ? (
         <div className="fixed right-5 bottom-5 z-40 flex flex-col items-end gap-2">
-          {canCompleteTracking ? (
-            <button
+          {canStartTracking ? (
+            <Button
               type="button"
-              className="rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 shadow-lg hover:border-primary hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+              size="sm"
+              className="rounded-full px-3 shadow-lg"
+              loading={startTrackingMutation.isPending}
+              onClick={() => setShowStartTrackingModal(true)}
+            >
+              {isResumeTracking ? "Abrir seguimiento" : "Iniciar seguimiento"}
+            </Button>
+          ) : null}
+          {isTrackingActive ? (
+            <Button
+              type="button"
+              size="sm"
+              className="rounded-full px-3 shadow-lg"
               onClick={() => setShowCompleteTrackingModal(true)}
             >
               Terminar seguimiento
-            </button>
+            </Button>
           ) : null}
           <button
             type="button"
@@ -210,14 +216,30 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
             Mostrar PDF
           </button>
         </div>
-      ) : canCompleteTracking ? (
-        <button
-          type="button"
-          className="fixed right-5 bottom-5 z-40 rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 shadow-lg hover:border-primary hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-          onClick={() => setShowCompleteTrackingModal(true)}
-        >
-          Terminar seguimiento
-        </button>
+      ) : canStartTracking || isTrackingActive ? (
+        <div className="fixed right-5 bottom-5 z-40 flex flex-col items-end gap-2">
+          {canStartTracking ? (
+            <Button
+              type="button"
+              size="sm"
+              className="rounded-full px-3 shadow-lg"
+              loading={startTrackingMutation.isPending}
+              onClick={() => setShowStartTrackingModal(true)}
+            >
+              {isResumeTracking ? "Abrir seguimiento" : "Iniciar seguimiento"}
+            </Button>
+          ) : null}
+          {isTrackingActive ? (
+            <Button
+              type="button"
+              size="sm"
+              className="rounded-full px-3 shadow-lg"
+              onClick={() => setShowCompleteTrackingModal(true)}
+            >
+              Terminar seguimiento
+            </Button>
+          ) : null}
+        </div>
       ) : null}
 
       {showStartTrackingModal ? (

@@ -1,4 +1,5 @@
 import {
+  AlertTriangle,
   Ban,
   ClipboardCheck,
   Clock,
@@ -14,6 +15,7 @@ import type { CategoryId } from "../features/analysis-detail/types";
 
 export const CATEGORY_ICONS: Record<CategoryId, LucideIcon> = {
   objeto_alcance: FileText,
+  riesgos: AlertTriangle,
   requisitos_admisibilidad: ClipboardCheck,
   garantias: Shield,
   plazos_clave: Clock,
@@ -25,6 +27,7 @@ export const CATEGORY_ICONS: Record<CategoryId, LucideIcon> = {
 
 export const CATEGORY_NAMES: Record<CategoryId, string> = {
   objeto_alcance: "Objeto y Alcance",
+  riesgos: "Riesgos",
   requisitos_admisibilidad: "Requisitos de Admisibilidad",
   garantias: "Garantías",
   plazos_clave: "Plazos Clave",
@@ -35,6 +38,7 @@ export const CATEGORY_NAMES: Record<CategoryId, string> = {
 };
 
 export const CRITICAL_CATEGORIES = new Set<CategoryId>([
+  "riesgos",
   "plazos_clave",
   "garantias",
   "causales_rechazo",
@@ -62,6 +66,7 @@ export const CHECKLIST_CATEGORIES = new Set<CategoryId>(["anexos_obligatorios"])
  */
 export const CATEGORY_ORDER: CategoryId[] = [
   "objeto_alcance",
+  "riesgos",
   "requisitos_admisibilidad",
   "garantias",
   "plazos_clave",

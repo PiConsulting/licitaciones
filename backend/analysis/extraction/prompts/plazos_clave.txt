@@ -246,22 +246,53 @@ Son hitos DISTINTOS aunque compartan día. Emití dos ítems separados.
 ```
 → 2 ítems: uno `presentacion_ofertas` (14:00), otro `apertura_ofertas` (15:00).
 
-## 6. prorrogable
-Solo `"si"` o `"no"` si el pliego lo dice explícitamente para ese plazo.  
+## 6. Plazo compuesto: disparador + duración = UN SOLO ítem
+
+Muchos pliegos redactan el plazo como una sola oración con dos partes: la
+condición que lo dispara ("a partir de...", "desde...", "contados desde...")
+y la duración/consecuencia ("dispondrá de X días para...", "deberá...
+dentro de Y días"). **Es UN SOLO hecho, no dos.** No emitas un ítem para el
+disparador y otro para la duración, aunque el disparador por sí solo no
+encaje en ningún `tipo` del enum.
+
+**Patrón genérico a reconocer** (aplica a cualquier redacción equivalente,
+no solo a este ejemplo):
+```
+"A partir de <evento/condición>, <sujeto> dispondrá/tendrá un plazo de
+<duración> para <acción>."
+```
+
+**Ejemplo abstracto:**
+```
+"A partir de la recepción provisoria del bien, el organismo dispondrá de un
+plazo máximo de 15 días corridos para otorgar la aceptación definitiva."
+```
+→ **UN SOLO ítem**, con `expresion_relativa` incluyendo AMBAS partes:
+`"15 días corridos, contados a partir de la recepción provisoria del bien"`
+y `texto_original` con la oración completa. NO dos ítems (uno con la
+duración y otro con la condición de inicio).
+
+**Señal de alarma antes de emitir:** si estás por crear un ítem cuyo único
+contenido es la cláusula que dispara el conteo (sin una duración propia,
+sin fecha propia), casi seguro pertenece dentro de `expresion_relativa` de
+OTRO ítem que sí tiene la duración -- no es un plazo en sí mismo.
+
+## 7. prorrogable
+Solo `"si"` o `"no"` si el pliego lo dice explícitamente para ese plazo.
 En cualquier otro caso: `"no_especificado"`.
 
 No lo infieras de una cláusula genérica de prórroga en otro artículo.
 
-## 7. lugar
+## 8. lugar
 Lugar físico del acto (presentación, apertura, visita). Si el pliego lo menciona, copialo.
 
 **Ejemplo:** `"Mesa de Entradas"`, `"Salón B del edificio municipal"`.
 
-## 8. Fragmentos de tabla
-Si el plazo viene de una tabla de cronograma, `citation` usa formato especial:  
+## 9. Fragmentos de tabla
+Si el plazo viene de una tabla de cronograma, `citation` usa formato especial:
 `Encabezado: <columna> | Fila: <fila> | Valor: <valor>`
 
-## 9. Sin especulación
+## 10. Sin especulación
 Si el pliego no menciona:
 - fecha → `None`
 - hora → `None`  

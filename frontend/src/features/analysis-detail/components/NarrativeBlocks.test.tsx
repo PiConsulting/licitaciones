@@ -167,7 +167,7 @@ describe("categorías de ítems: un ojo por ítem", () => {
     expect(within(screen.getByTestId("narrative-table")).getAllByTestId("item-source-button")).toHaveLength(2);
   });
 
-  test("agrupa bullets por documento con divisor minimalista", () => {
+  test("mantiene bullets en una única lista continua aunque vengan de varios documentos", () => {
     const narrative: CategoryNarrative = {
       blocks: [
         {
@@ -188,12 +188,12 @@ describe("categorías de ítems: un ojo por ítem", () => {
 
     render(<NarrativeBlocks narrative={narrative} />);
 
-    const dividerLabels = screen.getAllByTestId("document-source-group-label").map((node) => node.textContent?.trim());
-    expect(dividerLabels).toEqual(["Pliego Principal.pdf", "Anexo A.pdf", "Anexo B.pdf"]);
-    expect(screen.getAllByTestId("document-source-divider")).toHaveLength(3);
+    expect(screen.getAllByTestId("narrative-bullet-item")).toHaveLength(3);
+    expect(screen.queryByTestId("document-source-divider")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("document-source-group-label")).not.toBeInTheDocument();
   });
 
-  test("si hay un solo documento en bullets no muestra divisores ni labels de documento", () => {
+  test("en bullets no muestra divisores ni labels de documento", () => {
     render(<NarrativeBlocks narrative={BULLETS} />);
 
     expect(screen.queryByTestId("document-source-divider")).not.toBeInTheDocument();

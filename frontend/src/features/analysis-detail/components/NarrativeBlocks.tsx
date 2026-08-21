@@ -2,7 +2,6 @@ import { Check, Circle, CircleSlash, X } from "lucide-react";
 
 import type { TrackingItem, TrackingItemStatus } from "../../../types/tracking";
 import type { CategoryNarrative, Citation, NarrativeBlockData, NarrativeSource } from "../types";
-import { DocumentSourceDivider } from "./DocumentSourceDivider";
 import { SourceEyeButton as EyeButton } from "./SourceEyeButton";
 
 interface NarrativeBlocksProps {
@@ -102,16 +101,6 @@ function collectReferencedSourceIds(blocks: NarrativeBlockData[]): Set<number> {
   return ids;
 }
 
-interface BulletDocumentGroup {
-  key: string;
-  documentName: string;
-  items: Array<{
-    text: string;
-    sourceIds: number[];
-    trackingItemIndex: number;
-  }>;
-}
-
 interface TrackingItemControlsProps {
   item: TrackingItem;
   isClosed: boolean;
@@ -162,14 +151,6 @@ function TrackingItemControls({ item, isClosed, isLoading, onChangeStatus }: Tra
       })}
     </div>
   );
-}
-
-function isPrimaryDocumentName(name: string): boolean {
-  return name.replace(/\.pdf$/i, "").trim().toLocaleLowerCase("es").startsWith("pliego");
-}
-
-function isGenericDocumentLabel(name: string): boolean {
-  return name.trim().toLocaleLowerCase("es") === "documento";
 }
 
 /**
@@ -289,69 +270,23 @@ export function NarrativeBlocks({
           }
 
           if (block.type === "bullet_list") {
-            const groupedMap = new Map<string, BulletDocumentGroup>();
-
-            for (const item of block.items) {
-              const currentTrackingItemIndex = trackingItemIndex;
-              trackingItemIndex += 1;
-              const firstSource = resolveSources(item.source_ids)[0];
-              const key = firstSource?.document_id ?? "__unknown__";
-              const rawName = firstSource?.document_name ?? "";
-              const name = rawName.trim() === "" || isGenericDocumentLabel(rawName)
-                ? "Sin archivo"
-                : rawName;
-
-              const current = groupedMap.get(key);
-              if (current) {
-                current.items.push({ text: item.text, sourceIds: item.source_ids, trackingItemIndex: currentTrackingItemIndex });
-              } else {
-                groupedMap.set(key, {
-                  key,
-                  documentName: name,
-                  items: [{ text: item.text, sourceIds: item.source_ids, trackingItemIndex: currentTrackingItemIndex }],
-                });
-              }
-            }
-
-            const groupedBullets = Array.from(groupedMap.values()).sort((left, right) => {
-              const leftPrimary = isPrimaryDocumentName(left.documentName);
-              const rightPrimary = isPrimaryDocumentName(right.documentName);
-
-              if (leftPrimary && !rightPrimary) {
-                return -1;
-              }
-              if (!leftPrimary && rightPrimary) {
-                return 1;
-              }
-
-              return left.documentName.localeCompare(right.documentName, "es", { sensitivity: "base" });
-            });
-
-            const shouldShowDocumentGrouping = groupedBullets.length > 1;
-
             return (
               <div key={index} data-testid="narrative-bullet-list">
-                {groupedBullets.map((group, groupIndex) => (
-                  <div key={group.key} className={groupIndex > 0 ? "mt-3" : ""}>
-                    {shouldShowDocumentGrouping ? (
-                      <DocumentSourceDivider
-                        documentName={group.documentName}
-                        showTopBorder={groupIndex > 0}
-                      />
-                    ) : null}
+                <ul className="space-y-1.5">
+                  {block.items.map((item, itemIndex) => {
+                    const currentTrackingItemIndex = trackingItemIndex;
+                    trackingItemIndex += 1;
 
-                    <ul className="space-y-1.5">
-                      {group.items.map((item, itemIndex) => (
-                        <li key={itemIndex} className="flex items-start gap-2" data-testid="narrative-bullet-item">
-                          <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-gray-400" aria-hidden="true" />
-                          <span className="flex-1 text-sm leading-relaxed text-gray-800">{item.text}</span>
-                          <InlineTrackingControls itemIndex={item.trackingItemIndex} />
-                          <SourceEyeButton sourceIds={item.sourceIds} />
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
+                    return (
+                      <li key={itemIndex} className="flex items-start gap-2" data-testid="narrative-bullet-item">
+                        <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-gray-400" aria-hidden="true" />
+                        <span className="flex-1 text-sm leading-relaxed text-gray-800">{item.text}</span>
+                        <InlineTrackingControls itemIndex={currentTrackingItemIndex} />
+                        <SourceEyeButton sourceIds={item.source_ids} />
+                      </li>
+                    );
+                  })}
+                </ul>
               </div>
             );
           }

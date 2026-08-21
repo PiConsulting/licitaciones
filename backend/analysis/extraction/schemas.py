@@ -23,37 +23,15 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 # BASE TYPES
 # =============================================================================
 
-# Contrato único de longitud de cita. Antes cada capa tenía su propio umbral
-# (25 en el verificador de grounding, 40 en la penalización de graph.py, 40-300
-# en este schema, "25-300" en el prompt), así que una misma cita literal y
-# verificable podía sobrevivir en un pliego y desaparecer -- o hacer explotar
-# merge_node con un ValidationError -- en otro, según cuán larga fuera la
-# oración citada. La longitud no decide si una cita es válida: eso lo decide
-# `_verify_reference_grounded` comprobando que el texto exista literalmente en
-# un chunk recuperado. El mínimo solo descarta citas demasiado cortas para ser
-# discriminantes ("oferta", "garantía"); el máximo es un límite de
-# almacenamiento y se aplica recortando la cita, nunca descartando el ítem.
+
 CITATION_MIN_CHARS = 12
-# La cita es lo que la persona lee para verificar de un vistazo que la síntesis
-# dice la verdad -- y es TAMBIÉN lo que define el largo del resaltado en el PDF:
-# `highlight.py::compute_highlights_for_sources` busca este texto exacto en la
-# página, así que una cita de párrafo produce un subrayado de párrafo. No son
-# dos cosas independientes.
-#
-# 300 caracteres daban citas de 2 a 4 renglones (mediana medida sobre un
-# análisis real: 129, p90 157, máximo 264) y subrayados del tamaño de un
-# párrafo. El objetivo es el fragmento mínimo que prueba el dato: de
-# `CITATION_PREFERRED_MIN_CHARS` a `CITATION_MAX_CHARS`.
+
 CITATION_MAX_CHARS = 120
 
-# Umbral de *utilidad*, no de validez: por debajo de esto la cita es verificable
-# pero pobre como evidencia para el usuario, así que se intenta reemplazarla por
-# un fragmento literal más rico del mismo chunk. Si no se consigue, la cita
-# corta se conserva igual -- nunca se descarta el ítem por este umbral.
+
 CITATION_PREFERRED_MIN_CHARS = 40
 
-# Nivel de confianza para categorías sin evidencia. Usado por `_empty_category_narrative()`
-# en synthesis.py cuando no se encuentran items útiles para una categoría.
+
 CONFIDENCE_NO_EVIDENCE = "baja"
 
 
@@ -66,22 +44,12 @@ class SourceReference(BaseModel):
         default=None,
         description="ID del bloque/párrafo fuente. Usado para agrupar múltiples citations del mismo párrafo."
     )
-    # ATR-01 (auditoría 2026-08-13): id del chunk que respaldó esta cita,
-    # capturado en `_verify_citation_grounding` en el momento en que se
-    # verifica el grounding. Es lo que evita que síntesis y highlighting
-    # tengan que re-adivinar el origen buscando el texto de la cita de nuevo
-    # -- y lo que impide que una frase repetida en dos chunks de la misma
-    # página se resuelva al chunk equivocado.
+
     chunk_id: str | None = Field(
         default=None,
         description="ID del chunk recuperado del que se verificó esta cita.",
     )
-    # ATR-02 (auditoria 2026-08-13): el pipeline reescribe la cita despues de
-    # verificarla -- la ensancha con el contexto del chunk, la reemplaza por
-    # `texto_original`, o la rescata desde el `valor` del item. Estos dos campos
-    # hacen visible esa diferencia en vez de borrarla: `citation` es lo que se
-    # muestra, `citation_llm` es lo que el modelo declaro como evidencia, y
-    # `citation_origin` dice cual de las dos cosas es.
+    
     citation_llm: str | None = Field(
         default=None,
         description="La cita tal como la emitio el LLM, antes de cualquier reescritura.",
@@ -95,13 +63,7 @@ class SourceReference(BaseModel):
             "texto literal del item -- el item baja a `partial`."
         ),
     )
-    # CTX-06 (auditoria 2026-08-19): nombre y rol del documento fuente. El
-    # `document_id` es un UUID y no se le puede mostrar a nadie; la lista de
-    # "Fuentes verificables" mostraba la constante "Documento" para las cinco
-    # fuentes de un analisis con pliego + cuatro anexos. Se resuelven aca, del
-    # lado del backend, porque `_build_document_labels` (CTX-05) ya tiene el
-    # mapa armado y en el estado. `None` significa "no se pudo resolver": el
-    # consumidor degrada al comportamiento anterior, no inventa un nombre.
+ 
     filename: str | None = Field(
         default=None,
         description="Nombre del archivo del que sale la cita. None si no se pudo resolver.",
@@ -112,11 +74,7 @@ class SourceReference(BaseModel):
     )
 
 
-# CTX-03 (auditoria 2026-08-13): estado para las categorias que el pipeline
-# declara en el contrato pero NINGUN extractor completa. `not_found` significa
-# "el pliego no lo dice"; esto significa "no lo buscamos". Confundir las dos
-# cosas le hace creer al usuario que el pliego calla sobre algo que el sistema
-# nunca miro.
+
 NOT_ANALYZED_STATUS = "not_analyzed"
 
 ConfidenceLevel = Literal["alta", "media", "baja"]
@@ -126,10 +84,7 @@ ExtractionStatus = Literal["success", "failed", "not_found", "partial", "not_app
 class ExtractedItem(BaseModel):
     """Base para todos los items extraídos."""
     confidence: float = Field(ge=0.0, le=1.0)
-    # SYN-05 (auditoria 2026-08-13): la autoevaluacion del LLM. NO es la que ve
-    # el usuario -- `confidence` la calcula `calculate_confidence` de forma
-    # determinista. Este campo se conserva para telemetria: permite medir si el
-    # modelo sabe cuando se esta equivocando, comparandolo contra la formula.
+  
     confidence_llm: float | None = Field(default=None, ge=0.0, le=1.0)
     source_references: list[SourceReference] = Field(min_length=1)
     extraction_status: ExtractionStatus = "success"
@@ -145,34 +100,16 @@ class NarrativeSource(BaseModel):
     document_id: str
     page_number: int
     citation: str
-    # Marca de cita que no se pudo respaldar contra los chunks recuperados.
-    # Antes viajaba como la clave suelta `_unverified` en un dict: pydantic la
-    # descartaba al reconstruir la narrativa y la fuente llegaba al usuario sin
-    # ninguna señal de que no estaba verificada. Como campo declarado, sobrevive
-    # la serialización y la persistencia.
+
     unverified: bool = False
-    # ATR-05 (auditoría 2026-08-13): `_resolve_from_evidence` ya escribía este
-    # campo "para matching posterior con highlight", pero al no estar declarado
-    # pydantic lo descartaba en el `model_validate` -- exactamente el mismo bug
-    # que ya se había corregido para `unverified` (ver el comentario de arriba).
+
     chunk_id: str | None = None
-    # Coordenadas de highlight pre-computadas en el PDF usando PyMuPDF.
-    # Cada región es un rectángulo: {"x": float, "y": float, "width": float, "height": float}
-    # Lista vacía si no se pudo calcular o si PyMuPDF no está disponible.
-    # FIX CRÍTICO (2026-08): Resuelve el problema de highlight frágil identificado
-    # en la auditoría RAG (falsos positivos/negativos por heurísticas de matching).
+
     highlight_regions: list[dict[str, float]] = Field(default_factory=list)
-    # CTX-06: mismo par que en `SourceReference`. Esta es la lista que el
-    # frontend renderiza literalmente bajo "Fuentes verificables", asi que es
-    # donde la constante "Documento" se veia.
+  
     filename: str | None = None
     is_primary: bool | None = None
-    # HL-09: por que esta fuente no tiene `highlight_regions`. Hoy el unico
-    # valor es "documento_escaneado". Sin esto, "el PDF es una imagen y no se
-    # puede senalar nada" y "no encontre la cita" se ven exactamente igual:
-    # nada. Declarado, y no como clave suelta en el dict, por la misma razon que
-    # `unverified` y `chunk_id` -- `enrich_narrative_with_highlights` revalida
-    # con `CategoryNarrative.model_validate` y lo que no esta declarado se cae.
+  
     highlight_unavailable_reason: str | None = None
 
 
@@ -221,14 +158,6 @@ class CategoryNarrative(BaseModel):
 # =============================================================================
 # NARRATIVE BLOCKS (forma cruda que devuelve el LLM de sintesis)
 # =============================================================================
-#
-# El LLM de sintesis NUNCA autoria `sources` ni `source_ids`: solo indica, por
-# `item_refs`, que indices del array de items de entrada (`item_index`)
-# respaldan cada bloque/bullet/fila. `synthesis._resolve_narrative_sources`
-# traduce esto a un `CategoryNarrative` tomando los `source_references`
-# propios de ESOS items -- nunca texto inventado ni citas de otro item -- y
-# arma `sources`/`source_ids` en codigo. Esta forma cruda nunca se persiste ni
-# llega al frontend.
 
 class RawNarrativeParagraphBlock(BaseModel):
     type: Literal["paragraph"] = "paragraph"
@@ -268,17 +197,6 @@ RawNarrativeBlock = Annotated[
 
 class RawEvidence(BaseModel):
     """Evidencia textual del LLM de sintesis - para highlighting preciso.
-
-    FIX (auditoria 2026-08-13, hallazgos SYN-01 y SYN-04): `text` NO es el
-    contenido que se le muestra al usuario. Es un selector: `_stub_for_evidence`
-    lo usa para recortar un sub-fragmento DENTRO de la cita ya verificada del
-    item que esta evidencia referencia en `item_refs`. Si no cae dentro de
-    ninguna de esas citas, se usa la cita verificada completa.
-
-    Por la misma razon, `document_id` y `page_number` son informativos: los
-    valores que llegan a la source salen del item verificado, no de estos
-    campos. El LLM copiaba mal el UUID del documento y eso alcanzaba para
-    perder la evidencia.
     """
     document_id: str
     page_number: int
@@ -368,12 +286,6 @@ class GarantiaItem(ExtractedItem):
     Solo uno puede tener valor, el otro debe ser None.
     """
     tipo: TipoGarantia
-    # Texto descriptivo de la garantía. Es el unico lugar donde puede vivir la
-    # explicacion de un item `not_applicable` ("Exento: no se exige garantia
-    # cuando el monto no supera 100 modulos"), que por definicion no tiene monto.
-    # Sin este campo pydantic descartaba en silencio el `valor` que el prompt ya
-    # le venia pidiendo al LLM, y la exencion se persistia sin ninguna
-    # explicacion para el usuario.
     valor: str | None = None
     monto_porcentaje: float | None = Field(None, ge=0.0, le=100.0)
     monto_valor: float | None = Field(None, ge=0.0)
@@ -387,19 +299,6 @@ class GarantiaItem(ExtractedItem):
     @model_validator(mode='after')
     def validate_monto_exclusivity(self) -> "GarantiaItem":
         """Valida que monto_porcentaje y monto_valor sean mutuamente excluyentes.
-
-        FIX (auditoría 2026-08-12, flujo RAG/prompts): esto era un
-        `@field_validator('monto_porcentaje')` que leía
-        `info.data.get('monto_valor')`. En Pydantic v2 los validators de
-        campo corren en el orden de declaración y `info.data` solo trae los
-        campos YA validados -- como `monto_porcentaje` se declara antes que
-        `monto_valor` en esta clase, `monto_valor` nunca estaba todavía en
-        `info.data` cuando este validator corría, así que la condición
-        `is not None` daba siempre falso y la regla de exclusividad mutua
-        nunca se disparaba (verificado: un `GarantiaItem` con AMBOS campos
-        seteados se construía sin error). Un `model_validator(mode='after')`
-        corre una sola vez con el objeto ya completo, sin depender del orden
-        de declaración de los campos.
         """
         if self.monto_porcentaje is not None and self.monto_valor is not None:
             raise ValueError(
@@ -558,15 +457,6 @@ class TipoIdentificacion(str, Enum):
     TIPO_PROCEDIMIENTO = "tipo_procedimiento"
     PRESUPUESTO_OFICIAL = "presupuesto_oficial"
     JURISDICCION = "jurisdiccion"
-    # FIX (2026-08-13): la carátula/portada de muchos pliegos trae un nombre
-    # corto entre comillas (ej. "Adquisición de Servidores de aplicaciones y
-    # base de datos") que identifica de qué se trata el llamado a simple
-    # vista -- distinto del número de procedimiento (que puede no existir
-    # todavía, ver la regla de `numero_procedimiento` en el prompt) y
-    # distinto del resumen_objeto de `objeto_alcance` (que es una síntesis
-    # de 2-4 oraciones, pensada para lectura detallada, no para un título).
-    # Sin este campo, un pliego sin número asignado quedaba con un título
-    # vacío de contenido ("Licitación Privada" a secas).
     DENOMINACION = "denominacion"
 
 
@@ -604,6 +494,40 @@ class CausalRechazoItem(ExtractedItem):
 
 
 # =============================================================================
+# CATEGORÍA: RIESGOS
+# =============================================================================
+
+class TipoRiesgo(str, Enum):
+    """Tipos de riesgos en licitaciones."""
+    DESCALIFICACION = "descalificacion"
+    PENALIZACION = "penalizacion"
+    LEGAL = "legal"
+    OPERATIVO = "operativo"
+    FINANCIERO = "financiero"
+    OTRO = "otro"
+
+
+class SubtipoRiesgo(str, Enum):
+    """Subtipos de riesgo para clasificación granular."""
+    EJECUCION = "ejecucion"
+    INCUMPLIMIENTO = "incumplimiento"
+    OPERATIVO = "operativo"
+    PLAZOS = "plazos"
+    ECONOMICO = "economico"
+    TECNICO = "tecnico"
+    LEGAL_CONTRACTUAL = "legal_contractual"
+    OTRO_EXPLICITO = "otro_explicito"
+
+
+class RiesgoItem(ExtractedItem):
+    """Item de riesgo identificado en el pliego."""
+    tipo: TipoRiesgo
+    subtipo: SubtipoRiesgo = SubtipoRiesgo.OTRO_EXPLICITO
+    valor: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+# =============================================================================
 # LEGACY: Schemas genéricos (mantener compatibilidad)
 # =============================================================================
 
@@ -636,16 +560,6 @@ class ExtractedData(BaseModel):
     - narrative: respuesta en lenguaje natural (opcional)
     """
     
-    # ATR-03 (auditoria 2026-08-13): cuantos hallazgos se descartaron por
-    # categoria y por que. El pipeline ya descartaba correctamente los items sin
-    # cita verificable, pero esa informacion moria en un log: el usuario veia la
-    # categoria como `partial` sin poder distinguir "el pliego dice poco" de
-    # "el modelo produjo tres items que no pudimos respaldar y los tiramos".
-    # Esa diferencia es justamente la senal de si conviene desconfiar.
-    #
-    # Va dentro de `extracted_data` -- y no en `extraction_metadata` -- porque
-    # es lo unico que ya viaja hasta el frontend sin cambiar el contrato de la
-    # API.
     calidad_por_categoria: dict[str, dict[str, int]] = Field(default_factory=dict)
 
     # Objeto y Alcance
@@ -687,6 +601,11 @@ class ExtractedData(BaseModel):
     identificacion_procedimiento: list[IdentificacionProcedimientoItem] = Field(default_factory=list)
     identificacion_procedimiento_extraction_status: str = "unknown"
     identificacion_procedimiento_narrative: CategoryNarrative | None = None
+
+    # Riesgos
+    riesgos: list[RiesgoItem] = Field(default_factory=list)
+    riesgos_extraction_status: str = "unknown"
+    riesgos_narrative: CategoryNarrative | None = None
 
     # =============================================================================
     # LEGACY FIELDS - BACKWARD COMPATIBILITY
@@ -822,6 +741,9 @@ __all__ = [
     "TipoIdentificacion",
     "CausalRechazoItem",
     "TipoCausal",
+    "RiesgoItem",
+    "TipoRiesgo",
+    "SubtipoRiesgo",
     
     # Legacy
     "GenericCategoryItem",
