@@ -12,10 +12,20 @@ export default {
           turquoise: "#52a4ab",
           teal: "#3e8296",
         },
+        pi: {
+          black: "#101212",
+          yellow: "#FFF100",
+          pink: "#FD415A",
+          orange: "#FF7A00",
+          sky: "#93D3EF",
+          blue: "#1F57E5",
+          violet: "#7254DD",
+        },
         primary: {
-          DEFAULT: "#2563EB",
-          dark: "#1D4ED8",
-          light: "#DBEAFE",
+          DEFAULT: "var(--color-primary, #2563EB)",
+          dark: "var(--color-primary-dark, #1D4ED8)",
+          light: "var(--color-primary-light, #DBEAFE)",
+          fg: "var(--color-primary-fg, #ffffff)",
         },
         success: {
           DEFAULT: "#10B981",
@@ -32,6 +42,10 @@ export default {
         critical: {
           DEFAULT: "#EA580C",
           light: "#FFEDD5",
+        },
+        highlight: {
+          DEFAULT: "#4F46E5",
+          light: "#E0E7FF",
         },
         info: {
           DEFAULT: "#3B82F6",

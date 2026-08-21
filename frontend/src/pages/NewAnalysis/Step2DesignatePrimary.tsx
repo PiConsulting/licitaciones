@@ -36,10 +36,6 @@ export function Step2DesignatePrimary({ files, onBack, onNext }: Step2DesignateP
 
       <DocumentList files={files} selectedIndex={primaryIndex} onSelect={setPrimaryIndex} />
 
-      {files.length > 1 && primaryIndex === null ? (
-        <p className="text-sm text-error">Seleccioná cuál es el pliego principal</p>
-      ) : null}
-
       <div className="flex justify-between">
         <Button type="button" variant="secondary" onClick={onBack}>
           Volver

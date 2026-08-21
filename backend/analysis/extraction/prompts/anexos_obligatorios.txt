@@ -1,0 +1,247 @@
+# CONCEPTO DE LA CATEGORÍA
+
+Esta categoría extrae los **formularios que hay que completar y presentar SÍ O SÍ**:
+anexos, planillas de cotización, declaraciones juradas, modelos de nota, formularios
+oficiales que el pliego exige incluir en la oferta.
+
+**Desde la perspectiva del oferente:** "¿Qué formularios tengo que completar?
+¿Qué planillas vienen en el pliego para llenar? ¿Dónde firmo?"
+
+Son los **documentos que el propio pliego provee** (o referencia) para que el
+oferente complete. Si no están, la oferta se cae por incompleta.
+
+**Qué incluye:**
+- Anexos del pliego (formularios, planillas, modelos)
+- Planillas de cotización o presupuesto
+- Declaraciones juradas (DDJJ)
+- Modelos de nota o carta
+- Formularios oficiales para completar
+
+Un ítem por anexo/formulario.
+
+**Reconocimiento semántico:** El pliego puede no titular "Anexos". Buscá:
+- Secciones de "Formularios", "Planillas", "Modelos"
+- Listados de documentos a completar
+- Referencias a "Anexo I", "Anexo II", "Planilla A", etc.
+- Menciones de declaraciones juradas a suscribir
+- Frases sobre formularios que "deberán completarse"
+
+**Frases típicas que indican anexos:**
+- "Forman parte del presente los siguientes anexos..."
+- "Anexo [N] — [nombre del formulario]"
+- "Deberá completarse y suscribirse la planilla..."
+- "Modelo de declaración jurada adjunto"
+- "El oferente completará el formulario..."
+
+**Variaciones comunes:**
+- "Anexo" = "Formulario" = "Planilla" = "Modelo"
+- "Declaración jurada" = "DDJJ" = "Manifestación jurada"
+- "Completar" = "Llenar" = "Cumplimentar" = "Suscribir"
+
+---
+
+## EXCLUSIÓN CRÍTICA — NO confundir
+
+❌ **NO incluir documentos respaldatorios de terceros:**
+- Certificados fiscales (van en requisitos de admisibilidad)
+- Balances (van en requisitos)
+- Constancias de inscripción (van en requisitos)
+- Habilitaciones (van en requisitos)
+
+✅ **SÍ incluir formularios que el PLIEGO provee:**
+- Anexo I — Planilla de Cotización
+- Anexo II — Declaración Jurada de Habilidad
+- Modelo de Nota de Presentación
+- Formulario de Datos del Oferente
+
+**La diferencia clave:** Los anexos son formularios que el organismo licitante
+provee (o describe) para que el oferente complete. Los requisitos son documentos
+que el oferente trae de afuera (emisor externo).
+
+---
+
+# OBJETIVO
+Extraer los formularios que hay que completar y presentar SÍ O SÍ. Un ítem por
+anexo/formulario.
+
+# ESTRUCTURA DE SALIDA
+
+Usá el schema `AnexoObligatorioItem` definido en `schemas.py`.
+
+**Campos clave:**
+- `tipo`: Usa enum `TipoAnexo` (anexo, formulario, planilla, declaracion_jurada, otro)
+- `valor`: Identificador completo con nombre descriptivo (ej: "Anexo I — Planilla de Cotización")
+- `metadata`: Diccionario con campos:
+  - `debe_completarse`: "si" | "no" | "no_especificado"
+  - `debe_firmarse`: "si" | "no" | "no_especificado"
+  - `presente_en_documentos_subidos`: "si" | "no" | "no_especificado"
+- `confidence`: [0.0-1.0] según el algoritmo de confianza
+- `source_references`: Siempre incluir cita literal del pliego (min 12 chars, ver CITATION_MIN_CHARS en schemas.py)
+
+**Cuando no hay anexos:** `{"anexos_obligatorios": []}`
+
+---
+
+# REGLAS ESPECÍFICAS
+
+## 1. valor: conservar identificador completo
+Incluí el identificador Y el nombre descriptivo.
+
+**Ejemplos:**
+- ✅ "Anexo I — Planilla de Cotización"
+- ✅ "Anexo II — Declaración Jurada de Habilidad para Contratar"
+- ❌ "Planilla de Cotización" (falta el identificador "Anexo I")
+
+## 2. metadata.debe_completarse
+`"si"` únicamente si el pliego lo indica para ese anexo específico.
+
+**Frases que indican debe_completarse="si":**
+- "Deberá completarse"
+- "El oferente cumplimentará"
+- "Se completará con letra legible"
+
+❌ No lo infieras porque "todos los anexos suelen completarse"
+
+## 3. ANEXOS TÍPICOS - Lista de Verificación
+
+Buscá ACTIVAMENTE estos anexos comunes en pliegos argentinos (no te limites a estos):
+
+### 3.1 Anexo I - Especificaciones Técnicas
+"Anexo I — Especificaciones Técnicas Mínimas"
+→ tipo: `anexo`, debe_completarse: `"no"` (es marco de referencia), presente_en_documentos_subidos: verificar si está en PDFs
+
+**Descripción típica:** Detalla requisitos técnicos mínimos que debe cumplir la oferta. El oferente NO lo completa, pero su propuesta técnica debe ajustarse a él.
+
+### 3.2 Anexo II - Planilla/Tabla de Cotización
+"Anexo II — Tabla de Cotización" / "Anexo II — Planilla de Presupuesto"
+→ tipo: `planilla`, debe_completarse: `"si"`, debe_firmarse: `"si"` (generalmente)
+
+**Descripción típica:** Formulario para completar con ítems, cantidades, precios unitarios y totales. Es la base de la oferta económica.
+
+### 3.3 Declaraciones Juradas (DDJJ)
+"Declaraciones Juradas que deberán descargarse de la página web del organismo"
+→ tipo: `declaracion_jurada`, debe_completarse: `"si"`, debe_firmarse: `"si"`
+
+**⚠️ CRÍTICO:** Muchos pliegos mencionan DDJJ SIN incluirlas en el PDF del pliego. Busca frases como:
+- "Las Declaraciones Juradas se descargan de..."
+- "DDJJ disponibles en el sitio web..."
+- "Formularios oficiales a descargar..."
+
+**Si el pliego menciona DDJJ aunque no estén en el PDF, DEBES extraerlas.**
+
+**Variaciones comunes de DDJJ:**
+- "Declaración Jurada de No Estar Inhabilitado"
+- "DDJJ de Cumplimiento Fiscal"
+- "Declaración de Conflicto de Interés"
+- "Manifestación Jurada de Capacidad para Contratar"
+
+### 3.4 Modelo de Nota de Presentación
+"Modelo de Nota de Presentación de Oferta"
+→ tipo: `formulario`, debe_completarse: `"si"`, debe_firmarse: `"si"`
+
+### 3.5 Formulario de Datos del Oferente
+"Formulario de Identificación del Oferente"
+→ tipo: `formulario`, debe_completarse: "si", debe_firmarse: verificar
+
+**⚠️ NO OMITIR:** Si el pliego lista anexos A, B, C... o I, II, III... extrae TODOS, no solo algunos.
+
+---
+
+## 4. metadata.debe_firmarse
+`"si"` únicamente si el pliego lo indica para ese anexo.
+
+**Frases que indican debe_firmarse="si":**
+- "Deberá suscribirse"
+- "Firmado por el representante legal"
+- "Con firma certificada"
+
+## 5. metadata.presente_en_documentos_subidos
+`"si"` solo si entre los fragmentos aparece el CONTENIDO del propio anexo (no su
+mención en un listado).
+
+**Ejemplo:**
+- Fragmento dice "Anexo I — Planilla de Cotización" → `"no_especificado"` (es solo la mención)
+- Fragmento contiene la planilla completa con campos → `"si"` (es el anexo en sí)
+
+En la duda, `"no_especificado"`.
+
+## 6. Listado de anexos en tabla
+Si el pliego lista anexos en tabla, un ítem por fila con `citation` en formato:
+`Encabezado: <col> | Fila: <fila> | Valor: <valor>`
+
+## 7. No incluir documentos respaldatorios
+❌ Certificados fiscales, balances, constancias de terceros → van en requisitos.
+✅ Formularios que el pliego provee para completar → van acá.
+
+## 8. TipoAnexo enum
+Valores disponibles:
+- `anexo`: referencia genérica a anexo del pliego
+- `formulario`: formulario oficial
+- `planilla`: planilla de datos, cotización, etc.
+- `declaracion_jurada`: DDJJ
+- `otro`: cualquier otro
+
+---
+
+# EJEMPLO DE FORMA
+
+**Fragmento:**
+```
+[Fragmento: F1, Documento: 7c9e, Página: 8, Sección: Capítulo 9 > Artículo 20°, Tipo: PÁRRAFO]
+Artículo 20° — Forman parte integrante del presente el Anexo II — Declaración Jurada
+de Habilidad para Contratar, que deberá completarse y suscribirse por el representante legal.
+```
+
+**Salida correcta:**
+```json
+{
+  "anexos_obligatorios": [
+    {
+      "tipo": "declaracion_jurada",
+      "valor": "Anexo II — Declaración Jurada de Habilidad para Contratar",
+      "metadata": {
+        "debe_completarse": "si",
+        "debe_firmarse": "si",
+        "presente_en_documentos_subidos": "no_especificado"
+      },
+      "confidence": 0.9,
+      "source_references": [
+        {
+          "document_id": "7c9e",
+          "page_number": 8,
+          "citation": "el Anexo II — Declaración Jurada de Habilidad para Contratar, que deberá completarse y suscribirse"
+        }
+      ],
+      "extraction_status": "success"
+    }
+  ]
+}
+```
+
+# EJEMPLO DE EXCLUSIÓN (documento respaldatorio, no anexo)
+
+**Fragmento:**
+```
+"El oferente deberá presentar certificado fiscal para contratar vigente."
+```
+
+❌ **NO generar ítem.** Es un requisito de admisibilidad (documento de tercero),
+no un formulario del pliego.
+
+Si no hay anexos/formularios reales:
+```json
+{"anexos_obligatorios": []}
+```
+
+# EJEMPLO DE AUSENCIA
+Si los fragmentos no mencionan anexos ni formularios:
+
+```json
+{"anexos_obligatorios": []}
+```
+
+---
+
+=== CONTENIDO DEL PLIEGO ===
+{chunks}
+=== FIN DEL CONTENIDO ===

@@ -5,3 +5,9 @@
 #
 # [agents.bmad-agent-pm]
 # description = "Prefers short, bulleted PRDs over narrative drafts."
+
+[modules.bmm]
+project_knowledge = "{project-root}"
+
+[modules.wds]
+project_knowledge = "{project-root}"

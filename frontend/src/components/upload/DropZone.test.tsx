@@ -28,7 +28,7 @@ describe("DropZone", () => {
     dragActive = false;
     render(<DropZone onFilesSelected={() => undefined} />);
 
-    expect(screen.getByText(/arrastrá tus pdfs acá/i)).toBeInTheDocument();
+    expect(screen.getByText(/arrastrá tu pdf acá/i)).toBeInTheDocument();
     expect(screen.getByTestId("upload-icon")).toBeInTheDocument();
   });
 

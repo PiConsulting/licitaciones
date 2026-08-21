@@ -4,22 +4,27 @@ version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
   "alembic>=1.13.0",
+  "azure-cosmos>=4.7.0",
+  "azure-ai-documentintelligence>=1.0.0",
+  "azure-search-documents>=11.4.0",
   "azure-storage-blob>=12.19.0",
   "fastapi>=0.111.0",
+  "langchain-openai>=0.1.0",
+  "langgraph>=0.1.0",
+  "openai>=1.0.0",
   "passlib[bcrypt]>=1.7.4",
-  "pypdf>=4.2.0",
+  "bcrypt<5.0.0",  # Pin bcrypt<5 for passlib compatibility until passlib 1.7.5+
+  "pymupdf>=1.24.9",
   "pydantic-settings>=2.3.0",
   "pyjwt>=2.8.0",
   "python-multipart>=0.0.9",
   "python-dotenv>=1.0.0",
   "sqlalchemy>=2.0.0",
   "structlog>=24.0.0",
+  "tenacity>=8.0.0",
+  "tiktoken>=0.7.0",
   "uvicorn[standard]>=0.30.0",
   "psycopg2-binary>=2.9.9",
-]
-
-[project.optional-dependencies]
-dev = [
   "httpx>=0.27.0",
   "pytest>=8.2.0",
   "ruff>=0.4.0",

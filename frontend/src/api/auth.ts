@@ -18,4 +18,6 @@ export async function register(payload: RegisterRequest): Promise<RegisterRespon
 
 export function logout(): void {
   localStorage.removeItem("access_token");
+  localStorage.removeItem("user_name");
+  localStorage.removeItem("user_email");
 }

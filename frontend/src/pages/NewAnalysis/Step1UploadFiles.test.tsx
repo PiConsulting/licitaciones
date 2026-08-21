@@ -65,7 +65,7 @@ describe("Step1UploadFiles", () => {
     expect(screen.queryByText("test.pdf")).not.toBeInTheDocument();
   });
 
-  test("muestra error cuando supera cantidad máxima", async () => {
+  test("muestra error cuando supera cantidad máxima de archivos", async () => {
     render(<Step1UploadFiles onNext={() => undefined} />);
 
     const files = Array.from({ length: 11 }, (_, index) =>

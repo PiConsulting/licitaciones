@@ -1,0 +1,361 @@
+{
+  "objeto_alcance": {
+    "query_terms": [
+      "objeto",
+      "alcance",
+      "alcance del servicio",
+      "descripcion de la contratacion",
+      "modalidad",
+      "oferta parcial",
+      "ofertas alternativas",
+      "lugar de entrega",
+      "plazo de ejecucion",
+      "prestacion del servicio",
+      "provision",
+      "suministro"
+    ],
+    "aliases": [
+      "objeto de la contratacion",
+      "alcance de la contratacion",
+      "objeto del llamado",
+      "descripcion del servicio",
+      "objeto de la licitacion",
+      "bienes a proveer",
+      "servicios a prestar",
+      "obra a ejecutar",
+      "renglones",
+      "lotes",
+      "items a cotizar"
+    ],
+    "thresholds": {
+      "primary": 0.30,
+      "secondary": 0.12
+    },
+    "weight": 1.0
+  },
+  "requisitos_admisibilidad": {
+    "query_terms": [
+      "requisitos de admisibilidad",
+      "condiciones de admision",
+      "requisitos habilitantes",
+      "documentacion requerida",
+      "subsanable",
+      "momento de presentacion",
+      "capacidad tecnica",
+      "capacidad financiera",
+      "inscripcion registro proveedores",
+      "antecedentes",
+      "certificaciones",
+      "habilitacion",
+      "constancia"
+    ],
+    "aliases": [
+      "requisitos legales",
+      "requisitos tecnicos",
+      "requisitos economico financieros",
+      "requisitos administrativos",
+      "documentacion a presentar",
+      "sobre A",
+      "sobre 1",
+      "condiciones de participacion",
+      "restricciones de participacion",
+      "impedimentos para contratar",
+      "habilitaciones",
+      "antecedentes exigidos",
+      "capacidad para contratar",
+      "requisitos minimos",
+      "requisitos tecnicos minimos",
+      "certificacion del fabricante",
+      "antecedentes de provision",
+      "experiencia comprobable",
+      "personal tecnico",
+      "soporte tecnico",
+      "debe acreditar",
+      "debera presentar",
+      "declaracion jurada",
+      "balance",
+      "estados contables",
+      "seguro de responsabilidad civil"
+    ],
+    "thresholds": {
+      "primary": 0.25,
+      "secondary": 0.12
+    },
+    "weight": 1.0
+  },
+  "garantias": {
+    "query_terms": [
+      "garantia",
+      "garantia de oferta",
+      "mantenimiento de oferta",
+      "cumplimiento de contrato",
+      "anticipo",
+      "caucion",
+      "fianza",
+      "monto garantia",
+      "porcentaje garantia",
+      "forma de constitucion"
+    ],
+    "aliases": [
+      "poliza",
+      "boleta de garantia",
+      "seriedad de la oferta",
+      "garantia de seriedad",
+      "garantia de mantenimiento",
+      "garantia de adjudicacion",
+      "contragarantia",
+      "seguro de caucion",
+      "aval bancario",
+      "deposito en garantia",
+      "pagare",
+      "fianza bancaria",
+      "garantia de impugnacion"
+    ],
+    "thresholds": {
+      "primary": 0.35,
+      "secondary": 0.15
+    },
+    "weight": 1.0,
+    "top_k": 35
+  },
+  "plazos_clave": {
+    "query_terms": [
+      "plazos",
+      "fecha limite",
+      "presentacion de ofertas",
+      "apertura",
+      "adjudicacion",
+      "firma de contrato",
+      "inicio de ejecucion",
+      "vencimiento",
+      "fecha de apertura",
+      "acto de apertura"
+    ],
+    "aliases": [
+      "cronograma",
+      "hitos",
+      "calendario",
+      "fecha de presentacion",
+      "cierre de recepcion",
+      "plazo de mantenimiento",
+      "periodo de consultas",
+      "visita de obra",
+      "visita obligatoria",
+      "plazo de impugnacion",
+      "entrega de ofertas",
+      "dias habiles",
+      "dias corridos",
+      "subsanacion",
+      "subsanar",
+      "intimacion",
+      "intimacion fehaciente",
+      "preaviso",
+      "rescision",
+      "rescindir",
+      "acreditacion de importacion",
+      "termino"
+    ],
+    "thresholds": {
+      "primary": 0.30,
+      "secondary": 0.15
+    },
+    "weight": 1.0,
+    "top_k": 35
+  },
+  "criterios_evaluacion": {
+    "query_terms": [
+      "criterios de evaluacion",
+      "ponderacion",
+      "puntaje",
+      "metodo de adjudicacion",
+      "oferta economica",
+      "oferta tecnica",
+      "menor precio",
+      "precio mas bajo"
+    ],
+    "aliases": [
+      "matriz de evaluacion",
+      "metodologia de evaluacion",
+      "factor de evaluacion",
+      "criterios de seleccion",
+      "parametros de calificacion",
+      "puntaje ponderado",
+      "mejor relacion precio calidad",
+      "oferta mas conveniente",
+      "formula de evaluacion",
+      "coeficiente de ponderacion",
+      "puntaje tecnico minimo",
+      "orden de merito"
+    ],
+    "thresholds": {
+      "primary": 0.30,
+      "secondary": 0.15
+    },
+    "weight": 1.0
+  },
+  "causales_rechazo": {
+    "query_terms": [
+      "causales de rechazo",
+      "desestimacion",
+      "inhabilitacion",
+      "descalificacion",
+      "exclusion",
+      "rechazo de oferta",
+      "oferta inadmisible",
+      "rechazada",
+      "desestimada",
+      "excluida",
+      "inadmisible"
+    ],
+    "aliases": [
+      "causales de exclusion",
+      "motivos de rechazo",
+      "causales de desestimacion",
+      "defectos no subsanables",
+      "sera rechazada",
+      "no sera considerada",
+      "quedara excluida",
+      "sera desestimada",
+      "sin mas tramite",
+      "de pleno derecho",
+      "conducta anticompetitiva",
+      "informacion falsa",
+      "oferta rechazada",
+      "propuesta rechazada",
+      "quedara desestimada",
+      "no podra presentarse",
+      "causal de inhabilitacion",
+      "motivo de exclusion",
+      "oferta excluida"
+    ],
+    "top_k": 35,
+    "thresholds": {
+      "primary": 0.35,
+      "secondary": 0.15
+    },
+    "weight": 1.2
+  },
+  "anexos_obligatorios": {
+    "query_terms": [
+      "anexo",
+      "anexos obligatorios",
+      "formulario",
+      "debe completarse",
+      "debe firmarse",
+      "planilla",
+      "modelo de nota",
+      "formulario adjunto",
+      "debera completar"
+    ],
+    "aliases": [
+      "apendice",
+      "adjunto obligatorio",
+      "modelo de presentacion",
+      "formulario oficial",
+      "declaracion jurada",
+      "nota de oferta",
+      "planilla de cotizacion",
+      "presupuesto detallado",
+      "documentacion tecnica obligatoria",
+      "constancia",
+      "certificado exigido",
+      "modelo adjunto",
+      "formato anexo",
+      "planilla adjunta",
+      "formulario a completar",
+      "debe presentar formulario",
+      "anexo que debera"
+    ],
+    "thresholds": {
+      "primary": 0.40,
+      "secondary": 0.18
+    },
+    "weight": 1.0
+  },
+  "identificacion_procedimiento": {
+    "query_terms": [
+      "organismo convocante",
+      "numero de expediente",
+      "numero de procedimiento",
+      "tipo de procedimiento",
+      "presupuesto oficial",
+      "jurisdiccion",
+      "licitacion publica",
+      "contratacion directa"
+    ],
+    "aliases": [
+      "datos del llamado",
+      "informacion del proceso",
+      "datos administrativos",
+      "ente licitante",
+      "reparticion",
+      "ministerio",
+      "municipalidad",
+      "expediente administrativo",
+      "numero de licitacion",
+      "concurso de precios",
+      "subasta",
+      "licitacion privada"
+    ],
+    "thresholds": {
+      "primary": 0.20,
+      "secondary": 0.10
+    },
+    "weight": 0.8
+  },
+  "riesgos": {
+    "query_terms": [
+      "multa",
+      "penalizacion",
+      "sancion",
+      "incumplimiento",
+      "rescision",
+      "resolucion del contrato",
+      "consecuencia",
+      "responsabilidad",
+      "descalificacion",
+      "penalidad"
+    ],
+    "aliases": [
+      "penalizacion economica",
+      "multa por incumplimiento",
+      "multa por demora",
+      "penalidad por atraso",
+      "multa diaria",
+      "penalizacion por dia",
+      "rescision de contrato",
+      "resolucion contractual",
+      "rescision de pleno derecho",
+      "incumplimiento contractual",
+      "incumplimiento de obligaciones",
+      "falta grave",
+      "omision",
+      "mora",
+      "demora injustificada",
+      "atraso en la entrega",
+      "consecuencia legal",
+      "consecuencia economica",
+      "responsabilidad civil",
+      "responsabilidad solidaria",
+      "descalificacion del oferente",
+      "inhabilitacion para contratar",
+      "suspension del registro",
+      "ejecucion de garantia",
+      "perdida de garantia",
+      "daño y perjuicio",
+      "daños y perjuicios",
+      "indemnizacion",
+      "reparacion",
+      "subsanar",
+      "incumplimiento grave",
+      "falta de entrega",
+      "penalidad contractual"
+    ],
+    "top_k": 35,
+    "thresholds": {
+      "primary": 0.35,
+      "secondary": 0.15
+    },
+    "weight": 1.2
+  }
+}

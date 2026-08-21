@@ -1,18 +1,23 @@
-from io import BytesIO
-
 from fastapi.testclient import TestClient
-import pypdf
+import fitz
 
 
 def _build_pdf(pages: int, encrypted: bool = False) -> bytes:
-    writer = pypdf.PdfWriter()
+    doc = fitz.open()
     for _ in range(pages):
-      writer.add_blank_page(width=200, height=200)
-    if encrypted:
-      writer.encrypt(user_password="secret", owner_password="secret")
-    output = BytesIO()
-    writer.write(output)
-    return output.getvalue()
+      doc.new_page(width=200, height=200)
+
+    try:
+      if encrypted:
+        return doc.tobytes(
+          encryption=fitz.PDF_ENCRYPT_AES_256,
+          owner_pw="secret",
+          user_pw="secret",
+          permissions=0,
+        )
+      return doc.tobytes()
+    finally:
+      doc.close()
 
 
 def test_upload_single_pdf_success(client: TestClient, auth_token: str):
@@ -27,7 +32,7 @@ def test_upload_single_pdf_success(client: TestClient, auth_token: str):
 
     assert response.status_code == 201
     payload = response.json()
-    assert payload["status"] == "queued"
+    assert payload["status"] == "draft"
     assert len(payload["documents"]) == 1
     assert payload["documents"][0]["is_primary"] is True
 

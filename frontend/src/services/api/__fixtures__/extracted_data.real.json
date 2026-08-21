@@ -1,0 +1,790 @@
+{
+ "objeto_alcance": [
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "La presente licitación tiene por objeto la contratación del servicio de limpieza integral de los edificios municipales de Villa Nueva. Modalidad: servicios."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "resumen_objeto",
+   "valor": "la contratación del servicio de limpieza integral de los edificios municipales de Villa Nueva",
+   "metadata": {
+    "cantidad": null,
+    "unidad_medida": null,
+    "renglon": null
+   }
+  },
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "La presente licitación tiene por objeto la contratación del servicio de limpieza integral de los edificios municipales de Villa Nueva. Modalidad: servicios."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "modalidad",
+   "valor": "servicios",
+   "metadata": {
+    "cantidad": null,
+    "unidad_medida": null,
+    "renglon": null
+   }
+  },
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "Lugar de prestación: Edificio Municipal, Av. San Martín 450. No se admiten ofertas parciales. No se admiten ofertas alternativas."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "lugar_entrega",
+   "valor": "Edificio Municipal, Av. San Martín 450",
+   "metadata": {
+    "cantidad": null,
+    "unidad_medida": null,
+    "renglon": null
+   }
+  },
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "Plazo de ejecución: 12 meses corridos desde la firma del contrato. Lugar de prestación: Edificio Municipal, Av. San Martín 450."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "plazo_ejecucion",
+   "valor": "12 meses corridos desde la firma del contrato",
+   "metadata": {
+    "cantidad": 12,
+    "unidad_medida": "meses corridos",
+    "renglon": null
+   }
+  },
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "Lugar de prestación: Edificio Municipal, Av. San Martín 450. No se admiten ofertas parciales. No se admiten ofertas alternativas."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "oferta_parcial",
+   "valor": "no",
+   "metadata": {
+    "cantidad": null,
+    "unidad_medida": null,
+    "renglon": null
+   }
+  },
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "Lugar de prestación: Edificio Municipal, Av. San Martín 450. No se admiten ofertas parciales. No se admiten ofertas alternativas."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "oferta_alternativa",
+   "valor": "no",
+   "metadata": {
+    "cantidad": null,
+    "unidad_medida": null,
+    "renglon": null
+   }
+  }
+ ],
+ "objeto_alcance_extraction_status": "success",
+ "requisitos_admisibilidad": [
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "a) Constancia de inscripción en el Registro de Proveedores del Municipio. Requisito legal, obligatorio, a presentar con la oferta."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "legal",
+   "valor": "Constancia de inscripción en el Registro de Proveedores del Municipio",
+   "metadata": {
+    "obligatorio": "si",
+    "momento_presentacion": "con_la_oferta",
+    "subsanable": "no_especificado"
+   }
+  },
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "b) Certificado fiscal para contratar. Requisito administrativo, obligatorio, a presentar con la oferta."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "administrativo",
+   "valor": "Certificado fiscal para contratar",
+   "metadata": {
+    "obligatorio": "si",
+    "momento_presentacion": "con_la_oferta",
+    "subsanable": "no_especificado"
+   }
+  },
+  {
+   "confidence": 0.7,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 2,
+     "citation": "Anexo I - Planilla de Cotización: debe completarse y firmarse."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "administrativo",
+   "valor": "Anexo I - Planilla de Cotización",
+   "metadata": {
+    "obligatorio": "si",
+    "momento_presentacion": "no_especificado",
+    "subsanable": "no_especificado"
+   }
+  },
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "a) Constancia de inscripción en el Registro de Proveedores del Municipio. Requisito legal, obligatorio, a presentar con la oferta."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "inscripcion_registro",
+   "valor": "Constancia de inscripción en el Registro de Proveedores del Municipio",
+   "metadata": {
+    "obligatorio": "si",
+    "momento_presentacion": "con_la_oferta",
+    "subsanable": "no_especificado"
+   }
+  }
+ ],
+ "requisitos_admisibilidad_extraction_status": "success",
+ "plazos_clave": [
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "Presentación de ofertas: 15/09/2026, 10:00 hs, en la Oficina de Compras."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "presentacion_ofertas",
+   "fecha": "2026-09-15",
+   "hora": "10:00",
+   "expresion_relativa": null,
+   "texto_original": "Presentación de ofertas: 15/09/2026, 10:00 hs, en la Oficina de Compras.",
+   "prorrogable": "no_especificado",
+   "lugar": "Oficina de Compras"
+  },
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "Apertura: 15/09/2026, 11:00 hs, en la Sala de Licitaciones."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "apertura",
+   "fecha": "2026-09-15",
+   "hora": "11:00",
+   "expresion_relativa": null,
+   "texto_original": "Apertura: 15/09/2026, 11:00 hs, en la Sala de Licitaciones.",
+   "prorrogable": "no_especificado",
+   "lugar": "Sala de Licitaciones"
+  },
+  {
+   "confidence": 0.8,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "Mantenimiento de oferta: 30 días corridos desde la fecha de apertura."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "mantenimiento_oferta",
+   "fecha": null,
+   "hora": null,
+   "expresion_relativa": "30 días corridos desde la fecha de apertura",
+   "texto_original": "Mantenimiento de oferta: 30 días corridos desde la fecha de apertura.",
+   "prorrogable": "no_especificado",
+   "lugar": null
+  },
+  {
+   "confidence": 0.7,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "con una vigencia de 30 días corridos desde la fecha de apertura."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "mantenimiento_oferta",
+   "fecha": null,
+   "hora": null,
+   "expresion_relativa": "30 días corridos desde la fecha de apertura",
+   "texto_original": "con una vigencia de 30 días corridos desde la fecha de apertura.",
+   "prorrogable": "no_especificado",
+   "lugar": null
+  },
+  {
+   "confidence": 0.8,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "dentro de los 5 días hábiles de notificada la apertura, con una vigencia de 30 días corridos desde la fecha de apertura."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "otro",
+   "fecha": null,
+   "hora": null,
+   "expresion_relativa": "dentro de los 5 días hábiles de notificada la apertura",
+   "texto_original": "dentro de los 5 días hábiles de notificada la apertura, con una vigencia de 30 días corridos desde la fecha de apertura.",
+   "prorrogable": "no_especificado",
+   "lugar": null
+  },
+  {
+   "confidence": 0,
+   "source_references": [],
+   "extraction_status": "not_found",
+   "tipo": "adjudicacion",
+   "fecha": null,
+   "hora": null,
+   "expresion_relativa": null,
+   "texto_original": "La adjudicación se realizará por menor precio, entre las ofertas que cumplan todos los requisitos de admisibilidad.",
+   "prorrogable": "no_especificado",
+   "lugar": null
+  },
+  {
+   "confidence": 0.7,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "Plazo de ejecución: 12 meses corridos desde la firma del contrato. Lugar de prestación: Edificio Municipal, Av. San Martín 450."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "firma_contrato",
+   "fecha": null,
+   "hora": null,
+   "expresion_relativa": null,
+   "texto_original": "Plazo de ejecución: 12 meses corridos desde la firma del contrato.",
+   "prorrogable": "no_especificado",
+   "lugar": "Edificio Municipal, Av. San Martín 450"
+  }
+ ],
+ "plazos_clave_extraction_status": "success",
+ "plazos": [
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "Presentación de ofertas: 15/09/2026, 10:00 hs, en la Oficina de Compras."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "presentacion_ofertas",
+   "fecha": "2026-09-15",
+   "hora": "10:00",
+   "expresion_relativa": null,
+   "texto_original": "Presentación de ofertas: 15/09/2026, 10:00 hs, en la Oficina de Compras.",
+   "prorrogable": "no_especificado",
+   "lugar": "Oficina de Compras"
+  },
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "Apertura: 15/09/2026, 11:00 hs, en la Sala de Licitaciones."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "apertura",
+   "fecha": "2026-09-15",
+   "hora": "11:00",
+   "expresion_relativa": null,
+   "texto_original": "Apertura: 15/09/2026, 11:00 hs, en la Sala de Licitaciones.",
+   "prorrogable": "no_especificado",
+   "lugar": "Sala de Licitaciones"
+  },
+  {
+   "confidence": 0.8,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "Mantenimiento de oferta: 30 días corridos desde la fecha de apertura."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "mantenimiento_oferta",
+   "fecha": null,
+   "hora": null,
+   "expresion_relativa": "30 días corridos desde la fecha de apertura",
+   "texto_original": "Mantenimiento de oferta: 30 días corridos desde la fecha de apertura.",
+   "prorrogable": "no_especificado",
+   "lugar": null
+  },
+  {
+   "confidence": 0.7,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "con una vigencia de 30 días corridos desde la fecha de apertura."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "mantenimiento_oferta",
+   "fecha": null,
+   "hora": null,
+   "expresion_relativa": "30 días corridos desde la fecha de apertura",
+   "texto_original": "con una vigencia de 30 días corridos desde la fecha de apertura.",
+   "prorrogable": "no_especificado",
+   "lugar": null
+  },
+  {
+   "confidence": 0.8,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "dentro de los 5 días hábiles de notificada la apertura, con una vigencia de 30 días corridos desde la fecha de apertura."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "otro",
+   "fecha": null,
+   "hora": null,
+   "expresion_relativa": "dentro de los 5 días hábiles de notificada la apertura",
+   "texto_original": "dentro de los 5 días hábiles de notificada la apertura, con una vigencia de 30 días corridos desde la fecha de apertura.",
+   "prorrogable": "no_especificado",
+   "lugar": null
+  },
+  {
+   "confidence": 0,
+   "source_references": [],
+   "extraction_status": "not_found",
+   "tipo": "adjudicacion",
+   "fecha": null,
+   "hora": null,
+   "expresion_relativa": null,
+   "texto_original": "La adjudicación se realizará por menor precio, entre las ofertas que cumplan todos los requisitos de admisibilidad.",
+   "prorrogable": "no_especificado",
+   "lugar": null
+  },
+  {
+   "confidence": 0.7,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "Plazo de ejecución: 12 meses corridos desde la firma del contrato. Lugar de prestación: Edificio Municipal, Av. San Martín 450."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "firma_contrato",
+   "fecha": null,
+   "hora": null,
+   "expresion_relativa": null,
+   "texto_original": "Plazo de ejecución: 12 meses corridos desde la firma del contrato.",
+   "prorrogable": "no_especificado",
+   "lugar": "Edificio Municipal, Av. San Martín 450"
+  }
+ ],
+ "plazos_extraction_status": "success",
+ "garantias": [
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "Los oferentes deberán constituir una garantía de mantenimiento de oferta equivalente al 5% del presupuesto oficial, mediante póliza de caución, dentro de los 5 días hábiles de notificada la apertura, con una vigencia de 30 días corridos desde la fecha de apertura."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "mantenimiento_oferta",
+   "monto_porcentaje": 5,
+   "monto_valor": null,
+   "moneda": null,
+   "base_calculo": "porcentaje",
+   "sobre_que_se_calcula": "presupuesto_oficial",
+   "forma_constitucion": "poliza_caucion",
+   "plazo_constitucion": "dentro de los 5 días hábiles de notificada la apertura",
+   "vigencia": "30 días corridos desde la fecha de apertura"
+  }
+ ],
+ "garantias_extraction_status": "success",
+ "causales_rechazo": [
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "La falta de presentación de la garantía de mantenimiento de oferta constituye causal de rechazo automático, no subsanable, aplicable en la etapa de admisión."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "causal_rechazo",
+   "valor": "La falta de presentación de la garantía de mantenimiento de oferta",
+   "metadata": {
+    "rechazo": "automatico",
+    "subsanable": "no",
+    "momento_aplicacion": "admision"
+   }
+  }
+ ],
+ "causales_extraction_status": "success",
+ "anexos_obligatorios": [
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 2,
+     "citation": "Anexo I - Planilla de Cotización: debe completarse y firmarse."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "anexo",
+   "valor": "Anexo I - Planilla de Cotización",
+   "metadata": {
+    "debe_completarse": "si",
+    "debe_firmarse": "si",
+    "presente_en_documentos_subidos": "no_especificado"
+   }
+  }
+ ],
+ "anexos_extraction_status": "success",
+ "datos_procedimiento": [
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 2,
+     "citation": "Organismo convocante: Municipalidad de Villa Nueva. Expediente Nº 0100-EXP-2026. Procedimiento Nº 05/2026. Tipo de procedimiento: Licitación pública."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "organismo_convocante",
+   "valor": "Municipalidad de Villa Nueva",
+   "metadata": {}
+  },
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "Documento de prueba - Happy Path · Contratación de Servicio de Limpieza · Expediente Nº 0100-EXP-2026 · Municipalidad de Villa Nueva"
+    },
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 2,
+     "citation": "Organismo convocante: Municipalidad de Villa Nueva. Expediente Nº 0100-EXP-2026. Procedimiento Nº 05/2026. Tipo de procedimiento: Licitación pública."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "expediente",
+   "valor": "0100-EXP-2026",
+   "metadata": {}
+  },
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 2,
+     "citation": "Organismo convocante: Municipalidad de Villa Nueva. Expediente Nº 0100-EXP-2026. Procedimiento Nº 05/2026. Tipo de procedimiento: Licitación pública."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "numero_procedimiento",
+   "valor": "05/2026",
+   "metadata": {}
+  },
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 2,
+     "citation": "Organismo convocante: Municipalidad de Villa Nueva. Expediente Nº 0100-EXP-2026. Procedimiento Nº 05/2026. Tipo de procedimiento: Licitación pública."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "tipo_procedimiento",
+   "valor": "Licitación pública",
+   "metadata": {}
+  },
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 2,
+     "citation": "Organismo convocante: Municipalidad de Villa Nueva. Expediente Nº 0100-EXP-2026. Procedimiento Nº 05/2026. Tipo de procedimiento: Licitación pública. Presupuesto oficial: AR$ 12.000.000. Jurisdicción: Municipal."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "jurisdiccion",
+   "valor": "Municipal",
+   "metadata": {}
+  },
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "Presentación de ofertas: 15/09/2026, 10:00 hs, en la Oficina de Compras. Apertura: 15/09/2026, 11:00 hs, en la Sala de Licitaciones."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "etapa",
+   "valor": "Presentación de ofertas",
+   "metadata": {
+    "fecha": "2026-09-15",
+    "hora": "10:00",
+    "expresion_relativa": null,
+    "texto_original": "Presentación de ofertas: 15/09/2026, 10:00 hs, en la Oficina de Compras. Apertura: 15/09/2026, 11:00 hs, en la Sala de Licitaciones. Mantenimiento de oferta: 30 días corridos desde la fecha de apertura."
+   }
+  },
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "Presentación de ofertas: 15/09/2026, 10:00 hs, en la Oficina de Compras. Apertura: 15/09/2026, 11:00 hs, en la Sala de Licitaciones."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "etapa",
+   "valor": "Apertura",
+   "metadata": {
+    "fecha": "2026-09-15",
+    "hora": "11:00",
+    "expresion_relativa": null,
+    "texto_original": "Presentación de ofertas: 15/09/2026, 10:00 hs, en la Oficina de Compras. Apertura: 15/09/2026, 11:00 hs, en la Sala de Licitaciones. Mantenimiento de oferta: 30 días corridos desde la fecha de apertura."
+   }
+  },
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 2,
+     "citation": "Organismo convocante: Municipalidad de Villa Nueva. Expediente Nº 0100-EXP-2026. Procedimiento Nº 05/2026. Tipo de procedimiento: Licitación pública. Presupuesto oficial: AR$ 12.000.000. Jurisdicción: Municipal."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "presupuesto_oficial",
+   "valor": "12000000.0 ARS",
+   "metadata": {
+    "forma_pago": null,
+    "ajustes": null
+   }
+  }
+ ],
+ "datos_procedimiento_extraction_status": "success",
+ "documentos_requeridos": [
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "a) Constancia de inscripción en el Registro de Proveedores del Municipio. Requisito legal, obligatorio, a presentar con la oferta."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "legal",
+   "valor": "Constancia de inscripción en el Registro de Proveedores del Municipio",
+   "metadata": {
+    "obligatorio": "si",
+    "momento_presentacion": "con_la_oferta",
+    "subsanable": "no_especificado"
+   }
+  },
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "b) Certificado fiscal para contratar. Requisito administrativo, obligatorio, a presentar con la oferta."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "administrativo",
+   "valor": "Certificado fiscal para contratar",
+   "metadata": {
+    "obligatorio": "si",
+    "momento_presentacion": "con_la_oferta",
+    "subsanable": "no_especificado"
+   }
+  },
+  {
+   "confidence": 0.7,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 2,
+     "citation": "Anexo I - Planilla de Cotización: debe completarse y firmarse."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "administrativo",
+   "valor": "Anexo I - Planilla de Cotización",
+   "metadata": {
+    "obligatorio": "si",
+    "momento_presentacion": "no_especificado",
+    "subsanable": "no_especificado"
+   }
+  }
+ ],
+ "documentos_extraction_status": "success",
+ "criterios_evaluacion": [
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "La adjudicación se realizará por menor precio, entre las ofertas que cumplan todos los requisitos de admisibilidad."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "metodo",
+   "valor": "menor precio",
+   "metadata": {
+    "metodo": "menor_precio",
+    "ponderacion_porcentaje": null,
+    "formula": null,
+    "puntaje_tecnico_minimo": null,
+    "tipo_criterio": "no_especificado"
+   }
+  }
+ ],
+ "criterios_extraction_status": "success",
+ "restricciones_participacion": [
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "a) Constancia de inscripción en el Registro de Proveedores del Municipio. Requisito legal, obligatorio, a presentar con la oferta."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "inscripcion_registro",
+   "valor": "Constancia de inscripción en el Registro de Proveedores del Municipio",
+   "metadata": {
+    "obligatorio": "si",
+    "momento_presentacion": "con_la_oferta",
+    "subsanable": "no_especificado"
+   }
+  }
+ ],
+ "restricciones_extraction_status": "success",
+ "cronograma_proceso": [
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "Presentación de ofertas: 15/09/2026, 10:00 hs, en la Oficina de Compras. Apertura: 15/09/2026, 11:00 hs, en la Sala de Licitaciones."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "etapa",
+   "valor": "Presentación de ofertas",
+   "metadata": {
+    "fecha": "2026-09-15",
+    "hora": "10:00",
+    "expresion_relativa": null,
+    "texto_original": "Presentación de ofertas: 15/09/2026, 10:00 hs, en la Oficina de Compras. Apertura: 15/09/2026, 11:00 hs, en la Sala de Licitaciones. Mantenimiento de oferta: 30 días corridos desde la fecha de apertura."
+   }
+  },
+  {
+   "confidence": 0.9,
+   "source_references": [
+    {
+     "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+     "page_number": 1,
+     "citation": "Presentación de ofertas: 15/09/2026, 10:00 hs, en la Oficina de Compras. Apertura: 15/09/2026, 11:00 hs, en la Sala de Licitaciones."
+    }
+   ],
+   "extraction_status": "success",
+   "tipo": "etapa",
+   "valor": "Apertura",
+   "metadata": {
+    "fecha": "2026-09-15",
+    "hora": "11:00",
+    "expresion_relativa": null,
+    "texto_original": "Presentación de ofertas: 15/09/2026, 10:00 hs, en la Oficina de Compras. Apertura: 15/09/2026, 11:00 hs, en la Sala de Licitaciones. Mantenimiento de oferta: 30 días corridos desde la fecha de apertura."
+   }
+  }
+ ],
+ "cronograma_extraction_status": "success",
+ "estimacion_presupuesto": {
+  "confidence": 0.9,
+  "source_references": [
+   {
+    "document_id": "3b470db7-f14a-4c93-904e-9b998808e2be",
+    "page_number": 2,
+    "citation": "Organismo convocante: Municipalidad de Villa Nueva. Expediente Nº 0100-EXP-2026. Procedimiento Nº 05/2026. Tipo de procedimiento: Licitación pública. Presupuesto oficial: AR$ 12.000.000. Jurisdicción: Municipal."
+   }
+  ],
+  "extraction_status": "success",
+  "monto": 12000000,
+  "moneda": "ARS",
+  "forma_pago": null,
+  "ajustes": null
+ },
+ "presupuesto_extraction_status": "success"
+}

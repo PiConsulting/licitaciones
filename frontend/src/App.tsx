@@ -1,11 +1,13 @@
-import type { ReactElement } from "react";
+import { useEffect, type ReactElement } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AppLayout } from "./components/AppLayout";
+import AnalysisDetail from "./pages/AnalysisDetail";
 import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
 import NewAnalysisWizard from "./pages/NewAnalysis/NewAnalysisWizard";
 import Register from "./pages/Register";
+import { useUIStore } from "./store/useUIStore";
 
 function ProtectedRoute({ children }: { children: ReactElement }) {
   const token = localStorage.getItem("access_token");
@@ -16,6 +18,12 @@ function ProtectedRoute({ children }: { children: ReactElement }) {
 }
 
 export default function App() {
+  const theme = useUIStore((s) => s.theme);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
+
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
@@ -29,6 +37,7 @@ export default function App() {
       >
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/analyze" element={<NewAnalysisWizard />} />
+        <Route path="/analysis/:analysisId" element={<AnalysisDetail />} />
       </Route>
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>

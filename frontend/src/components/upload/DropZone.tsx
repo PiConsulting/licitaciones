@@ -30,8 +30,8 @@ export function DropZone({ onFilesSelected }: DropZoneProps) {
     >
       <input {...getInputProps()} aria-label="Seleccionar archivos PDF" />
       <Upload data-testid="upload-icon" size={28} className="text-gray-600" aria-hidden="true" />
-      <p className="text-sm text-gray-600">Arrastrá tus PDFs acá o hacé clic para seleccionar</p>
-      <p className="text-xs text-gray-500">Máximo 10 archivos, 50 MB por archivo, 150 MB total</p>
+      <p className="text-sm text-gray-600">Arrastrá tu PDF acá o hacé clic para seleccionar</p>
+      <p className="text-xs text-gray-500">Hasta 10 archivos por análisis, máximo 50 MB por archivo</p>
     </div>
   );
 }

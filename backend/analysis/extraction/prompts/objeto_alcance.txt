@@ -1,0 +1,194 @@
+# CONCEPTO DE LA CATEGORÍA
+
+Esta categoría extrae **qué se licita exactamente**: el objeto y alcance de la
+contratación, explicado de forma útil para cotizar correctamente.
+
+**Desde la perspectiva del oferente:** "¿Qué estoy cotizando exactamente?"
+
+La respuesta debe ser clara y accionable: qué se compra/contrata, en qué cantidad,
+para quién y bajo qué modalidad de adjudicación. No es un inventario técnico de
+hardware, pero tampoco una frase genérica.
+
+**Qué incluye (en esta versión):**
+- Tipo de procedimiento (si está en el texto)
+- Objeto principal (qué se licita)
+- Cantidades e ítems/renglones/lotes (si están en el texto)
+- Destino/área beneficiaria (si está en el texto)
+- Modalidad de adjudicación (por ítem, lote, global) si está en el texto
+
+**Qué NO incluye (va en otras categorías):**
+- Requisitos de admisibilidad
+- Garantías
+- Plazos clave del procedimiento
+- Criterios de evaluación
+- Causales de rechazo
+- Anexos obligatorios
+
+**Reconocimiento semántico:** El pliego puede no titular "Objeto". Buscá:
+- Capítulos o artículos iniciales que describen la contratación
+- Frases como "tiene por objeto", "consiste en", "se requiere", "se contrata"
+- Descripciones de bienes o servicios a proveer
+- Menciones de modalidad: "provisión de", "prestación de", "ejecución de"
+
+**Frases típicas que indican objeto:**
+- "La presente contratación tiene por objeto..."
+- "Objeto de la licitación: ..."
+- "Se requiere la provisión de..."
+- "Consiste en la contratación de..."
+
+**Variaciones comunes:**
+- "Objeto" = "Finalidad" = "Propósito" = "Alcance"
+- "Provisión" = "Suministro" = "Entrega"
+- "Prestación" = "Ejecución" = "Realización"
+
+**No confundir con:**
+- Especificaciones técnicas detalladas (esas no van acá)
+- Plazos del procedimiento (esos van en plazos clave)
+
+---
+
+# OBJETIVO
+Extraer qué se licita: el objeto y alcance de la contratación de forma COMPLETA Y DESCRIPTIVA.
+Debe quedar en una síntesis útil y concreta (2-4 oraciones, según complejidad).
+
+Debe incluir siempre que exista:
+- **Tipo de procedimiento** (licitación pública, privada, concurso, contratación directa)
+- **Qué se contrata** (bienes, servicios, obras)
+- **Cantidades e ítems** si están mencionados en el objeto
+- **Destino o beneficiario** si se especifica (ej: "para la Dirección de X")
+- **Modalidad de adjudicación** si es relevante (por ítem, global, por lote)
+
+La descripción debe ser **práctica y completa**, no genérica. El oferente debe entender:
+- Qué cotizar exactamente
+- Cuánto de cada cosa
+- Para qué organismo o área
+- Cómo se adjudica
+
+Emitir SOLO un ítem `resumen_objeto`, pero con descripción detallada.
+
+**PROHIBIDO** devolver solo una frase genérica del tipo:
+- "Adquisición de servidores..."
+
+Si el pliego trae más detalle (ítems, cantidades, adjudicación por ítem, organismo),
+ese detalle DEBE aparecer en `valor`.
+
+# ESTRUCTURA DE SALIDA
+
+Usá el schema `ObjetoAlcanceItem` definido en `schemas.py`.
+
+**Campos clave:**
+- `tipo`: SIEMPRE `resumen_objeto`
+- `valor`: Descripción COMPLETA del objeto (2-4 oraciones según complejidad)
+- `metadata`: Diccionario con campos opcionales:
+  - `cantidad`: número total de unidades (si aplica y es un valor único)
+  - `unidad_medida`: texto (si aplica)
+  - `renglon`: identificador (si aplica)
+- `confidence`: [0.0-1.0] según el algoritmo de confianza
+- `source_references`: Siempre incluir cita literal del pliego (min 12 chars, ver CITATION_MIN_CHARS en schemas.py)
+
+**Cuando no hay datos:** `{"objeto_alcance": []}`
+
+---
+
+# REGLAS ESPECÍFICAS
+
+## 1. resumen_objeto COMPLETO
+Emitir exactamente UNO con descripción que responda:
+- ¿Qué tipo de procedimiento es?
+- ¿Qué se licita (bienes/servicios/obras)?
+- ¿Cuántos ítems hay y qué son?
+- ¿Para qué organismo/área?
+- ¿Cómo se adjudica?
+
+**Regla de prioridad de evidencia:** si existen secciones tipo "ITEMS LICITADOS",
+"Tabla de Cotización", "adjudicación por ítem/lote" o listados Item 1/2/3,
+usá esas citas para enriquecer el resumen_objeto.
+
+**Ejemplos:**
+
+✅ CORRECTO (descriptivo):
+"Licitación privada para adquisición de 4 servidores de aplicaciones tipo XEN, 4 servidores de base de datos y 4 LCD KVM switches, destinados a la Municipalidad de Rosario (Dirección General de Informática). Se listan como Ítems 1, 2 y 3 respectivamente, cada uno adjudicable por separado."
+
+✅ CORRECTO (descriptivo):
+"Licitación pública para la contratación del servicio de limpieza y mantenimiento de 15 edificios municipales por 24 meses. Adjudicación por lote único. Incluye provisión de insumos y personal especializado."
+
+❌ INCORRECTO (muy genérico):
+"Adquisición de servidores de aplicaciones, de base de datos y de archivos."
+
+❌ INCORRECTO (exceso de detalle técnico):
+"Provisión de servidores Dell PowerEdge R740 con procesador Intel Xeon 8-core a 2.4GHz, 32GB DDR4 ECC RAM, disco SSD 480GB SATA..."
+
+## 2. Balancear detalle útil vs especificaciones técnicas
+Incluí cantidades, ítems, modalidad, destino — pero NO especificaciones técnicas exhaustivas.
+
+**Guía:**
+- Cantidades y tipos generales → ✅ Sí
+- Specs técnicas detalladas (procesadores, modelos exactos, etc.) → ❌ No
+
+## 3. metadata
+Usá `metadata` para campos estructurados cuando sea un valor único claro:
+- `cantidad` y `unidad_medida`: si el objeto menciona una cantidad total simple
+- `renglon`: si hay un identificador único
+
+**Ejemplo:**
+```json
+{
+  "tipo": "resumen_objeto",
+  "valor": "Licitación pública para provisión de 200 resmas de papel A4 de 75g/m², para uso de la Secretaría de Educación durante el ciclo lectivo 2026.",
+  "metadata": {
+    "cantidad": 200,
+    "unidad_medida": "resmas",
+    "renglon": null
+  }
+}
+```
+
+---
+
+# EJEMPLO DE FORMA
+
+**Fragmento:**
+```
+[Fragmento: F1, Documento: 7c9e, Página: 2, Sección: Capítulo 1 > Artículo 1°, Tipo: PÁRRAFO]
+Artículo 1° — Objeto. La presente contratación tiene por objeto la provisión de
+200 (doscientas) resmas de papel A4. Modalidad: bienes. No se admiten ofertas alternativas.
+```
+
+**Salida correcta:**
+```json
+{
+  "objeto_alcance": [
+    {
+      "tipo": "resumen_objeto",
+      "valor": "Provisión de 200 resmas de papel A4",
+      "metadata": {
+        "cantidad": 200,
+        "unidad_medida": "resmas",
+        "renglon": null
+      },
+      "confidence": 0.9,
+      "source_references": [
+        {
+          "document_id": "7c9e",
+          "page_number": 2,
+          "citation": "La presente contratación tiene por objeto la provisión de 200 (doscientas) resmas de papel A4."
+        }
+      ],
+      "extraction_status": "success"
+    }
+  ]
+}
+```
+
+# EJEMPLO DE AUSENCIA
+Si los fragmentos no describen el objeto de la contratación:
+
+```json
+{"objeto_alcance": []}
+```
+
+---
+
+=== CONTENIDO DEL PLIEGO ===
+{chunks}
+=== FIN DEL CONTENIDO ===

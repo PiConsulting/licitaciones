@@ -12,3 +12,10 @@ class DocumentResponse(BaseModel):
 class DocumentWarning(BaseModel):
     filename: str
     message: str
+
+
+class DocumentSASUrlResponse(BaseModel):
+    url: str
+    expires_at: str
+    document_id: str
+    filename: str

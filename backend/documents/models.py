@@ -12,6 +12,7 @@ class Document(Base):
     __table_args__ = (
         Index("idx_documents_analysis_id", "analysis_id"),
         Index("idx_documents_sha256_hash", "sha256_hash"),
+        Index("idx_documents_content_hash", "content_hash"),
         Index("idx_documents_created_by", "created_by"),
     )
 
@@ -23,6 +24,7 @@ class Document(Base):
     page_count: Mapped[int] = mapped_column(nullable=False)
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     sha256_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_by: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

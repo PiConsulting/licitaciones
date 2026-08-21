@@ -1,0 +1,349 @@
+# CONCEPTO DE LA CATEGORÍA
+
+Esta categoría extrae **garantías FINANCIERAS que el oferente debe constituir**.
+No confundir con garantías técnicas de productos (esas NO van acá).
+
+**Desde la perspectiva del oferente:** "¿Qué garantías tengo que poner? ¿Cuánto?
+¿Cuándo las constituyo? ¿Por cuánto tiempo?"
+
+**Qué incluye:**
+- Garantía de mantenimiento de oferta (o de seriedad)
+- Garantía de cumplimiento de contrato
+- Garantía de anticipo (si hay entrega de fondos anticipada)
+- Fondo de reparo o de garantía
+- Otras garantías financieras exigidas
+
+**Reconocimiento semántico:** El pliego puede no titular "Garantías". Buscá:
+- Capítulos sobre cauciones, pólizas, seguros de caución
+- Menciones de montos a garantizar
+- Frases sobre constitución de garantías
+- Referencias a vigencia de garantías
+
+**Frases típicas que indican garantías:**
+- "Deberá constituir garantía de..."
+- "Se exige garantía equivalente a..."
+- "La oferta deberá estar acompañada de..."
+- "Seguro de caución por..."
+- "Depósito en garantía"
+
+**Variaciones comunes:**
+- "Garantía de mantenimiento de oferta" = "Caución de oferta" = "Garantía de seriedad"
+- "Garantía de cumplimiento" = "Garantía de ejecución" = "Caución de contrato"
+- "Fondo de reparo" = "Fondo de garantía" = "Retención de garantía"
+
+---
+
+## ⚠️ EXCLUSIÓN CRÍTICA — Garantías Técnicas vs Financieras
+
+❌ **NO incluir garantías técnicas de productos:**
+- "Garantía del servidor por 3 años" → NO es garantía financiera
+- "Garantía de fábrica" → NO
+- "Garantía técnica del fabricante" → NO
+
+✅ **SÍ incluir garantías financieras:**
+- "Garantía de mantenimiento de oferta del 1% del presupuesto oficial" → SÍ
+- "Seguro de caución por cumplimiento de contrato" → SÍ
+
+**La diferencia:** Las garantías financieras son **dinero o pólizas** que el
+oferente deposita como respaldo. Las técnicas son promesas del fabricante sobre
+el producto.
+
+---
+
+## ❌ EJEMPLOS DE QUÉ NO EXTRAER
+
+### Caso 1: Garantías Técnicas de Productos
+**Input:** "Los equipos ofrecidos deberán contar con garantía de fábrica de al menos 3 años"
+
+**Correcto:** NO extraer (no es garantía financiera)
+
+**Incorrecto:** Extraer como garantía
+
+**Razón:** Es una característica técnica del producto, no una caución/póliza/depósito del oferente.
+
+---
+
+### Caso 2: Seguros de Responsabilidad (pueden ser ambiguos)
+**Input:** "El oferente deberá presentar seguro de responsabilidad civil vigente"
+
+**Correcto:** NO extraer (va en "requisitos_admisibilidad")
+
+**Incorrecto:** Extraer como garantía
+
+**Razón:** Es un requisito de admisibilidad (documento habilitante), no una caución que se constituye para garantizar oferta/contrato.
+
+---
+
+### Caso 3: Plazos de Garantías vs Garantías
+**Input A:** "La garantía de mantenimiento de oferta tendrá vigencia por 30 días corridos"
+
+**Correcto:** SÍ extraer la garantía, pero el plazo (30 días) NO va acá, va en "plazos_clave"
+
+**Input B:** "Plazo de mantenimiento de oferta: 15 días corridos desde la apertura"
+
+**Correcto:** NO extraer (es un plazo, va en "plazos_clave")
+
+**Razón:** "Plazo de mantenimiento de oferta" es el TIEMPO que la oferta debe ser válida.
+"Garantía de mantenimiento de oferta" es el DINERO/PÓLIZA que respalda esa oferta.
+
+---
+
+### Caso 4: El pliego habla de garantías pero no exige ninguna
+
+Esto cubre TRES situaciones distintas que se resuelven igual:
+
+**4.a — Exención explícita**
+"Se exime a los oferentes de constituir garantía de mantenimiento de oferta cuando el monto no supere X"
+
+**4.b — Garantía condicional, sin obligación concreta**
+"En caso de corresponder, el importe de las garantías deberá ajustarse cada vez que
+se verifique un incremento igual o mayor al 20% en la cotización de la moneda"
+→ El pliego regula cómo se ajustarían garantías hipotéticas, pero no establece ninguna.
+
+**4.c — Solo hay garantías técnicas del producto**
+"Garantía del servidor: 3 años en sitio" y nada más en todo el pliego.
+
+**Correcto en los tres casos:** devolver UN ítem con
+`extraction_status: "not_applicable"`, el `tipo` que corresponda
+(`mantenimiento_oferta`, `cumplimiento_contrato` u `otra`), un `valor` que
+explique la situación en una línea, y **cita literal obligatoria** del texto que
+respalda esa lectura.
+
+Ejemplos de `valor`:
+- 4.a → "Exento: no se exige garantía cuando el monto no supera 100 módulos"
+- 4.b → "No se exige garantía; el pliego sólo regula su ajuste en caso de corresponder"
+- 4.c → "El pliego sólo prevé garantía técnica del equipamiento, ninguna financiera"
+
+**Devolvé UN SOLO ítem `not_applicable`, no uno por cada tipo de garantía.**
+
+⛔ **La cita de un ítem `not_applicable` tiene que ser texto que hable de
+GARANTÍAS.** Nunca uses como respaldo un plazo de mantenimiento de oferta: eso
+es un plazo (Caso 3), y citarlo acá reintroduce justamente la confusión que ese
+caso prohíbe. Si el único texto que encontrás sobre "mantenimiento de oferta" es
+un plazo, ese no es evidencia de garantía: no lo cites.
+
+**Incorrecto:** devolver la lista vacía.
+
+**Razón:** una lista vacía se persiste como `not_found`, que le dice al oferente
+"el pliego no habla de garantías". Eso es falso y es una información distinta de
+"el pliego habla de garantías y no exige ninguna". La segunda es un dato que el
+oferente necesita, y con cita puede verificarlo.
+
+**Cuándo SÍ devolver lista vacía:** cuando los fragmentos recuperados no
+mencionan garantías de ninguna clase. Sin evidencia no hay `not_applicable`,
+porque `not_applicable` exige cita.
+
+**⚠️ Varias menciones de garantía técnica NO son varias garantías financieras
+— siguen colapsando en el mismo ítem único.** Es común que un pliego mencione
+la garantía técnica del producto en más de un lugar: una cláusula general
+(ej. en el articulado) y después, por separado, una garantía técnica específica
+por ítem/renglón en un anexo (ej. "Anexo I — Especificaciones técnicas"), a
+veces con duraciones distintas por renglón. Ninguna de esas menciones es una
+garantía financiera (Caso 1 sigue aplicando a cada una), y encontrar varias no
+cambia el análisis: seguís devolviendo el mismo **UN SOLO** ítem
+`not_applicable` de Caso 4.c, nunca un ítem por cada renglón/artículo que
+menciona una duración técnica distinta.
+
+**Incorrecto:** emitir un ítem por cada garantía técnica encontrada (ej. uno
+para la garantía técnica general del articulado y otro por cada renglón del
+anexo de especificaciones técnicas), aunque cada uno tenga su propia cita y
+duración. Son datos reales del pliego, pero no son garantías financieras —
+extraerlos acá reintroduce exactamente la confusión que la EXCLUSIÓN CRÍTICA
+de arriba prohíbe, solo que fragmentada en varios ítems en lugar de uno.
+
+**Correcto:** un único ítem `not_applicable` (Caso 4.c) cuya cita puede ser
+cualquiera de esas menciones técnicas (la que mejor represente la situación),
+sin necesidad de listar ni citar cada renglón por separado.
+
+---
+
+## ⚠️ REGLA DE ORO
+
+Las garantías financieras SIEMPRE implican:
+- Dinero depositado
+- Póliza de seguro de caución
+- Aval bancario
+- Pagaré
+- Cheque
+
+Si dice "garantía" pero NO es dinero/póliza/aval → NO es garantía financiera.
+
+---
+
+# OBJETIVO
+Extraer garantías FINANCIERAS que el oferente debe constituir. Un ítem por garantía.
+
+# ESTRUCTURA DE SALIDA
+
+Usá el schema `GarantiaItem` definido en `schemas.py`.
+
+**Campos clave:**
+- `tipo`: Usa enum `TipoGarantia` (mantenimiento_oferta, cumplimiento_contrato, anticipo, etc.)
+- `monto_porcentaje` y `monto_valor`: **MUTUAMENTE EXCLUYENTES** (uno debe ser `None`)
+- `confidence`: [0.0-1.0] según el algoritmo de confianza
+- `source_references`: Siempre incluir cita literal del pliego
+
+**Cuando el pliego no exige ninguna garantía pero SÍ habla del tema:** un ítem
+con `extraction_status: "not_applicable"` + cita (ver Caso 4).
+En ese ítem, `valor` es **OBLIGATORIO**: es el único texto que le explica al
+oferente por qué no hay garantía. Un `not_applicable` con `valor: null` no sirve.
+
+**Cuando los fragmentos no mencionan garantías de ninguna clase:** `{"garantias": []}`
+
+**Ejemplos:** Ver sección al final del prompt.
+
+---
+
+# REGLAS ESPECÍFICAS
+
+## 1. monto_porcentaje vs monto_valor
+
+**SON MUTUAMENTE EXCLUYENTES.** Solo uno puede tener valor, el otro debe ser `None`.
+
+**Ejemplos:**
+- "5% del presupuesto oficial" → `monto_porcentaje: 5.0, monto_valor: None`
+- "$100.000" → `monto_valor: 100000.0, monto_porcentaje: None`
+- "1% o $50.000" → **emití DOS ítems**, uno por cada opción
+
+## 2. Conservar texto literal
+
+Copiá el texto del pliego casi textual en `sobre_que_se_calcula`, `base_calculo`,
+`forma_constitucion`, `vigencia`.
+
+**Ejemplos:**
+- ✅ "sobre el monto total de la oferta"
+- ✅ "mediante póliza de seguro de caución"
+- ❌ "calculado sobre oferta" (no parafrasees)
+
+## 3. vigencia vs plazo_constitucion
+
+- `plazo_constitucion`: cuándo hay que entregarla (ej: "con la oferta")
+- `vigencia`: cuánto tiempo debe estar vigente (ej: "90 días desde apertura")
+
+## 4. Reconocimiento de tipos
+
+Usá enum `TipoGarantia`:
+- `mantenimiento_oferta`: para garantizar que no retira la oferta
+- `cumplimiento_contrato`: para garantizar cumplimiento si adjudican
+- `anticipo`: si hay entrega de fondos por adelantado
+- `fondo_reparo`: retención sobre pagos como garantía
+- `por_vicios_ocultos`: garantía post-entrega
+- `buen_uso_anticipo`: garantía sobre uso correcto del anticipo
+- `otra`: cualquier otra garantía no clasificable
+
+## 5. Sin especulación
+
+Si el pliego no menciona:
+- moneda → `None`
+- vigencia → `None`
+- forma_constitucion → `None`
+
+❌ No inferir "debe ser en pesos argentinos" si no lo dice.
+
+## 6. Confidence
+
+Usá el algoritmo del prompt base:
+- 0.9-1.0: dato explícito con monto y tipo claro
+- 0.7-0.8: dato completo pero con alguna ambigüedad menor
+- 0.5-0.6: dato parcial o inferido de contexto
+- 0.3-0.4: dato muy incompleto o muy ambiguo
+- 0.0-0.2: especulación (no emitir)
+
+---
+
+# EJEMPLO DE FORMA (no copiar contenido)
+
+**Fragmento:**
+```
+[Fragmento: F1, Documento: 7c9e, Página: 4, Sección: Capítulo 4 > Artículo 8°, Tipo: PÁRRAFO]
+Artículo 8° — Garantía de mantenimiento de oferta. Los oferentes deberán
+constituir una garantía equivalente al 1% (uno por ciento) del presupuesto
+oficial, mediante póliza de seguro de caución. Vigencia: 90 días corridos
+desde la fecha de apertura.
+```
+
+**Salida correcta:**
+```json
+{
+  "garantias": [
+    {
+      "tipo": "mantenimiento_oferta",
+      "monto_porcentaje": 1.0,
+      "monto_valor": null,
+      "moneda": null,
+      "base_calculo": "presupuesto oficial",
+      "sobre_que_se_calcula": "presupuesto oficial",
+      "forma_constitucion": "póliza de seguro de caución",
+      "plazo_constitucion": null,
+      "vigencia": "90 días corridos desde la fecha de apertura",
+      "confidence": 0.9,
+      "source_references": [
+        {
+          "document_id": "7c9e",
+          "page_number": 4,
+          "citation": "garantía equivalente al 1% (uno por ciento) del presupuesto oficial, mediante póliza de seguro de caución"
+        },
+        {
+          "document_id": "7c9e",
+          "page_number": 4,
+          "citation": "Vigencia: 90 días corridos desde la fecha de apertura"
+        }
+      ],
+      "extraction_status": "success"
+    }
+  ]
+}
+```
+
+---
+
+# EJEMPLO: el pliego sólo tiene garantías técnicas
+
+**Fragmento:**
+```
+"Los servidores deberán contar con garantía de fábrica de 3 años."
+```
+
+❌ **NO generar un ítem de garantía financiera con esos 3 años.** Es garantía
+técnica del producto, no del oferente.
+
+✅ **Pero tampoco devolver lista vacía:** el pliego habla de garantías. Devolvé
+un ítem `not_applicable` que lo deje explícito (Caso 4.c):
+
+```json
+{
+  "garantias": [
+    {
+      "tipo": "otra",
+      "valor": "El pliego sólo prevé garantía técnica del equipamiento, ninguna financiera",
+      "monto_porcentaje": null,
+      "monto_valor": null,
+      "confidence": 0.7,
+      "source_references": [
+        {
+          "document_id": "<id>",
+          "page_number": 8,
+          "citation": "Los servidores deberán contar con garantía de fábrica de 3 años."
+        }
+      ],
+      "extraction_status": "not_applicable"
+    }
+  ]
+}
+```
+
+Lista vacía `{"garantias": []}` SOLO si los fragmentos no mencionan garantías de
+ninguna clase.
+
+---
+
+=== CONTENIDO DEL PLIEGO ===
+{chunks}
+=== FIN DEL CONTENIDO ===
+
+**Recordatorio final:**
+- Devolvé JSON válido según schema `GarantiaItem` en `schemas.py`
+- `monto_porcentaje` y `monto_valor` mutuamente excluyentes
+- Si el pliego habla de garantías pero no exige ninguna → ítem `not_applicable` con cita
+- Lista vacía `[]` SOLO si los fragmentos no mencionan garantías de ninguna clase
+- Excluí garantías técnicas de productos como ítems financieros

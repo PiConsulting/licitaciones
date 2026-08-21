@@ -57,7 +57,12 @@ describe("Login", () => {
   });
 
   test("redirige y guarda token cuando login es exitoso", async () => {
-    loginMock.mockResolvedValueOnce({ access_token: "jwt-token", token_type: "bearer" });
+    loginMock.mockResolvedValueOnce({
+      access_token: "jwt-token",
+      token_type: "bearer",
+      name: "Test User",
+      email: "test@cedia.com",
+    });
 
     render(
       <MemoryRouter>
@@ -71,6 +76,8 @@ describe("Login", () => {
 
     await waitFor(() => {
       expect(localStorage.getItem("access_token")).toBe("jwt-token");
+      expect(localStorage.getItem("user_name")).toBe("Test User");
+      expect(localStorage.getItem("user_email")).toBe("test@cedia.com");
       expect(navigateMock).toHaveBeenCalledWith("/dashboard");
     });
   });
