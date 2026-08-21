@@ -11,7 +11,7 @@ function createTrackingCategory(items: TrackingCategory["items"] = []): Tracking
     category_key: "objeto_alcance",
     status: "in_review",
     items,
-    comments_count: 0,
+    comments_count: 2,
   };
 }
 
@@ -35,12 +35,20 @@ function renderPanel(category = createTrackingCategory(), options?: { analysisId
 }
 
 describe("TrackingCommentsPanel", () => {
+  test("muestra control compacto de Comentarios con contador", () => {
+    renderPanel();
+
+    expect(screen.getByRole("button", { name: /Comentarios \(2\)/i })).toBeInTheDocument();
+    expect(screen.queryByText("Todavía no hay comentarios.")).not.toBeInTheDocument();
+  });
+
   test("solo permite comentario de categoría cuando la categoría no tiene ítems", async () => {
     const user = userEvent.setup();
     renderPanel();
 
     expect(screen.queryByRole("option", { name: "Comentario de categoría" })).not.toBeInTheDocument();
 
+    await user.click(screen.getByRole("button", { name: /Comentarios \(2\)/i }));
     await user.click(screen.getByRole("button", { name: "Agregar comentario" }));
 
     expect(screen.queryByRole("option", { name: "Comentario de categoría" })).not.toBeInTheDocument();
@@ -63,6 +71,7 @@ describe("TrackingCommentsPanel", () => {
 
     renderPanel(category);
 
+    await user.click(screen.getByRole("button", { name: /Comentarios \(2\)/i }));
     await user.click(screen.getByRole("button", { name: "Agregar comentario" }));
 
     expect(screen.queryByRole("option", { name: "Comentario de categoría" })).not.toBeInTheDocument();
@@ -88,12 +97,10 @@ describe("TrackingCommentsPanel", () => {
       ],
     });
 
-    expect(screen.queryByText("Historial de comentarios")).not.toBeInTheDocument();
     expect(screen.queryByText("Revisar alcance con legales.")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Ver historial" }));
+    await user.click(screen.getByRole("button", { name: /Comentarios \(1\)/i }));
 
-    expect(screen.getByText("Historial de comentarios")).toBeInTheDocument();
     expect(screen.getByText("Revisar alcance con legales.")).toBeInTheDocument();
     expect(screen.getByText("Creado por Agostina Torres")).toBeInTheDocument();
     expect(screen.getByText("Categoría")).toBeInTheDocument();
@@ -121,7 +128,7 @@ describe("TrackingCommentsPanel", () => {
       ],
     });
 
-    await user.click(screen.getByRole("button", { name: "Ver historial" }));
+    await user.click(screen.getByRole("button", { name: /Comentarios \(1\)/i }));
 
     expect(screen.getByText(/Editado por Editor Externo/i)).toBeInTheDocument();
   });
@@ -159,7 +166,7 @@ describe("TrackingCommentsPanel", () => {
     expect(screen.queryByText(/modo solo lectura/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Agregar comentario" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Ver historial" }));
+    await user.click(screen.getByRole("button", { name: /Comentarios \(1\)/i }));
     expect(screen.queryByRole("button", { name: "Editar" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Eliminar" })).not.toBeInTheDocument();
   });

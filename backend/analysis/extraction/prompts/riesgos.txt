@@ -1,0 +1,107 @@
+# CONCEPTO DE LA CATEGORÍA
+
+Esta categoría extrae **riesgos identificables** que pueden afectar la participación
+en la licitación o la ejecución del contrato.
+
+**Desde la perspectiva del oferente:** "¿Qué situaciones de riesgo debo anticipar
+para evitar problemas durante la licitación o el cumplimiento del contrato?"
+
+**Qué incluye:**
+- Riesgos de descalificación por incumplimientos formales o técnicos
+- Penalizaciones contractuales por incumplimiento
+- Riesgos legales relacionados con obligaciones contractuales
+- Riesgos operativos en la ejecución del contrato
+- Riesgos financieros (multas, retención de fondos, sanciones económicas)
+- Cualquier otro riesgo relevante para la participación o ejecución
+
+**Reconocimiento semántico:** Los riesgos pueden estar expresados de diversas formas:
+
+**Frases típicas que indican riesgo:**
+- "En caso de incumplimiento..."
+- "Se aplicarán multas/penalizaciones..."
+- "Podrá rescindirse el contrato..."
+- "Será responsable por..."
+- "Quedará sujeto a..."
+- "Se retendrá..."
+- "Será sancionado con..."
+
+**No confundir con:**
+- Causales de rechazo (van en otra categoría)
+- Requisitos de admisibilidad (van en otra categoría)
+- Garantías (van en otra categoría)
+- Criterios de evaluación (van en otra categoría)
+
+La diferencia: Los riesgos describen **consecuencias** de acciones u omisiones
+durante la licitación o ejecución del contrato. Las causales, requisitos y garantías
+son condiciones o documentos a cumplir.
+
+---
+
+# OBJETIVO
+Extraer la LISTA COMPLETA de riesgos identificables que puedan afectar al oferente.
+
+---
+
+# CHUNKS DEL PLIEGO
+{chunks}
+
+---
+
+# INSTRUCCIONES DE EXTRACCIÓN
+
+1. Leé cada fragmento detenidamente
+2. Identificá todos los riesgos mencionados, explícitos o implícitos
+3. Para cada riesgo, determiná:
+   - **tipo**: clasificación general del riesgo
+   - **subtipo**: clasificación granular para priorización
+   - **valor**: descripción clara y concisa del riesgo
+   - **source_references**: citas textuales que respaldan el hallazgo
+
+4. Subtipos disponibles:
+   - **ejecucion**: Riesgos relacionados con la ejecución del contrato
+   - **incumplimiento**: Riesgos de incumplimiento de obligaciones contractuales
+   - **operativo**: Riesgos operacionales o de gestión
+   - **plazos**: Riesgos relacionados con incumplimiento de plazos
+   - **economico**: Riesgos financieros, multas, penalizaciones económicas
+   - **tecnico**: Riesgos técnicos o de especificaciones
+   - **legal_contractual**: Riesgos legales o contractuales
+   - **otro_explicito**: Riesgos que no encajan claramente en los otros subtipos
+
+5. Si NO encontrás riesgos relevantes en los fragmentos, devolvé `{root_key}: []`
+   con `extraction_status: "not_found"`
+
+6. Emití SOLO el JSON, sin texto adicional
+
+---
+
+# FORMATO DE SALIDA
+
+```json
+{{
+  "{root_key}": [
+    {{
+      "tipo": "descalificacion|penalizacion|legal|operativo|financiero|otro",
+      "subtipo": "ejecucion|incumplimiento|operativo|plazos|economico|tecnico|legal_contractual|otro_explicito",
+      "valor": "Descripción clara del riesgo",
+      "extraction_status": "success|partial|not_found",
+      "source_references": [
+        {{
+          "document_id": "UUID del documento",
+          "page_number": número_página,
+          "citation": "Texto literal del pliego (12-120 caracteres)"
+        }}
+      ]
+    }}
+  ],
+  "extraction_status": "success|partial|not_found"
+}}
+```
+
+---
+
+# VALIDACIÓN DE CALIDAD
+
+- Cada riesgo DEBE estar respaldado por al menos una cita verificable
+- Las citas deben ser literales del pliego (12-120 caracteres)
+- No inventes riesgos que no estén explícita o implícitamente mencionados
+- Si un riesgo está mencionado varias veces, consolidalo en un solo item

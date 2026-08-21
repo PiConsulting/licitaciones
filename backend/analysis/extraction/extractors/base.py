@@ -25,6 +25,11 @@ from shared.ports.azure_search import search_hybrid
 logger = structlog.get_logger(__name__)
 
 VALID_EXTRACTION_STATUSES = {"success", "partial", "failed", "not_found", "not_applicable"}
+# Tipos "cajón de sastre" que cualquier prompt de categoría usa cuando el
+# hallazgo no encaja en ningún tipo específico del enum. Un ítem con uno de
+# estos tipos es la señal más confiable de que puede ser un fragmento suelto
+# de un hecho que debería estar unido a otro ítem (ver `_merge_split_fact_items`).
+_GENERIC_FALLBACK_TIPOS = {"otro", "otra", "no encontrado"}
 BASE_SYSTEM_PROMPT_FILE = "_base_system.txt"
 _JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
 
@@ -42,6 +47,7 @@ CANONICAL_PROMPT_FILES = {
     "causales_rechazo.txt",
     "anexos_obligatorios.txt",
     "identificacion_procedimiento.txt",
+    "riesgos.txt",
 }
 
 CANONICAL_CATEGORY_PROMPT_MAP = {
@@ -53,6 +59,7 @@ CANONICAL_CATEGORY_PROMPT_MAP = {
     "causales_rechazo": "causales_rechazo.txt",
     "anexos_obligatorios": "anexos_obligatorios.txt",
     "identificacion_procedimiento": "identificacion_procedimiento.txt",
+    "riesgos": "riesgos.txt",
 }
 
 
@@ -264,12 +271,7 @@ def _normalize_item(item: dict[str, Any], fallback: dict[str, Any] | None = None
     else:
         normalized["confidence"] = min(parsed_confidence, 1.0)
 
-    # FIX (2026-08-14): esto era `list(normalized.get("source_references", []))`
-    # y reventaba con TypeError si el LLM emitía `"source_references": null` en
-    # UN solo item -- cosa que el propio prompt induce ("`not_found` ... sin
-    # cita"). La excepción sube hasta el `try` de `run_extractor`, que escribe
-    # la categoría ENTERA como `failed` con lista vacía. Un item mal formado no
-    # puede costar las 30 afirmaciones de la categoría.
+  
     raw_refs = normalized.get("source_references")
     normalized["source_references"] = [ref for ref in raw_refs if isinstance(ref, dict)] if isinstance(raw_refs, list) else []
     status = str(normalized.get("extraction_status", "")).strip()
@@ -360,22 +362,7 @@ def _normalize_mixed_not_found_items(items: list[dict[str, Any]], *, category: s
 @lru_cache(maxsize=1)
 def _get_token_encoder() -> Any:
     """Encoder de tiktoken para medir el contexto con el tokenizer real del
-    modelo (hallazgo M-3: antes se aproximaba con `len(content.split())`,
-    que subestima/sobreestima según el idioma -- el español con acentos y
-    términos legales tokeniza distinto que el inglés).
-
-    `azure_openai_chat_deployment` es un NOMBRE DE DEPLOYMENT elegido por el
-    org (no necesariamente un nombre de modelo de OpenAI), así que no se
-    puede asumir que tiktoken lo reconozca. Se prueba en orden: el nombre de
-    deployment configurado (por si coincide con un modelo real), el modelo
-    real que usa este proyecto en producción (gpt-4o-mini, ver el cálculo de
-    costos en `extraction/runner.py`), y como último recurso el encoding
-    o200k_base directamente (el que usan los modelos gpt-4o/gpt-4o-mini).
-
-    Devuelve `None` si nada de esto funciona (p.ej. sin conectividad al host
-    que sirve el archivo de encoding la primera vez) -- el caller cae
-    entonces al conteo aproximado por palabras en vez de crashear la
-    extracción completa por un problema de tokenizer.
+    modelo. Si no está instalado, devuelve None y se cae a la aproximación por
     """
     try:
         import tiktoken
@@ -431,26 +418,8 @@ def _drop_low_relevance_chunks(
     category: str | None = None,
 ) -> list[dict[str, Any]]:
     """Saca la cola de chunks que el retrieval trajo por completar el `top_k`.
-
-    FIX (auditoría 2026-08-13, hallazgo CTX-02): se recuperaban `category_top_k`
-    chunks y sólo se recortaban por presupuesto de tokens. No había ningún corte
-    por relevancia, así que el chunk en la posición 35 —con un score de RRF
-    típicamente la mitad del primero— entraba al prompt con el mismo peso visual
-    que el primero.
-
-    Dónde duele: una categoría que en ESE pliego no tiene evidencia real (por
-    ejemplo `criterios_evaluacion` en un pliego que adjudica por menor precio,
-    sin matriz de puntajes) igual llenaba sus 25-35 chunks con secciones
-    tangenciales. Al modelo se le pide ser "un analista experto que reconoce el
-    concepto aunque el vocabulario cambie", y después se le da mucho material
-    del cual construir un criterio que el pliego no tiene. La instrucción de no
-    inventar está; la presión del contexto va en contra.
-
-    El corte es deliberadamente tímido, porque el error caro es el inverso:
-    descartar el chunk que sí tenía el dato reproduce exactamente la falla que
-    esta auditoría viene persiguiendo (una categoría respondiendo "no
-    encontrado" sobre un pliego que sí lo dice). Por eso los primeros
-    `_RELEVANCE_MIN_CHUNKS` entran siempre, y un chunk sin score no se juzga.
+    Mantiene al menos `_RELEVANCE_MIN_CHUNKS` chunks y descarta los demás
+    cuya relevancia (score) esté por debajo de `_RELEVANCE_MIN_RATIO` del mejor.
     """
     if len(chunks) <= _RELEVANCE_MIN_CHUNKS:
         return chunks
@@ -512,14 +481,7 @@ def _truncate_to_token_budget(
     category: str | None = None,
 ) -> list[dict[str, Any]]:
     """Recorta la lista de chunks (ya ordenada por relevancia) para que quepa
-    en `budget` tokens. FIX (2026-08-13): antes el descarte era completamente
-    silencioso -- un pliego con muchos hechos relevantes para una categoría
-    (ej. `plazos_clave` con muchos hitos, o `garantias` con varias cláusulas)
-    podía perder chunks retrievados-como-relevantes sin ningún rastro, lo que
-    hacía indistinguible "el pliego no menciona esto" de "el dato estaba en un
-    chunk que no entró en el presupuesto de tokens". Ahora se loguea cuántos
-    chunks y qué % del total recuperado se descartó, para cualquier categoría
-    y cualquier pliego -- no es una excepción para este caso puntual."""
+    en `budget` tokens."""
     kept: list[dict[str, Any]] = []
     used = 0
     dropped = 0
@@ -619,12 +581,7 @@ def _widen_citation_with_chunk_context(
     target_chars: int = CITATION_PREFERRED_MIN_CHARS,
 ) -> str:
     """Ensancha una cita ya verificada usando el texto que la rodea en el chunk
-    donde matcheó, hasta que sea evidencia legible por sí sola.
-
-    El resultado se recorta del contenido real del chunk, así que sigue siendo
-    literal y vuelve a verificar sin problemas. Si no se puede ubicar la cita en
-    ningún chunk, se devuelve tal cual: ensanchar es una mejora de calidad de la
-    evidencia, nunca una condición para conservarla."""
+    donde matcheó, hasta que sea evidencia legible por sí sola."""
     collapsed_citation = " ".join(str(citation or "").split())
     if not collapsed_citation or len(collapsed_citation) >= target_chars:
         return citation
@@ -640,9 +597,7 @@ def _widen_citation_with_chunk_context(
         widened = _build_context_citation(
             content, start, start + len(collapsed_citation), min_chars=target_chars
         )
-        # ATR-07: ensanchar es agregarle contexto a la cita, no cambiarla por
-        # otra. Si el resultado ya no contiene lo que el modelo citó, la mejora
-        # falló y se devuelve la cita original -- corta pero fiel.
+        
         if len(widened) > len(collapsed_citation) and needle in widened.lower():
             return widened
     return citation
@@ -809,19 +764,6 @@ def shorten_citation_to_evidence(
     citation: str, item: dict[str, Any], *, max_chars: int = CITATION_MAX_CHARS
 ) -> str:
     """Recorta una cita larga a la ventana que CONTIENE el dato del item.
-
-    `clip_citation` recorta desde el principio, y eso funciona sólo si el dato
-    está en los primeros `max_chars` caracteres. Medido sobre un análisis real,
-    no lo está: la carátula de un pliego es un bloque de ~210 caracteres que
-    respalda tres items distintos, y tanto "Presupuesto oficial: AR$ 12.000.000"
-    como "Jurisdicción: Municipal" caen DESPUÉS del carácter 120. Un prefijo
-    dejaría a esos dos items citando un texto que no prueba nada de lo que
-    afirman.
-
-    El resultado es siempre una subcadena CONTIGUA y literal de la cita
-    original, así que sigue verificando contra el chunk y sigue siendo
-    localizable en el PDF por `search_for` -- que es de lo que depende el
-    resaltado.
     """
     text = " ".join(str(citation or "").split())
     if len(text) <= max_chars:
@@ -856,32 +798,11 @@ def _find_grounding_chunk(
     citation: str, candidate_chunks: list[dict[str, Any]]
 ) -> dict[str, Any] | None:
     """Devuelve EL chunk que respalda la cita, o None si ninguno la contiene.
-
-    FIX (auditoría 2026-08-13, hallazgo ATR-01): antes esto era un `any(...)`
-    que devolvía sólo un booleano. El código sabía perfectamente cuál de los
-    chunks candidatos había matcheado -- lo estaba iterando -- pero descartaba
-    esa información, y el `id` del chunk ya venía disponible desde
-    `shared/ports/azure_search.py::_document_to_chunk`.
-
-    Consecuencia de tirarlo: todo aguas abajo tenía que RECONSTRUIR la
-    identidad del chunk buscando el texto de la cita de nuevo, primero en
-    `synthesis._resolve_from_evidence` y después en
-    `highlight.compute_highlights_for_sources`. Dos reconstrucciones frágiles
-    y costosas de un dato que se tenía gratis. Y como el matcheo aguas arriba
-    era por `(document_id, page_number)`, una frase que aparece en dos chunks
-    de la misma página (fórmulas jurídicas tipo "conforme lo establecido en el
-    presente pliego") podía resolverse al chunk equivocado: el usuario clickea
-    un dato de garantías y aterriza en adjudicación.
     """
     citation_text = str(citation or "").strip()
     if not citation_text:
         return None
-    # La longitud NO es el criterio de validez: lo es que el texto exista
-    # literalmente en un chunk recuperado (ver `CITATION_MIN_CHARS`). El único
-    # piso que queda descarta citas demasiado cortas para ser discriminantes
-    # ("oferta", "garantía"), que harían match en cualquier chunk. No hay techo:
-    # una cita larga es *más* específica, no menos verificable -- se recorta al
-    # persistir con `clip_citation`, nunca se descarta.
+
     if len(citation_text) < CITATION_MIN_CHARS:
         return None
 
@@ -918,11 +839,6 @@ _ORGANISMO_RE = re.compile(
     re.IGNORECASE,
 )
 _PRESUPUESTO_RE = re.compile(
-    # FIX (2026-08-13): "apertura" y "lugar" son campos de carátula tan
-    # comunes como "expediente"/"procedimiento"/"objeto" -- sin ellos como
-    # tope, un pliego con esos campos justo después del presupuesto (patrón
-    # frecuente en carátulas argentinas) hacía que la captura se comiera
-    # todo lo que sigue hasta el próximo tope real o el final del texto.
     r"\bpresupuesto\s+oficial\b\s*[:\-]?\s*(?P<value>.+?)"
     r"(?=\bexpediente\b|\bprocedimiento\b|\bobjeto\b|\bapertura\b|\blugar\b|$)",
     re.IGNORECASE,
@@ -973,33 +889,6 @@ def _build_context_citation(
     max_chars: int = CITATION_MAX_CHARS,
 ) -> str:
     """Ensancha `content[start:end]` con el texto que lo rodea, sin perderlo.
-
-    FIX (auditoría 2026-08-14, hallazgo ATR-07): la versión anterior ensanchaba
-    con dos constantes ciegas -- 100 caracteres a la izquierda y 140 a la
-    derecha -- y después llamaba a `clip_citation`, que recorta un PREFIJO. Con
-    un núcleo de 33 caracteres eso da una ventana de 273 que arranca 100 antes
-    del dato; el prefijo de 120 se queda con los primeros 120 de esa ventana y
-    el núcleo, que vivía en el offset 100, quedaba cortado por la mitad o
-    directamente afuera.
-
-    Visto en un análisis real (`objeto_alcance`, fuente 3):
-
-        citation_llm : "Item 3: 4 (cuatro) LCD KVM Switch"
-        citation     : "m 1: 4 (cuatro) Servidores de aplicaciones tipo XEN
-                        Item 2: 4 (cuatro) Servidores de base de datos.
-                        Item 3: 4 (cuatro)"
-
-    La cita mostrada arranca en mitad de la palabra "Item", enumera dos ítems
-    que no tienen nada que ver con el dato, y NO contiene "LCD KVM Switch" --
-    es decir, la evidencia que se le muestra a la persona ya no menciona lo que
-    el item afirma. El resaltado la sigue fielmente y marca tres renglones
-    equivocados.
-
-    Dos invariantes ahora:
-      1. el resultado SIEMPRE contiene `content[start:end]` (salvo que el
-         núcleo solo ya no entre en `max_chars`, en cuyo caso se recorta ÉL --
-         nunca se lo reemplaza por texto vecino);
-      2. los dos bordes caen en límite de palabra.
     """
     text = " ".join(str(content or "").split())
     if not text:
@@ -1014,19 +903,12 @@ def _build_context_citation(
     if core_len >= max_chars:
         return clip_citation(text[core_start:core_end], max_chars=max_chars)
 
-    # Presupuesto de contexto: lo justo para llegar al mínimo legible, no 240
-    # caracteres. Un tercio antes del dato y el resto después -- la persona
-    # necesita saber de qué se está hablando, pero el dato tiene que quedar
-    # cerca del principio para que se lea como evidencia y no como párrafo.
     budget = max(0, min(max_chars, max(min_chars, core_len)) - core_len)
     lead = budget // 3
 
     left = _word_start(text, max(0, core_start - lead))
     right = _word_end(text, min(len(text), core_end + (budget - lead)))
 
-    # El redondeo a palabra entera puede pasarse del techo: se devuelve
-    # contexto, primero el de la derecha y después el de la izquierda, hasta
-    # entrar. El núcleo nunca se toca en este lazo.
     while right - left > max_chars and right > core_end:
         space = text.rfind(" ", core_end, right)
         if space < 0:
@@ -1042,21 +924,6 @@ def _build_context_citation(
     return snippet if len(snippet) <= max_chars else clip_citation(snippet, max_chars=max_chars)
 
 
-# FIX (2026-08-13): estos tres tipos son siempre códigos o montos -- un
-# número de procedimiento, un expediente y un presupuesto oficial contienen
-# SIEMPRE al menos un dígito en cualquier pliego real. `_PROCEDIMIENTO_CON_NUMERO_RE`
-# tiene el grupo "N°" opcional (para reconocer "Licitación Pública 12/2026"
-# sin la sigla), lo que significa que sin este chequeo el regex también
-# matchea la primera palabra que siga al tipo de procedimiento aunque no sea
-# un número en absoluto -- bug real detectado: sobre "Licitación Privada para
-# la 'Adquisición de...'" (sin ningún número en el pliego), el regex capturó
-# "para" como si fuera el número, dando `valor: "Licitación Privada N° para"`.
-# `_PRESUPUESTO_RE` tiene el mismo problema de fondo: sin un tope de
-# oración, sobre "PRESUPUESTO OFICIAL: $ X APERTURA: LUGAR: ..." (un pliego
-# con el monto real aún sin completar) capturaba toda la frase siguiente como
-# si fuera el presupuesto. Este chequeo es la red de seguridad genérica para
-# ambos casos -- y para cualquier pliego con la misma estructura, no solo
-# este -- sin necesidad de mantener los regex perfectamente anclados.
 _TIPOS_IDENTIFICACION_QUE_REQUIEREN_DIGITO = {"numero_procedimiento", "expediente", "presupuesto_oficial"}
 
 
@@ -1233,10 +1100,7 @@ def _verify_citation_grounding(
             if grounding_chunk is not None:
                 any_verified = True
                 normalized_ref = dict(ref)
-                # ATR-01: se registra QUÉ chunk respaldó la cita. Es el eslabón
-                # que faltaba entre "retrieved chunk" y "used evidence": sin
-                # esto, síntesis y highlighting tienen que volver a buscar el
-                # texto para adivinar de qué chunk salió.
+                
                 _attach_chunk_identity(normalized_ref, grounding_chunk)
                 final_citation = citation_for_verification
                 if not _is_table_citation(citation):
@@ -1248,26 +1112,16 @@ def _verify_citation_grounding(
                         candidates,
                         preferred_snippet=preferred_snippet,
                     )
-                    # La cita es válida (existe literal en el chunk) pero pobre
-                    # como evidencia: se intenta enriquecerla con otro fragmento
-                    # literal del mismo ítem. Si no hay ninguno grounded, se
-                    # conserva la corta -- verificada es verificada.
+                    
                     if len(final_citation) < CITATION_PREFERRED_MIN_CHARS:
                         richer = _rescue_paragraph_citation(item, candidates, category=category)
                         if richer and len(richer) > len(final_citation):
                             final_citation = richer
                     if len(final_citation) < CITATION_PREFERRED_MIN_CHARS:
                         final_citation = _widen_citation_with_chunk_context(final_citation, candidates)
-                # Recorte al límite recién acá, sobre una cita ya verificada: el
-                # techo es de legibilidad, no de validez. Y se recorta a la
-                # ventana que contiene el dato del item, no al prefijo -- ver
-                # `shorten_citation_to_evidence`.
+                
                 normalized_ref["citation"] = shorten_citation_to_evidence(final_citation, item)
-                # ATR-02 (auditoría 2026-08-13): qué relación tiene lo que se
-                # muestra con lo que el modelo realmente citó. Sin esto, tres
-                # transformaciones distintas reescriben la cita después de
-                # verificarla y nada aguas abajo puede distinguir el texto del
-                # modelo del texto que puso el pipeline.
+                
                 normalized_ref["citation_llm"] = citation
                 normalized_ref["citation_origin"] = (
                     "llm"
@@ -1281,23 +1135,7 @@ def _verify_citation_grounding(
                 rescued_citation = _rescue_paragraph_citation(item, candidates, category=category)
 
             if rescued_citation:
-                # FIX (auditoría 2026-08-13, hallazgo ATR-02): acá se hacía
-                # `any_verified = True` y el item quedaba en `success`.
-                #
-                # Pero este camino se toma justamente cuando la cita QUE EL
-                # MODELO DECLARÓ COMO EVIDENCIA no se pudo verificar contra
-                # ningún chunk. El rescate busca si el `valor` o el
-                # `texto_original` del item aparecen literalmente en algún chunk
-                # y, si aparecen, los usa como cita. Que ese otro texto exista
-                # en la página no prueba que respalde ESTE dato: puede ser el
-                # mismo porcentaje de otra garantía, o la misma fecha de otro
-                # plazo. La verificación anti-alucinación falló, y el sistema
-                # la reemplazaba por otra que sí pasa.
-                #
-                # Se conserva el rescate -- tirar el item entero sería peor, y
-                # el texto rescatado sí es literal del pliego -- pero deja de
-                # contar como verificación: el item baja a `partial` y lleva una
-                # marca explícita.
+                
                 rescued_refs_count += 1
                 normalized_ref = dict(ref)
                 normalized_ref["citation"] = rescued_citation
@@ -1347,15 +1185,7 @@ def _chunk_identity(chunk: dict[str, Any]) -> tuple[str, int]:
 
 
 def _attach_chunk_identity(ref: dict[str, Any], chunk: dict[str, Any] | None) -> None:
-    """Anota en la `source_reference` de qué chunk salió la evidencia (ATR-01).
-
-    Además del `chunk_id`, se anota el `block_id` del bloque que efectivamente
-    contiene la cita. Antes `block_id` sólo lo poblaba
-    `_augment_identificacion_payload` -- y tomando `blocks[0]`, el PRIMER
-    bloque del chunk, sin verificar cuál contenía la cita (hallazgo ATR-04).
-    Para las otras siete categorías quedaba siempre vacío, porque el LLM no
-    tiene forma de conocerlo: `_format_chunks` nunca expone identificadores de
-    bloque.
+    """Anota en la `source_reference` de qué chunk salió la evidencia.
     """
     if chunk is None:
         return
@@ -1400,31 +1230,8 @@ def _retrieve_with_category_priority(
     category_boost: float = 0.20,  # Parametrizable para benchmark
 ) -> list[dict[str, Any]]:
     """Recupera chunks relevantes usando SCORING HÍBRIDO en vez de filtro rígido.
-
-    CAMBIO ARQUITECTÓNICO v3 (2026-08-12):
-    Ya NO filtra por categoría como criterio de exclusión. En su lugar:
-    
-    1. Busca en TODOS los chunks del analysis_id (sin filtro por categoría)
-    2. Aplica category_boost al scoring de Azure:
-       - Chunks con categoría target → boost +20%
-       - Resto → score original de Azure
-    3. Reordena y devuelve top_k
-    
-    Esto resuelve el problema fundamental: "información distribuida en chunks
-    de distintas categorías no se pierde por clasificación imperfecta en chunking time".
-    
-    Por ejemplo:
-        Chunk A: "La garantía será del 1%..." → primary_category="garantias"
-        Chunk B: "Deberá presentarse junto con la oferta..." → primary_category="presentacion_ofertas"
-    
-    Query "garantias":
-        ANTES: Solo recuperaba Chunk A (filtro rígido)
-        AHORA: Recupera A y B, con A boosted (scoring híbrido)
-    
-    El LLM recibe contexto más amplio y decide cuál es evidencia relevante.
     """
-    # PHASE 1: Búsqueda amplia - recuperar candidatos sin filtro rígido
-    # Over-fetch para tener margen después de aplicar boost
+    
     over_fetch_k = top_k * 3
     
     all_candidates = search_hybrid(
@@ -1443,24 +1250,14 @@ def _retrieve_with_category_priority(
         )
         return []
 
-    # PHASE 2: Category boost - señal, NO filtro
-    # Boost configurable (default 20%) para chunks que tienen la categoría target
+
     CATEGORY_BOOST_FACTOR = 1.0 + category_boost  # e.g. 0.20 → 1.20
     
     scored_chunks: list[tuple[float, dict]] = []
     category_match_count = 0
 
     for rank, chunk in enumerate(all_candidates):
-        # FIX (auditoría 2026-08-12, hallazgo M-2): usar el score real de
-        # relevancia híbrida que Azure ya calculó (search_score, agregado en
-        # shared/ports/azure_search.py) en vez de aproximarlo por posición
-        # con 1.0/(rank+1). El rank sintético perdía la magnitud/distribución
-        # real de relevancia entre candidatos -- dos chunks con scores de
-        # Azure muy distintos (uno claramente más relevante que el resto)
-        # terminaban con boosts comparables solo por estar en ranks
-        # cercanos. `search_score` puede faltar en fuentes legacy/mocks de
-        # test que no pasan por _search_azure; en ese caso se cae al rank
-        # sintético anterior en vez de romper.
+       
         base_score = chunk.get("search_score")
         if base_score is None:
             base_score = 1.0 / (rank + 1)
@@ -1479,19 +1276,14 @@ def _retrieve_with_category_priority(
         
         scored_chunks.append((boosted_score, chunk))
     
-    # PHASE 3: Reordenar por score combinado y devolver top_k
-    # Como el score base ya viene de Azure en orden, solo necesitamos
-    # reorganizar para que los boosted suban
+
     scored_chunks.sort(key=lambda x: x[0], reverse=True)
     final_chunks = [chunk for _score, chunk in scored_chunks[:top_k]]
 
-    # Logging de distribución y recall
+    
     category_distribution: dict[str, int] = {}
     for chunk in final_chunks:
-        # FIX (auditoría 2026-08-13, hallazgo CHK-05): el default de `.get` no
-        # alcanza -- la clave existe con valor None para los chunks que no se
-        # pudieron clasificar, así que la distribución quedaba con una clave
-        # None en vez de un nombre legible.
+       
         primary = chunk.get("primary_category") or "sin_categoria"
         category_distribution[primary] = category_distribution.get(primary, 0) + 1
 
@@ -1516,6 +1308,146 @@ def _retrieve_with_category_priority(
     )
     
     return final_chunks
+
+
+def _grounding_chunk_ids_for_item(item: dict[str, Any], chunks: list[dict[str, Any]]) -> set[str]:
+    """De qué chunk(s) recuperados sale, literalmente, cada cita del ítem.
+
+    Reusa el mismo matcheo literal que `_verify_citation_grounding` (texto de
+    la cita contenido en `chunk['content']`) para no duplicar criterios de
+    "qué cuenta como evidencia real" entre dos funciones del pipeline.
+    """
+    ids: set[str] = set()
+    for ref in item.get("source_references") or []:
+        if not isinstance(ref, dict):
+            continue
+        citation = str(ref.get("citation") or "").strip()
+        if not citation:
+            continue
+        for chunk in chunks:
+            if _citation_verified_in_paragraph_chunk(citation, chunk):
+                chunk_id = chunk.get("id") or chunk.get("chunk_id")
+                if chunk_id:
+                    ids.add(str(chunk_id))
+                break
+    return ids
+
+
+def _has_weak_identity(item: dict[str, Any]) -> bool:
+    """Un ítem con `tipo` genérico, o con status parcial y confianza baja, no
+    tiene entidad propia clara: es un candidato natural a ser en realidad un
+    pedazo de OTRO ítem (ver `_merge_split_fact_items`)."""
+    tipo = str(item.get("tipo") or "").strip().lower()
+    if tipo in _GENERIC_FALLBACK_TIPOS:
+        return True
+    status = str(item.get("extraction_status") or "")
+    try:
+        confidence = float(item.get("confidence"))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    return status == "partial" and confidence < 0.65
+
+
+_MERGEABLE_TEXT_FIELDS = ("texto_original", "expresion_relativa", "valor")
+_STATUS_RANK = {"success": 3, "partial": 2, "not_applicable": 1, "not_found": 0, "failed": 0}
+
+
+def _merge_two_items(primary: dict[str, Any], secondary: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(primary)
+
+    for field_name in _MERGEABLE_TEXT_FIELDS:
+        primary_text = str(merged.get(field_name) or "").strip()
+        secondary_text = str(secondary.get(field_name) or "").strip()
+        if not secondary_text:
+            continue
+        if primary_text and secondary_text.lower() in primary_text.lower():
+            continue
+        merged[field_name] = f"{primary_text} {secondary_text}".strip() if primary_text else secondary_text
+
+    existing_citations = {
+        _normalize_for_grounding(ref.get("citation"))
+        for ref in merged.get("source_references") or []
+        if isinstance(ref, dict)
+    }
+    combined_refs = list(merged.get("source_references") or [])
+    for ref in secondary.get("source_references") or []:
+        if not isinstance(ref, dict):
+            continue
+        normalized_citation = _normalize_for_grounding(ref.get("citation"))
+        if normalized_citation and normalized_citation not in existing_citations:
+            combined_refs.append(ref)
+            existing_citations.add(normalized_citation)
+    merged["source_references"] = combined_refs
+
+    try:
+        merged["confidence"] = max(float(primary.get("confidence") or 0.0), float(secondary.get("confidence") or 0.0))
+    except (TypeError, ValueError):
+        pass
+
+    secondary_status = str(secondary.get("extraction_status") or "")
+    if _STATUS_RANK.get(secondary_status, 0) > _STATUS_RANK.get(str(merged.get("extraction_status") or ""), 0):
+        merged["extraction_status"] = secondary_status
+
+    merged["_merged_split_fact"] = True
+    return merged
+
+
+def _merge_split_fact_items(
+    items: list[dict[str, Any]],
+    chunks: list[dict[str, Any]],
+    *,
+    category: str,
+    correlation_id: str,
+) -> list[dict[str, Any]]:
+    """Fusiona ítems que en realidad son UN solo hecho partido en fragmentos.
+    """
+    if len(items) < 2:
+        return items
+
+    grounding_cache = [_grounding_chunk_ids_for_item(item, chunks) for item in items]
+    consumed = [False] * len(items)
+    result: list[dict[str, Any]] = []
+    merge_count = 0
+
+    for i, base_item in enumerate(items):
+        if consumed[i]:
+            continue
+        current = base_item
+        current_chunk_ids = grounding_cache[i]
+
+        for j in range(i + 1, len(items)):
+            if consumed[j]:
+                continue
+            other = items[j]
+            shared_chunk_ids = current_chunk_ids & grounding_cache[j]
+            if not shared_chunk_ids:
+                continue
+            if not (_has_weak_identity(current) or _has_weak_identity(other)):
+                continue
+
+            if _has_weak_identity(current) and not _has_weak_identity(other):
+                primary, secondary = other, current
+            else:
+                primary, secondary = current, other
+
+            current = _merge_two_items(primary, secondary)
+            current_chunk_ids = current_chunk_ids | grounding_cache[j]
+            consumed[j] = True
+            merge_count += 1
+
+        result.append(current)
+
+    if merge_count:
+        logger.info(
+            "merged_split_fact_items",
+            correlation_id=correlation_id,
+            category=category,
+            merges=merge_count,
+            original_count=len(items),
+            final_count=len(result),
+        )
+
+    return result
 
 
 def run_extractor(
@@ -1557,8 +1489,7 @@ def run_extractor(
             correlation_id=correlation_id,
         )
 
-        # CTX-02: primero el corte por relevancia, después el de presupuesto.
-        # Al revés, el presupuesto se gastaría en la cola irrelevante.
+    
         chunks = _drop_low_relevance_chunks(
             chunks,
             correlation_id=correlation_id,
@@ -1572,10 +1503,10 @@ def run_extractor(
             category=result_key,
         )
 
-        # Logging de distribución de categorías recuperadas
+       
         category_distribution: dict[str, int] = {}
         for chunk in chunks:
-            # Ver el comentario equivalente en `_retrieve_with_category_priority`.
+            
             primary = chunk.get("primary_category") or "sin_categoria"
             category_distribution[primary] = category_distribution.get(primary, 0) + 1
 
@@ -1649,7 +1580,16 @@ def run_extractor(
             if result_key == "identificacion_procedimiento":
                 payload = _augment_identificacion_payload(payload, chunks)
             normalized_items = [_normalize_item(item) for item in payload if isinstance(item, dict)]
-            delta[state_field] = _normalize_mixed_not_found_items(normalized_items, category=result_key)
+            normalized_items = _normalize_mixed_not_found_items(normalized_items, category=result_key)
+            # Red de seguridad genérica: si el LLM partió un solo hecho en dos
+            # ítems (ver docstring de `_merge_split_fact_items`), se fusionan
+            # ANTES de la verificación de citas para que ésta trabaje sobre el
+            # ítem ya consolidado. Aplica a cualquier categoría y cualquier
+            # pliego -- no depende de redacción de un pliego en particular.
+            normalized_items = _merge_split_fact_items(
+                normalized_items, chunks, category=result_key, correlation_id=correlation_id
+            )
+            delta[state_field] = normalized_items
 
         if is_object_result:
             _verify_citation_grounding(

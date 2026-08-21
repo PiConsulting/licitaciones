@@ -17,6 +17,7 @@ from analysis.extraction.extractors import (
     extractor_objeto_alcance,
     extractor_plazos,
     extractor_requisitos_admisibilidad,
+    extractor_riesgos,
 )
 from pydantic import BaseModel, ValidationError
 
@@ -34,6 +35,7 @@ from analysis.extraction.schemas import (
     ObjetoAlcanceItem,
     PlazoItem,
     RequisitoAdmisibilidadItem,
+    RiesgoItem,
 )
 from analysis.extraction.state import GraphState
 from analysis.extraction.synthesis import (
@@ -47,16 +49,6 @@ logger = structlog.get_logger(__name__)
 
 def _cleanup_temp_highlights(analysis_id: str) -> None:
     """Limpia archivos temporales de highlights descargados desde Azure.
-    
-    FIX CRÍTICO (2026-08): Los PDFs descargados desde Azure para calcular
-    highlights se guardan en /tmp/highlights-{analysis_id}/. Esta función
-    los elimina después de que synthesize_node complete el cálculo.
-    
-    FIX MEDIUM (#8): Ahora mide tamaño del directorio y loggea error prominente
-    si falla, para facilitar monitoreo de /tmp y detectar problemas de cleanup.
-    
-    Args:
-        analysis_id: ID del análisis
     """
     try:
         from pathlib import Path
@@ -128,12 +120,6 @@ class _DocumentoDelAnalisis:
 
 def _fetch_analysis_documents(analysis_id: str, db_session: Any) -> list[Any]:
     """Los documentos de un análisis, venga el estado de PostgreSQL o de Cosmos.
-
-    Extraído de `_build_document_mapping` sin cambiarle el comportamiento: las
-    tres ramas (PostgreSQL / Cosmos / sin sesión) y sus logs son los mismos. Se
-    separó porque el mapeo a blob path no es el único consumidor -- CTX-05
-    necesita el nombre y el rol de cada documento para armar el prompt, y
-    duplicar acá la lógica de tres modos era pedir que se desincronizaran.
     """
     from shared.config import get_settings
     settings = get_settings()
@@ -209,33 +195,8 @@ def _fetch_analysis_documents(analysis_id: str, db_session: Any) -> list[Any]:
 
 def _build_document_labels(analysis_id: str, db_session: Any) -> dict[str, dict[str, Any]]:
     """Mapeo `document_id -> {nombre, es_principal}` para el prompt (CTX-05).
-
-    HALLAZGO CTX-05: desde que un análisis acepta varios documentos -- uno
-    principal y el resto anexos -- el encabezado que ve el modelo identifica la
-    fuente con un UUID y nada más:
-
-        [Fragmento: F3, Documento: 149d9358-af60-4a65-a101-53c01f19126c, Página: 8, …]
-
-    Con un solo documento eso alcanzaba. Con varios, el modelo tiene que
-    resolver algo que antes no existía: qué pasa cuando el pliego y un anexo
-    dicen cosas distintas. Y la única instrucción que hay al respecto es
-    "Consolidalo si es coherente", que presupone que todos los documentos
-    pesan igual. En una licitación no pesan igual: el pliego rige y los anexos
-    son subordinados -- y varios de ellos ni siquiera son normativos (el "Anexo
-    II Equipamiento Actual Bancor.xlsx" es el inventario del equipamiento que el
-    Banco YA tiene, y el "Anexo I - Planilla de Cotización" es un formulario
-    vacío).
-
-    Sin nombre ni rol, el modelo no puede preferir el principal ante un
-    conflicto ni decir de dónde sacó cada dato. El UUID se sigue mostrando
-    porque el prompt exige copiarlo en `source_references[].document_id`.
     """
-    # Las etiquetas son degradables y el mapeo a blob path no: si no se pueden
-    # armar, el prompt vuelve al encabezado con UUID (y el propio prompt dice
-    # qué hacer en ese caso), pero el análisis sigue. `_fetch_analysis_documents`
-    # LEVANTA en producción sin sesión porque para el highlighting eso sí es
-    # fatal; acá no puede serlo, o una nicety del prompt tumbaría el análisis
-    # entero.
+  
     try:
         documents = _fetch_analysis_documents(analysis_id, db_session)
     except Exception as exc:  # noqa: BLE001
@@ -259,9 +220,7 @@ def _build_document_labels(analysis_id: str, db_session: Any) -> dict[str, dict[
 
     principales = [doc_id for doc_id, datos in etiquetas.items() if datos["es_principal"]]
     if etiquetas and not principales:
-        # No es fatal -- el prompt degrada a mostrar sólo los nombres -- pero es
-        # una inconsistencia de datos que conviene ver: alguien subió documentos
-        # sin designar cuál es el pliego.
+        
         logger.warning(
             "document_labels_sin_principal",
             analysis_id=analysis_id,
@@ -284,34 +243,7 @@ def _build_document_labels(analysis_id: str, db_session: Any) -> dict[str, dict[
 
 
 def _stampar_nombre_de_documento(nodo: Any, etiquetas: dict[str, dict[str, Any]]) -> None:
-    """CTX-06: escribe `filename`/`is_primary` en cada referencia a una fuente.
-
-    HALLAZGO CTX-06: la lista "Fuentes verificables" que la persona lee debajo
-    de cada categoría muestra el nombre del documento, y ese nombre era la
-    constante `"Documento"` (`analysisApi.ts:98` y `:415`; el tercer caso,
-    `:248`, lo leía del backend pero el backend no lo emitía nunca). Con un solo
-    documento eso era inútil; con el pliego y cuatro anexos de Santa Fe, las
-    cinco fuentes se leen `"Documento · pág. 3"` y no hay forma de distinguirlas
-    -- ni de notar que "pág. 3" del pliego y "pág. 3" de un anexo son páginas
-    distintas de archivos distintos.
-
-    El dato ya existía en dos lados: el `document_id` viaja correcto de punta a
-    punta (el resaltado depende de él y funciona) y `_build_document_labels`
-    (CTX-05) ya arma `document_id -> {nombre, es_principal}` en `setup_node`.
-    Lo único que faltaba era cruzarlos.
-
-    Se resuelve acá, en el backend, y no en el frontend, por dos razones: los
-    campos `filename`/`is_primary` ya estaban declarados en la salida (llegaban
-    en `null` en las 20 referencias del análisis de Santa Fe, o sea el hueco
-    estaba hecho y nadie lo llenaba), y así cualquier consumidor de la API
-    -- no sólo esta pantalla -- ve de qué documento sale cada cita.
-
-    Recorre la estructura entera en vez de enumerar rutas
-    (`categoria[].source_references[]`, `categoria_narrative.sources[]`,
-    `estimacion_presupuesto.source_references[]`, …) porque esas rutas ya son
-    cuatro formas distintas y agregar una quinta no debería requerir tocar esto.
-    La marca de "esto es una referencia a una fuente" es tener `document_id` y
-    `citation` a la vez.
+    """escribe `filename`/`is_primary` en cada referencia a una fuente.
     """
     if not etiquetas:
         # Degradable, igual que CTX-05: sin etiquetas los campos quedan como
@@ -333,25 +265,6 @@ def _stampar_nombre_de_documento(nodo: Any, etiquetas: dict[str, dict[str, Any]]
 
 def _build_document_mapping(analysis_id: str, db_session: Any) -> dict[str, str]:
     """Construye mapeo document_id → ruta absoluta del PDF en blob storage.
-    
-    FIX CRÍTICO (2026-08): Necesario para calcular coordenadas de highlight
-    con PyMuPDF en synthesize_node. Funciona tanto en local como en Azure
-    (descarga PDFs temporalmente desde Azure Blob Storage).
-    
-    Args:
-        analysis_id: ID del análisis
-        db_session: Sesión de SQLAlchemy (puede ser None en cosmos_only_mode o tests)
-    
-    Returns:
-        Diccionario document_id → ruta absoluta del PDF
-        (vacío si db_session es None en development/test)
-    
-    Raises:
-        RuntimeError: Si db_session es None en producción sin cosmos_only_mode
-    
-    Note:
-        En Azure, descarga PDFs a /tmp/highlights-{analysis_id}/. Estos archivos
-        deben limpiarse manualmente después de calcular highlights.
     """
     documents = _fetch_analysis_documents(analysis_id, db_session)
     if not documents:
@@ -459,44 +372,17 @@ def _normalize_text(value: str) -> str:
     return " ".join(normalized.lower().strip().split())
 
 
-def _canonical_plazo_tipo(value: str, *, item: dict | None = None) -> str:
-    """Canonicaliza el tipo de plazo. Si el tipo original es ambiguo ('otro'),
-    intenta rescatar el tipo correcto buscando keywords en texto_original."""
+def _canonical_plazo_tipo(value: str) -> str:
+    """Canonicaliza el tipo de plazo cuando el `tipo` que puso el LLM es una
+    variante de redacción de uno de los 17 tipos válidos (ej. "Plazo de
+    Ejecución" -> "plazo_ejecucion"), para que dos ítems del mismo hecho
+    deduplicen aunque el LLM los haya redactado distinto entre sí.
+    """
     text = _normalize_text(value)
     if not text:
         return "otro"
 
-    # Intentar rescate por texto_original si tipo es "otro"
-    if text == "otro" and item:
-        # Buscar en texto_original y expresion_relativa
-        texto_completo = " ".join([
-            str(item.get("texto_original") or ""),
-            str(item.get("expresion_relativa") or ""),
-        ])
-        rescue_text = _normalize_text(texto_completo)
-        
-        # Aplicar misma lógica de reconocimiento pero sobre el texto completo
-        if "respuesta" in rescue_text and "consulta" in rescue_text:
-            return "respuesta_consultas"
-        if "consulta" in rescue_text:
-            return "consultas"
-        if "impugn" in rescue_text or "recurs" in rescue_text:
-            return "impugnacion"
-        if "visita" in rescue_text:
-            return "visita_lugar"
-        if "apertura" in rescue_text:
-            return "apertura_ofertas"
-        if "mantenimiento" in rescue_text and "oferta" in rescue_text:
-            return "mantenimiento_oferta"
-        if "adjudic" in rescue_text:
-            return "adjudicacion"
-        if "firma" in rescue_text and "contrato" in rescue_text:
-            return "firma_contrato"
-        if any(term in rescue_text for term in ["ejecucion", "entrega", "provision", "suministro"]):
-            return "plazo_ejecucion"
-        if any(term in rescue_text for term in ["presentacion", "recepcion"]):
-            return "presentacion_ofertas"
-        # Si no rescatamos nada, mantener "otro"
+    if text == "otro":
         return "otro"
 
     # Reconocimiento estándar por tipo
@@ -604,6 +490,50 @@ def _canonical_causal_tipo(value: str) -> str:
         return "economica"
     if any(term in text for term in ["legal", "inhabilit", "registro", "juridic"]):
         return "legal"
+
+
+def _canonical_riesgo_subtipo(value: str) -> str:
+    """Normaliza el subtipo de riesgo al enum canónico.
+    
+    Mapea variaciones textuales del LLM a los valores del enum SubtipoRiesgo.
+    Si no se puede clasificar con confianza, devuelve 'otro_explicito'.
+    
+    IMPORTANTE: El orden de evaluación importa - los términos más específicos
+    van primero para evitar falsos positivos con términos genéricos.
+    """
+    text = _normalize_text(value)
+    if not text:
+        return "otro_explicito"
+
+    # Incumplimiento de obligaciones (primero, porque es específico)
+    if any(term in text for term in ["incumplimiento", "incumplir", "falta", "omision"]):
+        return "incumplimiento"
+    
+    # Plazos (antes de ejecución, porque "plazo de entrega" debe ir aquí)
+    if any(term in text for term in ["plazo", "demora", "retraso", "vencimiento", "termino"]):
+        return "plazos"
+    
+    # Económico/financiero
+    if any(term in text for term in ["econom", "financier", "multa", "penaliza", "sancion monetaria", "pago"]):
+        return "economico"
+    
+    # Técnico
+    if any(term in text for term in ["tecnic", "especificacion", "calidad", "norma tecnica"]):
+        return "tecnico"
+    
+    # Legal/contractual
+    if any(term in text for term in ["legal", "contractual", "juridic", "rescision", "clausula"]):
+        return "legal_contractual"
+    
+    # Operativo (después de verificar los otros, porque es más genérico)
+    if any(term in text for term in ["operativ", "gestion", "administra", "logistic"]):
+        return "operativo"
+    
+    # Ejecución del contrato (al final, porque "entrega" y "ejecutar" son genéricos)
+    if any(term in text for term in ["ejecucion", "ejecutar", "cumplir contrato", "entrega"]):
+        return "ejecucion"
+    
+    return "otro_explicito"
     if any(term in text for term in ["etica", "conflicto", "corrup", "integridad"]):
         return "etica"
     return "otra"
@@ -725,25 +655,6 @@ def calculate_confidence(source_references: list[dict], extraction_status: str) 
     elif len(source_references) == 1:
         confidence += 0.2
 
-    # FIX (auditoría 2026-08-13, hallazgo SYN-05): acá había un ajuste por LARGO
-    # de la cita: +0.2 por encima de 100 caracteres, -0.2 por debajo de 25.
-    #
-    # El largo de la cita no mide la calidad de la evidencia: mide una decisión
-    # del propio pipeline. `_expand_short_paragraph_citation`,
-    # `_widen_citation_with_chunk_context` y `_rescue_paragraph_citation`
-    # ensanchan la cita hasta llegar a `CITATION_PREFERRED_MIN_CHARS`. O sea que
-    # el sistema alargaba la cita y después se premiaba a sí mismo por tenerla
-    # larga.
-    #
-    # Y desde que `CITATION_MAX_CHARS` bajó a 120 (las citas ahora son cortas a
-    # propósito, ver el hallazgo de legibilidad), el bonus de +0.2 pasó a ser
-    # casi inalcanzable: habría bajado la confianza de todas las categorías sin
-    # que cambiara nada de la evidencia.
-    #
-    # Lo que sí mide calidad de evidencia -- cuántas fuentes independientes
-    # respaldan el dato, y si la extracción fue completa o parcial -- ya está
-    # contemplado arriba y abajo.
-
     if extraction_status == "partial":
         confidence -= 0.2
 
@@ -760,23 +671,6 @@ def get_confidence_level(confidence: float) -> str:
 
 def _normalize_confidence(item: dict) -> dict:
     """La confianza que ve el usuario se CALCULA; no se le pregunta al modelo.
-
-    FIX (auditoría 2026-08-13, hallazgo SYN-05): antes, si el item traía
-    `confidence` -- y el prompt se lo pide explícitamente al LLM, así que casi
-    siempre lo trae -- se respetaba ese número y `calculate_confidence` no corría
-    nunca. Lo que el usuario leía como "confianza alta" era la autoevaluación del
-    mismo modelo que produjo el dato.
-
-    No es una opinión de más entre varias: `get_confidence_level` marca "alta" a
-    partir de 0.8, y el prompt define ese rango como "usable sin abrir el PDF".
-    Un modelo que se equivoca al extraer se equivoca también al puntuarse.
-
-    Ahora la confianza sale siempre de `calculate_confidence`, que es
-    determinista y auditable: cuántas fuentes verificadas respaldan el dato y si
-    la extracción quedó completa o parcial. La autoevaluación del modelo se
-    conserva en `confidence_llm` -- sirve para telemetría (¿el modelo sabe
-    cuándo se está equivocando?), no para decidir qué se le muestra a la
-    persona.
     """
     status = str(item.get("extraction_status", "success"))
     refs = list(item.get("source_references", []))
@@ -919,11 +813,6 @@ def _drop_items_without_sources(
     """El contrato final exige al menos una fuente por item persistido.
     Si el grounding dejó items sin citas verificables, se descartan y la
     categoría baja a partial cuando antes figuraba como success.
-
-    ATR-03 (auditoría 2026-08-13): además se ANOTA cuántos se descartaron. El
-    descarte estaba bien hecho, pero era invisible: la categoría llegaba al
-    usuario como `partial` sin ninguna forma de distinguir "el pliego dice poco"
-    de "el modelo produjo hallazgos que no pudimos respaldar".
     """
     items = _enforce_citation_contract(items)
     filtered = [item for item in items if list(item.get("source_references", []))]
@@ -999,13 +888,14 @@ def merge_node(state: GraphState) -> GraphState:
     anexos = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("anexos", [])]
     criterios = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("criterios", [])]
     identificacion = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("identificacion", [])]
+    riesgos = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("riesgos", [])]
 
     # Canonicalizar el tipo ANTES de deduplicar: dos ítems que citan el mismo
     # hecho (ej. "mantenimiento de oferta" extraído de dos fragmentos/documentos
     # distintos) suelen llegar con una redacción de `tipo` levemente distinta, y
     # solo se reconocen como el mismo hecho después de canonicalizar.
     for plazo in plazos:
-        plazo["tipo"] = _canonical_plazo_tipo(str(plazo.get("tipo", "")), item=plazo)
+        plazo["tipo"] = _canonical_plazo_tipo(str(plazo.get("tipo", "")))
     plazos = _merge_duplicate_typed_items(plazos, _plazo_dedup_value)
 
     for garantia in garantias:
@@ -1036,6 +926,12 @@ def merge_node(state: GraphState) -> GraphState:
     identificacion = _merge_duplicate_items_by_key(
         identificacion, lambda item: (str(item.get("tipo", "")), _normalized_valor_key(item))
     )
+    # Normalizar subtipo de riesgos antes de deduplicar
+    for riesgo in riesgos:
+        riesgo["subtipo"] = _canonical_riesgo_subtipo(str(riesgo.get("subtipo", "")))
+    riesgos = _merge_duplicate_items_by_key(
+        riesgos, lambda item: (str(item.get("tipo", "")), str(item.get("subtipo", "")), _normalized_valor_key(item))
+    )
 
     # ATR-03: contadores de calidad por categoría, para que el usuario pueda
     # distinguir "el pliego dice poco" de "tuvimos que descartar hallazgos".
@@ -1062,6 +958,12 @@ def merge_node(state: GraphState) -> GraphState:
         identificacion,
         str(state.get("identificacion_status", "unknown")),
         category="identificacion_procedimiento",
+        quality=calidad,
+    )
+    riesgos, riesgos_status = _drop_items_without_sources(
+        riesgos,
+        str(state.get("riesgos_status", "unknown")),
+        category="riesgos",
         quality=calidad,
     )
 
@@ -1110,6 +1012,10 @@ def merge_node(state: GraphState) -> GraphState:
         identificacion_canonica, IdentificacionProcedimientoItem, identificacion_status,
         category="identificacion_procedimiento", correlation_id=correlation_id, quality=calidad,
     )
+    riesgos, riesgos_status = _keep_schema_valid_items(
+        riesgos, RiesgoItem, riesgos_status,
+        category="riesgos", correlation_id=correlation_id, quality=calidad,
+    )
 
     extracted_data = {
         # ATR-03: viaja dentro de `extracted_data` porque es lo único que llega
@@ -1133,14 +1039,7 @@ def merge_node(state: GraphState) -> GraphState:
         "causales_extraction_status": causales_status,
         "causales_rechazo_confidence": _category_confidence(causales),
         "anexos_obligatorios": anexos,
-        # `ExtractedData` declara `anexos_obligatorios_extraction_status` /
-        # `criterios_evaluacion_extraction_status` /
-        # `identificacion_procedimiento`. Antes merge_node escribia solo los
-        # nombres legacy (`anexos_extraction_status`, `criterios_...`,
-        # `datos_procedimiento`), que pydantic descartaba: las categorias
-        # quedaban en su default ("unknown" / lista vacia) SIEMPRE, sin importar
-        # que el extractor hubiera funcionado. Se escriben ambos nombres: el
-        # canonico que consume el frontend y el legacy por compatibilidad.
+    
         "anexos_obligatorios_extraction_status": anexos_status,
         "anexos_extraction_status": anexos_status,
         "anexos_obligatorios_confidence": _category_confidence(anexos),
@@ -1149,15 +1048,10 @@ def merge_node(state: GraphState) -> GraphState:
         "datos_procedimiento": identificacion,
         "datos_procedimiento_extraction_status": identificacion_status,
         "datos_procedimiento_confidence": _category_confidence(identificacion),
-        # FIX (auditoría 2026-08-13, hallazgo CTX-03): estos cuatro campos
-        # estaban en `not_found`, que en toda la UI significa "el pliego no lo
-        # dice". Pero ningún nodo del grafo los completa: los ocho extractores
-        # están listados en `_EXTRACTOR_NODES` y ninguno mapea acá. La verdad no
-        # es "no encontrado" sino "no analizado".
-        #
-        # La diferencia importa: para `estimacion_presupuesto`, un oferente que
-        # lee "no encontrado" puede concluir que el pliego no publica
-        # presupuesto oficial, cuando el sistema nunca lo buscó por esa vía.
+        "riesgos": riesgos,
+        "riesgos_extraction_status": riesgos_status,
+        "riesgos_confidence": _category_confidence(riesgos),
+        
         "documentos_requeridos": [],
         "documentos_extraction_status": NOT_ANALYZED_STATUS,
         "criterios_evaluacion": criterios,
@@ -1238,21 +1132,6 @@ def _build_chunk_indexes(
 ) -> tuple[dict[str, dict], dict[tuple[str, int], list[dict]]]:
     """Enumera los chunks del análisis UNA vez y deriva los dos índices que
     necesita la síntesis.
-
-    FIX (auditoría 2026-08-13, hallazgo SYN-03): antes había dos funciones
-    equivalentes (`_build_chunks_by_id_index` acá y
-    `synthesis._build_chunks_index_from_search`) que hacían la misma consulta
-    por separado, y la segunda se llamaba DENTRO del loop de categorías, sin
-    caché. Total: 8 enumeraciones del índice por análisis, cada una con su
-    propia llamada de embedding, su búsqueda con `top=3000` y sus cientos de
-    `get_document()` de la expansión children->parent. Ahora se enumera una
-    sola vez y los dos índices se derivan del mismo resultado.
-
-    Returns:
-        (chunks_by_id, chunks_by_doc_page)
-          - chunks_by_id: {chunk_id: chunk} -- para resolver evidencias.
-          - chunks_by_doc_page: {(document_id, page_number): [chunks]} -- para
-            el fallback de highlighting por bbox almacenado.
     """
     try:
         from shared.ports.azure_search import fetch_all_analysis_chunks
@@ -1312,10 +1191,6 @@ def synthesize_node(state: GraphState) -> GraphState:
     buscar chunks). Si una categoria falla la sintesis, simplemente no lleva
     `_narrative` en `extracted_data` — el frontend cae a su propio fallback, asi
     que un fallo aca nunca deja una categoria sin respuesta ni tumba el resto.
-    
-    FIX CRÍTICO (2026-08): Ahora enriquece cada narrative con coordenadas de
-    highlight pre-computadas usando PyMuPDF, resolviendo el problema de highlight
-    frágil identificado en la auditoría RAG.
     """
     correlation_id = state["correlation_id"]
     logger.info("synthesize_node_started", correlation_id=correlation_id, analysis_id=state["analysis_id"])
@@ -1337,10 +1212,6 @@ def synthesize_node(state: GraphState) -> GraphState:
                 reason="document_mapping is empty - highlights will not be computed",
             )
 
-    # SYN-03: una sola enumeración del índice por análisis. Los dos índices
-    # que necesita la síntesis se derivan del mismo resultado y se pasan a
-    # `enrich_narrative_with_highlights`, que antes reconstruía el suyo desde
-    # cero en CADA categoría.
     chunks_by_id, chunks_by_doc_page = _build_chunk_indexes(state["analysis_id"], correlation_id)
 
     synthesized = 0
@@ -1376,10 +1247,7 @@ def synthesize_node(state: GraphState) -> GraphState:
         token_usage_by_category[f"{category_key}_synthesis"] = token_usage
         synthesized += 1
 
-    # CTX-06: acá y no en `merge_node` porque las `sources` de las narrativas
-    # -- que son las que el frontend lista bajo "Fuentes verificables" -- se
-    # acaban de agregar recién en este nodo. Un solo recorrido cubre las
-    # referencias de los ítems y las de las narrativas.
+
     _stampar_nombre_de_documento(extracted_data, state.get("document_labels") or {})
 
     metadata["token_usage"] = token_usage_by_category
@@ -1393,7 +1261,6 @@ def synthesize_node(state: GraphState) -> GraphState:
         categories_synthesized=synthesized,
     )
     
-    # FIX CRÍTICO (2026-08): Limpiar PDFs temporales descargados desde Azure
     _cleanup_temp_highlights(state["analysis_id"])
     
     return state
@@ -1410,6 +1277,7 @@ builder.add_node("extract_anexos", extractor_anexos_obligatorios)
 builder.add_node("extract_requisitos", extractor_requisitos_admisibilidad)
 builder.add_node("extract_criterios", extractor_criterios_evaluacion)
 builder.add_node("extract_identificacion", extractor_identificacion_procedimiento)
+builder.add_node("extract_riesgos", extractor_riesgos)
 builder.add_node("merge", merge_node)
 builder.add_node("synthesize", synthesize_node)
 
@@ -1424,6 +1292,7 @@ extractor_nodes = [
     "extract_requisitos",
     "extract_criterios",
     "extract_identificacion",
+    "extract_riesgos",
 ]
 
 for node in extractor_nodes:

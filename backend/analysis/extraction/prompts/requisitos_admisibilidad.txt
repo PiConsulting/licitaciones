@@ -146,6 +146,43 @@ Umbrales o condiciones habilitantes de elegibilidad.
 ## 2. Un ítem por requisito
 Aunque vengan en una sola oración con incisos a), b), c)... emití un ítem por inciso.
 
+## 1.bis Condición "paraguas" de vigencia en un registro (NO te quedes solo con los documentos sueltos)
+
+Es común que el pliego liste documentos puntuales (certificados, constancias,
+declaraciones juradas) diciendo que TODOS ellos deben estar **vigentes /
+actualizados / en regla dentro de un registro** (Registro de Proveedores,
+Registro Único de Proveedores y Contratistas, Padrón de Proveedores, etc.)
+durante el procedimiento. Esa condición de vigencia registral es, en sí
+misma, un requisito de admisibilidad autónomo (`tipo: "inscripcion_registro"`)
+-- no alcanza con listar los documentos individuales como si el requisito
+fuera solo "presentar estos papeles".
+
+**Patrón genérico a reconocer** (aplica a cualquier redacción equivalente):
+```
+"La documentación detallada a continuación se encuentra/deberá encontrarse
+vigente en el Registro [de Proveedores / Único de Proveedores y Contratistas
+/ etc.] durante el procedimiento de selección: [lista de documentos]"
+```
+
+**Ejemplo abstracto:**
+```
+"La documentación detallada a continuación deberá encontrarse vigente en el
+Registro de Proveedores del organismo durante todo el procedimiento:
+- Certificado fiscal
+- Certificado de libre deuda"
+```
+→ Emití **el ítem paraguas** ("mantener vigente e inscripta la documentación
+en el Registro de Proveedores durante el procedimiento", `tipo:
+"inscripcion_registro"`) **Y ADEMÁS** un ítem `documento` por cada papel
+listado. No es uno u otro: son requisitos distintos y complementarios (el
+registro como condición habilitante general, cada documento como pieza
+concreta a mantener actualizada en él).
+
+**Señal de alarma antes de cerrar la categoría:** si extrajiste documentos
+individuales que el pliego agrupa bajo una frase de "vigente/actualizado en
+el Registro de...", releé esa frase agrupadora: probablemente te falta
+emitirla como su propio ítem `inscripcion_registro`.
+
 ## 3. Conservar montos y cantidades
 Si el requisito incluye montos, cantidades o umbrales, conservarlos tal como aparecen.
 

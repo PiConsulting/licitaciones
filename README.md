@@ -31,9 +31,9 @@ Antes de instalar, tene a mano las credenciales de:
 1. Crear y activar entorno virtual (Windows):
    - `python -m venv .venv`
    - `.venv\Scripts\activate`
-2. Instalar dependencias desde `backend/requirements.txt` (pinneadas, generadas con `pip-compile` desde `backend/pyproject.toml`):
+2. Instalar dependencias desde `backend/requirements.txt`:
    - `.venv\Scripts\python.exe -m pip install -r backend/requirements.txt`
-   - Para desarrollo (incluye `pytest` y `ruff`): `.venv\Scripts\python.exe -m pip install -r backend/requirements-dev.txt`
+   - (El archivo incluye todas las dependencias de producción y desarrollo)
 3. Configurar variables de entorno:
    - Copiar `.env.example` a `.env` en la raiz del repo.
    - Setear `APP_ENV=production` y `USE_LOCAL_ADAPTERS=false`.

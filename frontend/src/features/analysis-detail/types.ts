@@ -2,6 +2,7 @@ import type { AnalysisTracking } from "../../types/tracking";
 
 export type CategoryId =
   | "objeto_alcance"
+  | "riesgos"
   | "requisitos_admisibilidad"
   | "garantias"
   | "plazos_clave"

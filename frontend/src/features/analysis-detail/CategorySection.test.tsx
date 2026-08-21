@@ -469,4 +469,107 @@ describe("CategorySection", () => {
 
     expect(screen.queryByText("Comentarios")).not.toBeInTheDocument();
   });
+
+  test("T12d: en modo vista muestra porcentaje y desglose de cumplimiento por estado", () => {
+    const category = createMockCategory({
+      items: [
+        createField("Req 1", { value: "Cumple" }),
+        createField("Req 2", { value: "No cumple" }),
+        createField("Req 3", { value: "Sin evaluar" }),
+        createField("Req 4", { value: "No aplica" }),
+      ],
+    });
+    const trackingCategory: TrackingCategory = {
+      category_key: "requisitos_admisibilidad",
+      status: "closed",
+      comments_count: 0,
+      items: [
+        {
+          tracking_item_id: "tracking-item-1",
+          category_key: "requisitos_admisibilidad",
+          status: "compliant",
+          source_item_ref: {
+            version_id: "version-1",
+            field_name: "Req 1",
+          },
+        },
+        {
+          tracking_item_id: "tracking-item-2",
+          category_key: "requisitos_admisibilidad",
+          status: "non_compliant",
+          source_item_ref: {
+            version_id: "version-1",
+            field_name: "Req 2",
+          },
+        },
+        {
+          tracking_item_id: "tracking-item-3",
+          category_key: "requisitos_admisibilidad",
+          status: "not_evaluated",
+          source_item_ref: {
+            version_id: "version-1",
+            field_name: "Req 3",
+          },
+        },
+        {
+          tracking_item_id: "tracking-item-4",
+          category_key: "requisitos_admisibilidad",
+          status: "not_applicable",
+          source_item_ref: {
+            version_id: "version-1",
+            field_name: "Req 4",
+          },
+        },
+      ],
+    };
+
+    render(
+      <CategorySection
+        category={category}
+        categoryId="requisitos_admisibilidad"
+        trackingCategory={trackingCategory}
+        trackingReadOnly
+      />,
+    );
+
+    expect(screen.getByTestId("category-compliance-summary")).toBeInTheDocument();
+    expect(screen.getByText(/Cumplimiento/i)).toBeInTheDocument();
+    expect(screen.getByText("50%")).toBeInTheDocument();
+    expect(screen.getByText("1 cumplen")).toBeInTheDocument();
+    expect(screen.getByText("1 no cumplen")).toBeInTheDocument();
+    expect(screen.getByText("1 sin evaluar")).toBeInTheDocument();
+    expect(screen.getByText("1 no aplica")).toBeInTheDocument();
+  });
+
+  test("T12e: no muestra resumen de cumplimiento fuera de modo vista", () => {
+    const category = createMockCategory({
+      items: [createField("Req 1", { value: "Dato" })],
+    });
+    const trackingCategory: TrackingCategory = {
+      category_key: "requisitos_admisibilidad",
+      status: "in_review",
+      comments_count: 0,
+      items: [
+        {
+          tracking_item_id: "tracking-item-1",
+          category_key: "requisitos_admisibilidad",
+          status: "compliant",
+          source_item_ref: {
+            version_id: "version-1",
+            field_name: "Req 1",
+          },
+        },
+      ],
+    };
+
+    render(
+      <CategorySection
+        category={category}
+        categoryId="requisitos_admisibilidad"
+        trackingCategory={trackingCategory}
+      />,
+    );
+
+    expect(screen.queryByTestId("category-compliance-summary")).not.toBeInTheDocument();
+  });
 });

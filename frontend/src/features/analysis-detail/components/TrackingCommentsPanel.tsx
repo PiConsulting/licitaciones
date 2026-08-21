@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { listTrackingComments } from "../../../api/tracking";
 import { Button } from "../../../components/Button";
@@ -65,68 +66,71 @@ export function TrackingCommentsPanel({
     enabled: showHistory && analysisId.length > 0,
   });
   const comments = commentsQuery.data ?? [];
+  const commentsCount = commentsQuery.data?.length ?? category.comments_count;
 
   return (
-    <section className="mt-4 rounded-md border border-gray-200 p-3" aria-label={`Comentarios de seguimiento ${category.category_key}`}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="text-sm font-semibold text-gray-900">Comentarios</p>
-          <p className="text-xs text-gray-600">{`${category.comments_count} total`}</p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {!isReadOnly ? (
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={isClosed || loading}
-              onClick={() => setShowCommentForm((current) => !current)}
-            >
-              {showCommentForm ? "Ocultar comentario" : "Agregar comentario"}
-            </Button>
-          ) : null}
-          <Button size="sm" variant="secondary" onClick={() => setShowHistory((current) => !current)}>
-            {showHistory ? "Ocultar historial" : "Ver historial"}
-          </Button>
-        </div>
-      </div>
-
-      {showCommentForm ? (
-        <div className="mt-3 rounded border border-gray-200 bg-gray-50 p-3">
-          <label htmlFor={`tracking-comment-${category.category_key}`} className="mb-1 block text-xs font-medium text-gray-700">
-            Nuevo comentario
-          </label>
-          <textarea
-            id={`tracking-comment-${category.category_key}`}
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            className="min-h-[80px] w-full rounded border border-gray-300 px-2 py-1 text-sm"
-            disabled={isClosed || isReadOnly || loading}
-          />
-
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={isClosed || isReadOnly || text.trim().length === 0}
-              loading={loading}
-              onClick={async () => {
-                await onCreateComment({ content: text });
-                setText("");
-                setShowCommentForm(false);
-              }}
-            >
-              Guardar comentario
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      {!isReadOnly && isClosed ? <p className="mt-2 text-xs text-gray-500">Reabrí la revisión para comentar.</p> : null}
+    <section className="mt-3" aria-label={`Comentarios de seguimiento ${category.category_key}`}>
+      <button
+        type="button"
+        className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 hover:text-gray-900"
+        onClick={() => setShowHistory((current) => !current)}
+        aria-expanded={showHistory}
+        aria-controls={`tracking-comments-history-${category.category_key}`}
+      >
+        <span>Comentarios</span>
+        <span className="text-[11px] text-gray-500">({commentsCount})</span>
+        {showHistory ? <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" /> : <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />}
+      </button>
 
       {showHistory ? (
-        <div className="mt-3 border-t border-gray-200 pt-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">Historial de comentarios</p>
+        <div id={`tracking-comments-history-${category.category_key}`} className="mt-2 space-y-2 pl-1">
+          {!isReadOnly ? (
+            <div className="flex items-center justify-end">
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={isClosed || loading}
+                onClick={() => setShowCommentForm((current) => !current)}
+              >
+                {showCommentForm ? "Ocultar comentario" : "Agregar comentario"}
+              </Button>
+            </div>
+          ) : null}
+
+          {showCommentForm ? (
+            <div className="rounded border border-gray-200 bg-white p-2.5">
+              <label htmlFor={`tracking-comment-${category.category_key}`} className="mb-1 block text-xs font-medium text-gray-700">
+                Nuevo comentario
+              </label>
+              <textarea
+                id={`tracking-comment-${category.category_key}`}
+                value={text}
+                onChange={(event) => setText(event.target.value)}
+                className="min-h-[80px] w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                disabled={isClosed || isReadOnly || loading}
+              />
+
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={isClosed || isReadOnly || text.trim().length === 0}
+                  loading={loading}
+                  onClick={async () => {
+                    await onCreateComment({ content: text });
+                    setText("");
+                    setShowCommentForm(false);
+                  }}
+                >
+                  Guardar comentario
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {!isReadOnly && isClosed ? <p className="mt-2 text-xs text-gray-500">Reabrí la revisión para comentar.</p> : null}
+
+          <div className="space-y-2">
           {commentsQuery.isLoading ? <p className="mt-2 text-xs text-gray-500">Cargando comentarios...</p> : null}
           {!commentsQuery.isLoading && comments.length === 0 ? (
             <p className="mt-2 text-xs text-gray-500">Todavía no hay comentarios.</p>
@@ -134,7 +138,7 @@ export function TrackingCommentsPanel({
           {comments.length > 0 ? (
             <ul className="mt-2 space-y-2">
               {comments.map((comment) => (
-                <li key={comment.id} className="rounded border border-gray-200 bg-white p-2">
+                <li key={comment.id} className="border-l-2 border-gray-200 bg-white px-2 py-1.5">
                   <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-500">
                     <span className="font-semibold text-gray-700">{scopeLabel(comment)}</span>
                     <span>{formatDateTime(comment.created_at)}</span>
@@ -214,6 +218,7 @@ export function TrackingCommentsPanel({
             </ul>
           ) : null}
         </div>
+      </div>
       ) : null}
     </section>
   );

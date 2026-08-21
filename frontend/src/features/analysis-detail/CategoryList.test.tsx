@@ -25,6 +25,14 @@ const mockAnalysis: AnalysisDetail = {
         summary: "Test summary",
         is_reviewed: false,
       } as CategoryData,
+      riesgos: {
+        items: [],
+        confidence: 0,
+        source_references: [],
+        extraction_status: "completed",
+        summary: "Sin datos",
+        is_reviewed: false,
+      } as CategoryData,
       requisitos_admisibilidad: {
         items: [],
         confidence: 0,
@@ -82,7 +90,7 @@ describe("CategoryList - AC3: Orden consistente en todos los componentes", () =>
     const { container } = render(<CategoryList analysis={mockAnalysis} />);
 
     const articles = container.querySelectorAll("article");
-    expect(articles).toHaveLength(7);
+    expect(articles).toHaveLength(8);
 
     // Verificar que cada artículo tiene el ID correcto en el orden esperado
     CATEGORY_ORDER.forEach((categoryId, index) => {
@@ -95,7 +103,7 @@ describe("CategoryList - AC3: Orden consistente en todos los componentes", () =>
 
     // Obtener todos los h3 (nombres de categorías) en orden de aparición
     const headings = screen.getAllByRole("heading", { level: 3 });
-    expect(headings).toHaveLength(7);
+    expect(headings).toHaveLength(8);
 
     // Verificar que cada heading tiene el nombre correcto en el orden esperado
     CATEGORY_ORDER.forEach((categoryId, index) => {
@@ -116,7 +124,7 @@ describe("CategoryList - AC3: Orden consistente en todos los componentes", () =>
 });
 
 describe("CategoryList - AC5: Compatibilidad con categorías faltantes", () => {
-  it("debe renderizar todas las 7 categorías aunque el backend no envíe datos", () => {
+  it("debe renderizar todas las 8 categorías aunque el backend no envíe datos", () => {
     const emptyAnalysis: AnalysisDetail = {
       ...mockAnalysis,
       current_version: {
@@ -130,7 +138,7 @@ describe("CategoryList - AC5: Compatibilidad con categorías faltantes", () => {
     const { container } = render(<CategoryList analysis={emptyAnalysis} />);
 
     const articles = container.querySelectorAll("article");
-    expect(articles).toHaveLength(7);
+    expect(articles).toHaveLength(8);
 
     // Verificar que todas las categorías se muestran
     CATEGORY_ORDER.forEach((categoryId) => {
@@ -138,10 +146,10 @@ describe("CategoryList - AC5: Compatibilidad con categorías faltantes", () => {
       expect(article).not.toBeNull();
     });
 
-    // Verificar que todas las categorías tienen respuesta generada: 6 con
+    // Verificar que todas las categorías tienen respuesta generada: 7 con
     // NarrativeBlocks y Plazos Clave con su propia timeline (vacía en este caso).
     const narrativeBlocks = screen.getAllByTestId("narrative-blocks");
-    expect(narrativeBlocks).toHaveLength(6);
+    expect(narrativeBlocks).toHaveLength(7);
     expect(document.getElementById("category-plazos_clave")?.querySelector('[data-testid^="plazos-timeline"]')).not.toBeNull();
   });
 
@@ -155,7 +163,7 @@ describe("CategoryList - AC5: Compatibilidad con categorías faltantes", () => {
         extracted_data: {
           objeto_alcance: mockAnalysis.current_version!.extracted_data.objeto_alcance,
           garantias: mockAnalysis.current_version!.extracted_data.garantias,
-          // Solo 2 categorías, las otras 5 faltantes
+          // Solo 2 categorías, las otras 6 faltantes
         },
       },
     };
@@ -163,7 +171,7 @@ describe("CategoryList - AC5: Compatibilidad con categorías faltantes", () => {
     const { container } = render(<CategoryList analysis={partialAnalysis} />);
 
     const articles = container.querySelectorAll("article");
-    expect(articles).toHaveLength(7); // Siempre 7 categorías
+    expect(articles).toHaveLength(8); // Siempre 8 categorías
 
     // Verificar que las categorías con datos y sin datos se renderizan
     expect(screen.getByText("Objeto y Alcance")).toBeInTheDocument();
@@ -171,9 +179,9 @@ describe("CategoryList - AC5: Compatibilidad con categorías faltantes", () => {
     expect(screen.getByText("Plazos Clave")).toBeInTheDocument(); // Sin datos pero renderizada
     expect(screen.getByText("Requisitos de Admisibilidad")).toBeInTheDocument(); // Sin datos pero renderizada
 
-    // Todas las categorías deben tener respuesta generada (6 narrativas + timeline)
+    // Todas las categorías deben tener respuesta generada (7 narrativas + timeline)
     const narrativeBlocks = screen.getAllByTestId("narrative-blocks");
-    expect(narrativeBlocks).toHaveLength(6);
+    expect(narrativeBlocks).toHaveLength(7);
     expect(document.getElementById("category-plazos_clave")?.querySelector('[data-testid^="plazos-timeline"]')).not.toBeNull();
   });
 });

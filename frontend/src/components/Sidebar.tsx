@@ -1,6 +1,7 @@
 import {
   ChevronLeft,
   FileText,
+  History,
   LayoutDashboard,
   LogOut,
   User,
@@ -22,8 +23,8 @@ export function Sidebar() {
   const displayUser = userName || userEmail || "Usuario";
 
   const navItems = [
-    { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
     { to: "/analyze", icon: FileText, label: "Analizar nuevo pliego" },
+    { to: "/dashboard", icon: History, label: "Historial" },
   ];
 
   const handleLogout = () => {
@@ -89,6 +90,20 @@ export function Sidebar() {
 
         {/* Nav */}
         <nav className="flex-1" role="navigation" aria-label="Navegación principal">
+          <button
+            type="button"
+            disabled
+            aria-label="Dashboard próximamente"
+            className={cn(
+              "flex min-h-[44px] w-full items-center gap-3 px-4 py-3 text-xs font-medium opacity-60",
+              "cursor-not-allowed",
+              isPi ? "text-white/70" : "text-gray-500",
+            )}
+          >
+            <LayoutDashboard size={20} aria-hidden="true" />
+            <span className={cn(sidebarCollapsed && "sr-only")}>Dashboard (próximamente)</span>
+          </button>
+
           {navItems.map(({ to, icon: Icon, label }) => (
             <NavLink
               key={to}

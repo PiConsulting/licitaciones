@@ -1,7 +1,7 @@
 import { useLocation } from "react-router-dom";
 
 const PAGE_TITLES: Array<{ prefix: string; title: string }> = [
-  { prefix: "/dashboard", title: "Dashboard" },
+  { prefix: "/dashboard", title: "Historial" },
   { prefix: "/analyze", title: "Analizar nuevo pliego" },
   { prefix: "/analysis", title: "Análisis IA" },
 ];

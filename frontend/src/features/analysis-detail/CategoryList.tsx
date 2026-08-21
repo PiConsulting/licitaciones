@@ -47,7 +47,7 @@ export function CategoryList({
   const trackingReadOnly = analysis.tracking?.status === "completed";
 
   return (
-    <section aria-label="Categorías de análisis" className="divide-y-2 divide-slate-300">
+    <section aria-label="Categorías de análisis" className="divide-y divide-slate-200/70">
       {CATEGORY_ORDER.map((categoryId) => (
         <CategorySection
           key={categoryId}
