@@ -28,7 +28,6 @@ interface CategoryListProps {
   }) => Promise<void>;
   onDeleteTrackingComment?: (payload: { categoryKey: string; commentId: string }) => Promise<void>;
   trackingActionLoading?: boolean;
-  trackingItemLoadingId?: string | null;
 }
 
 export function CategoryList({
@@ -40,7 +39,6 @@ export function CategoryList({
   onUpdateTrackingComment,
   onDeleteTrackingComment,
   trackingActionLoading = false,
-  trackingItemLoadingId = null,
 }: CategoryListProps) {
   const categories = analysis.current_version?.extracted_data ?? ({} as Record<CategoryId, CategoryData>);
   const trackingByCategory = new Map((analysis.tracking?.categories ?? []).map((category) => [category.category_key, category]));
@@ -63,7 +61,6 @@ export function CategoryList({
           onDeleteTrackingComment={onDeleteTrackingComment}
           trackingReadOnly={trackingReadOnly}
           trackingActionLoading={trackingActionLoading}
-          trackingItemLoadingId={trackingItemLoadingId}
         />
       ))}
     </section>

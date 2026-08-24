@@ -35,7 +35,6 @@ interface CategorySectionProps {
   onDeleteTrackingComment?: (payload: { categoryKey: string; commentId: string }) => Promise<void>;
   trackingReadOnly?: boolean;
   trackingActionLoading?: boolean;
-  trackingItemLoadingId?: string | null;
 }
 
 export function CategorySection({
@@ -51,7 +50,6 @@ export function CategorySection({
   onDeleteTrackingComment,
   trackingReadOnly = false,
   trackingActionLoading = false,
-  trackingItemLoadingId = null,
 }: CategorySectionProps) {
   const isCritical = CRITICAL_CATEGORIES.has(categoryId);
   const Icon = CATEGORY_ICONS[categoryId];
@@ -196,7 +194,6 @@ export function CategorySection({
           onViewSource={onViewSource}
           trackingItems={trackingCategory?.items}
           isTrackingClosed={trackingReadOnly || trackingCategory?.status === "closed"}
-          loadingTrackingItemId={trackingItemLoadingId}
           onChangeTrackingItemStatus={(trackingItemId, status) =>
             onChangeTrackingItemStatus?.(categoryId, trackingItemId, status)
           }
