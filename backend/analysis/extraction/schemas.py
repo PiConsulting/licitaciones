@@ -512,6 +512,123 @@ class RiesgoItem(ExtractedItem):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class EventoTemporalExtracted(BaseModel):
+    """
+    Evento temporal extraído del documento de pliego.
+    
+    Representa un hito o momento clave del proceso de licitación
+    identificado en el documento, con o sin fecha explícita.
+    """
+
+    nombre: str = Field(
+        description="Nombre normalizado del evento (ej: 'Adjudicación', 'Apertura de Ofertas')",
+        min_length=3,
+        max_length=120,
+    )
+    fecha_explicita: str | None = Field(
+        default=None,
+        description="Fecha ISO (YYYY-MM-DD) si se menciona explícitamente en el texto",
+    )
+    origen_fecha: Literal["detectada", "pendiente"] = Field(
+        description="'detectada' si hay fecha explícita, 'pendiente' si no"
+    )
+    fuente_documento_id: str = Field(description="ID del documento donde se encontró")
+    fuente_pagina: int = Field(description="Número de página donde aparece", ge=1)
+    fuente_fragmento: str = Field(
+        description="Fragmento de texto original que menciona el evento",
+        min_length=CITATION_MIN_CHARS,
+        max_length=500,
+    )
+
+    @field_validator("fecha_explicita")
+    def validate_fecha_format(cls, v):
+        """Valida formato ISO de fecha."""
+        if v and not v.count("-") == 2:
+            raise ValueError("Fecha debe estar en formato YYYY-MM-DD")
+        return v
+
+
+class EventosTemporalesResponse(BaseModel):
+    """
+    Respuesta completa de extracción de eventos temporales.
+    
+    Contiene la lista de todos los eventos temporales identificados
+    en el documento de pliego.
+    """
+
+    eventos: list[EventoTemporalExtracted] = Field(
+        default_factory=list,
+        description="Lista de eventos temporales encontrados en el documento"
+    )
+
+
+class PlazoRelativoExtracted(BaseModel):
+    """
+    Plazo relativo extraído del documento de pliego.
+    
+    Representa un plazo expresado relativamente a un evento disparador
+    (ej: "10 días después de la apertura", "15 días corridos desde la notificación").
+    """
+
+    descripcion: str = Field(
+        description="Descripción del plazo (ej: 'Presentación de consultas', 'Firma del contrato')",
+        min_length=3,
+        max_length=150,
+    )
+    cantidad: int = Field(
+        description="Cantidad de unidades de tiempo (ej: 10, 15, 30)",
+        ge=0,
+    )
+    unidad: Literal["días", "meses", "años", "horas"] = Field(
+        description="Unidad de tiempo"
+    )
+    tipo_dias: Literal["corridos", "hábiles", "no_especificado"] | None = Field(
+        default="no_especificado",
+        description="Si la unidad es 'días', especificar si son corridos o hábiles"
+    )
+    evento_disparador: str = Field(
+        description="Nombre del evento desde el cual se cuenta el plazo (ej: 'Apertura de Ofertas', 'Notificación de la adjudicación')",
+        min_length=3,
+        max_length=150,
+    )
+    direccion: Literal["desde", "hasta", "antes_de", "después_de"] = Field(
+        description="Dirección temporal del plazo respecto al evento disparador"
+    )
+    es_plazo_maximo: bool = Field(
+        default=False,
+        description="True si es un plazo máximo (límite), False si es duración estimada"
+    )
+    fuente_documento_id: str = Field(description="ID del documento donde se encontró")
+    fuente_pagina: int = Field(description="Número de página donde aparece", ge=1)
+    fuente_fragmento: str = Field(
+        description="Fragmento de texto original que menciona el plazo",
+        min_length=CITATION_MIN_CHARS,
+        max_length=500,
+    )
+
+    @field_validator("tipo_dias")
+    def validate_tipo_dias_only_for_dias(cls, v, info):
+        """Valida que tipo_dias solo se use cuando unidad es 'días'."""
+        if "unidad" in info.data and info.data["unidad"] != "días":
+            if v and v != "no_especificado":
+                raise ValueError("tipo_dias solo aplica cuando unidad es 'días'")
+        return v
+
+
+class PlazosRelativosResponse(BaseModel):
+    """
+    Respuesta completa de extracción de plazos relativos.
+    
+    Contiene la lista de todos los plazos relativos identificados
+    en el documento de pliego.
+    """
+
+    plazos: list[PlazoRelativoExtracted] = Field(
+        default_factory=list,
+        description="Lista de plazos relativos encontrados en el documento"
+    )
+
+
 class GenericCategoryItem(ExtractedItem):
     """Schema genérico para categorías sin schema específico (legacy)."""
 
@@ -570,6 +687,18 @@ class ExtractedData(BaseModel):
     riesgos: list[RiesgoItem] = Field(default_factory=list)
     riesgos_extraction_status: str = "unknown"
     riesgos_narrative: CategoryNarrative | None = None
+
+    eventos_temporales: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Eventos temporales extraídos del documento (Story 15.1)"
+    )
+    eventos_temporales_extraction_status: str = "unknown"
+
+    plazos_relativos: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Plazos relativos extraídos del documento (Story 15.2)"
+    )
+    plazos_relativos_extraction_status: str = "unknown"
 
     plazos: list[PlazoItem] = Field(
         default_factory=list,
@@ -641,6 +770,10 @@ __all__ = [
     "RiesgoItem",
     "TipoRiesgo",
     "SubtipoRiesgo",
+    "EventoTemporalExtracted",
+    "EventosTemporalesResponse",
+    "PlazoRelativoExtracted",
+    "PlazosRelativosResponse",
     "GenericCategoryItem",
     "PresupuestoItem",
     "ExtractedData",

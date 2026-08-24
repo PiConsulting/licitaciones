@@ -1,11 +1,13 @@
 from analysis.extraction.extractors.causales import extractor_causales
 from analysis.extraction.extractors.criterios_evaluacion import extractor_criterios_evaluacion
+from analysis.extraction.extractors.eventos_temporales import extractor_eventos_temporales
 from analysis.extraction.extractors.garantias import extractor_garantias
 from analysis.extraction.extractors.identificacion_procedimiento import (
     extractor_identificacion_procedimiento,
 )
 from analysis.extraction.extractors.objeto_alcance import extractor_objeto_alcance
 from analysis.extraction.extractors.plazos import extractor_plazos
+from analysis.extraction.extractors.plazos_relativos import extractor_plazos_relativos
 from analysis.extraction.extractors.requisitos_admisibilidad import (
     extractor_requisitos_admisibilidad,
 )
@@ -22,4 +24,6 @@ __all__ = [
     "extractor_criterios_evaluacion",
     "extractor_identificacion_procedimiento",
     "extractor_riesgos",
+    "extractor_eventos_temporales",
+    "extractor_plazos_relativos",
 ]

@@ -52,6 +52,8 @@ CANONICAL_PROMPT_FILES = {
     "anexos_obligatorios.txt",
     "identificacion_procedimiento.txt",
     "riesgos.txt",
+    "eventos_temporales.txt",
+    "plazos_relativos.txt",
 }
 
 CANONICAL_CATEGORY_PROMPT_MAP = {
@@ -64,6 +66,8 @@ CANONICAL_CATEGORY_PROMPT_MAP = {
     "anexos_obligatorios": "anexos_obligatorios.txt",
     "identificacion_procedimiento": "identificacion_procedimiento.txt",
     "riesgos": "riesgos.txt",
+    "eventos_temporales": "eventos_temporales.txt",
+    "plazos_relativos": "plazos_relativos.txt",
 }
 
 

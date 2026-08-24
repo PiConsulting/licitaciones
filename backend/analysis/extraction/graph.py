@@ -12,10 +12,12 @@ from analysis.extraction.extractors import (
     extractor_anexos_obligatorios,
     extractor_causales,
     extractor_criterios_evaluacion,
+    extractor_eventos_temporales,
     extractor_garantias,
     extractor_identificacion_procedimiento,
     extractor_objeto_alcance,
     extractor_plazos,
+    extractor_plazos_relativos,
     extractor_requisitos_admisibilidad,
     extractor_riesgos,
 )
@@ -941,6 +943,11 @@ def merge_node(state: GraphState) -> GraphState:
     riesgos = [
         _normalize_confidence(_penalize_unverifiable(item)) for item in state.get("riesgos", [])
     ]
+    
+    # Timeline: eventos temporales y plazos relativos
+    eventos_temporales = state.get("eventos_temporales", [])
+    plazos_relativos = state.get("plazos_relativos", [])
+    
     # FIX (2026-08-22): ya no se canonicaliza `tipo` (eliminado del schema,
     # ver PlazoItem en `schemas.py`). El agrupamiento para dedup usa el valor
     # del plazo (`_plazo_dedup_value`) solo -- sin combinarlo con un tipo, que
@@ -1144,6 +1151,10 @@ def merge_node(state: GraphState) -> GraphState:
         "riesgos": riesgos,
         "riesgos_extraction_status": riesgos_status,
         "riesgos_confidence": _category_confidence(riesgos),
+        "eventos_temporales": eventos_temporales,
+        "eventos_temporales_extraction_status": state.get("eventos_temporales_status", "unknown"),
+        "plazos_relativos": plazos_relativos,
+        "plazos_relativos_extraction_status": state.get("plazos_relativos_status", "unknown"),
         "documentos_requeridos": [],
         "documentos_extraction_status": NOT_ANALYZED_STATUS,
         "criterios_evaluacion": criterios,
@@ -1166,6 +1177,8 @@ def merge_node(state: GraphState) -> GraphState:
         "anexos_obligatorios": state.get("anexos_token_usage", {}),
         "criterios_evaluacion": state.get("criterios_token_usage", {}),
         "identificacion_procedimiento": state.get("identificacion_token_usage", {}),
+        "eventos_temporales": state.get("eventos_temporales_token_usage", {}),
+        "plazos_relativos": state.get("plazos_relativos_token_usage", {}),
     }
 
     conflicts: list[dict] = []
@@ -1372,6 +1385,8 @@ builder.add_node("extract_requisitos", extractor_requisitos_admisibilidad)
 builder.add_node("extract_criterios", extractor_criterios_evaluacion)
 builder.add_node("extract_identificacion", extractor_identificacion_procedimiento)
 builder.add_node("extract_riesgos", extractor_riesgos)
+builder.add_node("extract_eventos_temporales", extractor_eventos_temporales)
+builder.add_node("extract_plazos_relativos", extractor_plazos_relativos)
 builder.add_node("merge", merge_node)
 builder.add_node("synthesize", synthesize_node)
 
@@ -1387,6 +1402,8 @@ extractor_nodes = [
     "extract_criterios",
     "extract_identificacion",
     "extract_riesgos",
+    "extract_eventos_temporales",
+    "extract_plazos_relativos",
 ]
 
 for node in extractor_nodes:
