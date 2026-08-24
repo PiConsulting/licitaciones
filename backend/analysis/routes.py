@@ -146,12 +146,19 @@ async def get_analysis_detail(
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail={"error": {"code": "ANALYSIS_NOT_FOUND", "message": "Análisis no encontrado"}},
+                detail={
+                    "error": {"code": "ANALYSIS_NOT_FOUND", "message": "Análisis no encontrado"}
+                },
             ) from exc
         except PermissionError as exc:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail={"error": {"code": "FORBIDDEN", "message": "No tenés permisos para este análisis"}},
+                detail={
+                    "error": {
+                        "code": "FORBIDDEN",
+                        "message": "No tenés permisos para este análisis",
+                    }
+                },
             ) from exc
         payload["tracking"] = get_tracking(analysis_id, current_user.id)
         return AnalysisDetailResponse(**payload)
@@ -170,7 +177,9 @@ async def get_analysis_detail(
         if current_version is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail={"error": {"code": "ANALYSIS_NOT_FOUND", "message": "Análisis no encontrado"}},
+                detail={
+                    "error": {"code": "ANALYSIS_NOT_FOUND", "message": "Análisis no encontrado"}
+                },
             )
 
         documents = [document for document in analysis.documents if document.deleted_at is None]
@@ -197,7 +206,9 @@ async def get_analysis_detail(
         db.close()
 
 
-@analysis_router.post("", response_model=AnalysisCreateResponse, status_code=status.HTTP_201_CREATED)
+@analysis_router.post(
+    "", response_model=AnalysisCreateResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_analysis(
     files: Annotated[list[UploadFile], File(...)],
     primary_file_index: Annotated[int, Form()] = 0,
@@ -228,7 +239,9 @@ async def create_analysis(
             if error_code == "NO_FILES":
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail={"error": {"code": "NO_FILES", "message": "Debés subir al menos un archivo"}},
+                    detail={
+                        "error": {"code": "NO_FILES", "message": "Debés subir al menos un archivo"}
+                    },
                 ) from exc
             if error_code == "TOO_MANY_FILES":
                 raise HTTPException(
@@ -242,7 +255,12 @@ async def create_analysis(
                 ) from exc
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail={"error": {"code": "MISSING_PRIMARY", "message": "Seleccioná cuál es el pliego principal"}},
+                detail={
+                    "error": {
+                        "code": "MISSING_PRIMARY",
+                        "message": "Seleccioná cuál es el pliego principal",
+                    }
+                },
             ) from exc
 
         return AnalysisCreateResponse(
@@ -312,12 +330,19 @@ async def start_analysis(
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail={"error": {"code": "ANALYSIS_NOT_FOUND", "message": "Análisis no encontrado"}},
+                detail={
+                    "error": {"code": "ANALYSIS_NOT_FOUND", "message": "Análisis no encontrado"}
+                },
             ) from exc
         except PermissionError as exc:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail={"error": {"code": "FORBIDDEN", "message": "No tenés permisos para este análisis"}},
+                detail={
+                    "error": {
+                        "code": "FORBIDDEN",
+                        "message": "No tenés permisos para este análisis",
+                    }
+                },
             ) from exc
         except RuntimeError as exc:
             raise HTTPException(
@@ -377,12 +402,18 @@ async def start_analysis(
                 )
 
             redirect_target: str | None = None
-            cancelled_ids = [doc_id for doc_id, action in decision_map.items() if action == "cancel"]
+            cancelled_ids = [
+                doc_id for doc_id, action in decision_map.items() if action == "cancel"
+            ]
 
             if cancelled_ids:
                 docs_to_cancel = (
                     db.query(Document)
-                    .filter(Document.id.in_(cancelled_ids), Document.analysis_id == analysis.id, Document.deleted_at.is_(None))
+                    .filter(
+                        Document.id.in_(cancelled_ids),
+                        Document.analysis_id == analysis.id,
+                        Document.deleted_at.is_(None),
+                    )
                     .all()
                 )
                 for document in docs_to_cancel:
@@ -462,12 +493,19 @@ async def get_analysis_status(
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail={"error": {"code": "ANALYSIS_NOT_FOUND", "message": "Análisis no encontrado"}},
+                detail={
+                    "error": {"code": "ANALYSIS_NOT_FOUND", "message": "Análisis no encontrado"}
+                },
             ) from exc
         except PermissionError as exc:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail={"error": {"code": "FORBIDDEN", "message": "No tenés permisos para este análisis"}},
+                detail={
+                    "error": {
+                        "code": "FORBIDDEN",
+                        "message": "No tenés permisos para este análisis",
+                    }
+                },
             ) from exc
         return AnalysisStatusResponse(**payload)
 
@@ -574,12 +612,19 @@ async def remove_analysis(
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail={"error": {"code": "ANALYSIS_NOT_FOUND", "message": "Análisis no encontrado"}},
+                detail={
+                    "error": {"code": "ANALYSIS_NOT_FOUND", "message": "Análisis no encontrado"}
+                },
             ) from exc
         except PermissionError as exc:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail={"error": {"code": "FORBIDDEN", "message": "No tenés permisos para este análisis"}},
+                detail={
+                    "error": {
+                        "code": "FORBIDDEN",
+                        "message": "No tenés permisos para este análisis",
+                    }
+                },
             ) from exc
         except RuntimeError as exc:
             raise HTTPException(

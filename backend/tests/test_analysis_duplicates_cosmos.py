@@ -61,7 +61,11 @@ def test_start_analysis_flags_duplicate_of_already_analyzed_document(
         container, user_id=user_id, status="analyzed", content_hash="abc123"
     )
     new_id, new_doc_id = _add_analysis_with_document(
-        container, user_id=user_id, status="draft", content_hash="abc123", filename="pliego_nuevo.pdf"
+        container,
+        user_id=user_id,
+        status="draft",
+        content_hash="abc123",
+        filename="pliego_nuevo.pdf",
     )
 
     response = client.post(

@@ -95,11 +95,18 @@ def test_ignora_acentos_mayusculas_y_los_escapes_de_markdown() -> None:
     """La cita viene del markdown de DI, que escapa la puntuación (`3\\.`), y el
     renglón viene del OCR crudo. Sin plegar, nunca matchearían (ING-11/ING-12)."""
     renglones = [
-        {"x": 0.0, "y": 0.0, "width": 100.0, "height": 10.0,
-         "t": "3. Que se acepta la competencia y jurisdicción"}
+        {
+            "x": 0.0,
+            "y": 0.0,
+            "width": 100.0,
+            "height": 10.0,
+            "t": "3. Que se acepta la competencia y jurisdicción",
+        }
     ]
 
-    regiones = regiones_desde_renglones_ocr(renglones, "3\\. Que se acepta la COMPETENCIA y jurisdiccion")
+    regiones = regiones_desde_renglones_ocr(
+        renglones, "3\\. Que se acepta la COMPETENCIA y jurisdiccion"
+    )
 
     assert len(regiones) == 1
 
@@ -134,7 +141,9 @@ def _chunk_con_renglones(page: int = 1) -> dict[str, Any]:
                 "blocks": [
                     {
                         "para_id": [page, 4],
-                        "bbox": [{"page": page, "x": 100.0, "y": 200.0, "width": 100.0, "height": 34.0}],
+                        "bbox": [
+                            {"page": page, "x": 100.0, "y": 200.0, "width": 100.0, "height": 34.0}
+                        ],
                         "content": "…",
                         "lines": RENGLONES,
                     }
@@ -237,8 +246,12 @@ def test_en_un_escaneado_sin_geometria_se_dice_por_que(tmp_path: Any) -> None:
     """El caso que antes era indistinguible de "no encontré la cita"."""
     from analysis.extraction.highlight import compute_highlights_for_sources
 
-    chunk = {"id": "chunk-1", "document_id": "doc-escaneado", "page_number": 1,
-             "source": json.dumps({"page": 1, "blocks": []})}
+    chunk = {
+        "id": "chunk-1",
+        "document_id": "doc-escaneado",
+        "page_number": 1,
+        "source": json.dumps({"page": 1, "blocks": []}),
+    }
     enriquecidas = compute_highlights_for_sources(
         sources=[_fuente()],
         document_id_to_blob_path={"doc-escaneado": _pdf(tmp_path, con_texto=False)},
@@ -295,7 +308,12 @@ def test_una_fuente_normal_no_lleva_motivo() -> None:
     from analysis.extraction.schemas import NarrativeSource
 
     fuente = NarrativeSource.model_validate(
-        {"id": 0, "document_id": "d", "page_number": 1, "citation": "una cita cualquiera del pliego"}
+        {
+            "id": 0,
+            "document_id": "d",
+            "page_number": 1,
+            "citation": "una cita cualquiera del pliego",
+        }
     )
 
     assert fuente.highlight_unavailable_reason is None

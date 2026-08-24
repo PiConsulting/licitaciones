@@ -33,7 +33,9 @@ TOTAL_ANALYSIS_CATEGORIES = 8
 
 
 def _persist_runtime_state(db: Session, analysis_id: str, event: str) -> None:
-    analysis = db.query(Analysis).filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None)).first()
+    analysis = (
+        db.query(Analysis).filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None)).first()
+    )
     if analysis is None:
         return
     persist_analysis_metadata(
@@ -67,7 +69,9 @@ def _build_blob_storage() -> BlobStoragePort:
 
 
 def check_timeout_warning(db: Session, analysis_id: str, logger_instance) -> bool:
-    analysis = db.query(Analysis).filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None)).first()
+    analysis = (
+        db.query(Analysis).filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None)).first()
+    )
     if analysis is None or analysis.timeout_warning_at is None:
         return False
 
@@ -92,7 +96,9 @@ def check_timeout_warning(db: Session, analysis_id: str, logger_instance) -> boo
 
 
 def check_timeout_exceeded(db: Session, analysis_id: str, logger_instance) -> bool:
-    analysis = db.query(Analysis).filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None)).first()
+    analysis = (
+        db.query(Analysis).filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None)).first()
+    )
     if analysis is None or analysis.timeout_at is None:
         return False
 
@@ -123,7 +129,9 @@ def check_timeout_exceeded(db: Session, analysis_id: str, logger_instance) -> bo
 
 
 def check_cancellation_requested(db: Session, analysis_id: str, logger_instance) -> bool:
-    analysis = db.query(Analysis).filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None)).first()
+    analysis = (
+        db.query(Analysis).filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None)).first()
+    )
     if analysis is None:
         return False
 
@@ -151,7 +159,11 @@ def extract_and_index(analysis_id: str) -> None:
 
     analysis = None
     try:
-        analysis = db.query(Analysis).filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None)).first()
+        analysis = (
+            db.query(Analysis)
+            .filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None))
+            .first()
+        )
         if analysis is None:
             logger.error("analysis_not_found", analysis_id=analysis_id)
             return
@@ -187,7 +199,9 @@ def extract_and_index(analysis_id: str) -> None:
             db,
             analysis_id,
             CurrentStage.EXTRACTING_TEXT,
-            stage_progress=build_stage_progress(CurrentStage.EXTRACTING_TEXT, done=1, total=total_docs),
+            stage_progress=build_stage_progress(
+                CurrentStage.EXTRACTING_TEXT, done=1, total=total_docs
+            ),
             status="processing",
         )
 
@@ -204,7 +218,9 @@ def extract_and_index(analysis_id: str) -> None:
                 analysis_id,
                 CurrentStage.EXTRACTING_TEXT,
                 progress_increment=min(10, int((index / total_docs) * 10)),
-                stage_progress=build_stage_progress(CurrentStage.EXTRACTING_TEXT, done=index, total=total_docs),
+                stage_progress=build_stage_progress(
+                    CurrentStage.EXTRACTING_TEXT, done=index, total=total_docs
+                ),
                 status="processing",
             )
 
@@ -236,20 +252,6 @@ def extract_and_index(analysis_id: str) -> None:
             stage_progress=build_stage_progress(CurrentStage.INDEXING),
             status="processing",
         )
-        # FIX (auditoría 2026-08-12, hallazgo #3 -- staleness en cosmos_temporal):
-        # `update_stage_and_progress` solo toca SQL. El shadow-write a Cosmos
-        # (`_persist_runtime_state`) antes se disparaba únicamente al arrancar
-        # ("analysis_processing") y al terminar ("analysis_version_created"/
-        # "analysis_error") -- nunca en las transiciones de etapa intermedias.
-        # Quien leyera el status DESDE Cosmos en modo cosmos_temporal/dual_write
-        # (el objetivo de esos modos es justamente poder leer de Cosmos antes
-        # de cortar del todo) veía "processing" congelado en la etapa anterior
-        # durante TODO `extracting_text`+`indexing`+la llamada a `graph.invoke()`
-        # (varios minutos), y recién se actualizaba al final. No agregamos un
-        # write por cada documento del loop de arriba (multiplicaría el costo
-        # en RU de Cosmos por N documentos); estas dos transiciones de etapa
-        # grandes acotan la ventana de staleness a "dentro de una etapa" sin
-        # sumar escrituras al camino más caliente.
         _persist_runtime_state(db, analysis_id, "analysis_indexing")
 
         chunks_with_embeddings = generate_embeddings(all_chunks, correlation_id)
@@ -259,7 +261,9 @@ def extract_and_index(analysis_id: str) -> None:
             db,
             analysis_id,
             CurrentStage.ANALYZING,
-            stage_progress=build_stage_progress(CurrentStage.ANALYZING, done=0, total=TOTAL_ANALYSIS_CATEGORIES),
+            stage_progress=build_stage_progress(
+                CurrentStage.ANALYZING, done=0, total=TOTAL_ANALYSIS_CATEGORIES
+            ),
             status="processing",
         )
         _persist_runtime_state(db, analysis_id, "analysis_analyzing")

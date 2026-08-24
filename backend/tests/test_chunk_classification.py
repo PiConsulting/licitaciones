@@ -195,9 +195,7 @@ class TestClasificacionHojaSobreAncestro:
     def test_la_seccion_le_gana_al_nombre_del_llamado(self) -> None:
         """El caso del hallazgo: el ancestro matchea "licitacion" en posición 0
         y la hoja matchea "garantia" más adelante; empatan en cantidad."""
-        assert (
-            _classify_by_heading(["LICITACIÓN PÚBLICA Nº 5/2026", "GARANTÍAS"]) == "garantias"
-        )
+        assert _classify_by_heading(["LICITACIÓN PÚBLICA Nº 5/2026", "GARANTÍAS"]) == "garantias"
 
     def test_la_seccion_le_gana_a_un_ancestro_de_pliego(self) -> None:
         assert (

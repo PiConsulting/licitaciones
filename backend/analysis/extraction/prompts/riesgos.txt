@@ -1,44 +1,129 @@
 # CONCEPTO DE LA CATEGORÍA
 
-Esta categoría extrae **riesgos identificables** que pueden afectar la participación
-en la licitación o la ejecución del contrato.
+Esta categoría responde una pregunta concreta desde el punto de vista de un oferente
+que está evaluando si le conviene o no participar de esta licitación:
 
-**Desde la perspectiva del oferente:** "¿Qué situaciones de riesgo debo anticipar
-para evitar problemas durante la licitación o el cumplimiento del contrato?"
+**"¿Qué riesgos debería tener en cuenta antes de decidir participar y al preparar mi oferta?"**
 
-**Qué incluye:**
-- Riesgos de descalificación por incumplimientos formales o técnicos
-- Penalizaciones contractuales por incumplimiento
-- Riesgos legales relacionados con obligaciones contractuales
-- Riesgos operativos en la ejecución del contrato
-- Riesgos financieros (multas, retención de fondos, sanciones económicas)
-- Cualquier otro riesgo relevante para la participación o ejecución
+No es un resumen exhaustivo de todo lo que puede salir mal en el pliego. Es un análisis
+ACOTADO y de ALTO VALOR, enfocado en un conjunto específico de dimensiones. El objetivo
+es que el usuario lea 5-10 riesgos concretos y accionables, no 20-30 variantes del mismo
+tema repetidas.
 
-**Reconocimiento semántico:** Los riesgos pueden estar expresados de diversas formas:
+**Es un análisis aproximado.** El sistema no tiene acceso a datos propios del oferente
+(certificaciones que ya posee, relación previa con la cuenta, capacidad técnica real,
+etc.), así que para las dimensiones que dependen de eso (por ejemplo "capacidades
+técnicas exigidas"), el objetivo es señalar el requisito como posible riesgo a validar,
+NO afirmar si el oferente lo cumple o no.
 
-**Frases típicas que indican riesgo:**
-- "En caso de incumplimiento..."
-- "Se aplicarán multas/penalizaciones..."
-- "Podrá rescindirse el contrato..."
-- "Será responsable por..."
-- "Quedará sujeto a..."
-- "Se retendrá..."
-- "Será sancionado con..."
+---
 
-**No confundir con:**
-- Causales de rechazo (van en otra categoría)
-- Requisitos de admisibilidad (van en otra categoría)
-- Garantías (van en otra categoría)
-- Criterios de evaluación (van en otra categoría)
+# QUÉ INCLUYE (únicamente estas dimensiones)
 
-La diferencia: Los riesgos describen **consecuencias** de acciones u omisiones
-durante la licitación o ejecución del contrato. Las causales, requisitos y garantías
-son condiciones o documentos a cumplir.
+Extraé riesgos SOLO si encajan en alguna de estas categorías. Si un fragmento no encaja
+en ninguna, no generes un item para él, sin importar cuán "riesgoso" suene en términos
+generales.
+
+1. **Fecha / plazo de entrega**: el pliego plantea la fecha o el plazo de entrega como
+   ajustado, exigente, o con consecuencias relevantes si no se cumple. (El dato de la
+   fecha en sí ya se extrae en `plazos_clave`; acá interesa el riesgo/impacto de ese
+   plazo, no repetir la fecha.)
+2. **Mantenimiento de oferta**: condiciones de mantenimiento de la oferta que sean
+   largas, rígidas o desfavorables para el oferente.
+3. **Moneda y tipo de cambio**: riesgo cambiario — pago en moneda distinta a la de los
+   costos, ajuste o falta de ajuste por tipo de cambio, moneda no habitual.
+4. **Forma de pago**: plazos de pago largos, retenciones, pagos contra entrega u otras
+   condiciones de cobro desfavorables para el flujo de caja del oferente.
+5. **Competencia**: señales de que se espera alta concurrencia de oferentes, mercado muy
+   competitivo, o competidores con ventajas explícitas (incumbente, proveedor actual,
+   experiencia previa exigida que pocos tienen).
+6. **Direccionamiento**: señales de que el PLIEGO exige una marca, modelo, certificación
+   o característica tan puntual que sólo un proveedor específico podría cumplirla. Ojo
+   con la dirección de la exigencia: que el pliego le pida al OFERENTE que declare qué
+   marca/modelo está ofreciendo (una divulgación administrativa rutinaria de cualquier
+   licitación) NO es direccionamiento — direccionamiento es que el PLIEGO imponga una
+   marca/modelo/estándar concreto como condición, dejando afuera a quien no lo tenga.
+   Si tenés dudas sobre cuál es el caso, no lo incluyas.
+7. **Control de la cuenta / relación comercial**: requisitos de apertura de cuenta en
+   bancos o entidades específicas, dependencia de terceros para operar, o pérdida de
+   control sobre recursos necesarios para ejecutar el contrato.
+8. **Apertura de la oferta**: condiciones de la apertura que agregan riesgo operativo
+   (presencialidad obligatoria, lugar o fecha rígidos, documentación que debe estar lista
+   con poca anticipación).
+9. **Capacidades / skills exigidos**: requisitos técnicos o de experiencia que son
+   exigentes o específicos, señalados como riesgo A VALIDAR contra las capacidades
+   propias del oferente (no como una afirmación de que el oferente los cumple o no).
+
+No hay una décima dimensión "genérica" ni una excepción por "riesgo severo o inusual".
+Si un candidato no encaja CLARAMENTE en una de las 9 dimensiones de arriba, no es parte
+de esta categoría, sin importar cuán grave o interesante parezca. Es preferible devolver
+menos items, o incluso `{root_key}: []`, antes que forzar algo que no encaja.
+
+---
+
+# NO INCLUIR
+
+No es una lista de frases o cláusulas prohibidas — es un criterio de razonamiento que
+tenés que aplicar vos con cada fragmento, sea cual sea el pliego y esté redactado como
+esté redactado. No hay vocabulario fijo que buscar: el mismo contenido puede aparecer con
+palabras completamente distintas en cada pliego.
+
+**Regla de pertenencia categórica**: este sistema ya extrae por separado, en otras
+categorías, el contenido que responde a estas preguntas:
+- ¿Qué documentos/certificaciones hay que presentar para poder ofertar? → eso es
+  `requisitos_admisibilidad`, no `riesgos`.
+- ¿Qué haría que la oferta sea rechazada o descalificada por un motivo formal o técnico?
+  → eso es `causales_rechazo`, no `riesgos`.
+- ¿Qué garantías hay que constituir? → eso es `garantias`, no `riesgos`.
+- ¿Qué fechas y plazos existen? → eso es `plazos_clave`, no `riesgos`.
+- ¿Cómo se evalúan las ofertas? → eso es `criterios_evaluacion`, no `riesgos`.
+Si al leer un fragmento tu primer instinto es "esto respondería una de esas preguntas",
+NO lo pongas en `riesgos` aunque lo redactes con otras palabras (por ejemplo, transformar
+una causal de rechazo en "riesgo de que rechacen la oferta si..." sigue siendo el mismo
+contenido, solo reformulado).
+
+**Esta regla de pertenencia tiene prioridad sobre las 9 dimensiones de QUÉ INCLUYE.** Es
+posible que un fragmento parezca encajar en una dimensión (por ejemplo, que mencione una
+marca o una exigencia técnica, lo que podría sugerir la dimensión 6 o 9) y AL MISMO
+TIEMPO sea, en el fondo, un requisito a presentar o una causal de rechazo ya cubierto por
+otra categoría. En ese caso de conflicto, gana la pertenencia categórica: no lo incluyas
+en `riesgos`, aunque a primera vista parezca encajar en una dimensión. Las 9 dimensiones
+son un filtro adicional sobre lo que YA pasó ese primer filtro de pertenencia, no una vía
+alternativa para igual incluir algo que en el fondo es contenido de otra categoría.
+
+**Regla de diferenciación**: preguntate, sobre cada candidato, si describe algo que un
+oferente experimentado en licitaciones públicas ya asume como parte normal de cualquier
+proceso de este tipo (tareas propias de cumplir el objeto del contrato, cláusulas legales
+o administrativas de rutina que aparecerían en prácticamente cualquier pliego similar,
+sea cual sea el organismo o el rubro) — en ese caso NO aporta una señal diferencial para
+decidir si conviene participar en ESTE pliego puntual, y no corresponde incluirlo. Un
+riesgo real es algo que, si el oferente no lo supiera de antemano, cambiaría su decisión
+de participar o cómo prepara la oferta — no cualquier obligación que vaya a tener que
+cumplir de todos modos si participa.
+
+Aplicá estas dos reglas con tu propio criterio sobre el contenido real del pliego que
+tenés delante — no busques coincidencias con ejemplos o palabras específicas.
+
+---
+
+# CONSOLIDACIÓN (importante)
+
+Varias menciones del mismo riesgo de fondo — aunque estén redactadas distinto o
+aparezcan en fragmentos distintos — son UN SOLO item, no varios. Por ejemplo: si el
+pliego menciona en tres lugares distintos requisitos técnicos sobre "el equipo de
+backup", eso es un único riesgo de tipo "capacidades exigidas", no tres items separados.
+Antes de emitir la lista final, revisá los candidatos y fusioná los que describan la
+misma situación de riesgo, aunque mencionen detalles técnicos distintos — quedate con la
+versión que mejor resuma el conjunto.
+
+Preferí menos items, cada uno con mayor densidad de información, antes que muchos items
+finos. El objetivo final es una lista corta y de alto valor, no una lista exhaustiva.
 
 ---
 
 # OBJETIVO
-Extraer la LISTA COMPLETA de riesgos identificables que puedan afectar al oferente.
+Extraer una lista ACOTADA de riesgos relevantes para la decisión de participar y para la
+preparación de la oferta, limitada a las dimensiones descriptas arriba.
 
 ---
 
@@ -49,59 +134,76 @@ Extraer la LISTA COMPLETA de riesgos identificables que puedan afectar al oferen
 
 # INSTRUCCIONES DE EXTRACCIÓN
 
-1. Leé cada fragmento detenidamente
-2. Identificá todos los riesgos mencionados, explícitos o implícitos
-3. Para cada riesgo, determiná:
+1. Leé cada fragmento detenidamente.
+2. Identificá candidatos a riesgo.
+3. Para CADA candidato, antes de incluirlo, hacé este chequeo explícito: "¿A cuál de las
+   9 dimensiones numeradas de QUÉ INCLUYE corresponde este candidato?" Si no podés
+   nombrar el número de la dimensión, DESCARTALO — no lo incluyas "por las dudas" ni
+   porque suene relevante. Prestá especial atención a no colar como riesgo algo que en
+   realidad es una causal de rechazo, un requisito de admisibilidad, una tarea operativa
+   normal de ejecución, o una cláusula legal estándar (ver "NO INCLUIR").
+4. Para cada riesgo que pasó el chequeo, determiná:
    - **tipo**: clasificación general del riesgo
    - **subtipo**: clasificación granular para priorización
-   - **valor**: descripción clara y concisa del riesgo
+   - **valor**: descripción clara y concisa del riesgo, orientada a la decisión de
+     participar (qué es el riesgo y por qué importa, no sólo citar el texto del pliego)
    - **source_references**: citas textuales que respaldan el hallazgo
-
-4. Subtipos disponibles:
+5. Antes de finalizar, aplicá la regla de CONSOLIDACIÓN: fusioná items que describan el
+   mismo riesgo de fondo.
+6. Subtipos disponibles:
    - **ejecucion**: Riesgos relacionados con la ejecución del contrato
    - **incumplimiento**: Riesgos de incumplimiento de obligaciones contractuales
-   - **operativo**: Riesgos operacionales o de gestión
-   - **plazos**: Riesgos relacionados con incumplimiento de plazos
+   - **operativo**: Riesgos operacionales o de gestión (incluye apertura, control de cuenta)
+   - **plazos**: Riesgo/impacto del plazo o fecha de entrega
    - **economico**: Riesgos financieros, multas, penalizaciones económicas
-   - **tecnico**: Riesgos técnicos o de especificaciones
-   - **legal_contractual**: Riesgos legales o contractuales
-   - **otro_explicito**: Riesgos que no encajan claramente en los otros subtipos
-
-5. Si NO encontrás riesgos relevantes en los fragmentos, devolvé `{root_key}: []`
-   con `extraction_status: "not_found"`
-
-6. Emití SOLO el JSON, sin texto adicional
+   - **tecnico**: Capacidades/skills técnicos exigidos, a validar contra capacidad propia
+   - **legal_contractual**: Uso poco frecuente — sólo si un riesgo de las 9 dimensiones
+     tiene además un ángulo legal/contractual específico (por ejemplo, una condición de
+     pago con una cláusula legal atípica). No usar para boilerplate legal genérico.
+   - **comercial**: Mantenimiento de oferta, moneda/tipo de cambio, forma de pago,
+     competencia, direccionamiento
+   - **otro_explicito**: Riesgos relevantes que no encajan claramente en los otros subtipos,
+     pero que sí encajan en alguna de las 9 dimensiones de QUÉ INCLUYE
+7. Si NO encontrás riesgos relevantes (dentro del alcance definido) en los fragmentos,
+   devolvé `{root_key}: []` con `extraction_status: "not_found"`.
+8. Emití SOLO el JSON, sin texto adicional.
 
 ---
 
 # FORMATO DE SALIDA
 
 ```json
-{{
+{
   "{root_key}": [
-    {{
+    {
       "tipo": "descalificacion|penalizacion|legal|operativo|financiero|otro",
-      "subtipo": "ejecucion|incumplimiento|operativo|plazos|economico|tecnico|legal_contractual|otro_explicito",
-      "valor": "Descripción clara del riesgo",
+      "subtipo": "ejecucion|incumplimiento|operativo|plazos|economico|tecnico|legal_contractual|comercial|otro_explicito",
+      "valor": "Descripción clara del riesgo, orientada a la decisión de participar",
       "extraction_status": "success|partial|not_found",
       "source_references": [
-        {{
+        {
           "document_id": "UUID del documento",
           "page_number": número_página,
           "citation": "Texto literal del pliego (12-120 caracteres)"
-        }}
+        }
       ]
-    }}
+    }
   ],
   "extraction_status": "success|partial|not_found"
-}}
+}
 ```
 
 ---
 
 # VALIDACIÓN DE CALIDAD
 
-- Cada riesgo DEBE estar respaldado por al menos una cita verificable
-- Las citas deben ser literales del pliego (12-120 caracteres)
-- No inventes riesgos que no estén explícita o implícitamente mencionados
-- Si un riesgo está mencionado varias veces, consolidalo en un solo item
+- Cada riesgo DEBE estar respaldado por al menos una cita verificable.
+- Las citas deben ser literales del pliego (12-120 caracteres).
+- No inventes riesgos que no estén explícita o implícitamente mencionados.
+- No dupliques contenido que ya corresponde a otra categoría (ver "NO INCLUIR").
+- Si un riesgo está mencionado varias veces o en variantes similares, consolidalo en un
+  solo item (ver "CONSOLIDACIÓN").
+- Preferí una lista corta y de alto valor por sobre una lista exhaustiva.
+- Cada item debe corresponder a una de las 9 dimensiones numeradas de "QUÉ INCLUYE". Si
+  al revisar la lista final no podés justificar con qué número de dimensión corresponde
+  un item, sacalo antes de responder.

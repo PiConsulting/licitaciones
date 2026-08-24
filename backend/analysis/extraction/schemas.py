@@ -16,12 +16,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, Field, field_validator, model_validator
-
-
-# =============================================================================
-# BASE TYPES
-# =============================================================================
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 CITATION_MIN_CHARS = 12
@@ -37,19 +32,20 @@ CONFIDENCE_NO_EVIDENCE = "baja"
 
 class SourceReference(BaseModel):
     """Referencia a la fuente en el pliego original."""
+
     document_id: str
     page_number: int
     citation: str = Field(min_length=CITATION_MIN_CHARS, max_length=CITATION_MAX_CHARS)
     block_id: str | None = Field(
         default=None,
-        description="ID del bloque/párrafo fuente. Usado para agrupar múltiples citations del mismo párrafo."
+        description="ID del bloque/párrafo fuente. Usado para agrupar múltiples citations del mismo párrafo.",
     )
 
     chunk_id: str | None = Field(
         default=None,
         description="ID del chunk recuperado del que se verificó esta cita.",
     )
-    
+
     citation_llm: str | None = Field(
         default=None,
         description="La cita tal como la emitio el LLM, antes de cualquier reescritura.",
@@ -63,7 +59,7 @@ class SourceReference(BaseModel):
             "texto literal del item -- el item baja a `partial`."
         ),
     )
- 
+
     filename: str | None = Field(
         default=None,
         description="Nombre del archivo del que sale la cita. None si no se pudo resolver.",
@@ -74,7 +70,6 @@ class SourceReference(BaseModel):
     )
 
 
-
 NOT_ANALYZED_STATUS = "not_analyzed"
 
 ConfidenceLevel = Literal["alta", "media", "baja"]
@@ -83,19 +78,17 @@ ExtractionStatus = Literal["success", "failed", "not_found", "partial", "not_app
 
 class ExtractedItem(BaseModel):
     """Base para todos los items extraídos."""
+
     confidence: float = Field(ge=0.0, le=1.0)
-  
+
     confidence_llm: float | None = Field(default=None, ge=0.0, le=1.0)
     source_references: list[SourceReference] = Field(min_length=1)
     extraction_status: ExtractionStatus = "success"
 
 
-# =============================================================================
-# NARRATIVE BLOCKS (para respuesta en lenguaje natural)
-# =============================================================================
-
 class NarrativeSource(BaseModel):
     """Fuente deduplicada que respalda uno o mas bloques de una CategoryNarrative."""
+
     id: int
     document_id: str
     page_number: int
@@ -106,10 +99,10 @@ class NarrativeSource(BaseModel):
     chunk_id: str | None = None
 
     highlight_regions: list[dict[str, float]] = Field(default_factory=list)
-  
+
     filename: str | None = None
     is_primary: bool | None = None
-  
+
     highlight_unavailable_reason: str | None = None
 
 
@@ -151,13 +144,10 @@ NarrativeBlock = Annotated[
 
 class CategoryNarrative(BaseModel):
     """Respuesta de experto para una categoria: bloques en lenguaje natural."""
+
     blocks: list[NarrativeBlock] = Field(default_factory=list)
     sources: list[NarrativeSource] = Field(default_factory=list)
 
-
-# =============================================================================
-# NARRATIVE BLOCKS (forma cruda que devuelve el LLM de sintesis)
-# =============================================================================
 
 class RawNarrativeParagraphBlock(BaseModel):
     type: Literal["paragraph"] = "paragraph"
@@ -196,8 +186,8 @@ RawNarrativeBlock = Annotated[
 
 
 class RawEvidence(BaseModel):
-    """Evidencia textual del LLM de sintesis - para highlighting preciso.
-    """
+    """Evidencia textual del LLM de sintesis - para highlighting preciso."""
+
     document_id: str
     page_number: int
     text: str = Field(min_length=CITATION_MIN_CHARS)
@@ -207,68 +197,74 @@ class RawEvidence(BaseModel):
 
 class RawCategoryNarrative(BaseModel):
     """Salida cruda del LLM de sintesis: bloques con `item_refs`, sin `sources`.
-    
+
     NUEVO (2026-08-12): Campo `evidence` opcional para highlighting preciso.
     Si está presente, se usa para construir sources en vez de item_refs.
     """
+
     blocks: list[RawNarrativeBlock] = Field(default_factory=list)
     evidence: list[RawEvidence] = Field(default_factory=list)
 
 
-# =============================================================================
-# CATEGORÍA: PLAZOS CLAVE
-# =============================================================================
-
-class TipoPlazo(str, Enum):
-    """Tipos de plazos según el dominio de licitaciones argentinas."""
-    PRESENTACION_OFERTAS = "presentacion_ofertas"
-    APERTURA_OFERTAS = "apertura_ofertas"
-    CONSULTAS = "consultas"
-    RESPUESTA_CONSULTAS = "respuesta_consultas"
-    VISITA_LUGAR = "visita_lugar"
-    MANTENIMIENTO_OFERTA = "mantenimiento_oferta"
-    PLAZO_EJECUCION = "plazo_ejecucion"  # Plazo de entrega o ejecución del contrato
-    ADJUDICACION = "adjudicacion"
-    IMPUGNACION = "impugnacion"
-    FIRMA_CONTRATO = "firma_contrato"
-    # Nuevos tipos específicos para evitar clasificación genérica
-    PRESENTACION_ORDEN_PROVISION = "presentacion_orden_provision"  # Plazo para presentarse a firmar orden
-    ENTREGA_ORDEN_FIRMADA = "entrega_orden_firmada"  # Plazo para devolver orden firmada
-    PLAZO_PAGO = "plazo_pago"  # Plazo para efectuar el pago
-    PLAZO_SUBSANACION = "plazo_subsanacion"  # Plazo para subsanar documentación faltante
-    PREAVISO_RESCISION = "preaviso_rescision"  # Plazo de preaviso para rescindir contrato
-    ACREDITACION_IMPORTACION = "acreditacion_importacion"  # Plazo para acreditar solicitud de importación
-    PRESENTACION_FACTURA = "presentacion_factura"  # Plazo para presentar factura
-    OTRO = "otro"
-
-
 class PlazoItem(ExtractedItem):
-    """Item de plazo con fecha, hora y opciones de prórroga."""
-    tipo: TipoPlazo
+    """Item de plazo con fecha, hora y opciones de prórroga.
+
+    FIX (2026-08-22): Se elimina `tipo` (antes un enum cerrado de 17 valores,
+    `TipoPlazo`). Motivo: el vocabulario de "qué plazo es" varía de pliego a
+    pliego, así que forzar una taxonomía fija llevaba al LLM a fallar la
+    clasificación y, en la práctica, la enorme mayoría de los ítems terminaba
+    cayendo en el catch-all `"otro"` vía `_canonical_plazo_tipo` (ver
+    `graph.py`) -- un título que no dice nada y que además hacía que ítems sin
+    relación entre sí quedaran agrupados bajo el mismo balde, generando falsos
+    "conflictos" (fechas distintas para un `tipo="otro"` compartido por
+    plazos que no tenían nada que ver uno con otro).
+
+    Se reemplaza por `referencia`: un título corto en lenguaje libre (NO una
+    lista cerrada) de A QUÉ plazo se refiere. La idea es la misma que ya regía
+    `texto_original` (descripción autocontenida, sin depender de una
+    taxonomía) pero pensada como título corto para mostrar en la UI en vez de
+    un párrafo completo.
+    """
+
+    referencia: str = Field(
+        ...,
+        min_length=3,
+        max_length=120,
+        description=(
+            "Título corto (3-10 palabras) de A QUÉ plazo se refiere, en lenguaje "
+            "libre -- NO elegido de una lista fija. Ej: 'Presentación de ofertas', "
+            "'Plazo de entrega de bienes', 'Pago al proveedor', 'Plazo para retirar "
+            "muestras de laboratorio'. Debe poder leerse solo, sin el resto del ítem."
+        ),
+    )
     fecha: str | None = Field(None, description="Formato ISO YYYY-MM-DD")
     hora: str | None = Field(None, description="Formato HH:MM")
     expresion_relativa: str | None = Field(
-        None,
-        description="Ej: '10 días corridos desde la apertura' - NO calcular fecha"
+        None, description="Ej: '10 días corridos desde la apertura' - NO calcular fecha"
     )
-    texto_original: str | None = None
+    texto_original: str = Field(
+        ...,
+        min_length=CITATION_MIN_CHARS,
+        description=(
+            "OBLIGATORIO. Descripción completa del plazo con contexto suficiente "
+            "para entender QUÉ plazo es, CUÁNDO se cuenta, y QUIÉN lo ejecuta. "
+            "Debe ser auto-contenida y comprensible sin necesidad del campo tipo."
+        ),
+    )
     prorrogable: Literal["si", "no", "no_especificado"] | None = None
     lugar: str | None = None
 
-    @field_validator('fecha')
+    @field_validator("fecha")
     def validate_fecha_format(cls, v):
         """Valida formato ISO de fecha."""
-        if v and not v.count('-') == 2:
+        if v and not v.count("-") == 2:
             raise ValueError("Fecha debe estar en formato YYYY-MM-DD")
         return v
 
 
-# =============================================================================
-# CATEGORÍA: GARANTÍAS
-# =============================================================================
-
 class TipoGarantia(str, Enum):
     """Tipos de garantías financieras en licitaciones."""
+
     MANTENIMIENTO_OFERTA = "mantenimiento_oferta"
     CUMPLIMIENTO_CONTRATO = "cumplimiento_contrato"
     ANTICIPO = "anticipo"
@@ -281,10 +277,11 @@ class TipoGarantia(str, Enum):
 class GarantiaItem(ExtractedItem):
     """
     Item de garantía con validación de exclusividad monto_porcentaje/monto_valor.
-    
+
     REGLA CRÍTICA: monto_porcentaje y monto_valor son mutuamente excluyentes.
     Solo uno puede tener valor, el otro debe ser None.
     """
+
     tipo: TipoGarantia
     valor: str | None = None
     monto_porcentaje: float | None = Field(None, ge=0.0, le=100.0)
@@ -296,10 +293,9 @@ class GarantiaItem(ExtractedItem):
     plazo_constitucion: str | None = None
     vigencia: str | None = None
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_monto_exclusivity(self) -> "GarantiaItem":
-        """Valida que monto_porcentaje y monto_valor sean mutuamente excluyentes.
-        """
+        """Valida que monto_porcentaje y monto_valor sean mutuamente excluyentes."""
         if self.monto_porcentaje is not None and self.monto_valor is not None:
             raise ValueError(
                 "monto_porcentaje y monto_valor son mutuamente excluyentes. "
@@ -308,12 +304,9 @@ class GarantiaItem(ExtractedItem):
         return self
 
 
-# =============================================================================
-# CATEGORÍA: OBJETO Y ALCANCE
-# =============================================================================
-
 class TipoObjetoAlcance(str, Enum):
     """Tipos de datos en objeto y alcance."""
+
     RESUMEN_OBJETO = "resumen_objeto"
     MODALIDAD = "modalidad"
     ITEM = "item"
@@ -325,20 +318,17 @@ class TipoObjetoAlcance(str, Enum):
 
 class ObjetoAlcanceItem(ExtractedItem):
     """Item de objeto y alcance con metadata opcional."""
+
     tipo: TipoObjetoAlcance
     valor: str
     metadata: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Campos opcionales: cantidad, unidad_medida, renglon"
+        default_factory=dict, description="Campos opcionales: cantidad, unidad_medida, renglon"
     )
 
 
-# =============================================================================
-# CATEGORÍA: REQUISITOS DE ADMISIBILIDAD
-# =============================================================================
-
 class TipoRequisito(str, Enum):
     """Tipos de requisitos de admisibilidad."""
+
     DOCUMENTO = "documento"
     INHABILITACION = "inhabilitacion"
     INCOMPATIBILIDAD = "incompatibilidad"
@@ -351,6 +341,7 @@ class TipoRequisito(str, Enum):
 
 class MomentoPresentacion(str, Enum):
     """Momento de presentación del requisito."""
+
     CON_LA_OFERTA = "con_la_oferta"
     PREVIO_APERTURA = "previo_apertura"
     PRE_ADJUDICACION = "pre_adjudicacion"
@@ -360,23 +351,21 @@ class MomentoPresentacion(str, Enum):
 
 class RequisitoAdmisibilidadItem(ExtractedItem):
     """Item de requisito de admisibilidad con metadata de obligatoriedad."""
+
     tipo: TipoRequisito
     valor: str
     metadata: dict[str, Any] = Field(
         default_factory=lambda: {
             "obligatorio": "no_especificado",
             "momento_presentacion": "no_especificado",
-            "subsanable": "no_especificado"
+            "subsanable": "no_especificado",
         }
     )
 
 
-# =============================================================================
-# CATEGORÍA: CRITERIOS DE EVALUACIÓN
-# =============================================================================
-
 class MetodoAdjudicacion(str, Enum):
     """Métodos de adjudicación en licitaciones argentinas."""
+
     MENOR_PRECIO = "menor_precio"
     PUNTAJE_PONDERADO = "puntaje_ponderado"
     MEJOR_RELACION_PRECIO_CALIDAD = "mejor_relacion_precio_calidad"
@@ -389,6 +378,7 @@ class MetodoAdjudicacion(str, Enum):
 
 class TipoCriterio(str, Enum):
     """Tipos de criterios evaluados."""
+
     PRECIO = "precio"
     TECNICO = "tecnico"
     EXPERIENCIA = "experiencia"
@@ -401,11 +391,12 @@ class TipoCriterio(str, Enum):
 class CriterioEvaluacionItem(ExtractedItem):
     """
     Item de criterio de evaluación.
-    
+
     ESTRUCTURA:
     - UN item tipo="metodo" describe el método de adjudicación
     - N items tipo="criterio" describen los factores evaluados
     """
+
     tipo: Literal["metodo", "criterio"]
     valor: str
     metadata: dict[str, Any] = Field(
@@ -414,17 +405,14 @@ class CriterioEvaluacionItem(ExtractedItem):
             "ponderacion_porcentaje": None,
             "formula": None,
             "puntaje_tecnico_minimo": None,
-            "tipo_criterio": "no_especificado"
+            "tipo_criterio": "no_especificado",
         }
     )
 
 
-# =============================================================================
-# CATEGORÍA: ANEXOS OBLIGATORIOS
-# =============================================================================
-
 class TipoAnexo(str, Enum):
     """Tipos de anexos obligatorios."""
+
     ANEXO = "anexo"
     FORMULARIO = "formulario"
     PLANILLA = "planilla"
@@ -434,23 +422,21 @@ class TipoAnexo(str, Enum):
 
 class AnexoObligatorioItem(ExtractedItem):
     """Item de anexo obligatorio (formularios provistos por el pliego)."""
+
     tipo: TipoAnexo
     valor: str = Field(description="Identificador completo: 'Anexo I — Planilla de Cotización'")
     metadata: dict[str, Any] = Field(
         default_factory=lambda: {
             "debe_completarse": "no_especificado",
             "debe_firmarse": "no_especificado",
-            "presente_en_documentos_subidos": "no_especificado"
+            "presente_en_documentos_subidos": "no_especificado",
         }
     )
 
 
-# =============================================================================
-# CATEGORÍA: IDENTIFICACIÓN DEL PROCEDIMIENTO
-# =============================================================================
-
 class TipoIdentificacion(str, Enum):
     """Tipos de datos de identificación del procedimiento."""
+
     ORGANISMO_CONVOCANTE = "organismo_convocante"
     EXPEDIENTE = "expediente"
     NUMERO_PROCEDIMIENTO = "numero_procedimiento"
@@ -462,17 +448,15 @@ class TipoIdentificacion(str, Enum):
 
 class IdentificacionProcedimientoItem(ExtractedItem):
     """Item de identificación del procedimiento."""
+
     tipo: TipoIdentificacion
     valor: str
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-# =============================================================================
-# CATEGORÍA: CAUSALES DE RECHAZO
-# =============================================================================
-
 class TipoCausal(str, Enum):
     """Tipos de causales de rechazo."""
+
     FORMAL = "formal"
     TECNICA = "tecnica"
     ECONOMICA = "economica"
@@ -483,22 +467,20 @@ class TipoCausal(str, Enum):
 
 class CausalRechazoItem(ExtractedItem):
     """Item de causal de rechazo (consecuencias de incumplimiento)."""
+
     tipo: TipoCausal
     valor: str
     metadata: dict[str, Any] = Field(
         default_factory=lambda: {
             "es_descalificante": "no_especificado",
-            "es_subsanable": "no_especificado"
+            "es_subsanable": "no_especificado",
         }
     )
 
 
-# =============================================================================
-# CATEGORÍA: RIESGOS
-# =============================================================================
-
 class TipoRiesgo(str, Enum):
     """Tipos de riesgos en licitaciones."""
+
     DESCALIFICACION = "descalificacion"
     PENALIZACION = "penalizacion"
     LEGAL = "legal"
@@ -509,6 +491,7 @@ class TipoRiesgo(str, Enum):
 
 class SubtipoRiesgo(str, Enum):
     """Subtipos de riesgo para clasificación granular."""
+
     EJECUCION = "ejecucion"
     INCUMPLIMIENTO = "incumplimiento"
     OPERATIVO = "operativo"
@@ -516,23 +499,22 @@ class SubtipoRiesgo(str, Enum):
     ECONOMICO = "economico"
     TECNICO = "tecnico"
     LEGAL_CONTRACTUAL = "legal_contractual"
+    COMERCIAL = "comercial"
     OTRO_EXPLICITO = "otro_explicito"
 
 
 class RiesgoItem(ExtractedItem):
     """Item de riesgo identificado en el pliego."""
+
     tipo: TipoRiesgo
     subtipo: SubtipoRiesgo = SubtipoRiesgo.OTRO_EXPLICITO
     valor: str
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-# =============================================================================
-# LEGACY: Schemas genéricos (mantener compatibilidad)
-# =============================================================================
-
 class GenericCategoryItem(ExtractedItem):
     """Schema genérico para categorías sin schema específico (legacy)."""
+
     tipo: str | None = None
     valor: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -540,117 +522,54 @@ class GenericCategoryItem(ExtractedItem):
 
 class PresupuestoItem(ExtractedItem):
     """Item de presupuesto (legacy)."""
+
     monto: float | None = None
     moneda: str | None = None
     forma_pago: str | None = None
     ajustes: str | None = None
 
 
-# =============================================================================
-# CONTENEDOR PRINCIPAL
-# =============================================================================
-
 class ExtractedData(BaseModel):
     """
     Contenedor de todas las categorías extraídas.
-    
+
     Cada categoría tiene:
     - items: lista de items extraídos (con schema específico)
     - extraction_status: estado global de la extracción
     - narrative: respuesta en lenguaje natural (opcional)
     """
-    
-    calidad_por_categoria: dict[str, dict[str, int]] = Field(default_factory=dict)
 
-    # Objeto y Alcance
+    calidad_por_categoria: dict[str, dict[str, int]] = Field(default_factory=dict)
     objeto_alcance: list[ObjetoAlcanceItem] = Field(default_factory=list)
     objeto_alcance_extraction_status: str = "unknown"
     objeto_alcance_narrative: CategoryNarrative | None = None
-
-    # Requisitos de Admisibilidad
     requisitos_admisibilidad: list[RequisitoAdmisibilidadItem] = Field(default_factory=list)
     requisitos_admisibilidad_extraction_status: str = "unknown"
     requisitos_admisibilidad_narrative: CategoryNarrative | None = None
-
-    # Plazos Clave
     plazos_clave: list[PlazoItem] = Field(default_factory=list)
     plazos_clave_extraction_status: str = "unknown"
     plazos_clave_narrative: CategoryNarrative | None = None
-
-    # Garantías
     garantias: list[GarantiaItem] = Field(default_factory=list)
     garantias_extraction_status: str = "unknown"
     garantias_narrative: CategoryNarrative | None = None
-
-    # Causales de Rechazo
     causales_rechazo: list[CausalRechazoItem] = Field(default_factory=list)
-    causales_extraction_status: str = "unknown"
+    causales_rechazo_extraction_status: str = "unknown"
     causales_rechazo_narrative: CategoryNarrative | None = None
-
-    # Criterios de Evaluación
+    causales_extraction_status: str = "unknown"
     criterios_evaluacion: list[CriterioEvaluacionItem] = Field(default_factory=list)
     criterios_evaluacion_extraction_status: str = "unknown"
     criterios_evaluacion_narrative: CategoryNarrative | None = None
-
-    # Anexos Obligatorios
     anexos_obligatorios: list[AnexoObligatorioItem] = Field(default_factory=list)
     anexos_obligatorios_extraction_status: str = "unknown"
     anexos_obligatorios_narrative: CategoryNarrative | None = None
-
-    # Identificación del Procedimiento
-    identificacion_procedimiento: list[IdentificacionProcedimientoItem] = Field(default_factory=list)
+    identificacion_procedimiento: list[IdentificacionProcedimientoItem] = Field(
+        default_factory=list
+    )
     identificacion_procedimiento_extraction_status: str = "unknown"
     identificacion_procedimiento_narrative: CategoryNarrative | None = None
-
-    # Riesgos
     riesgos: list[RiesgoItem] = Field(default_factory=list)
     riesgos_extraction_status: str = "unknown"
     riesgos_narrative: CategoryNarrative | None = None
-
-    # =============================================================================
-    # LEGACY FIELDS - BACKWARD COMPATIBILITY
-    # =============================================================================
-    # FIX MEDIUM (#4): Campos legacy mantenidos por compatibilidad con frontend.
-    #
-    # AUDITORÍA US-5.3 (2026-08-12): se confirmó contra `frontend/src` cuáles
-    # campos legacy siguen consumiéndose de verdad -- el estado real es
-    # DISTINTO por campo, no "todos son fallback seguro de eliminar en Q2 2027"
-    # como decía este comentario antes:
-    #
-    #   - "plazos" y "documentos_requeridos"/"restricciones_participacion":
-    #     confirmado SAFE. `frontend/src/services/api/analysisApi.ts`
-    #     (`legacyToUiMap`) los lee solo como fallback para análisis viejos
-    #     que no tengan todavía el campo canónico -- el camino primario ya usa
-    #     "plazos_clave"/"requisitos_admisibilidad". Como `merge_node` escribe
-    #     siempre ambos nombres, todo análisis nuevo ya trae el canónico. Plan
-    #     Q2 2027 (dejar de escribirlos desde el backend) sigue vigente.
-    #
-    #   - "datos_procedimiento": NO es un duplicado legacy seguro de eliminar.
-    #     El frontend lo usa como categoría PRIMARIA -- `CategoryId` en
-    #     `frontend/src/features/analysis-detail/types.ts` lo declara como
-    #     valor de primera clase, y es la ÚNICA fuente que puebla
-    #     organismo/expediente en el header del análisis
-    #     (`NORMALIZE_CATEGORY_IDS` en `analysisApi.ts`). El frontend NUNCA
-    #     lee "identificacion_procedimiento" (cero referencias en todo
-    #     `frontend/src`). Además "identificacion_procedimiento" no es
-    #     equivalente: es un subconjunto filtrado por el enum
-    #     `TipoIdentificacion` (ver `graph.py::merge_node`,
-    #     `identificacion_canonica`), mientras que "datos_procedimiento"
-    #     conserva la lista completa sin filtrar. Eliminar este campo con
-    #     el plan viejo (fecha fija, sin depender de que el frontend migre)
-    #     rompería el header de cualquier análisis nuevo. Ver plan de
-    #     migración de frontend en
-    #     `_bmad-output/us-5.3-legacy-fields-migration-plan.md` -- la
-    #     eliminación de este campo queda BLOQUEADA hasta que ese trabajo de
-    #     frontend se haga, no programada por fecha de calendario.
-    #
-    # ACCIÓN REQUERIDA:
-    #   - "plazos" / "documentos_requeridos" / "restricciones_participacion":
-    #     ninguna -- proceder con el retiro planeado en Q2 2027.
-    #   - "datos_procedimiento": NO retirar hasta migrar el frontend a
-    #     "identificacion_procedimiento" (o a un campo canónico sin filtrar
-    #     que preserve el 100% de lo que hoy expone "datos_procedimiento").
-    # =============================================================================
 
     plazos: list[PlazoItem] = Field(
         default_factory=list,
@@ -671,19 +590,9 @@ class ExtractedData(BaseModel):
 
     documentos_requeridos: list[GenericCategoryItem] = Field(
         default_factory=list,
-        description="DEPRECATED: Usar 'anexos_obligatorios' en su lugar. Será eliminado en Q2 2027.",
+        description="DEPRECATED: Usar 'requisitos_admisibilidad' en su lugar. Será eliminado en Q2 2027.",
     )
     documentos_extraction_status: str = NOT_ANALYZED_STATUS
-
-    # FIX (auditoría US-5.3, 2026-08-12): `merge_node` ya escribía estos tres
-    # campos en el dict de `extracted_data`, pero no estaban declarados acá --
-    # `ExtractedData(**extracted_data)` los descartaba en silencio (comportamiento
-    # default de pydantic con campos no declarados), exactamente el mismo patrón
-    # del incidente histórico de `primary_category`/`secondary_categories`. Hoy
-    # no cambia nada observable (`merge_node` los escribe siempre vacíos, todavía
-    # no hay extractor real para estas categorías), pero sin esto, el día que se
-    # implemente un extractor para alguna de las tres, sus datos se perderían en
-    # silencio antes de llegar a la API -- igual que pasó antes.
     restricciones_participacion: list[GenericCategoryItem] = Field(default_factory=list)
     restricciones_extraction_status: str = NOT_ANALYZED_STATUS
     cronograma_proceso: list[GenericCategoryItem] = Field(default_factory=list)
@@ -692,18 +601,11 @@ class ExtractedData(BaseModel):
     presupuesto_extraction_status: str = NOT_ANALYZED_STATUS
 
 
-# =============================================================================
-# EXPORTS
-# =============================================================================
-
 __all__ = [
-    # Base types
     "SourceReference",
     "ConfidenceLevel",
     "ExtractionStatus",
     "ExtractedItem",
-    
-    # Narrative
     "CategoryNarrative",
     "NarrativeBlock",
     "NarrativeParagraphBlock",
@@ -712,8 +614,6 @@ __all__ = [
     "NarrativeSource",
     "NarrativeBulletItem",
     "NarrativeTableRow",
-
-    # Narrative (raw LLM output)
     "RawCategoryNarrative",
     "RawNarrativeBlock",
     "RawNarrativeParagraphBlock",
@@ -721,10 +621,7 @@ __all__ = [
     "RawNarrativeBulletListBlock",
     "RawNarrativeTableRow",
     "RawNarrativeTableBlock",
-
-    # Categorías específicas
     "PlazoItem",
-    "TipoPlazo",
     "GarantiaItem",
     "TipoGarantia",
     "ObjetoAlcanceItem",
@@ -744,11 +641,7 @@ __all__ = [
     "RiesgoItem",
     "TipoRiesgo",
     "SubtipoRiesgo",
-    
-    # Legacy
     "GenericCategoryItem",
     "PresupuestoItem",
-    
-    # Container
     "ExtractedData",
 ]

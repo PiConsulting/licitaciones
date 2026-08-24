@@ -95,7 +95,12 @@ def _find_user_by_id_cosmos(user_id: str) -> AuthUser | None:
         )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"error": {"code": "AUTH_BACKEND_UNAVAILABLE", "message": "Servicio de autenticación no disponible"}},
+            detail={
+                "error": {
+                    "code": "AUTH_BACKEND_UNAVAILABLE",
+                    "message": "Servicio de autenticación no disponible",
+                }
+            },
         ) from exc
     if item.get("deleted") is True:
         return None
@@ -126,7 +131,9 @@ def authenticate_user(db: Session | None, email: str, password: str) -> User | A
     else:
         managed_db = db or SessionLocal()
         try:
-            stmt: Select[tuple[User]] = select(User).where(User.email == email, User.deleted_at.is_(None))
+            stmt: Select[tuple[User]] = select(User).where(
+                User.email == email, User.deleted_at.is_(None)
+            )
             user = managed_db.execute(stmt).scalar_one_or_none()
         finally:
             if db is None:
@@ -150,7 +157,9 @@ def decode_and_validate_token(token: str) -> dict:
         ) from exc
 
 
-def get_current_user(credentials: HTTPAuthorizationCredentials | None, db: Session | None) -> User | AuthUser:
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None, db: Session | None
+) -> User | AuthUser:
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

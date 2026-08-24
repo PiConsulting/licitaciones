@@ -96,7 +96,14 @@ function fallbackBlock(categoryId: CategoryId): NarrativeParagraphBlock {
  * ese pliego puntual amerita una tabla.
  */
 export function buildNarrativeBlocks(category: CategoryData, categoryId: CategoryId): CategoryNarrative {
-  const items = category.items;
+  let items = category.items;
+
+  // Para riesgos, ordenar primero los comerciales, luego el resto
+  if (categoryId === "riesgos") {
+    const comerciales = items.filter((item) => item.field_name.toLowerCase().includes("comercial"));
+    const otros = items.filter((item) => !item.field_name.toLowerCase().includes("comercial"));
+    items = [...comerciales, ...otros];
+  }
 
   if (items.length === 0) {
     return { blocks: [fallbackBlock(categoryId)], sources: [] };

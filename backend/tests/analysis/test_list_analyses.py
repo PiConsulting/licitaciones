@@ -80,8 +80,12 @@ def test_list_analyses_excludes_soft_deleted(client: TestClient, auth_token: str
     db.close()
 
     now = datetime.now(UTC)
-    visible = _create_analysis(user_id=user.id, status="queued", filename="visible.pdf", created_at=now)
-    _create_analysis(user_id=user.id, status="queued", filename="deleted.pdf", created_at=now, deleted=True)
+    visible = _create_analysis(
+        user_id=user.id, status="queued", filename="visible.pdf", created_at=now
+    )
+    _create_analysis(
+        user_id=user.id, status="queued", filename="deleted.pdf", created_at=now, deleted=True
+    )
 
     response = client.get("/api/v1/analyses", headers=_auth_headers(auth_token))
 
@@ -99,7 +103,9 @@ def test_list_analyses_filters_by_status(client: TestClient, auth_token: str) ->
 
     now = datetime.now(UTC)
     _create_analysis(user_id=user.id, status="queued", filename="queued.pdf", created_at=now)
-    analyzed = _create_analysis(user_id=user.id, status="analyzed", filename="done.pdf", created_at=now)
+    analyzed = _create_analysis(
+        user_id=user.id, status="analyzed", filename="done.pdf", created_at=now
+    )
 
     response = client.get("/api/v1/analyses?status=analyzed", headers=_auth_headers(auth_token))
 
@@ -120,7 +126,9 @@ def test_list_analyses_filters_by_date_range(client: TestClient, auth_token: str
     newer = datetime(2026, 7, 30, tzinfo=UTC)
 
     _create_analysis(user_id=user.id, status="queued", filename="old.pdf", created_at=older)
-    kept = _create_analysis(user_id=user.id, status="queued", filename="middle.pdf", created_at=middle)
+    kept = _create_analysis(
+        user_id=user.id, status="queued", filename="middle.pdf", created_at=middle
+    )
     _create_analysis(user_id=user.id, status="queued", filename="new.pdf", created_at=newer)
 
     response = client.get(
@@ -141,8 +149,12 @@ def test_list_analyses_searches_by_primary_filename(client: TestClient, auth_tok
     db.close()
 
     now = datetime.now(UTC)
-    matched = _create_analysis(user_id=user.id, status="queued", filename="Pliego Hospital Central.pdf", created_at=now)
-    _create_analysis(user_id=user.id, status="queued", filename="Otro documento.pdf", created_at=now)
+    matched = _create_analysis(
+        user_id=user.id, status="queued", filename="Pliego Hospital Central.pdf", created_at=now
+    )
+    _create_analysis(
+        user_id=user.id, status="queued", filename="Otro documento.pdf", created_at=now
+    )
 
     response = client.get("/api/v1/analyses?search=hospital", headers=_auth_headers(auth_token))
 
@@ -194,7 +206,9 @@ def test_list_analyses_searches_by_organism(client: TestClient, auth_token: str)
     assert payload["items"][0]["organismo"] == "Ministerio de Educación"
 
 
-def test_list_analyses_organismo_desde_forma_actual_del_pipeline(client: TestClient, auth_token: str) -> None:
+def test_list_analyses_organismo_desde_forma_actual_del_pipeline(
+    client: TestClient, auth_token: str
+) -> None:
     """`datos_procedimiento` sale del pipeline como una lista de items con
     `tipo`/`valor` (GenericCategoryItem), no como `{"items": [{"field_name":
     ..., "field_value": ...}]}`. Ese shape legado nunca lo emite el backend real
@@ -234,7 +248,9 @@ def test_list_analyses_organismo_desde_forma_actual_del_pipeline(client: TestCli
     )
     _create_analysis(user_id=user.id, status="analyzed", filename="pliego-vial.pdf", created_at=now)
 
-    response = client.get(f"/api/v1/analyses?search={matched.id}", headers=_auth_headers(auth_token))
+    response = client.get(
+        f"/api/v1/analyses?search={matched.id}", headers=_auth_headers(auth_token)
+    )
 
     assert response.status_code == 200
     payload = response.json()
@@ -298,7 +314,9 @@ def test_list_analyses_sorting_toggle_by_status(client: TestClient, auth_token: 
     assert desc_statuses == sorted(desc_statuses, reverse=True)
 
 
-def test_list_analyses_confidence_avg_uses_only_success_items(client: TestClient, auth_token: str) -> None:
+def test_list_analyses_confidence_avg_uses_only_success_items(
+    client: TestClient, auth_token: str
+) -> None:
     db = SessionLocal()
     user = db.query(User).filter(User.email == "test@cedia.com").first()
     assert user is not None
@@ -319,7 +337,9 @@ def test_list_analyses_confidence_avg_uses_only_success_items(client: TestClient
         },
     )
 
-    response = client.get(f"/api/v1/analyses?search={analysis.id}", headers=_auth_headers(auth_token))
+    response = client.get(
+        f"/api/v1/analyses?search={analysis.id}", headers=_auth_headers(auth_token)
+    )
 
     assert response.status_code == 200
     payload = response.json()

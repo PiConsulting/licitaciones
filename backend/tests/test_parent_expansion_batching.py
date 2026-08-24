@@ -176,7 +176,9 @@ def test_cada_parent_se_pide_una_sola_vez(entorno, monkeypatch: pytest.MonkeyPat
 # ---------------------------------------------------------------------------
 
 
-def test_si_falla_el_lote_se_conservan_los_children(entorno, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_si_falla_el_lote_se_conservan_los_children(
+    entorno, monkeypatch: pytest.MonkeyPatch
+) -> None:
     class _LoteRoto(_ContadorDeLlamadas):
         def search(self, **kwargs) -> Iterator[dict]:
             filter_expr = str(kwargs.get("filter") or "")

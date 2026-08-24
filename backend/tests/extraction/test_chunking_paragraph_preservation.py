@@ -20,7 +20,7 @@ class TestParagraphPreservation:
         """Un párrafo que cabe en chunk_size debe permanecer intacto."""
         content = "Este es un párrafo corto con menos de 700 tokens."
         chunks = _split_block_into_chunks(content, chunk_size=700, overlap=120)
-        
+
         assert len(chunks) == 1
         assert chunks[0] == content
 
@@ -28,7 +28,7 @@ class TestParagraphPreservation:
         """Múltiples párrafos pequeños deben acumularse en un chunk."""
         content = "Párrafo 1.\n\nPárrafo 2.\n\nPárrafo 3."
         chunks = _split_block_into_chunks(content, chunk_size=700, overlap=120)
-        
+
         assert len(chunks) == 1
         assert chunks[0] == content
 
@@ -39,12 +39,12 @@ class TestParagraphPreservation:
         p2 = " ".join(["palabra"] * 250)
         p3 = " ".join(["palabra"] * 250)
         content = f"{p1}\n\n{p2}\n\n{p3}"
-        
+
         chunks = _split_block_into_chunks(content, chunk_size=400, overlap=100)
-        
+
         # Debe haber múltiples chunks
         assert len(chunks) >= 2
-        
+
         # Cada chunk debe ser párrafos completos con "\n\n" como separador
         for chunk in chunks:
             # No debe haber palabras cortadas a la mitad
@@ -60,15 +60,15 @@ class TestParagraphPreservation:
         # Párrafo de 1000 tokens
         giant = " ".join(["palabra"] * 1000)
         content = f"Párrafo normal.\n\n{giant}\n\nOtro párrafo normal."
-        
+
         chunks = _split_block_into_chunks(content, chunk_size=400, overlap=100)
-        
+
         # Debe haber múltiples chunks
         assert len(chunks) >= 3
-        
+
         # El primer chunk debe ser el párrafo normal
         assert "Párrafo normal" in chunks[0]
-        
+
         # Los chunks del gigante no deben mezclar otros párrafos
         giant_chunks = [c for c in chunks if "palabra palabra palabra" in c]
         for chunk in giant_chunks:
@@ -81,19 +81,19 @@ class TestParagraphPreservation:
         p2 = " ".join(["dos"] * 200)
         p3 = " ".join(["tres"] * 200)
         content = f"{p1}\n\n{p2}\n\n{p3}"
-        
+
         chunks = _split_block_into_chunks(content, chunk_size=400, overlap=150)
-        
+
         # Debe haber overlap
         assert len(chunks) >= 2
-        
+
         # El segundo chunk debe incluir párrafos completos del primero
         if len(chunks) >= 2:
             # Buscar palabras clave
             has_uno = "uno" in chunks[1]
             has_dos = "dos" in chunks[1]
             has_tres = "tres" in chunks[1]
-            
+
             # Si hay overlap, debe ser párrafos completos
             if has_uno or has_dos:
                 # No debe haber mezcla de tokens sueltos
@@ -109,9 +109,9 @@ class TestHeadingPathPreservation:
             {"heading_level": 1, "content": "TÍTULO 1", "page_number": 1, "source_order": 0},
             {"content": "Contenido bajo título 1.", "page_number": 1, "source_order": 1},
         ]
-        
+
         intermediate = _to_intermediate_blocks(blocks)
-        
+
         # El bloque de contenido debe tener heading_path
         content_block = next(b for b in intermediate if "Contenido" in b["content"])
         assert content_block["heading_path"] == ["TÍTULO 1"]
@@ -123,9 +123,9 @@ class TestHeadingPathPreservation:
             {"heading_level": 2, "content": "GARANTÍAS", "page_number": 1, "source_order": 1},
             {"content": "Los oferentes deberán...", "page_number": 1, "source_order": 2},
         ]
-        
+
         intermediate = _to_intermediate_blocks(blocks)
-        
+
         content_block = next(b for b in intermediate if "oferentes" in b["content"])
         assert content_block["heading_path"] == ["ARTÍCULO 10", "GARANTÍAS"]
 
@@ -137,12 +137,12 @@ class TestHeadingPathPreservation:
             {"heading_level": 2, "content": "SECCIÓN B", "page_number": 1, "source_order": 2},
             {"content": "Contenido B.", "page_number": 1, "source_order": 3},
         ]
-        
+
         intermediate = _to_intermediate_blocks(blocks)
-        
+
         content_a = next(b for b in intermediate if "Contenido A" in b["content"])
         content_b = next(b for b in intermediate if "Contenido B" in b["content"])
-        
+
         assert content_a["heading_path"] == ["SECCIÓN A"]
         assert content_b["heading_path"] == ["SECCIÓN B"]
 
@@ -153,14 +153,14 @@ class TestHeadingPathPreservation:
             {"content": "Párrafo 1.", "page_number": 1, "source_order": 1},
             {"content": "Párrafo 2.", "page_number": 1, "source_order": 2},
         ]
-        
+
         intermediate = _to_intermediate_blocks(blocks)
         merged = _merge_intermediate_blocks(intermediate)
-        
+
         # Debe haber solo un bloque de contenido (párrafos fusionados)
         content_blocks = [b for b in merged if not b.get("is_heading")]
         assert len(content_blocks) == 1
-        
+
         # El bloque fusionado debe mantener heading_path
         assert content_blocks[0]["heading_path"] == ["TÍTULO"]
         assert "Párrafo 1" in content_blocks[0]["content"]
@@ -175,14 +175,18 @@ class TestHeadingPrefixInChunks:
         blocks = [
             {"heading_level": 1, "content": "ARTÍCULO 10", "page_number": 1, "source_order": 0},
             {"heading_level": 2, "content": "GARANTÍAS", "page_number": 1, "source_order": 1},
-            {"content": "Contenido extenso " * 500, "page_number": 1, "source_order": 2},  # > chunk_size
+            {
+                "content": "Contenido extenso " * 500,
+                "page_number": 1,
+                "source_order": 2,
+            },  # > chunk_size
         ]
-        
+
         chunks = create_chunks(blocks, document_id="test-doc", correlation_id="test-corr")
-        
+
         # Debe haber múltiples chunks por el contenido largo
         assert len(chunks) >= 2
-        
+
         # RAG: Content es PURO (sin ningún título)
         for chunk in chunks:
             content = chunk["content"]
@@ -201,18 +205,18 @@ class TestHeadingPrefixInChunks:
             {"heading_level": 2, "content": "SUBTÍTULO B", "page_number": 1, "source_order": 1},
             {"content": "Contenido.", "page_number": 1, "source_order": 2},
         ]
-        
+
         chunks = create_chunks(blocks, document_id="test-doc", correlation_id="test-corr")
-        
+
         assert len(chunks) == 1
         chunk = chunks[0]
-        
+
         # Metadata heading_path COMPLETO
         assert chunk["heading_path"] == ["TÍTULO A", "SUBTÍTULO B"]
-        
+
         # Title explícito (último nivel)
         assert chunk["title"] == "SUBTÍTULO B"
-        
+
         # RAG: Content PURO (solo párrafo, sin títulos)
         assert chunk["content"] == "Contenido."
         assert "TÍTULO A" not in chunk["content"]
@@ -226,7 +230,11 @@ class TestTableContext:
         """Tabla debe heredar el párrafo que la introduce."""
         blocks = [
             {"heading_level": 1, "content": "EVALUACIÓN", "page_number": 1, "source_order": 0},
-            {"content": "La evaluación se realizará según la siguiente tabla:", "page_number": 1, "source_order": 1},
+            {
+                "content": "La evaluación se realizará según la siguiente tabla:",
+                "page_number": 1,
+                "source_order": 1,
+            },
             {
                 "block_type": "table",
                 "content": "Tabla T1 | Fila 1 | Criterio: Precio | Valor: 100",
@@ -235,13 +243,13 @@ class TestTableContext:
                 "table_ref": {"table_id": "T1", "row_index": 1, "headers": ["Criterio", "Valor"]},
             },
         ]
-        
+
         intermediate = _to_intermediate_blocks(blocks)
         merged = _merge_intermediate_blocks(intermediate)
-        
+
         # Buscar el bloque de tabla
         table_block = next(b for b in merged if b.get("block_type") == "table")
-        
+
         # Debe tener table_context con el párrafo previo
         assert "table_context" in table_block
         assert "siguiente tabla" in table_block["table_context"]
@@ -259,12 +267,12 @@ class TestTableContext:
                 "table_ref": {"table_id": "T1", "row_index": 1, "headers": ["Col"]},
             },
         ]
-        
+
         chunks = create_chunks(blocks, document_id="test-doc", correlation_id="test-corr")
-        
+
         # Buscar chunk de tabla
         table_chunk = next(c for c in chunks if c.get("block_type") == "table")
-        
+
         content = table_chunk["content"]
         # RAG: Content NO incluye heading (está en metadata)
         assert "TÍTULO" not in content
@@ -308,28 +316,30 @@ class TestTableContext:
                 "bbox": [[0, 40, 100, 60]],
             },
         ]
-        
+
         chunks = create_chunks(blocks, document_id="test-doc", correlation_id="test-corr")
-        
+
         # Buscar chunks de tabla
         table_chunks = [c for c in chunks if c.get("block_type") == "table"]
-        
+
         # FASE 3: Debe haber UN SOLO chunk (todas las filas consolidadas)
         assert len(table_chunks) == 1, f"Expected 1 table chunk, got {len(table_chunks)}"
-        
+
         table_chunk = table_chunks[0]
         content = table_chunk["content"]
-        
+
         # Content debe incluir TODAS las filas
         assert "Organismo: Municipalidad" in content
         assert "Procedimiento: CD 014/2026" in content
         assert "Presupuesto: $3.850.000" in content
-        
+
         # Source debe tener todos los blocks originales
         source = table_chunk.get("source", {})
         blocks_in_source = source.get("blocks", [])
-        assert len(blocks_in_source) == 3, f"Expected 3 blocks in source, got {len(blocks_in_source)}"
-        
+        assert len(blocks_in_source) == 3, (
+            f"Expected 3 blocks in source, got {len(blocks_in_source)}"
+        )
+
         # Cada block debe tener su bbox original
         assert blocks_in_source[0]["para_id"] == "para_1"
         assert blocks_in_source[1]["para_id"] == "para_2"
@@ -340,38 +350,53 @@ class TestTableContext:
         # Crear tabla con 10 filas, cada una con ~200 caracteres (~50 tokens)
         # Total: ~500 tokens (debe exceder límite default de 500)
         blocks = [
-            {"heading_level": 1, "content": "ANEXO I - PLANILLA", "page_number": 1, "source_order": 0},
+            {
+                "heading_level": 1,
+                "content": "ANEXO I - PLANILLA",
+                "page_number": 1,
+                "source_order": 0,
+            },
         ]
-        
+
         # Crear 10 filas de tabla, cada una ~200 chars
         for i in range(1, 11):
             row_content = f"Renglón {i}: " + " ".join(["descripción detallada"] * 12)  # ~200 chars
-            blocks.append({
-                "block_type": "table",
-                "content": row_content,
-                "page_number": 1,
-                "source_order": i,
-                "table_ref": {"table_id": "T1", "row_index": i, "headers": ["Renglón", "Descripción"]},
-                "para_id": f"para_{i}",
-                "bbox": [[0, i*20, 100, (i+1)*20]],
-            })
-        
+            blocks.append(
+                {
+                    "block_type": "table",
+                    "content": row_content,
+                    "page_number": 1,
+                    "source_order": i,
+                    "table_ref": {
+                        "table_id": "T1",
+                        "row_index": i,
+                        "headers": ["Renglón", "Descripción"],
+                    },
+                    "para_id": f"para_{i}",
+                    "bbox": [[0, i * 20, 100, (i + 1) * 20]],
+                }
+            )
+
         # Usar chunk_size grande para no interferir con el límite de tabla
-        chunks = create_chunks(blocks, document_id="test-doc", correlation_id="test-corr", chunk_size=2000)
-        
+        chunks = create_chunks(
+            blocks, document_id="test-doc", correlation_id="test-corr", chunk_size=2000
+        )
+
         # Buscar chunks de tabla
         table_chunks = [c for c in chunks if c.get("block_type") == "table"]
-        
+
         # Debe haber MÚLTIPLES chunks (tabla dividida por tamaño)
-        assert len(table_chunks) > 1, f"Expected multiple table chunks due to size limit, got {len(table_chunks)}"
-        
+        assert len(table_chunks) > 1, (
+            f"Expected multiple table chunks due to size limit, got {len(table_chunks)}"
+        )
+
         # Cada chunk debe tener contexto de la tabla (mismo heading_path)
         for chunk in table_chunks:
             assert "ANEXO I - PLANILLA" in chunk.get("heading_path", [])
             # Debe tener source con blocks
             source = chunk.get("source", {})
             assert source.get("blocks"), "Each table chunk should have source.blocks"
-        
+
         # Verificar que entre todos los chunks se cubren todas las filas
         all_para_ids = set()
         for chunk in table_chunks:
@@ -379,7 +404,7 @@ class TestTableContext:
             for block in source.get("blocks", []):
                 if block.get("para_id"):
                     all_para_ids.add(block["para_id"])
-        
+
         expected_para_ids = {f"para_{i}" for i in range(1, 11)}
         assert all_para_ids == expected_para_ids, "All table rows should be present across chunks"
 
@@ -391,11 +416,15 @@ class TestCategoryClassification:
         """Clasificación por título tiene prioridad sobre keywords."""
         blocks = [
             {"heading_level": 1, "content": "GARANTÍAS", "page_number": 1, "source_order": 0},
-            {"content": "Contenido con palabras de otras categorías como plazo y anexo.", "page_number": 1, "source_order": 1},
+            {
+                "content": "Contenido con palabras de otras categorías como plazo y anexo.",
+                "page_number": 1,
+                "source_order": 1,
+            },
         ]
-        
+
         chunks = create_chunks(blocks, document_id="test-doc", correlation_id="test-corr")
-        
+
         assert len(chunks) == 1
         # Debe clasificar por título "GARANTÍAS", no por keywords "plazo" o "anexo"
         assert chunks[0]["primary_category"] == "garantias"
@@ -407,7 +436,11 @@ class TestCategoryClassification:
         hacía que todo el relleno del pliego cobrara el boost de retrieval de
         la carátula. Ver `tests/test_classification_sin_categoria.py`."""
         blocks = [
-            {"content": "Contenido genérico sin palabras clave específicas de ninguna categoría.", "page_number": 1, "source_order": 0},
+            {
+                "content": "Contenido genérico sin palabras clave específicas de ninguna categoría.",
+                "page_number": 1,
+                "source_order": 0,
+            },
         ]
 
         chunks = create_chunks(blocks, document_id="test-doc", correlation_id="test-corr")

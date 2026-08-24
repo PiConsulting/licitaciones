@@ -54,12 +54,19 @@ def _fila(contenido: str, page: int, source_order: int, row_order: int) -> dict[
 
 def _bloques_bancor() -> list[dict[str, Any]]:
     return [
-        {"heading_level": 1, "content": "3.1.1. Definición de la solución", "page_number": 8, "source_order": 0},
+        {
+            "heading_level": 1,
+            "content": "3.1.1. Definición de la solución",
+            "page_number": 8,
+            "source_order": 0,
+        },
         _parrafo(DEFINICION, 8, 1),
         _parrafo(ENCABEZADO_TABLA, 8, 2),
         _fila("col_1: Duracion\ncol_2: SKU\ncol_3: SUSCRIPCION REQUERIDA", 8, 3, 0),
         _fila("col_1: 36 meses\ncol_2: VCF-CLD-FND-A\ncol_3: Broadcom LICENCIAS VMWARE", 8, 3, 1),
-        _fila("col_1: 12 meses\ncol_2: TAM-VCF\ncol_3: Servicios Technical Adoption Manager", 8, 3, 2),
+        _fila(
+            "col_1: 12 meses\ncol_2: TAM-VCF\ncol_3: Servicios Technical Adoption Manager", 8, 3, 2
+        ),
     ]
 
 

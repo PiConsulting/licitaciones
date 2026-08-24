@@ -138,11 +138,28 @@ causal específica como subsanable → `"no_especificado"`.
 ```
 
 ## 5. No conviertas un requisito en causal
-**Requisito:** "Debe presentar certificado fiscal" (va en requisitos de admisibilidad)  
+
+**Requisito:** "Debe presentar certificado fiscal" (va en requisitos de admisibilidad)
 **Causal:** "La falta de certificado fiscal será causal de rechazo" (va acá)
 
 Si el pliego solo lista requisitos sin decir explícitamente que su falta causa rechazo,
 no emitas causales. Esperá a que el pliego lo declare.
+
+**Chequeo obligatorio antes de emitir cada ítem**: ubicá, dentro de la cita que vas a
+usar como `source_references`, la frase concreta que declara la consecuencia de
+rechazo (equivalente a "será rechazada", "quedará excluida", "no será considerada",
+etc. — no hace falta que use esas palabras exactas, pero tiene que declarar una
+consecuencia, no sólo describir una obligación). Si la única cita disponible es la
+oración que plantea el requisito en sí, sin ninguna frase que declare qué pasa si no
+se cumple, ESO ES UN REQUISITO, no una causal — no lo emitas acá aunque te parezca
+razonable inferir que "seguramente" causa rechazo. Una condición redactada en modo
+discrecional ("podrá desestimarse", "a criterio de la Provincia") tampoco alcanza para
+`es_descalificante: "si"` — revisá la sección 3 de arriba.
+
+Esto es especialmente importante cuando el mismo requisito ya aparece extraído en
+`requisitos_admisibilidad`: no generes acá una reformulación en negativo de ese mismo
+requisito ("no presentar X" / "no informar Y") a menos que el pliego declare
+explícitamente, para ESE requisito puntual, que omitirlo causa rechazo.
 
 ## 6. valor: descripción de la causal
 Mantené el texto lo más cercano posible al pliego.

@@ -15,14 +15,14 @@ def test_normalize_for_search():
     """Normalización debe ser tolerante a diferencias de OCR."""
     # Acentos
     assert _normalize_for_search("garantía del 10%") == _normalize_for_search("garantia del 10%")
-    
+
     # Espacios múltiples
     assert _normalize_for_search("garantía  del   10%") == "garantia del 10%"
-    
+
     # Guiones diferentes
     assert _normalize_for_search("art. 10-15") == _normalize_for_search("art. 10–15")
     assert _normalize_for_search("art. 10—15") == "art. 10-15"
-    
+
     # Case insensitive
     assert _normalize_for_search("GARANTÍA") == _normalize_for_search("garantía")
 
@@ -48,16 +48,16 @@ def test_compute_highlights_for_sources_missing_pdf():
             "citation": "Esta es una citation de prueba que es suficientemente larga.",
         }
     ]
-    
+
     # Sin mapeo de PDF
     document_id_to_blob_path = {}
-    
+
     enriched = compute_highlights_for_sources(
         sources=sources,
         document_id_to_blob_path=document_id_to_blob_path,
         correlation_id="test",
     )
-    
+
     assert len(enriched) == 1
     assert enriched[0]["highlight_regions"] == []
 
@@ -73,15 +73,15 @@ def test_compute_highlights_for_sources_preserves_other_fields():
             "unverified": True,  # Campo adicional
         }
     ]
-    
+
     document_id_to_blob_path = {}
-    
+
     enriched = compute_highlights_for_sources(
         sources=sources,
         document_id_to_blob_path=document_id_to_blob_path,
         correlation_id="test",
     )
-    
+
     assert enriched[0]["id"] == 0
     assert enriched[0]["document_id"] == "doc-1"
     assert enriched[0]["page_number"] == 5
@@ -100,7 +100,7 @@ def test_sin_pdf_no_se_emite_el_bbox_del_parrafo():
             "citation": "Presupuesto oficial de $3.850.000",
         }
     ]
-    
+
     # Simular chunks con el nuevo formato 'source'
     chunks_by_doc_page = {
         ("doc-1", 1): [
@@ -113,21 +113,21 @@ def test_sin_pdf_no_se_emite_el_bbox_del_parrafo():
                         {
                             "block_id": "para_1",
                             "bbox": {"x": 100.0, "y": 200.0, "width": 300.0, "height": 50.0},
-                            "text": "Presupuesto oficial de $3.850.000"
+                            "text": "Presupuesto oficial de $3.850.000",
                         }
-                    ]
-                }
+                    ],
+                },
             }
         ]
     }
-    
+
     enriched = compute_highlights_for_sources(
         sources=sources,
         document_id_to_blob_path={},
         correlation_id="test",
         chunks_by_doc_page=chunks_by_doc_page,
     )
-    
+
     # FIX (2026-08-14): sin PDF no hay coordenadas. Este test afirmaba que se
     # emitía el bbox del bloque de Azure DI, que es el del PÁRRAFO completo --
     # el "resaltado por párrafo" que reportó la usuaria. Pintar un párrafo
@@ -147,7 +147,7 @@ def test_sin_pdf_tampoco_se_emite_el_bbox_legacy():
             "citation": "Garantía del 5%",
         }
     ]
-    
+
     # Simular chunks con formato legacy (blocks directamente en el chunk)
     chunks_by_doc_page = {
         ("doc-1", 1): [
@@ -159,20 +159,20 @@ def test_sin_pdf_tampoco_se_emite_el_bbox_legacy():
                         "content": "Garantía del 5%",
                         "bbox": [
                             {"page": 1, "x": 150.0, "y": 250.0, "width": 200.0, "height": 40.0}
-                        ]
+                        ],
                     }
-                ]
+                ],
             }
         ]
     }
-    
+
     enriched = compute_highlights_for_sources(
         sources=sources,
         document_id_to_blob_path={},
         correlation_id="test",
         chunks_by_doc_page=chunks_by_doc_page,
     )
-    
+
     assert len(enriched) == 1
     assert enriched[0]["highlight_regions"] == []
 
@@ -325,7 +325,9 @@ def test_highlight_region_y_is_measured_from_top_of_page(tmp_path):
     from analysis.extraction.highlight import compute_highlight_regions
 
     page_height = 800.0
-    pdf_path = _build_pdf_with_marker_at(tmp_path, "ARRIBA", y_position=60.0, page_height=page_height)
+    pdf_path = _build_pdf_with_marker_at(
+        tmp_path, "ARRIBA", y_position=60.0, page_height=page_height
+    )
 
     regions = compute_highlight_regions(
         pdf_path, page_number=1, citation="ARRIBA", correlation_id="test-hl01"
@@ -414,7 +416,9 @@ def test_hay_un_solo_camino_de_coordenadas():
                     "blocks": [
                         {
                             "text": f"Texto previo. {citation}. Texto posterior.",
-                            "bbox": [{"page": 3, "x": 70.0, "y": 120.0, "width": 400.0, "height": 30.0}],
+                            "bbox": [
+                                {"page": 3, "x": 70.0, "y": 120.0, "width": 400.0, "height": 30.0}
+                            ],
                         }
                     ]
                 },

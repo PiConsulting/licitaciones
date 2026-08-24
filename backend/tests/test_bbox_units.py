@@ -13,6 +13,7 @@ Observado en producción, mezclado en la MISMA respuesta:
     {"x": 0.7731, "y": 2.1239, "width": 6.7108}   <- pulgadas (Azure DI)
     {"x": 56.79,  "y": 465.20, "width": 240.33}   <- puntos (PyMuPDF)
 """
+
 from __future__ import annotations
 
 import pytest
@@ -81,7 +82,9 @@ def test_el_bbox_convertido_queda_en_la_misma_escala_que_pymupdf() -> None:
 
 def test_unidad_en_puntos_no_se_reescala() -> None:
     scales = _page_unit_scales(_Result([_Page(1, "point", 595.3, 841.9)]))
-    bbox = _extract_bounding_boxes(_Item([_Region(1, [10.0, 20.0, 110.0, 20.0, 110.0, 40.0, 10.0, 40.0])]), scales)[0]
+    bbox = _extract_bounding_boxes(
+        _Item([_Region(1, [10.0, 20.0, 110.0, 20.0, 110.0, 40.0, 10.0, 40.0])]), scales
+    )[0]
 
     assert bbox["x"] == pytest.approx(10.0)
     assert bbox["y"] == pytest.approx(20.0)
@@ -133,7 +136,9 @@ def test_un_bbox_fuera_de_la_hoja_se_descarta() -> None:
     blocks = [{"page_number": 1, "content": "texto", "source_order": 0}]
     fuera = [{"page": 1, "x": 50.0, "y": 5000.0, "width": 100.0, "height": 20.0}]
 
-    _enrich_blocks_with_para_id(blocks, {(1, 0): {"bbox": fuera, "content": "texto"}}, {1: (595.3, 841.9)})
+    _enrich_blocks_with_para_id(
+        blocks, {(1, 0): {"bbox": fuera, "content": "texto"}}, {1: (595.3, 841.9)}
+    )
 
     assert blocks[0]["bbox"] == []
 
@@ -144,7 +149,9 @@ def test_un_bbox_dentro_de_la_hoja_se_conserva() -> None:
     blocks = [{"page_number": 1, "content": "texto", "source_order": 0}]
     dentro = [{"page": 1, "x": 55.7, "y": 152.9, "width": 483.2, "height": 24.3}]
 
-    _enrich_blocks_with_para_id(blocks, {(1, 0): {"bbox": dentro, "content": "texto"}}, {1: (595.3, 841.9)})
+    _enrich_blocks_with_para_id(
+        blocks, {(1, 0): {"bbox": dentro, "content": "texto"}}, {1: (595.3, 841.9)}
+    )
 
     assert blocks[0]["bbox"] == dentro
 
@@ -157,6 +164,8 @@ def test_el_limite_viejo_hardcodeado_ya_no_decide() -> None:
     blocks = [{"page_number": 1, "content": "texto", "source_order": 0}]
     grande = [{"page": 1, "x": 200.0, "y": 2000.0, "width": 1800.0, "height": 40.0}]
 
-    _enrich_blocks_with_para_id(blocks, {(1, 0): {"bbox": grande, "content": "texto"}}, {1: (2480.0, 3508.0)})
+    _enrich_blocks_with_para_id(
+        blocks, {(1, 0): {"bbox": grande, "content": "texto"}}, {1: (2480.0, 3508.0)}
+    )
 
     assert blocks[0]["bbox"] == grande

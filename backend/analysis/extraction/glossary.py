@@ -62,8 +62,7 @@ def build_prompt_glossary_block(category_key: str) -> str:
 
 
 def get_category_top_k(category_key: str, default: int = 25) -> int:
-    """Obtiene el top_k configurado para una categoría en glossary.json.
-    """
+    """Obtiene el top_k configurado para una categoría en glossary.json."""
     glossary = _load_glossary()
     entry = glossary.get(category_key, {})
     if not isinstance(entry, dict):

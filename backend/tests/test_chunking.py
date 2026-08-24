@@ -85,7 +85,9 @@ def test_jerarquia_real_de_3_niveles_se_preserva() -> None:
     body_chunks = _paragraph_chunks(chunks)
 
     capacidad = next(c for c in body_chunks if "Contenido de capacidad tecnica" in c["content"])
-    assert capacidad["section_path"] == "3. OFERTAS > 3.1. De los Oferentes > 3.1.2. Capacidad tecnica"
+    assert (
+        capacidad["section_path"] == "3. OFERTAS > 3.1. De los Oferentes > 3.1.2. Capacidad tecnica"
+    )
 
 
 def test_heading_sin_parrafo_propio_se_conserva_como_chunk() -> None:
@@ -220,7 +222,9 @@ def test_detect_incisos_aborta_si_algun_inciso_es_demasiado_corto() -> None:
     'inciso' queda con contenido casi vacio, probablemente sea un falso
     positivo (ej: una fecha 'a) 15/05/2024' mal interpretada) -- se aborta
     toda la subdivision, no solo ese inciso."""
-    content = "a) si\n\nb) Documentacion completa de personeria juridica del oferente segun corresponda."
+    content = (
+        "a) si\n\nb) Documentacion completa de personeria juridica del oferente segun corresponda."
+    )
 
     assert _detect_incisos(content) == []
 
@@ -317,7 +321,9 @@ def _paragraphs_of(count: int, tokens_each: int) -> list[str]:
     return [" ".join(f"p{index}w{i}" for i in range(tokens_each)) for index in range(count)]
 
 
-def _split(paragraphs: list[str], chunk_size: int = _CHUNK_SIZE, overlap: int = _OVERLAP) -> list[str]:
+def _split(
+    paragraphs: list[str], chunk_size: int = _CHUNK_SIZE, overlap: int = _OVERLAP
+) -> list[str]:
     from extraction.chunking import _split_block_into_chunks
 
     return _split_block_into_chunks("\n\n".join(paragraphs), chunk_size, overlap)
@@ -337,10 +343,7 @@ def test_ningun_chunk_esta_contenido_dentro_de_otro() -> None:
     chunks = [" ".join(chunk.split()) for chunk in _split(_paragraphs_of(3, 690))]
 
     contained = [
-        (i, j)
-        for i, a in enumerate(chunks)
-        for j, b in enumerate(chunks)
-        if i != j and a in b
+        (i, j) for i, a in enumerate(chunks) for j, b in enumerate(chunks) if i != j and a in b
     ]
     assert not contained, f"chunks contenidos dentro de otro: {contained}"
 
@@ -408,7 +411,9 @@ def test_invariantes_se_sostienen_en_un_barrido_de_tamanos() -> None:
         oversized = [len(c.split()) for c in chunks if len(c.split()) > _CHUNK_SIZE]
         assert not oversized, f"tokens_each={tokens_each}: chunks sobredimensionados {oversized}"
 
-        contained = [(i, j) for i, a in enumerate(chunks) for j, b in enumerate(chunks) if i != j and a in b]
+        contained = [
+            (i, j) for i, a in enumerate(chunks) for j, b in enumerate(chunks) if i != j and a in b
+        ]
         assert not contained, f"tokens_each={tokens_each}: chunks duplicados {contained}"
 
 
@@ -437,9 +442,7 @@ def test_la_portada_de_un_anexo_llega_al_indice() -> None:
 
     chunks = create_chunks(blocks, document_id="doc-1", correlation_id="corr-1")
 
-    anexo_iii = next(
-        (c for c in chunks if "DECLARACIÓN JURADA" in c["section_path"]), None
-    )
+    anexo_iii = next((c for c in chunks if "DECLARACIÓN JURADA" in c["section_path"]), None)
     assert anexo_iii is not None, "el anexo desapareció del índice"
     assert "DECLARACIÓN JURADA DE APTITUD" in anexo_iii["content"], (
         "el chunk existe pero sin contenido: no es recuperable ni por BM25 ni por el vector"
@@ -503,8 +506,7 @@ def test_un_ancestro_con_subsecciones_no_genera_chunk_de_ruido() -> None:
     chunks = create_chunks(blocks, document_id="doc-1", correlation_id="corr-1")
 
     assert len(chunks) == 1, (
-        "cada ancestro metió un chunk con sólo su título: "
-        f"{[c['content'][:40] for c in chunks]}"
+        f"cada ancestro metió un chunk con sólo su título: {[c['content'][:40] for c in chunks]}"
     )
     assert chunks[0]["content"].startswith("Los oferentes")
     assert chunks[0]["section_path"] == (
@@ -518,8 +520,8 @@ def test_solo_el_encabezado_sin_ningun_descendiente_genera_chunk_propio() -> Non
     descendientes; una portada de anexo no está representada por nada."""
     blocks = [
         _heading("PLIEGO", 1, 1, 0),
-        _heading("ANEXO I", 2, 1, 1),          # sin nada colgando -> sí
-        _heading("ANEXO II", 2, 1, 2),         # tiene cuerpo -> no
+        _heading("ANEXO I", 2, 1, 1),  # sin nada colgando -> sí
+        _heading("ANEXO II", 2, 1, 2),  # tiene cuerpo -> no
         _para("Contenido del anexo dos.", 1, 3),
     ]
 

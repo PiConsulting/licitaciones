@@ -110,9 +110,6 @@ def generate_document_url(
         )
         blob_url = f"{blob_client.url}?{sas_token}"
     else:
-        # No AccountKey available (e.g. connection string built from an
-        # account-level SAS) — blob_client.url already carries that SAS as
-        # its query string, so it's used as-is instead of minting a new one.
         existing_sas = _extract_connection_string_value(connection_string, "SharedAccessSignature")
         if not existing_sas:
             raise HTTPException(

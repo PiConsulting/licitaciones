@@ -73,7 +73,11 @@ def test_get_analysis_detail_returns_documents_and_version(
 ) -> None:
     container, user_id, token = cosmos_only
     analysis_id, doc_id = _add_analysis_with_document(
-        container, user_id=user_id, status="analyzed", with_version=True, filename="pliego_final.pdf"
+        container,
+        user_id=user_id,
+        status="analyzed",
+        with_version=True,
+        filename="pliego_final.pdf",
     )
 
     response = client.get(

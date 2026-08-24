@@ -48,13 +48,12 @@ logger = structlog.get_logger(__name__)
 
 
 def _cleanup_temp_highlights(analysis_id: str) -> None:
-    """Limpia archivos temporales de highlights descargados desde Azure.
-    """
+    """Limpia archivos temporales de highlights descargados desde Azure."""
     try:
         from pathlib import Path
         import shutil
         import tempfile
-        
+
         temp_dir = Path(tempfile.gettempdir()) / f"highlights-{analysis_id}"
         if not temp_dir.exists():
             logger.debug(
@@ -63,11 +62,9 @@ def _cleanup_temp_highlights(analysis_id: str) -> None:
                 temp_dir=str(temp_dir),
             )
             return
-        
-        # Medir tamaño del directorio antes de limpiarlo
         total_size = sum(f.stat().st_size for f in temp_dir.rglob("*") if f.is_file())
         file_count = sum(1 for _ in temp_dir.rglob("*") if _.is_file())
-        
+
         shutil.rmtree(temp_dir)
         logger.info(
             "temp_highlights_cleaned",
@@ -77,7 +74,6 @@ def _cleanup_temp_highlights(analysis_id: str) -> None:
             bytes_freed=total_size,
         )
     except PermissionError as exc:
-        # Permission errors son más probables de ser problemas del sistema
         logger.error(
             "temp_highlights_cleanup_permission_error",
             analysis_id=analysis_id,
@@ -86,7 +82,6 @@ def _cleanup_temp_highlights(analysis_id: str) -> None:
             action_required="Check /tmp permissions and disk space",
         )
     except OSError as exc:
-        # Disk full, read-only filesystem, etc.
         logger.error(
             "temp_highlights_cleanup_os_error",
             analysis_id=analysis_id,
@@ -95,7 +90,6 @@ def _cleanup_temp_highlights(analysis_id: str) -> None:
             action_required="Check disk space and filesystem health",
         )
     except Exception as exc:
-        # Otros errores inesperados
         logger.error(
             "temp_highlights_cleanup_unexpected_error",
             analysis_id=analysis_id,
@@ -105,7 +99,6 @@ def _cleanup_temp_highlights(analysis_id: str) -> None:
             action_required="Investigate cleanup failure - /tmp may be filling up",
             exc_info=True,
         )
-
 
 
 class _DocumentoDelAnalisis:
@@ -119,14 +112,14 @@ class _DocumentoDelAnalisis:
 
 
 def _fetch_analysis_documents(analysis_id: str, db_session: Any) -> list[Any]:
-    """Los documentos de un análisis, venga el estado de PostgreSQL o de Cosmos.
-    """
+    """Los documentos de un análisis, venga el estado de PostgreSQL o de Cosmos."""
     from shared.config import get_settings
+
     settings = get_settings()
 
     if db_session is not None:
-        # Path normal: PostgreSQL. Los modelos ya traen id/blob_name/filename/is_primary.
         from documents.models import Document
+
         return (
             db_session.query(Document)
             .filter(Document.analysis_id == analysis_id, Document.deleted_at.is_(None))
@@ -173,7 +166,6 @@ def _fetch_analysis_documents(analysis_id: str, db_session: Any) -> list[Any]:
             return []
 
     if settings.is_production:
-        # Producción sin db_session ni cosmos_only_mode: error
         logger.error(
             "build_document_mapping_failed_no_session",
             analysis_id=analysis_id,
@@ -183,8 +175,6 @@ def _fetch_analysis_documents(analysis_id: str, db_session: Any) -> list[Any]:
             f"Cannot build document mapping for analysis {analysis_id}: "
             "db_session is required in production for highlight computation"
         )
-
-    # Development/test sin db_session: solo advertir
     logger.warning(
         "build_document_mapping_skipped",
         analysis_id=analysis_id,
@@ -194,9 +184,8 @@ def _fetch_analysis_documents(analysis_id: str, db_session: Any) -> list[Any]:
 
 
 def _build_document_labels(analysis_id: str, db_session: Any) -> dict[str, dict[str, Any]]:
-    """Mapeo `document_id -> {nombre, es_principal}` para el prompt (CTX-05).
-    """
-  
+    """Mapeo `document_id -> {nombre, es_principal}` para el prompt (CTX-05)."""
+
     try:
         documents = _fetch_analysis_documents(analysis_id, db_session)
     except Exception as exc:  # noqa: BLE001
@@ -220,7 +209,6 @@ def _build_document_labels(analysis_id: str, db_session: Any) -> dict[str, dict[
 
     principales = [doc_id for doc_id, datos in etiquetas.items() if datos["es_principal"]]
     if etiquetas and not principales:
-        
         logger.warning(
             "document_labels_sin_principal",
             analysis_id=analysis_id,
@@ -243,11 +231,8 @@ def _build_document_labels(analysis_id: str, db_session: Any) -> dict[str, dict[
 
 
 def _stampar_nombre_de_documento(nodo: Any, etiquetas: dict[str, dict[str, Any]]) -> None:
-    """escribe `filename`/`is_primary` en cada referencia a una fuente.
-    """
+    """escribe `filename`/`is_primary` en cada referencia a una fuente."""
     if not etiquetas:
-        # Degradable, igual que CTX-05: sin etiquetas los campos quedan como
-        # estaban y el consumidor cae al comportamiento anterior.
         return
 
     if isinstance(nodo, dict):
@@ -264,28 +249,23 @@ def _stampar_nombre_de_documento(nodo: Any, etiquetas: dict[str, dict[str, Any]]
 
 
 def _build_document_mapping(analysis_id: str, db_session: Any) -> dict[str, str]:
-    """Construye mapeo document_id → ruta absoluta del PDF en blob storage.
-    """
+    """Construye mapeo document_id → ruta absoluta del PDF en blob storage."""
     documents = _fetch_analysis_documents(analysis_id, db_session)
     if not documents:
         return {}
 
     from shared.config import get_settings
-    settings = get_settings()
 
-    # Construir mapeo con los documentos obtenidos (PostgreSQL o Cosmos)
+    settings = get_settings()
     try:
         from shared.adapters.azure_blob_storage import AzureBlobStorageAdapter
-        
-        # Usar solo Azure Blob Storage
+
         blob_storage = AzureBlobStorageAdapter(
             settings.azure_blob_connection_string,
             settings.azure_blob_container_name,
         )
-        
+
         mapping = {}
-        
-        # Local: acceso directo al filesystem
         if hasattr(blob_storage, "root"):
             for doc in documents:
                 blob_path = blob_storage.root / doc.blob_name
@@ -298,16 +278,13 @@ def _build_document_mapping(analysis_id: str, db_session: Any) -> dict[str, str]
                         document_id=doc.id,
                         blob_name=doc.blob_name,
                     )
-        
-        # Azure: descargar PDFs temporalmente
         elif hasattr(blob_storage, "download_to_temp"):
             from pathlib import Path
             import tempfile
-            
-            # Crear directorio temporal para este análisis
+
             temp_dir = Path(tempfile.gettempdir()) / f"highlights-{analysis_id}"
             temp_dir.mkdir(parents=True, exist_ok=True)
-            
+
             for doc in documents:
                 temp_path = temp_dir / f"{doc.id}.pdf"
                 try:
@@ -327,21 +304,21 @@ def _build_document_mapping(analysis_id: str, db_session: Any) -> dict[str, str]
                         blob_name=doc.blob_name,
                         error=str(exc),
                     )
-        
+
         else:
             logger.warning(
                 "build_document_mapping_unsupported_storage",
                 analysis_id=analysis_id,
                 storage_type=type(blob_storage).__name__,
             )
-        
+
         logger.info(
             "build_document_mapping_completed",
             analysis_id=analysis_id,
             documents_mapped=len(mapping),
         )
         return mapping
-        
+
     except Exception as exc:  # noqa: BLE001
         logger.warning(
             "build_document_mapping_failed",
@@ -372,48 +349,22 @@ def _normalize_text(value: str) -> str:
     return " ".join(normalized.lower().strip().split())
 
 
-def _canonical_plazo_tipo(value: str) -> str:
-    """Canonicaliza el tipo de plazo cuando el `tipo` que puso el LLM es una
-    variante de redacción de uno de los 17 tipos válidos (ej. "Plazo de
-    Ejecución" -> "plazo_ejecucion"), para que dos ítems del mismo hecho
-    deduplicen aunque el LLM los haya redactado distinto entre sí.
+def _normalized_referencia_key(item: dict) -> str:
+    """Huella de texto de a qué plazo se refiere un ítem, usada para agrupar
+    (dedup y detección de conflictos) sin depender de una taxonomía fija.
+
+    FIX (2026-08-22): reemplaza a la vieja `_canonical_plazo_tipo`, que
+    forzaba cada plazo a uno de 17 valores de enum y, para todo lo que no
+    calzaba con esas palabras clave, devolvía `"otro"` -- en la práctica eso
+    era la mayoría de los ítems. El resultado: plazos sin ninguna relación
+    entre sí quedaban agrupados bajo el mismo balde `"otro"`, lo que además de
+    no decir nada en la UI generaba falsos "conflictos" (ver más abajo, donde
+    se agrupaba por tipo para detectar fechas distintas del mismo hito).
+    Ahora se agrupa por el propio `referencia` que puso el LLM -- texto libre,
+    no enum -- normalizado para que variaciones menores de redacción no
+    rompan el agrupamiento.
     """
-    text = _normalize_text(value)
-    if not text:
-        return "otro"
-
-    if text == "otro":
-        return "otro"
-
-    # Reconocimiento estándar por tipo
-    if "respuesta" in text and "consulta" in text:
-        return "respuesta_consultas"
-    if "consulta" in text:
-        return "consultas"
-    if "visita" in text and "obra" in text:
-        return "visita_lugar"
-    if "apertura" in text:
-        return "apertura_ofertas"
-    if "mantenimiento" in text and "oferta" in text:
-        return "mantenimiento_oferta"
-    if "adjudic" in text:
-        return "adjudicacion"
-    if "firma" in text and "contrato" in text:
-        return "firma_contrato"
-    if "impugn" in text:
-        return "impugnacion"
-    # Plazo de ejecución/entrega (del contrato, no del procedimiento)
-    if any(term in text for term in ["ejecucion", "entrega", "provision", "suministro"]):
-        return "plazo_ejecucion"
-    if (
-        "presentacion de ofertas" in text
-        or "cierre de recepcion de ofertas" in text
-        or "fecha limite de presentacion" in text
-        or ("presentacion" in text and "oferta" in text)
-        or ("recepcion" in text and "oferta" in text)
-    ):
-        return "presentacion_ofertas"
-    return "otro"
+    return _normalize_text(str(item.get("referencia") or ""))
 
 
 def _canonical_garantia_tipo(value: str) -> str:
@@ -465,9 +416,6 @@ def _canonical_identificacion_tipo(value: str) -> str | None:
         return "presupuesto_oficial"
     if "jurisdicc" in text:
         return "jurisdiccion"
-    # Antes del catch-all de "proced": una variante como "denominacion del
-    # procedimiento" contiene ambas palabras, y sin este check quedaría mal
-    # clasificada como numero_procedimiento.
     if "denomina" in text or "nombre del llamado" in text or "nombre_del_llamado" in text:
         return "denominacion"
     if "proced" in text:
@@ -494,49 +442,64 @@ def _canonical_causal_tipo(value: str) -> str:
 
 def _canonical_riesgo_subtipo(value: str) -> str:
     """Normaliza el subtipo de riesgo al enum canónico.
-    
+
     Mapea variaciones textuales del LLM a los valores del enum SubtipoRiesgo.
     Si no se puede clasificar con confianza, devuelve 'otro_explicito'.
-    
+
     IMPORTANTE: El orden de evaluación importa - los términos más específicos
     van primero para evitar falsos positivos con términos genéricos.
     """
     text = _normalize_text(value)
     if not text:
         return "otro_explicito"
-
-    # Incumplimiento de obligaciones (primero, porque es específico)
+    
+    # Comercial (muy específico - primero)
+    if any(
+        term in text
+        for term in [
+            "mantenimiento oferta",
+            "mantener oferta",
+            "vigencia oferta",
+            "moneda",
+            "tipo cambio",
+            "cambiario",
+            "forma pago",
+            "forma de pago",
+            "competencia",
+            "competidor",
+            "competitiv",
+            "cuenta bancaria",
+            "apertura cuenta",
+            "control cuenta",
+            "presentacion presencial",
+            "apertura fisica",
+            "certificacion",
+            "skill",
+            "capacidad tecnica",
+            "experiencia minima",
+        ]
+    ):
+        return "comercial"
+    
     if any(term in text for term in ["incumplimiento", "incumplir", "falta", "omision"]):
         return "incumplimiento"
-    
-    # Plazos (antes de ejecución, porque "plazo de entrega" debe ir aquí)
     if any(term in text for term in ["plazo", "demora", "retraso", "vencimiento", "termino"]):
         return "plazos"
-    
-    # Económico/financiero
-    if any(term in text for term in ["econom", "financier", "multa", "penaliza", "sancion monetaria", "pago"]):
+    if any(
+        term in text
+        for term in ["econom", "financier", "multa", "penaliza", "sancion monetaria", "pago"]
+    ):
         return "economico"
-    
-    # Técnico
     if any(term in text for term in ["tecnic", "especificacion", "calidad", "norma tecnica"]):
         return "tecnico"
-    
-    # Legal/contractual
     if any(term in text for term in ["legal", "contractual", "juridic", "rescision", "clausula"]):
         return "legal_contractual"
-    
-    # Operativo (después de verificar los otros, porque es más genérico)
     if any(term in text for term in ["operativ", "gestion", "administra", "logistic"]):
         return "operativo"
-    
-    # Ejecución del contrato (al final, porque "entrega" y "ejecutar" son genéricos)
     if any(term in text for term in ["ejecucion", "ejecutar", "cumplir contrato", "entrega"]):
         return "ejecucion"
-    
+
     return "otro_explicito"
-    if any(term in text for term in ["etica", "conflicto", "corrup", "integridad"]):
-        return "etica"
-    return "otra"
 
 
 def _plazo_dedup_value(item: dict) -> str:
@@ -544,13 +507,11 @@ def _plazo_dedup_value(item: dict) -> str:
     tipo que en realidad dicen cosas distintas (eso es un conflicto, no un
     duplicado). Normaliza el texto para que variaciones menores se reconozcan
     como duplicados (ej: '12 meses' vs '12 (doce) meses')."""
-    raw_value = str(item.get("fecha") or item.get("expresion_relativa") or item.get("texto_original") or "")
-    # Normalizar para que "12 meses desde..." y "12 (doce) meses contados desde..."
-    # se reconozcan como el mismo plazo
+    raw_value = str(
+        item.get("fecha") or item.get("expresion_relativa") or item.get("texto_original") or ""
+    )
     normalized = _normalize_text(raw_value)
-    # Eliminar paréntesis explicativos comunes: "12 (doce)" → "12"
-    normalized = re.sub(r'\(\w+\)', '', normalized).strip()
-    # Colapsar múltiples espacios
+    normalized = re.sub(r"\(\w+\)", "", normalized).strip()
     normalized = " ".join(normalized.split())
     return normalized
 
@@ -594,9 +555,6 @@ def _merge_typed_item_group(items: list[dict]) -> dict:
     for item in items:
         all_refs.extend(item.get("source_references", []))
     merged["source_references"] = _dedupe_source_references(all_refs)
-
-    # Completa campos que el primario dejó vacíos con lo que traigan los demás
-    # ítems del grupo, sin pisar ningún valor que el primario sí tenga.
     for item in items:
         for key, value in item.items():
             if key in {"source_references", "confidence", "extraction_status"}:
@@ -626,8 +584,12 @@ def _merge_duplicate_items_by_key(items: list[dict], key_fn: Callable[[dict], tu
     return merged
 
 
-def _merge_duplicate_typed_items(items: list[dict], dedup_value: Callable[[dict], str]) -> list[dict]:
-    return _merge_duplicate_items_by_key(items, lambda item: (str(item.get("tipo", "")), dedup_value(item)))
+def _merge_duplicate_typed_items(
+    items: list[dict], dedup_value: Callable[[dict], str]
+) -> list[dict]:
+    return _merge_duplicate_items_by_key(
+        items, lambda item: (str(item.get("tipo", "")), dedup_value(item))
+    )
 
 
 def _normalized_valor_key(item: dict) -> str:
@@ -670,8 +632,7 @@ def get_confidence_level(confidence: float) -> str:
 
 
 def _normalize_confidence(item: dict) -> dict:
-    """La confianza que ve el usuario se CALCULA; no se le pregunta al modelo.
-    """
+    """La confianza que ve el usuario se CALCULA; no se le pregunta al modelo."""
     status = str(item.get("extraction_status", "success"))
     refs = list(item.get("source_references", []))
 
@@ -695,7 +656,9 @@ def _penalize_unverifiable(item: dict) -> dict:
     refs = list(item.get("source_references", []))
     status = str(item.get("extraction_status", ""))
     if status in {"success", "partial"}:
-        usable = [ref for ref in refs if len(str(ref.get("citation", "")).strip()) >= CITATION_MIN_CHARS]
+        usable = [
+            ref for ref in refs if len(str(ref.get("citation", "")).strip()) >= CITATION_MIN_CHARS
+        ]
         if not usable:
             item["extraction_status"] = "partial"
             item["_warning"] = "cita_insuficiente"
@@ -733,9 +696,6 @@ def _enforce_citation_contract(items: list[dict]) -> list[dict]:
             if len(citation) < CITATION_MIN_CHARS:
                 continue
             if len(citation) > CITATION_MAX_CHARS:
-                # Se recorta a la ventana que contiene el dato del item, no al
-                # prefijo: la carátula de un pliego respalda varios items y el
-                # dato de cada uno cae en un lugar distinto del mismo texto.
                 citation = shorten_citation_to_evidence(citation, item)
             normalized_ref = dict(ref)
             normalized_ref["citation"] = citation
@@ -797,7 +757,9 @@ def _keep_schema_valid_items(
 
         if quality is not None:
             registro = quality.setdefault(category, {})
-            registro["descartados_por_formato"] = registro.get("descartados_por_formato", 0) + len(invalid)
+            registro["descartados_por_formato"] = registro.get("descartados_por_formato", 0) + len(
+                invalid
+            )
             registro["conservados"] = len(valid)
 
     return valid, normalized_status
@@ -825,26 +787,30 @@ def _drop_items_without_sources(
     if quality is not None and category:
         registro = quality.setdefault(category, {})
         if dropped:
-            registro["descartados_sin_evidencia"] = registro.get("descartados_sin_evidencia", 0) + dropped
-        # Items que sobrevivieron pero cuya cita tuvo que rescatarse: su
-        # evidencia declarada no verificaba (ver ATR-02).
+            registro["descartados_sin_evidencia"] = (
+                registro.get("descartados_sin_evidencia", 0) + dropped
+            )
         rescatados = sum(
-            1 for item in filtered if str(item.get("_warning", "")) == "cita_reemplazada_por_rescate"
+            1
+            for item in filtered
+            if str(item.get("_warning", "")) == "cita_reemplazada_por_rescate"
         )
         if rescatados:
-            registro["con_evidencia_rescatada"] = registro.get("con_evidencia_rescatada", 0) + rescatados
+            registro["con_evidencia_rescatada"] = (
+                registro.get("con_evidencia_rescatada", 0) + rescatados
+            )
         registro["conservados"] = len(filtered)
 
     return filtered, normalized_status
 
 
 def setup_node(state: GraphState) -> GraphState:
-    logger.info("setup_node_started", correlation_id=state["correlation_id"], analysis_id=state["analysis_id"])
-    
-    # Construir mapeo document_id → blob_path para highlight pre-computado
+    logger.info(
+        "setup_node_started",
+        correlation_id=state["correlation_id"],
+        analysis_id=state["analysis_id"],
+    )
     document_mapping = _build_document_mapping(state["analysis_id"], state.get("db_session"))
-    # CTX-05: nombre y rol de cada documento, para que el prompt no identifique
-    # la fuente con un UUID pelado cuando el análisis tiene pliego + anexos.
     document_labels = _build_document_labels(state["analysis_id"], state.get("db_session"))
 
     state.update(
@@ -876,44 +842,56 @@ def setup_node(state: GraphState) -> GraphState:
 
 def merge_node(state: GraphState) -> GraphState:
     correlation_id = state["correlation_id"]
-    logger.info("merge_node_started", correlation_id=correlation_id, analysis_id=state["analysis_id"])
+    logger.info(
+        "merge_node_started", correlation_id=correlation_id, analysis_id=state["analysis_id"]
+    )
 
-    plazos = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("plazos", [])]
-    objeto_alcance = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("objeto_alcance", [])]
-    requisitos_admisibilidad = [
-        _normalize_confidence(_penalize_unverifiable(item)) for item in state.get("requisitos_admisibilidad", [])
+    plazos = [
+        _normalize_confidence(_penalize_unverifiable(item)) for item in state.get("plazos", [])
     ]
-    garantias = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("garantias", [])]
-    causales = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("causales", [])]
-    anexos = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("anexos", [])]
-    criterios = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("criterios", [])]
-    identificacion = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("identificacion", [])]
-    riesgos = [_normalize_confidence(_penalize_unverifiable(item)) for item in state.get("riesgos", [])]
-
-    # Canonicalizar el tipo ANTES de deduplicar: dos ítems que citan el mismo
-    # hecho (ej. "mantenimiento de oferta" extraído de dos fragmentos/documentos
-    # distintos) suelen llegar con una redacción de `tipo` levemente distinta, y
-    # solo se reconocen como el mismo hecho después de canonicalizar.
-    for plazo in plazos:
-        plazo["tipo"] = _canonical_plazo_tipo(str(plazo.get("tipo", "")))
-    plazos = _merge_duplicate_typed_items(plazos, _plazo_dedup_value)
+    objeto_alcance = [
+        _normalize_confidence(_penalize_unverifiable(item))
+        for item in state.get("objeto_alcance", [])
+    ]
+    requisitos_admisibilidad = [
+        _normalize_confidence(_penalize_unverifiable(item))
+        for item in state.get("requisitos_admisibilidad", [])
+    ]
+    garantias = [
+        _normalize_confidence(_penalize_unverifiable(item)) for item in state.get("garantias", [])
+    ]
+    causales = [
+        _normalize_confidence(_penalize_unverifiable(item)) for item in state.get("causales", [])
+    ]
+    anexos = [
+        _normalize_confidence(_penalize_unverifiable(item)) for item in state.get("anexos", [])
+    ]
+    criterios = [
+        _normalize_confidence(_penalize_unverifiable(item)) for item in state.get("criterios", [])
+    ]
+    identificacion = [
+        _normalize_confidence(_penalize_unverifiable(item))
+        for item in state.get("identificacion", [])
+    ]
+    riesgos = [
+        _normalize_confidence(_penalize_unverifiable(item)) for item in state.get("riesgos", [])
+    ]
+    # FIX (2026-08-22): ya no se canonicaliza `tipo` (eliminado del schema,
+    # ver PlazoItem en `schemas.py`). El agrupamiento para dedup usa el valor
+    # del plazo (`_plazo_dedup_value`) solo -- sin combinarlo con un tipo, que
+    # ya no existe.
+    plazos = _merge_duplicate_items_by_key(plazos, lambda item: (_plazo_dedup_value(item),))
 
     for garantia in garantias:
         garantia["tipo"] = _canonical_garantia_tipo(str(garantia.get("tipo", "")))
     garantias = _merge_duplicate_typed_items(garantias, _garantia_dedup_value)
-
-    # Las otras 6 categorías no tienen un `tipo` canonicalizado especial: se
-    # deduplican por (tipo tal cual, huella normalizada del valor). El chunker
-    # solapa 120 tokens a propósito, así que es común que el mismo hecho quede
-    # citado en dos fragmentos distintos que el extractor recupera ambos.
     objeto_alcance = _merge_duplicate_items_by_key(
         objeto_alcance, lambda item: (str(item.get("tipo", "")), _normalized_valor_key(item))
     )
     requisitos_admisibilidad = _merge_duplicate_items_by_key(
-        requisitos_admisibilidad, lambda item: (str(item.get("tipo", "")), _normalized_valor_key(item))
+        requisitos_admisibilidad,
+        lambda item: (str(item.get("tipo", "")), _normalized_valor_key(item)),
     )
-    # causales_rechazo: el único `tipo` posible es "causal_rechazo", así que
-    # agrupar con ese campo no distingue nada — se deduplica solo por valor.
     for causal in causales:
         causal["tipo"] = _canonical_causal_tipo(str(causal.get("tipo", "")))
     causales = _merge_duplicate_items_by_key(causales, lambda item: (_normalized_valor_key(item),))
@@ -926,15 +904,16 @@ def merge_node(state: GraphState) -> GraphState:
     identificacion = _merge_duplicate_items_by_key(
         identificacion, lambda item: (str(item.get("tipo", "")), _normalized_valor_key(item))
     )
-    # Normalizar subtipo de riesgos antes de deduplicar
     for riesgo in riesgos:
         riesgo["subtipo"] = _canonical_riesgo_subtipo(str(riesgo.get("subtipo", "")))
     riesgos = _merge_duplicate_items_by_key(
-        riesgos, lambda item: (str(item.get("tipo", "")), str(item.get("subtipo", "")), _normalized_valor_key(item))
+        riesgos,
+        lambda item: (
+            str(item.get("tipo", "")),
+            str(item.get("subtipo", "")),
+            _normalized_valor_key(item),
+        ),
     )
-
-    # ATR-03: contadores de calidad por categoría, para que el usuario pueda
-    # distinguir "el pliego dice poco" de "tuvimos que descartar hallazgos".
     calidad: dict[str, dict[str, int]] = {}
 
     objeto_alcance, objeto_alcance_status = _drop_items_without_sources(
@@ -949,11 +928,33 @@ def merge_node(state: GraphState) -> GraphState:
         category="requisitos_admisibilidad",
         quality=calidad,
     )
-    plazos, plazos_status = _drop_items_without_sources(plazos, str(state.get("plazos_status", "unknown")), category="plazos_clave", quality=calidad)
-    garantias, garantias_status = _drop_items_without_sources(garantias, str(state.get("garantias_status", "unknown")), category="garantias", quality=calidad)
-    causales, causales_status = _drop_items_without_sources(causales, str(state.get("causales_status", "unknown")), category="causales_rechazo", quality=calidad)
-    anexos, anexos_status = _drop_items_without_sources(anexos, str(state.get("anexos_status", "unknown")), category="anexos_obligatorios", quality=calidad)
-    criterios, criterios_status = _drop_items_without_sources(criterios, str(state.get("criterios_status", "unknown")), category="criterios_evaluacion", quality=calidad)
+    plazos, plazos_status = _drop_items_without_sources(
+        plazos, str(state.get("plazos_status", "unknown")), category="plazos_clave", quality=calidad
+    )
+    garantias, garantias_status = _drop_items_without_sources(
+        garantias,
+        str(state.get("garantias_status", "unknown")),
+        category="garantias",
+        quality=calidad,
+    )
+    causales, causales_status = _drop_items_without_sources(
+        causales,
+        str(state.get("causales_status", "unknown")),
+        category="causales_rechazo",
+        quality=calidad,
+    )
+    anexos, anexos_status = _drop_items_without_sources(
+        anexos,
+        str(state.get("anexos_status", "unknown")),
+        category="anexos_obligatorios",
+        quality=calidad,
+    )
+    criterios, criterios_status = _drop_items_without_sources(
+        criterios,
+        str(state.get("criterios_status", "unknown")),
+        category="criterios_evaluacion",
+        quality=calidad,
+    )
     identificacion, identificacion_status = _drop_items_without_sources(
         identificacion,
         str(state.get("identificacion_status", "unknown")),
@@ -966,9 +967,6 @@ def merge_node(state: GraphState) -> GraphState:
         category="riesgos",
         quality=calidad,
     )
-
-    # Campo canónico: solo los ítems cuyo `tipo` cae en el enum
-    # `TipoIdentificacion`. El resto sigue disponible en `datos_procedimiento`.
     identificacion_canonica: list[dict] = []
     for item in identificacion:
         canonical_tipo = _canonical_identificacion_tipo(str(item.get("tipo", "")))
@@ -977,49 +975,80 @@ def merge_node(state: GraphState) -> GraphState:
         canonical_item = dict(item)
         canonical_item["tipo"] = canonical_tipo
         identificacion_canonica.append(canonical_item)
-
-    # Red de seguridad final: ningun item que viole su schema puede llegar a
-    # `ExtractedData(**...)`, porque ahi un solo item invalido tumba las ocho
-    # categorias de una.
     objeto_alcance, objeto_alcance_status = _keep_schema_valid_items(
-        objeto_alcance, ObjetoAlcanceItem, objeto_alcance_status,
-        category="objeto_alcance", correlation_id=correlation_id, quality=calidad,
+        objeto_alcance,
+        ObjetoAlcanceItem,
+        objeto_alcance_status,
+        category="objeto_alcance",
+        correlation_id=correlation_id,
+        quality=calidad,
     )
     requisitos_admisibilidad, requisitos_admisibilidad_status = _keep_schema_valid_items(
-        requisitos_admisibilidad, RequisitoAdmisibilidadItem, requisitos_admisibilidad_status,
-        category="requisitos_admisibilidad", correlation_id=correlation_id, quality=calidad,
+        requisitos_admisibilidad,
+        RequisitoAdmisibilidadItem,
+        requisitos_admisibilidad_status,
+        category="requisitos_admisibilidad",
+        correlation_id=correlation_id,
+        quality=calidad,
     )
     plazos, plazos_status = _keep_schema_valid_items(
-        plazos, PlazoItem, plazos_status, category="plazos_clave", correlation_id=correlation_id, quality=calidad,
+        plazos,
+        PlazoItem,
+        plazos_status,
+        category="plazos_clave",
+        correlation_id=correlation_id,
+        quality=calidad,
     )
     garantias, garantias_status = _keep_schema_valid_items(
-        garantias, GarantiaItem, garantias_status,
-        category="garantias", correlation_id=correlation_id, quality=calidad,
+        garantias,
+        GarantiaItem,
+        garantias_status,
+        category="garantias",
+        correlation_id=correlation_id,
+        quality=calidad,
     )
     causales, causales_status = _keep_schema_valid_items(
-        causales, CausalRechazoItem, causales_status,
-        category="causales_rechazo", correlation_id=correlation_id, quality=calidad,
+        causales,
+        CausalRechazoItem,
+        causales_status,
+        category="causales_rechazo",
+        correlation_id=correlation_id,
+        quality=calidad,
     )
     anexos, anexos_status = _keep_schema_valid_items(
-        anexos, AnexoObligatorioItem, anexos_status,
-        category="anexos_obligatorios", correlation_id=correlation_id, quality=calidad,
+        anexos,
+        AnexoObligatorioItem,
+        anexos_status,
+        category="anexos_obligatorios",
+        correlation_id=correlation_id,
+        quality=calidad,
     )
     criterios, criterios_status = _keep_schema_valid_items(
-        criterios, CriterioEvaluacionItem, criterios_status,
-        category="criterios_evaluacion", correlation_id=correlation_id, quality=calidad,
+        criterios,
+        CriterioEvaluacionItem,
+        criterios_status,
+        category="criterios_evaluacion",
+        correlation_id=correlation_id,
+        quality=calidad,
     )
     identificacion_canonica, identificacion_status = _keep_schema_valid_items(
-        identificacion_canonica, IdentificacionProcedimientoItem, identificacion_status,
-        category="identificacion_procedimiento", correlation_id=correlation_id, quality=calidad,
+        identificacion_canonica,
+        IdentificacionProcedimientoItem,
+        identificacion_status,
+        category="identificacion_procedimiento",
+        correlation_id=correlation_id,
+        quality=calidad,
     )
     riesgos, riesgos_status = _keep_schema_valid_items(
-        riesgos, RiesgoItem, riesgos_status,
-        category="riesgos", correlation_id=correlation_id, quality=calidad,
+        riesgos,
+        RiesgoItem,
+        riesgos_status,
+        category="riesgos",
+        correlation_id=correlation_id,
+        quality=calidad,
     )
 
     extracted_data = {
-        # ATR-03: viaja dentro de `extracted_data` porque es lo único que llega
-        # al frontend sin cambiar el contrato de la API.
         "calidad_por_categoria": calidad,
         "objeto_alcance": objeto_alcance,
         "objeto_alcance_extraction_status": objeto_alcance_status,
@@ -1036,12 +1065,11 @@ def merge_node(state: GraphState) -> GraphState:
         "garantias_extraction_status": garantias_status,
         "garantias_confidence": _category_confidence(garantias),
         "causales_rechazo": causales,
+        "causales_rechazo_extraction_status": causales_status,
         "causales_extraction_status": causales_status,
         "causales_rechazo_confidence": _category_confidence(causales),
         "anexos_obligatorios": anexos,
-    
         "anexos_obligatorios_extraction_status": anexos_status,
-        "anexos_extraction_status": anexos_status,
         "anexos_obligatorios_confidence": _category_confidence(anexos),
         "identificacion_procedimiento": identificacion_canonica,
         "identificacion_procedimiento_extraction_status": identificacion_status,
@@ -1051,12 +1079,10 @@ def merge_node(state: GraphState) -> GraphState:
         "riesgos": riesgos,
         "riesgos_extraction_status": riesgos_status,
         "riesgos_confidence": _category_confidence(riesgos),
-        
         "documentos_requeridos": [],
         "documentos_extraction_status": NOT_ANALYZED_STATUS,
         "criterios_evaluacion": criterios,
         "criterios_evaluacion_extraction_status": criterios_status,
-        "criterios_extraction_status": criterios_status,
         "criterios_evaluacion_confidence": _category_confidence(criterios),
         "restricciones_participacion": [],
         "restricciones_extraction_status": NOT_ANALYZED_STATUS,
@@ -1079,18 +1105,28 @@ def merge_node(state: GraphState) -> GraphState:
 
     conflicts: list[dict] = []
 
-    plazos_by_tipo: dict[str, list[dict]] = defaultdict(list)
+    # FIX (2026-08-22): se agrupaba por `tipo` (enum de 17 valores + "otro").
+    # Como la enorme mayoría de los plazos caía en "otro" (ver
+    # `_normalized_referencia_key`), este bloque terminaba comparando fechas
+    # de plazos sin ninguna relación entre sí solo porque compartían el balde
+    # "otro" -- falsos conflictos. Ahora agrupa por `referencia` (texto libre
+    # que describe a qué plazo se refiere): dos ítems solo se comparan si el
+    # LLM los tituló igual, que es una señal mucho más fuerte de que hablan
+    # del mismo hito.
+    plazos_by_referencia: dict[str, list[dict]] = defaultdict(list)
     for plazo in plazos:
-        plazos_by_tipo[str(plazo.get("tipo", ""))].append(plazo)
+        clave = _normalized_referencia_key(plazo)
+        if clave:
+            plazos_by_referencia[clave].append(plazo)
 
-    for tipo, items in plazos_by_tipo.items():
-        if tipo and len(items) > 1:
+    for items in plazos_by_referencia.values():
+        if len(items) > 1:
             fechas = {item.get("fecha") for item in items}
             if len(fechas) > 1:
                 conflicts.append(
                     {
                         "category": "plazos",
-                        "tipo": tipo,
+                        "tipo": str(items[0].get("referencia") or "dato"),
                         "values": items,
                         "reason": "Fechas diferentes en distintos documentos",
                     }
@@ -1142,9 +1178,6 @@ def _build_chunk_indexes(
         chunks_by_doc_page: dict[tuple[str, int], list[dict]] = {}
 
         for chunk in all_chunks:
-            # El id compuesto ya viene del índice; se reconstruye sólo si
-            # faltara (documentos viejos indexados antes de que `id` se
-            # seleccionara).
             chunk_id = chunk.get("id")
             if not chunk_id:
                 analysis_id_field = chunk.get("analysis_id")
@@ -1193,16 +1226,17 @@ def synthesize_node(state: GraphState) -> GraphState:
     que un fallo aca nunca deja una categoria sin respuesta ni tumba el resto.
     """
     correlation_id = state["correlation_id"]
-    logger.info("synthesize_node_started", correlation_id=correlation_id, analysis_id=state["analysis_id"])
+    logger.info(
+        "synthesize_node_started", correlation_id=correlation_id, analysis_id=state["analysis_id"]
+    )
 
     extracted_data = state.get("extracted_data", {})
     metadata = state.get("extraction_metadata", {})
     token_usage_by_category = dict(metadata.get("token_usage", {}))
     document_mapping = state.get("document_id_to_blob_path", {})
-    
-    # FIX HIGH (#6): Validar que document_mapping no esté vacío en producción
     if not document_mapping:
         from shared.config import get_settings
+
         settings = get_settings()
         if settings.is_production:
             logger.warning(
@@ -1224,15 +1258,11 @@ def synthesize_node(state: GraphState) -> GraphState:
             items=items,
             correlation_id=correlation_id,
             chunks_by_id=chunks_by_id,
-            # CTX-04: los conflictos que detectó `merge_node` tienen que llegar
-            # a quien redacta la respuesta. Antes se quedaban en el estado.
             conflicts=state.get("conflicts") or [],
         )
         if result is None:
             continue
         narrative, token_usage = result
-
-        # FIX CRÍTICO: Enriquecer con highlights pre-computados
         if document_mapping:
             narrative = enrich_narrative_with_highlights(
                 narrative=narrative,
@@ -1242,11 +1272,10 @@ def synthesize_node(state: GraphState) -> GraphState:
                 analysis_id=state["analysis_id"],
                 chunks_by_doc_page=chunks_by_doc_page,
             )
-        
+
         extracted_data[f"{category_key}_narrative"] = narrative.model_dump()
         token_usage_by_category[f"{category_key}_synthesis"] = token_usage
         synthesized += 1
-
 
     _stampar_nombre_de_documento(extracted_data, state.get("document_labels") or {})
 
@@ -1260,9 +1289,9 @@ def synthesize_node(state: GraphState) -> GraphState:
         analysis_id=state["analysis_id"],
         categories_synthesized=synthesized,
     )
-    
+
     _cleanup_temp_highlights(state["analysis_id"])
-    
+
     return state
 
 

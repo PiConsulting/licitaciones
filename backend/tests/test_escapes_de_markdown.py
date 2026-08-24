@@ -43,7 +43,9 @@ def test_las_tres_etapas_de_migracion_de_bancor() -> None:
     """El caso concreto: los chunks 44 y 45 del reanálisis `7bce4799` salieron
     con `bbox: []` para las etapas 2 y 3."""
     for numero in ("2", "3"):
-        del_markdown = f"{numero}\\. Etapa {numero} - el proveedor acompañará a los técnicos de Bancor."
+        del_markdown = (
+            f"{numero}\\. Etapa {numero} - el proveedor acompañará a los técnicos de Bancor."
+        )
         de_di = f"{numero}. Etapa {numero} - el proveedor acompañará a los técnicos de Bancor."
 
         assert _same_text(del_markdown, de_di)
@@ -61,7 +63,9 @@ def test_las_tres_etapas_de_migracion_de_bancor() -> None:
 def test_guarda_el_mas_escapado_lejos_del_principio() -> None:
     """`"20 Gb agregados (10 \\+ 10 Gb)"` (apartado 1.3 de Bancor): el escape cae
     en el carácter ~95, así que los primeros 40 ya coincidían."""
-    del_markdown = "La interconexión cuenta con 20 Gb agregados (10\n\\+ 10 Gb), para sincronización."
+    del_markdown = (
+        "La interconexión cuenta con 20 Gb agregados (10\n\\+ 10 Gb), para sincronización."
+    )
     de_di = "La interconexión cuenta con 20 Gb agregados (10 + 10 Gb), para sincronización."
 
     assert _same_text(del_markdown, de_di)
@@ -71,7 +75,9 @@ def test_guarda_los_marcadores_de_lista_escapados() -> None:
     """El escape está en el carácter 0, así que el texto de DI ya era sufijo del
     bloque y el anclaje de ING-10 lo aceptaba."""
     assert _same_text("\\> Planificación", "> Planificación")
-    assert _same_text("\\- Intel Xeon Platinum 4th Generación", "- Intel Xeon Platinum 4th Generación")
+    assert _same_text(
+        "\\- Intel Xeon Platinum 4th Generación", "- Intel Xeon Platinum 4th Generación"
+    )
 
 
 # ---------------------------------------------------------------------------

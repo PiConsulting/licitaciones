@@ -88,7 +88,10 @@ class FakeCosmosContainer:
         return stored
 
     def replace_item(self, item, body, etag=None, match_condition=None, **kwargs):
-        from azure.cosmos.exceptions import CosmosAccessConditionFailedError, CosmosResourceNotFoundError
+        from azure.cosmos.exceptions import (
+            CosmosAccessConditionFailedError,
+            CosmosResourceNotFoundError,
+        )
 
         item_id = item if isinstance(item, str) else item.get("id")
         current = self.items.get(item_id)
@@ -124,11 +127,15 @@ class FakeCosmosContainer:
         from azure.cosmos.exceptions import CosmosResourceNotFoundError
 
         stored = self.items.get(item)
-        if stored is None or (partition_key is not None and stored.get("partition_key") != partition_key):
+        if stored is None or (
+            partition_key is not None and stored.get("partition_key") != partition_key
+        ):
             raise CosmosResourceNotFoundError(status_code=404, message="not found")
         return dict(stored)
 
-    def query_items(self, query, parameters=None, enable_cross_partition_query=None, partition_key=None):
+    def query_items(
+        self, query, parameters=None, enable_cross_partition_query=None, partition_key=None
+    ):
         param_map = {p["name"]: p["value"] for p in (parameters or [])}
         results = list(self.items.values())
 

@@ -303,9 +303,9 @@ def test_tipo_de_identificacion_fuera_del_enum_no_rompe_el_merge() -> None:
         }
     ]
 
-    data = merge_node(
-        _merge_state(identificacion=identificacion, identificacion_status="success")
-    )["extracted_data"]
+    data = merge_node(_merge_state(identificacion=identificacion, identificacion_status="success"))[
+        "extracted_data"
+    ]
 
     assert data["identificacion_procedimiento"] == []
     assert len(data["datos_procedimiento"]) == 1, "el dato no se pierde: queda en el campo legacy"
@@ -323,10 +323,21 @@ def test_chunks_llevan_categoria_al_indice() -> None:
     from extraction import ai_search
 
     blocks = [
-        {"page_number": 1, "source_order": 0, "block_type": "paragraph", "table_ref": None,
-         "content": "3. GARANTÍAS", "heading_level": 1},
-        {"page_number": 1, "source_order": 1, "block_type": "paragraph", "table_ref": None,
-         "content": "Garantía de mantenimiento de oferta: 1% del presupuesto oficial."},
+        {
+            "page_number": 1,
+            "source_order": 0,
+            "block_type": "paragraph",
+            "table_ref": None,
+            "content": "3. GARANTÍAS",
+            "heading_level": 1,
+        },
+        {
+            "page_number": 1,
+            "source_order": 1,
+            "block_type": "paragraph",
+            "table_ref": None,
+            "content": "Garantía de mantenimiento de oferta: 1% del presupuesto oficial.",
+        },
     ]
     chunks = create_chunks(blocks, document_id="doc-1", correlation_id="corr-1")
     assert chunks[0]["primary_category"] == "garantias"
@@ -401,8 +412,13 @@ def test_upload_chunks_traduce_indices_de_parent_child_a_ids_completos() -> None
     from extraction import ai_search
 
     blocks = [
-        {"page_number": 1, "source_order": 0, "block_type": "paragraph", "table_ref": None,
-         "content": _ARTICULO_LARGO_CON_INCISOS},
+        {
+            "page_number": 1,
+            "source_order": 0,
+            "block_type": "paragraph",
+            "table_ref": None,
+            "content": _ARTICULO_LARGO_CON_INCISOS,
+        },
     ]
     chunks = create_chunks(blocks, document_id="doc-1", correlation_id="corr-1")
     parent = next(c for c in chunks if c["chunk_type"] == "parent")
@@ -457,10 +473,21 @@ def test_upload_chunks_marca_normal_los_chunks_sin_subdividir() -> None:
     from extraction import ai_search
 
     blocks = [
-        {"page_number": 1, "source_order": 0, "block_type": "paragraph", "table_ref": None,
-         "content": "3. GARANTÍAS", "heading_level": 1},
-        {"page_number": 1, "source_order": 1, "block_type": "paragraph", "table_ref": None,
-         "content": "Garantía de mantenimiento de oferta: 1% del presupuesto oficial."},
+        {
+            "page_number": 1,
+            "source_order": 0,
+            "block_type": "paragraph",
+            "table_ref": None,
+            "content": "3. GARANTÍAS",
+            "heading_level": 1,
+        },
+        {
+            "page_number": 1,
+            "source_order": 1,
+            "block_type": "paragraph",
+            "table_ref": None,
+            "content": "Garantía de mantenimiento de oferta: 1% del presupuesto oficial.",
+        },
     ]
     chunks = create_chunks(blocks, document_id="doc-1", correlation_id="corr-1")
 
@@ -562,10 +589,21 @@ def test_seccion_con_titulo_corrido_no_queda_sepultada_en_la_anterior() -> None:
     dentro del chunk rotulado "ARTÍCULO 9: ADJUDICACIÓN", porque Azure no marca
     como encabezado un titulo que va corrido con el texto."""
     blocks = [
-        {"page_number": 4, "source_order": 0, "block_type": "paragraph", "table_ref": None,
-         "content": "ARTÍCULO 9: ADJUDICACIÓN", "heading_level": 2},
-        {"page_number": 4, "source_order": 1, "block_type": "paragraph", "table_ref": None,
-         "content": BLOQUE_ARTICULO_9_ROSARIO},
+        {
+            "page_number": 4,
+            "source_order": 0,
+            "block_type": "paragraph",
+            "table_ref": None,
+            "content": "ARTÍCULO 9: ADJUDICACIÓN",
+            "heading_level": 2,
+        },
+        {
+            "page_number": 4,
+            "source_order": 1,
+            "block_type": "paragraph",
+            "table_ref": None,
+            "content": BLOQUE_ARTICULO_9_ROSARIO,
+        },
     ]
 
     chunks = create_chunks(blocks, document_id="doc-1", correlation_id="corr-1")
@@ -585,13 +623,24 @@ def test_referencia_cruzada_no_parte_el_parrafo() -> None:
     """Contrapartida: mencionar un articulo en medio de una oracion no puede
     crear una seccion nueva."""
     blocks = [
-        {"page_number": 4, "source_order": 0, "block_type": "paragraph", "table_ref": None,
-         "content": "ARTÍCULO 11: ORDEN DE PROVISIÓN", "heading_level": 2},
-        {"page_number": 4, "source_order": 1, "block_type": "paragraph", "table_ref": None,
-         "content": (
-             "Dentro de los cinco días contados a partir de la notificación mencionada en el "
-             "Art. 9, la empresa adjudicataria deberá presentarse ante la oficina."
-         )},
+        {
+            "page_number": 4,
+            "source_order": 0,
+            "block_type": "paragraph",
+            "table_ref": None,
+            "content": "ARTÍCULO 11: ORDEN DE PROVISIÓN",
+            "heading_level": 2,
+        },
+        {
+            "page_number": 4,
+            "source_order": 1,
+            "block_type": "paragraph",
+            "table_ref": None,
+            "content": (
+                "Dentro de los cinco días contados a partir de la notificación mencionada en el "
+                "Art. 9, la empresa adjudicataria deberá presentarse ante la oficina."
+            ),
+        },
     ]
 
     chunks = create_chunks(blocks, document_id="doc-1", correlation_id="corr-1")
@@ -603,17 +652,47 @@ def test_membrete_repetido_se_despega_aunque_una_pagina_lo_traiga_fusionado() ->
     """En el pliego de Rosario el membrete se filtraba en las paginas 1-9 pero
     en la 10 venia fusionado con "ANEXO II", no coincidia exacto con el de las
     otras paginas y se colaba como ancestro de todos los chunks de esa pagina."""
-    membrete = 'Municipalidad de Rosario LICITACIÓN PRIVADA PLIEGO DE CONDICIONES PARTICULARES'
+    membrete = "Municipalidad de Rosario LICITACIÓN PRIVADA PLIEGO DE CONDICIONES PARTICULARES"
     blocks = []
     for page in (1, 2, 3):
-        blocks.append({"page_number": page, "source_order": 0, "block_type": "paragraph",
-                       "table_ref": None, "content": membrete, "heading_level": 1})
-        blocks.append({"page_number": page, "source_order": 1, "block_type": "paragraph",
-                       "table_ref": None, "content": f"Cuerpo de la página {page} del pliego."})
-    blocks.append({"page_number": 4, "source_order": 0, "block_type": "paragraph",
-                   "table_ref": None, "content": f"{membrete} ANEXO II", "heading_level": 1})
-    blocks.append({"page_number": 4, "source_order": 1, "block_type": "paragraph",
-                   "table_ref": None, "content": "Tabla de cotización por ítem."})
+        blocks.append(
+            {
+                "page_number": page,
+                "source_order": 0,
+                "block_type": "paragraph",
+                "table_ref": None,
+                "content": membrete,
+                "heading_level": 1,
+            }
+        )
+        blocks.append(
+            {
+                "page_number": page,
+                "source_order": 1,
+                "block_type": "paragraph",
+                "table_ref": None,
+                "content": f"Cuerpo de la página {page} del pliego.",
+            }
+        )
+    blocks.append(
+        {
+            "page_number": 4,
+            "source_order": 0,
+            "block_type": "paragraph",
+            "table_ref": None,
+            "content": f"{membrete} ANEXO II",
+            "heading_level": 1,
+        }
+    )
+    blocks.append(
+        {
+            "page_number": 4,
+            "source_order": 1,
+            "block_type": "paragraph",
+            "table_ref": None,
+            "content": "Tabla de cotización por ítem.",
+        }
+    )
 
     chunks = create_chunks(blocks, document_id="doc-1", correlation_id="corr-1")
     pagina_4 = [c for c in chunks if c["page_number"] == 4]
@@ -715,7 +794,9 @@ def test_la_categoria_prioriza_pero_no_recorta_el_presupuesto(monkeypatch) -> No
 
     # El chunk clasificado en la categoría tiene un score PEOR que varios otros:
     # sin el boost no quedaría primero.
-    candidatos = [_chunk(f"parrafo {i}", chunk_index=i, search_score=1.0 - i * 0.01) for i in range(10)]
+    candidatos = [
+        _chunk(f"parrafo {i}", chunk_index=i, search_score=1.0 - i * 0.01) for i in range(10)
+    ]
     candidatos.append(
         _chunk(
             "garantía de mantenimiento de oferta",
@@ -829,7 +910,9 @@ def test_ningun_source_queda_huerfano_tras_descartar_bloques_invalidos(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     items = [
-        _anexo_item("Anexo I — Planilla de cotización por renglón, firmada por el oferente.", "Anexo I"),
+        _anexo_item(
+            "Anexo I — Planilla de cotización por renglón, firmada por el oferente.", "Anexo I"
+        ),
         _anexo_item("Anexo II — Nómina de antecedentes y referencias comerciales.", "Anexo II"),
         _anexo_item("Anexo III — Plan de trabajo y cronograma de entregas propuesto.", "Anexo III"),
     ]
@@ -841,10 +924,26 @@ def test_ningun_source_queda_huerfano_tras_descartar_bloques_invalidos(
                     {
                         "type": "bullet_list",
                         "items": [
-                            {"text": "Presentar Anexo I.", "confidence_level": "alta", "item_refs": [0]},
-                            {"text": "Sin evidencia real.", "confidence_level": "alta", "item_refs": []},
-                            {"text": "Indice inventado.", "confidence_level": "alta", "item_refs": [50]},
-                            {"text": "Presentar Anexo III.", "confidence_level": "alta", "item_refs": [2]},
+                            {
+                                "text": "Presentar Anexo I.",
+                                "confidence_level": "alta",
+                                "item_refs": [0],
+                            },
+                            {
+                                "text": "Sin evidencia real.",
+                                "confidence_level": "alta",
+                                "item_refs": [],
+                            },
+                            {
+                                "text": "Indice inventado.",
+                                "confidence_level": "alta",
+                                "item_refs": [50],
+                            },
+                            {
+                                "text": "Presentar Anexo III.",
+                                "confidence_level": "alta",
+                                "item_refs": [2],
+                            },
                         ],
                     }
                 ],
@@ -863,7 +962,9 @@ def test_ningun_source_queda_huerfano_tras_descartar_bloques_invalidos(
 
     referenced_ids = {sid for bullet in bullets for sid in bullet.source_ids}
     source_ids = {s.id for s in narrative.sources}
-    assert referenced_ids == source_ids, "toda source mostrada debe estar referenciada por algun bullet"
+    assert referenced_ids == source_ids, (
+        "toda source mostrada debe estar referenciada por algun bullet"
+    )
 
 
 def test_misma_evidencia_referenciada_por_dos_elementos_se_muestra_una_sola_vez(
@@ -886,8 +987,16 @@ def test_misma_evidencia_referenciada_por_dos_elementos_se_muestra_una_sola_vez(
                     {
                         "type": "bullet_list",
                         "items": [
-                            {"text": "Presentar constancia de visita.", "confidence_level": "alta", "item_refs": [0]},
-                            {"text": "Firmarla el responsable técnico.", "confidence_level": "alta", "item_refs": [1]},
+                            {
+                                "text": "Presentar constancia de visita.",
+                                "confidence_level": "alta",
+                                "item_refs": [0],
+                            },
+                            {
+                                "text": "Firmarla el responsable técnico.",
+                                "confidence_level": "alta",
+                                "item_refs": [1],
+                            },
                         ],
                     }
                 ],
@@ -909,7 +1018,9 @@ def test_misma_evidencia_referenciada_por_dos_elementos_se_muestra_una_sola_vez(
 def test_categoria_sin_bloques_resolubles_usa_mensaje_canonico_no_el_del_llm(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    items = [_anexo_item("Anexo I — Formulario de oferta económica presentado con la oferta.", "Anexo I")]
+    items = [
+        _anexo_item("Anexo I — Formulario de oferta económica presentado con la oferta.", "Anexo I")
+    ]
 
     def fake_call_llm(*, messages, correlation_id):
         return (

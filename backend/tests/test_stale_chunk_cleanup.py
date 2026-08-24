@@ -12,6 +12,7 @@ correspondían al texto actual.
 No es hipotético: `start_analysis` permite reintentar un análisis en estado
 `error`, y cualquier cambio de chunking cambia la cantidad de chunks.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -107,9 +108,7 @@ def test_un_reanalisis_con_menos_chunks_no_deja_sobrantes(monkeypatch) -> None:
     # Re-análisis: el chunking cambió y ahora produce 2 chunks.
     ai_search.upload_chunks([_chunk(i) for i in range(2)], "analysis-1", "corr-1")
 
-    assert len(index) == 2, (
-        f"quedaron chunks del run anterior en el índice: {sorted(index)}"
-    )
+    assert len(index) == 2, f"quedaron chunks del run anterior en el índice: {sorted(index)}"
 
 
 def test_un_analisis_nuevo_no_se_ve_afectado(adapter) -> None:

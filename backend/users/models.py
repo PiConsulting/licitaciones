@@ -9,9 +9,7 @@ from shared.database import Base
 
 class User(Base):
     __tablename__ = "users"
-    __table_args__ = (
-        Index("idx_users_email", "email"),
-    )
+    __table_args__ = (Index("idx_users_email", "email"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)

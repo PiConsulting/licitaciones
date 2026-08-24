@@ -35,7 +35,9 @@ ETIQUETAS: dict[str, dict[str, Any]] = {
 }
 
 
-def _referencia(document_id: str, citation: str = "una cita cualquiera del pliego") -> dict[str, Any]:
+def _referencia(
+    document_id: str, citation: str = "una cita cualquiera del pliego"
+) -> dict[str, Any]:
     return {"document_id": document_id, "page_number": 1, "citation": citation}
 
 
@@ -47,7 +49,10 @@ def _referencia(document_id: str, citation: str = "una cita cualquiera del plieg
 def test_las_referencias_de_los_items_dicen_de_que_archivo_salen() -> None:
     datos = {
         "requisitos_admisibilidad": [
-            {"valor": "antigüedad mínima de dos (2) años", "source_references": [_referencia(ANEXO)]},
+            {
+                "valor": "antigüedad mínima de dos (2) años",
+                "source_references": [_referencia(ANEXO)],
+            },
         ],
         "objeto_alcance": [
             {"valor": "sistema de almacenamiento", "source_references": [_referencia(PRINCIPAL)]},
@@ -86,7 +91,12 @@ def test_dos_fuentes_de_la_misma_pagina_de_documentos_distintos_se_distinguen() 
     son la misma línea dos veces."""
     datos = {
         "sources": [
-            {"id": 0, "document_id": PRINCIPAL, "page_number": 1, "citation": "una cita del pliego"},
+            {
+                "id": 0,
+                "document_id": PRINCIPAL,
+                "page_number": 1,
+                "citation": "una cita del pliego",
+            },
             {"id": 1, "document_id": ANEXO, "page_number": 1, "citation": "una cita del anexo"},
         ]
     }
@@ -103,11 +113,16 @@ def test_dos_fuentes_de_la_misma_pagina_de_documentos_distintos_se_distinguen() 
 def test_el_presupuesto_es_un_objeto_y_no_una_lista() -> None:
     """`estimacion_presupuesto` no tiene la forma `categoria[].source_references[]`
     del resto. Por eso el recorrido es genérico y no una lista de rutas."""
-    datos = {"estimacion_presupuesto": {"monto": 100, "source_references": [_referencia(PRINCIPAL)]}}
+    datos = {
+        "estimacion_presupuesto": {"monto": 100, "source_references": [_referencia(PRINCIPAL)]}
+    }
 
     _stampar_nombre_de_documento(datos, ETIQUETAS)
 
-    assert datos["estimacion_presupuesto"]["source_references"][0]["filename"] == "Pliego - Santa Fe.pdf"
+    assert (
+        datos["estimacion_presupuesto"]["source_references"][0]["filename"]
+        == "Pliego - Santa Fe.pdf"
+    )
 
 
 # ---------------------------------------------------------------------------

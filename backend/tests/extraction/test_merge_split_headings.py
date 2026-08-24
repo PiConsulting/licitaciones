@@ -25,9 +25,9 @@ def test_merge_split_heading_across_pages():
             "source_order": 2,
         },
     ]
-    
+
     result = _merge_split_headings_across_pages(blocks)
-    
+
     # Debe fusionar los dos primeros bloques
     assert len(result) == 2
     assert result[0]["content"] == "ARTÍCULO 12: PLAZO DE ENTREGA"
@@ -51,9 +51,9 @@ def test_merge_split_heading_lowercase_continuation():
             "source_order": 1,
         },
     ]
-    
+
     result = _merge_split_headings_across_pages(blocks)
-    
+
     assert len(result) == 1
     assert result[0]["content"] == "ARTÍCULO 6: DOCUMENtación a Presentar"
 
@@ -74,9 +74,9 @@ def test_no_merge_for_complete_headings():
             "source_order": 1,
         },
     ]
-    
+
     result = _merge_split_headings_across_pages(blocks)
-    
+
     # No debe fusionar (ambos headings completos)
     assert len(result) == 2
     assert result[0]["content"] == "ARTÍCULO 10: GARANTÍAS"
@@ -99,9 +99,9 @@ def test_no_merge_different_levels():
             "source_order": 1,
         },
     ]
-    
+
     result = _merge_split_headings_across_pages(blocks)
-    
+
     # No debe fusionar (niveles diferentes)
     assert len(result) == 2
 
@@ -122,9 +122,9 @@ def test_no_merge_non_consecutive_pages():
             "source_order": 1,
         },
     ]
-    
+
     result = _merge_split_headings_across_pages(blocks)
-    
+
     # No debe fusionar (no consecutivas)
     assert len(result) == 2
 
@@ -149,9 +149,9 @@ def test_merge_preserves_metadata():
             "bbox": [100, 50, 300, 50],
         },
     ]
-    
+
     result = _merge_split_headings_across_pages(blocks)
-    
+
     assert len(result) == 1
     merged = result[0]
     assert merged["content"] == "ARTÍCULO 12: PLAZO DE ENTREGA"

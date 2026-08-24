@@ -37,14 +37,20 @@ class Analysis(Base):
     extraction_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     analysis_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="draft", nullable=False)
-    current_stage: Mapped[str] = mapped_column(String(50), default=CurrentStage.QUEUED.value, nullable=False)
+    current_stage: Mapped[str] = mapped_column(
+        String(50), default=CurrentStage.QUEUED.value, nullable=False
+    )
     progress_percentage: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    timeout_warning_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    timeout_warning_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     timeout_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancellation_requested: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    correlation_id: Mapped[str] = mapped_column(String(36), nullable=False, default=lambda: str(uuid4()))
+    correlation_id: Mapped[str] = mapped_column(
+        String(36), nullable=False, default=lambda: str(uuid4())
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -65,14 +71,14 @@ class Analysis(Base):
         cascade="all, delete-orphan",
         foreign_keys="AnalysisVersion.analysis_id",
     )
-    current_version = relationship("AnalysisVersion", foreign_keys=[current_version_id], post_update=True)
+    current_version = relationship(
+        "AnalysisVersion", foreign_keys=[current_version_id], post_update=True
+    )
 
 
 class AnalysisVersion(Base):
     __tablename__ = "analysis_versions"
-    __table_args__ = (
-        Index("idx_analysis_versions_analysis_id", "analysis_id"),
-    )
+    __table_args__ = (Index("idx_analysis_versions_analysis_id", "analysis_id"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     analysis_id: Mapped[str] = mapped_column(
@@ -83,7 +89,9 @@ class AnalysisVersion(Base):
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     extracted_data: Mapped[dict] = mapped_column(JSON, nullable=False)
     conflicts: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
-    created_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
+    created_by: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

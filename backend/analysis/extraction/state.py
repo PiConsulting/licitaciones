@@ -53,9 +53,6 @@ class GraphState(TypedDict, total=False):
     conflicts: list[dict[str, Any]]
     extraction_metadata: dict[str, Any]
     document_id_to_blob_path: dict[str, str]  # Para highlight pre-computado
-    # CTX-05: document_id -> {"nombre": str, "es_principal": bool}. Lo consume
-    # `_format_chunks` para que el modelo sepa si el fragmento sale del pliego
-    # o de un anexo, en vez de ver un UUID pelado.
     document_labels: dict[str, dict[str, Any]]
 
     plazos_token_usage: dict[str, int]
@@ -70,7 +67,5 @@ class GraphState(TypedDict, total=False):
     identificacion_token_usage: dict[str, int]
     cronograma_token_usage: dict[str, int]
     presupuesto_token_usage: dict[str, int]
-
-    # Información para persistencia
     created_by: str | None
     db_session: Any

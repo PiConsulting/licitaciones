@@ -66,10 +66,12 @@ query = "What is RAG?"
 relevant_docs = retriever.invoke(query)
 
 context = "\n\n".join([doc.page_content for doc in relevant_docs])
-response = model.invoke([
-    {"role": "system", "content": f"Use this context:\n\n{context}"},
-    {"role": "user", "content": query},
-])
+response = model.invoke(
+    [
+        {"role": "system", "content": f"Use this context:\n\n{context}"},
+        {"role": "user", "content": query},
+    ]
+)
 ```
 </python>
 <typescript>
@@ -175,7 +177,7 @@ from langchain_community.document_loaders import DirectoryLoader, TextLoader
 loader = DirectoryLoader(
     "path/to/documents",
     glob="**/*.txt",  # Pattern for files to load
-    loader_cls=TextLoader
+    loader_cls=TextLoader,
 )
 docs = loader.load()
 ```
@@ -194,8 +196,8 @@ Split documents into chunks using RecursiveCharacterTextSplitter with configurab
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 splitter = RecursiveCharacterTextSplitter(
-    chunk_size=1000,        # Characters per chunk
-    chunk_overlap=200,      # Overlap for context continuity
+    chunk_size=1000,  # Characters per chunk
+    chunk_overlap=200,  # Overlap for context continuity
     separators=["\n\n", "\n", " ", ""],  # Split hierarchy
 )
 
@@ -338,7 +340,7 @@ Add metadata to documents and filter search results by metadata properties.
 docs = [
     Document(
         page_content="Python programming guide",
-        metadata={"language": "python", "topic": "programming"}
+        metadata={"language": "python", "topic": "programming"},
     ),
 ]
 
@@ -346,7 +348,7 @@ docs = [
 results = vectorstore.similarity_search(
     "programming",
     k=5,
-    filter={"language": "python"}  # Only Python docs
+    filter={"language": "python"},  # Only Python docs
 )
 ```
 </python>
@@ -360,20 +362,22 @@ Create an agent that uses RAG as a tool for answering questions.
 from langchain.agents import create_agent
 from langchain.tools import tool
 
+
 @tool
 def search_docs(query: str) -> str:
     """Search documentation for relevant information."""
     docs = retriever.invoke(query)
     return "\n\n".join([d.page_content for d in docs])
 
+
 agent = create_agent(
     model="gpt-4.1",
     tools=[search_docs],
 )
 
-result = agent.invoke({
-    "messages": [{"role": "user", "content": "How do I create an agent?"}]
-})
+result = agent.invoke(
+    {"messages": [{"role": "user", "content": "How do I create an agent?"}]}
+)
 ```
 </python>
 <typescript>
@@ -494,8 +498,12 @@ Use the same embedding model for indexing and querying.
 
 ```python
 # WRONG: Different embeddings for index and query - incompatible!
-vectorstore = Chroma.from_documents(docs, OpenAIEmbeddings(model="text-embedding-3-small"))
-retriever = vectorstore.as_retriever(embeddings=OpenAIEmbeddings(model="text-embedding-3-large"))
+vectorstore = Chroma.from_documents(
+    docs, OpenAIEmbeddings(model="text-embedding-3-small")
+)
+retriever = vectorstore.as_retriever(
+    embeddings=OpenAIEmbeddings(model="text-embedding-3-large")
+)
 
 # CORRECT: Same model
 embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
@@ -548,7 +556,9 @@ Ensure embedding dimensions match the vector store index dimensions.
 # WRONG: Index has 1536 dimensions but using 512-dim embeddings
 pc.create_index(name="idx", dimension=1536, metric="cosine")
 vectorstore = PineconeVectorStore.from_documents(
-    docs, OpenAIEmbeddings(model="text-embedding-3-small", dimensions=512), index=pc.Index("idx")
+    docs,
+    OpenAIEmbeddings(model="text-embedding-3-small", dimensions=512),
+    index=pc.Index("idx"),
 )  # Error: dimension mismatch!
 
 # CORRECT: Match dimensions

@@ -73,13 +73,15 @@ def test_ninguna_cita_supera_el_techo() -> None:
 
 def test_el_monto_sobrevive_al_recorte_aunque_este_al_final() -> None:
     """En la carátula real, "AR$ 12.000.000" empieza en el carácter ~150."""
-    citation = shorten_citation_to_evidence(CARATULA, _item("12000000.0 ARS", "presupuesto_oficial"))
+    citation = shorten_citation_to_evidence(
+        CARATULA, _item("12000000.0 ARS", "presupuesto_oficial")
+    )
 
     assert "12.000.000" in citation
 
 
 def test_la_jurisdiccion_sobrevive_al_recorte() -> None:
-    """"Jurisdicción: Municipal" está al final del mismo bloque de ~210."""
+    """ "Jurisdicción: Municipal" está al final del mismo bloque de ~210."""
     citation = shorten_citation_to_evidence(CARATULA, _item("Municipal", "jurisdiccion"))
 
     assert "Jurisdicción: Municipal" in citation
@@ -88,7 +90,9 @@ def test_la_jurisdiccion_sobrevive_al_recorte() -> None:
 def test_el_mismo_texto_da_citas_distintas_segun_el_item() -> None:
     """Es el punto entero: un párrafo que respalda tres items no puede dar la
     misma cita para los tres, porque cada uno afirma otra cosa."""
-    presupuesto = shorten_citation_to_evidence(CARATULA, _item("12000000.0 ARS", "presupuesto_oficial"))
+    presupuesto = shorten_citation_to_evidence(
+        CARATULA, _item("12000000.0 ARS", "presupuesto_oficial")
+    )
     expediente = shorten_citation_to_evidence(CARATULA, _item("0100-EXP-2026", "numero_expediente"))
 
     assert presupuesto != expediente

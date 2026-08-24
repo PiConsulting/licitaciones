@@ -53,7 +53,9 @@ def test_una_cita_del_modelo_que_verifica_queda_marcada_como_del_modelo() -> Non
         "source_references": [_ref(CITA_REAL)],
     }
 
-    _verify_citation_grounding([item], [_chunk(f"{CITA_REAL}.")], category="garantias", correlation_id="c1")
+    _verify_citation_grounding(
+        [item], [_chunk(f"{CITA_REAL}.")], category="garantias", correlation_id="c1"
+    )
 
     ref = item["source_references"][0]
     assert ref["citation_origin"] == "llm"
@@ -71,7 +73,9 @@ def test_una_cita_ensanchada_por_el_pipeline_se_marca_como_tal() -> None:
         "source_references": [_ref(corta)],
     }
 
-    _verify_citation_grounding([item], [_chunk(contenido)], category="garantias", correlation_id="c1")
+    _verify_citation_grounding(
+        [item], [_chunk(contenido)], category="garantias", correlation_id="c1"
+    )
 
     ref = item["source_references"][0]
     assert ref["citation_llm"] == corta
@@ -93,7 +97,9 @@ def test_una_cita_rescatada_degrada_el_item_a_partial() -> None:
         "source_references": [_ref("una frase que el modelo inventó y no está en el pliego")],
     }
 
-    _verify_citation_grounding([item], [_chunk(contenido)], category="plazos_clave", correlation_id="c1")
+    _verify_citation_grounding(
+        [item], [_chunk(contenido)], category="plazos_clave", correlation_id="c1"
+    )
 
     assert item["extraction_status"] == "partial", "un rescate no es una verificación"
     assert item["_warning"] == "cita_reemplazada_por_rescate"
@@ -112,7 +118,9 @@ def test_el_rescate_conserva_el_dato_en_vez_de_tirarlo() -> None:
         "source_references": [_ref("frase inventada que no aparece en ninguna parte")],
     }
 
-    _verify_citation_grounding([item], [_chunk(contenido)], category="plazos_clave", correlation_id="c1")
+    _verify_citation_grounding(
+        [item], [_chunk(contenido)], category="plazos_clave", correlation_id="c1"
+    )
 
     assert item["source_references"], "no se descarta el item"
     assert item["source_references"][0]["citation"] in contenido
@@ -194,7 +202,9 @@ def test_un_item_rescatado_termina_con_menos_confianza_que_uno_verificado() -> N
     }
 
     for item in (rescatado, verificado):
-        _verify_citation_grounding([item], [_chunk(contenido)], category="plazos_clave", correlation_id="c1")
+        _verify_citation_grounding(
+            [item], [_chunk(contenido)], category="plazos_clave", correlation_id="c1"
+        )
         _normalize_confidence(item)
 
     assert rescatado["confidence"] < verificado["confidence"]

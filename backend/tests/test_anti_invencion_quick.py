@@ -27,9 +27,9 @@ def test_riesgo_sin_fuentes_se_descarta():
             "confidence": 0.9,
         }
     ]
-    
+
     filtered, status = _drop_items_without_sources(items, "success", category="riesgos")
-    
+
     assert len(filtered) == 0, "Item sin fuentes debería descartarse"
     assert status == "partial", f"Status debería ser partial, fue {status}"
     print(f"   ✓ Items descartados: {len(items) - len(filtered)}")
@@ -55,9 +55,9 @@ def test_riesgo_con_fuentes_validas_se_conserva():
             "confidence": 0.95,
         }
     ]
-    
+
     filtered, status = _drop_items_without_sources(items, "success", category="riesgos")
-    
+
     assert len(filtered) == 1, "Item con fuentes debe conservarse"
     assert status == "success", f"Status debe ser success, fue {status}"
     assert filtered[0]["valor"] == "Multa por incumplimiento de plazos"
@@ -98,12 +98,12 @@ def test_mezcla_con_y_sin_fuentes():
             "confidence": 0.85,
         },
     ]
-    
+
     quality = {}
     filtered, status = _drop_items_without_sources(
         items, "success", category="riesgos", quality=quality
     )
-    
+
     assert len(filtered) == 2, f"Solo 2 items deben conservarse, se conservaron {len(filtered)}"
     assert status == "partial", f"Status debe ser partial, fue {status}"
     assert quality["riesgos"]["descartados_sin_evidencia"] == 1
@@ -134,12 +134,12 @@ def test_todos_sin_fuentes_resulta_en_lista_vacia():
             "confidence": 0.6,
         },
     ]
-    
+
     quality = {}
     filtered, status = _drop_items_without_sources(
         items, "success", category="riesgos", quality=quality
     )
-    
+
     assert len(filtered) == 0, "Todos los items deben descartarse"
     assert status == "partial", f"Status debe ser partial, fue {status}"
     assert quality["riesgos"]["descartados_sin_evidencia"] == 2
@@ -182,14 +182,16 @@ def test_enforce_citation_contract():
             "confidence": 0.7,
         },
     ]
-    
+
     cleaned = _enforce_citation_contract(items)
-    
+
     # Primera cita debe conservarse
     assert len(cleaned[0]["source_references"]) > 0
     assert len(cleaned[0]["source_references"][0]["citation"]) >= 12
-    print(f"   ✓ Cita válida conservada: {len(cleaned[0]['source_references'][0]['citation'])} caracteres")
-    
+    print(
+        f"   ✓ Cita válida conservada: {len(cleaned[0]['source_references'][0]['citation'])} caracteres"
+    )
+
     # Segunda cita muy corta debe descartarse o limpiarse
     if len(cleaned[1]["source_references"]) > 0:
         assert len(cleaned[1]["source_references"][0].get("citation", "")) >= 12
@@ -200,14 +202,14 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("TESTS DE REGLA ANTI-INVENCIÓN DE RIESGOS")
     print("=" * 60)
-    
+
     try:
         test_riesgo_sin_fuentes_se_descarta()
         test_riesgo_con_fuentes_validas_se_conserva()
         test_mezcla_con_y_sin_fuentes()
         test_todos_sin_fuentes_resulta_en_lista_vacia()
         test_enforce_citation_contract()
-        
+
         print("\n" + "=" * 60)
         print("✅ TODOS LOS TESTS PASARON")
         print("=" * 60)
@@ -217,12 +219,13 @@ if __name__ == "__main__":
         print("  • Status cambia a 'partial' cuando se descartan items")
         print("  • Métricas de calidad se registran correctamente")
         print("=" * 60 + "\n")
-        
+
     except AssertionError as e:
         print(f"\n❌ TEST FALLÓ: {e}")
         sys.exit(1)
     except Exception as e:
         print(f"\n❌ ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

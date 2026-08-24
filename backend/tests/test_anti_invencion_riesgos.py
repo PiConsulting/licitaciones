@@ -24,9 +24,9 @@ class TestAntiInvencionRiesgos:
                 "confidence": 0.9,
             }
         ]
-        
+
         filtered, status = _drop_items_without_sources(items, "success", category="riesgos")
-        
+
         assert len(filtered) == 0, "Item sin fuentes debería descartarse"
         assert status == "partial", "Status debería cambiar a partial"
 
@@ -48,9 +48,9 @@ class TestAntiInvencionRiesgos:
                 "confidence": 0.95,
             }
         ]
-        
+
         filtered, status = _drop_items_without_sources(items, "success", category="riesgos")
-        
+
         assert len(filtered) == 1, "Item con fuentes debe conservarse"
         assert status == "success", "Status debe mantenerse como success"
         assert filtered[0]["valor"] == "Multa por incumplimiento de plazos"
@@ -81,18 +81,22 @@ class TestAntiInvencionRiesgos:
                 "subtipo": "tecnico",
                 "valor": "Otro riesgo con evidencia",
                 "source_references": [
-                    {"document_id": "doc-1", "page_number": 7, "citation": "Otra evidencia verificable"}
+                    {
+                        "document_id": "doc-1",
+                        "page_number": 7,
+                        "citation": "Otra evidencia verificable",
+                    }
                 ],
                 "extraction_status": "success",
                 "confidence": 0.85,
             },
         ]
-        
+
         quality = {}
         filtered, status = _drop_items_without_sources(
             items, "success", category="riesgos", quality=quality
         )
-        
+
         assert len(filtered) == 2, "Solo 2 items con fuentes deben conservarse"
         assert status == "partial", "Status debe cambiar a partial por descarte"
         assert quality["riesgos"]["descartados_sin_evidencia"] == 1
@@ -118,12 +122,12 @@ class TestAntiInvencionRiesgos:
                 "confidence": 0.6,
             },
         ]
-        
+
         quality = {}
         filtered, status = _drop_items_without_sources(
             items, "success", category="riesgos", quality=quality
         )
-        
+
         assert len(filtered) == 0, "Todos los items deben descartarse"
         assert status == "partial", "Status debe cambiar a partial"
         assert quality["riesgos"]["descartados_sin_evidencia"] == 2
@@ -147,8 +151,11 @@ class TestAntiInvencionRiesgos:
                 "confidence": 0.8,
             }
         ]
-        
+
         cleaned = _enforce_citation_contract(items)
-        
+
         # La cita muy corta debería descartarse
-        assert len(cleaned[0]["source_references"]) == 0 or len(cleaned[0]["source_references"][0].get("citation", "")) >= 12
+        assert (
+            len(cleaned[0]["source_references"]) == 0
+            or len(cleaned[0]["source_references"][0].get("citation", "")) >= 12
+        )

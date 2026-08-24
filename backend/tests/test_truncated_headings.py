@@ -17,6 +17,7 @@ ADJUDICACIÓN. Es una respuesta legal incorrecta, no un resaltado corrido.
 `_merge_split_headings_across_pages` no lo cubría: exige dos encabezados en
 páginas consecutivas, y acá la segunda mitad es cuerpo en la misma página.
 """
+
 from __future__ import annotations
 
 from extraction.chunking import create_chunks
@@ -116,7 +117,12 @@ def test_cola_de_titulo_sin_cuerpo_se_absorbe_en_el_encabezado() -> None:
 def test_corte_en_limite_de_palabra_se_une_con_espacio() -> None:
     blocks = [
         _heading("ARTÍCULO 5: PLAZOS", page=2, order=0, y=3.0),
-        _para("DE ENTREGA: Los plazos se cuentan en días corridos desde la orden.", page=2, order=1, y=3.0),
+        _para(
+            "DE ENTREGA: Los plazos se cuentan en días corridos desde la orden.",
+            page=2,
+            order=1,
+            y=3.0,
+        ),
     ]
 
     chunk = _chunks(blocks)[0]
@@ -133,7 +139,12 @@ def test_no_fusiona_un_parrafo_que_arranca_en_otra_linea() -> None:
     """Caso normal: el cuerpo empieza debajo del encabezado, no al lado."""
     blocks = [
         _heading("ARTÍCULO 13: DEL PAGO", page=5, order=0, y=3.0, height=0.17),
-        _para("NOTA: La Municipalidad de Rosario pagará en moneda de curso legal.", page=5, order=1, y=3.4),
+        _para(
+            "NOTA: La Municipalidad de Rosario pagará en moneda de curso legal.",
+            page=5,
+            order=1,
+            y=3.4,
+        ),
     ]
 
     chunk = _chunks(blocks)[0]
@@ -145,7 +156,12 @@ def test_no_fusiona_un_parrafo_que_arranca_en_otra_linea() -> None:
 def test_no_fusiona_cuando_el_cuerpo_esta_en_otra_pagina() -> None:
     blocks = [
         _heading("Artículo 6: DOCUMENTACIÓN A PRESENTAR", page=2, order=0, y=1.5),
-        _para("NOTA: Se informa que de acuerdo con lo dispuesto en el Decreto 1259/24...", page=3, order=0, y=1.5),
+        _para(
+            "NOTA: Se informa que de acuerdo con lo dispuesto en el Decreto 1259/24...",
+            page=3,
+            order=0,
+            y=1.5,
+        ),
     ]
 
     chunk = _chunks(blocks)[0]
@@ -159,7 +175,12 @@ def test_no_fusiona_cuerpo_en_minusculas_aunque_este_en_la_misma_linea() -> None
     no es un título cortado: la cola tendría minúsculas."""
     blocks = [
         _heading("Artículo 7: FORMA DE COTIZAR", page=3, order=0, y=4.19),
-        _para("Los oferentes deberán cotizar incluyendo en el precio el IVA: por ser exenta.", page=3, order=1, y=4.19),
+        _para(
+            "Los oferentes deberán cotizar incluyendo en el precio el IVA: por ser exenta.",
+            page=3,
+            order=1,
+            y=4.19,
+        ),
     ]
 
     chunk = _chunks(blocks)[0]

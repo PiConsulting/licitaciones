@@ -40,23 +40,60 @@ Un ítem por anexo/formulario.
 
 ---
 
-## EXCLUSIÓN CRÍTICA — NO confundir
+## COBERTURA COMPLETA — todo Anexo numerado va acá también
 
-❌ **NO incluir documentos respaldatorios de terceros:**
+Esta categoría es un **índice de todos los anexos que el pliego numera y exige
+como parte integrante de la oferta** (Anexo I, Anexo II, Anexo III... o A, B, C...),
+sin importar si el contenido de ese anexo es:
+- un formulario/planilla para completar y firmar, o
+- un conjunto de requisitos, instrucciones técnicas o condiciones (ej: "Anexo IV
+  — Requisitos a Cumplimentar", "Anexo V — Presentación Técnica de las Ofertas").
+
+**Regla de oro:** si el pliego lo llama "Anexo [N/letra] — [nombre]" y dice que
+integra el pliego o que el oferente debe ajustarse/presentarlo, generá un ítem
+acá **aunque ese mismo anexo no sea un formulario para llenar**. Usá
+`tipo: "anexo"` y `debe_completarse: "no"` (o `"no_especificado"` si el anexo
+mezcla partes instructivas con partes a completar) cuando no sea un formulario
+en sí.
+
+**Esto NO es excluyente con otras categorías.** El contenido detallado de un
+anexo (ej. los requisitos de admisibilidad que trae el Anexo IV, los plazos que
+trae el Anexo V, las causales de rechazo que menciona) se extrae POR SEPARADO
+en `requisitos_admisibilidad`, `plazos_clave`, `causales_rechazo`, etc. Acá lo
+que interesa es dejar constancia de que ESE anexo existe y es parte obligatoria
+del pliego — es un índice, no compite con el resto de las categorías.
+
+**Antes de cerrar la extracción, verificá:** ¿el pliego menciona anexos I, II,
+III, IV, V... (o más)? Contalos. Si tenés evidencia de 5 anexos numerados y solo
+generaste 2 ítems, te están faltando anexos — repasá los fragmentos de nuevo,
+incluso los que parecen puramente técnicos o instructivos.
+
+---
+
+## EXCLUSIÓN — NO confundir con documentos de terceros
+
+❌ **NO incluir documentos respaldatorios que el oferente trae de afuera** (no
+son anexos del pliego, son papeles con emisor externo, sin numeración de anexo):
 - Certificados fiscales (van en requisitos de admisibilidad)
 - Balances (van en requisitos)
 - Constancias de inscripción (van en requisitos)
 - Habilitaciones (van en requisitos)
 
-✅ **SÍ incluir formularios que el PLIEGO provee:**
+✅ **SÍ incluir CUALQUIER anexo numerado del pliego**, sea formulario o no:
 - Anexo I — Planilla de Cotización
 - Anexo II — Declaración Jurada de Habilidad
+- Anexo III — Declaración Jurada Documentación Proveedor
+- Anexo IV — Requisitos a Cumplimentar (antecedentes técnicos, aunque sea
+  contenido instructivo y no un formulario)
+- Anexo V — Presentación Técnica de las Ofertas (aunque sea contenido
+  instructivo y no un formulario)
 - Modelo de Nota de Presentación
 - Formulario de Datos del Oferente
 
-**La diferencia clave:** Los anexos son formularios que el organismo licitante
-provee (o describe) para que el oferente complete. Los requisitos son documentos
-que el oferente trae de afuera (emisor externo).
+**La diferencia clave:** un anexo del pliego (numerado o con nombre propio,
+provisto/descripto por el organismo licitante) siempre va acá, sea formulario
+o instructivo. Un documento que el oferente trae de afuera (emisor externo,
+sin numeración de anexo) va solo en requisitos.
 
 ---
 
@@ -134,6 +171,19 @@ Buscá ACTIVAMENTE estos anexos comunes en pliegos argentinos (no te limites a e
 - "DDJJ de Cumplimiento Fiscal"
 - "Declaración de Conflicto de Interés"
 - "Manifestación Jurada de Capacidad para Contratar"
+
+### 3.6 Anexos instructivos/técnicos (requisitos, presentación técnica, plan de trabajo)
+"Anexo IV — Requisitos a Cumplimentar" / "Anexo V — Presentación Técnica de las Ofertas"
+→ tipo: `anexo`, debe_completarse: `"no"` (no es un formulario, es texto instructivo
+que el oferente debe leer y cumplir), presente_en_documentos_subidos: verificar
+
+**Descripción típica:** No trae campos para llenar; describe condiciones,
+antecedentes exigidos, características técnicas a cumplir, plan de trabajo,
+folletería a adjuntar, etc. Igual que el Anexo I, el oferente no "completa" este
+anexo, pero DEBE aparecer como ítem acá porque el pliego lo numera y lo hace
+obligatorio. Su contenido detallado (requisitos, plazos, causales de rechazo)
+se extrae también, por separado, en las categorías correspondientes — no te
+autolimites a no listarlo acá solo porque no es un formulario.
 
 ### 3.4 Modelo de Nota de Presentación
 "Modelo de Nota de Presentación de Oferta"

@@ -65,13 +65,19 @@ def test_cloud_search_executes_once_and_returns_results(monkeypatch: pytest.Monk
 
     fake_client = _FakeSearchClient()
 
-    monkeypatch.setattr(azure_search, "_search_chunk_select_fields", lambda: ["analysis_id", "document_id", "content"])
+    monkeypatch.setattr(
+        azure_search,
+        "_search_chunk_select_fields",
+        lambda: ["analysis_id", "document_id", "content"],
+    )
 
     import azure.search.documents as search_documents
 
     monkeypatch.setattr(search_documents, "SearchClient", lambda *args, **kwargs: fake_client)
 
-    results = azure_search.search_hybrid(query="fecha de presentacion de ofertas", analysis_id="analysis-1", top_k=5)
+    results = azure_search.search_hybrid(
+        query="fecha de presentacion de ofertas", analysis_id="analysis-1", top_k=5
+    )
 
     assert len(results) == 1
     assert results[0]["document_id"] == "doc-1"
@@ -79,13 +85,19 @@ def test_cloud_search_executes_once_and_returns_results(monkeypatch: pytest.Monk
     assert fake_client.calls[0]["filter"] == "analysis_id eq 'analysis-1'"
 
 
-def test_cloud_search_uses_wildcard_fallback_when_query_returns_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cloud_search_uses_wildcard_fallback_when_query_returns_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _set_production_env(monkeypatch)
     get_settings.cache_clear()
     azure_search._azure_index_fields_cache.cache_clear()
 
     fake_client = _FakeWildcardSearchClient()
-    monkeypatch.setattr(azure_search, "_search_chunk_select_fields", lambda: ["analysis_id", "document_id", "content"])
+    monkeypatch.setattr(
+        azure_search,
+        "_search_chunk_select_fields",
+        lambda: ["analysis_id", "document_id", "content"],
+    )
 
     # FIX (auditoría 2026-08-13, hallazgo RET-02): el wildcard ahora corre sólo
     # en modo degradado (sin vector). Este test pasaba "de casualidad" porque en
@@ -98,7 +110,9 @@ def test_cloud_search_uses_wildcard_fallback_when_query_returns_empty(monkeypatc
 
     monkeypatch.setattr(search_documents, "SearchClient", lambda *args, **kwargs: fake_client)
 
-    results = azure_search.search_hybrid(query="monto estimado del contrato", analysis_id="analysis-1", top_k=5)
+    results = azure_search.search_hybrid(
+        query="monto estimado del contrato", analysis_id="analysis-1", top_k=5
+    )
 
     assert len(results) == 1
     assert results[0]["document_id"] == "doc-2"
@@ -137,16 +151,24 @@ class _FakeRankingSearchClient:
         )
 
 
-def test_cloud_search_ranking_usa_el_score_hibrido_de_azure(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cloud_search_ranking_usa_el_score_hibrido_de_azure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _set_production_env(monkeypatch)
     get_settings.cache_clear()
     azure_search._azure_index_fields_cache.cache_clear()
 
-    monkeypatch.setattr(azure_search, "_search_chunk_select_fields", lambda: ["analysis_id", "document_id", "content"])
+    monkeypatch.setattr(
+        azure_search,
+        "_search_chunk_select_fields",
+        lambda: ["analysis_id", "document_id", "content"],
+    )
 
     import azure.search.documents as search_documents
 
-    monkeypatch.setattr(search_documents, "SearchClient", lambda *args, **kwargs: _FakeRankingSearchClient())
+    monkeypatch.setattr(
+        search_documents, "SearchClient", lambda *args, **kwargs: _FakeRankingSearchClient()
+    )
 
     results = azure_search.search_hybrid(query="monto garantia", analysis_id="analysis-1", top_k=5)
 
@@ -192,7 +214,9 @@ class _FakeSchemaSearchClient:
         )
 
 
-def test_cloud_search_deserializes_table_ref_and_defaults_legacy_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cloud_search_deserializes_table_ref_and_defaults_legacy_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _set_production_env(monkeypatch)
     get_settings.cache_clear()
     azure_search._azure_index_fields_cache.cache_clear()
@@ -200,12 +224,23 @@ def test_cloud_search_deserializes_table_ref_and_defaults_legacy_fields(monkeypa
     monkeypatch.setattr(
         azure_search,
         "_search_chunk_select_fields",
-        lambda: ["analysis_id", "document_id", "heading_path", "heading_level", "section_path", "block_type", "table_ref", "content"],
+        lambda: [
+            "analysis_id",
+            "document_id",
+            "heading_path",
+            "heading_level",
+            "section_path",
+            "block_type",
+            "table_ref",
+            "content",
+        ],
     )
 
     import azure.search.documents as search_documents
 
-    monkeypatch.setattr(search_documents, "SearchClient", lambda *args, **kwargs: _FakeSchemaSearchClient())
+    monkeypatch.setattr(
+        search_documents, "SearchClient", lambda *args, **kwargs: _FakeSchemaSearchClient()
+    )
 
     results = azure_search.search_hybrid(query="cantidad", analysis_id="analysis-1", top_k=5)
     by_doc = {item["document_id"]: item for item in results}
@@ -280,7 +315,9 @@ def test_cloud_search_deserializes_source_field(monkeypatch: pytest.MonkeyPatch)
 
     import azure.search.documents as search_documents
 
-    monkeypatch.setattr(search_documents, "SearchClient", lambda *args, **kwargs: _FakeSourceFieldSearchClient())
+    monkeypatch.setattr(
+        search_documents, "SearchClient", lambda *args, **kwargs: _FakeSourceFieldSearchClient()
+    )
 
     results = azure_search.search_hybrid(query="garantia", analysis_id="analysis-1", top_k=5)
     by_doc = {item["document_id"]: item for item in results}
@@ -314,11 +351,17 @@ def test_cloud_search_returns_real_search_score_per_chunk(monkeypatch: pytest.Mo
     get_settings.cache_clear()
     azure_search._azure_index_fields_cache.cache_clear()
 
-    monkeypatch.setattr(azure_search, "_search_chunk_select_fields", lambda: ["analysis_id", "document_id", "content"])
+    monkeypatch.setattr(
+        azure_search,
+        "_search_chunk_select_fields",
+        lambda: ["analysis_id", "document_id", "content"],
+    )
 
     import azure.search.documents as search_documents
 
-    monkeypatch.setattr(search_documents, "SearchClient", lambda *args, **kwargs: _FakeRankingSearchClient())
+    monkeypatch.setattr(
+        search_documents, "SearchClient", lambda *args, **kwargs: _FakeRankingSearchClient()
+    )
 
     results = azure_search.search_hybrid(query="monto garantia", analysis_id="analysis-1", top_k=5)
 
@@ -348,8 +391,14 @@ class _FakeParentChildSearchClient:
     """Simula un indice con chunks child matcheados por el retrieval, mas un
     chunk normal (sin subdividir) mezclado."""
 
-    def __init__(self, parent_lookup: dict[str, dict] | None = None, get_document_error: bool = False) -> None:
-        self.parent_lookup = parent_lookup if parent_lookup is not None else {_PARENT_DOCUMENT["id"]: _PARENT_DOCUMENT}
+    def __init__(
+        self, parent_lookup: dict[str, dict] | None = None, get_document_error: bool = False
+    ) -> None:
+        self.parent_lookup = (
+            parent_lookup
+            if parent_lookup is not None
+            else {_PARENT_DOCUMENT["id"]: _PARENT_DOCUMENT}
+        )
         # `get_document_error` se conserva como nombre por compatibilidad con
         # los tests: hoy significa "la resolución del parent falla".
         self.get_document_error = get_document_error
@@ -416,7 +465,9 @@ class _FakeParentChildSearchClient:
         )
 
 
-def test_search_expande_child_matcheado_a_su_parent_completo(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_search_expande_child_matcheado_a_su_parent_completo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """US-3.1: el retrieval matchea sobre el child (mas preciso), pero
     extraccion/sintesis necesitan el contexto completo del articulo -- por
     eso el resultado final tiene que traer el parent, no el fragmento."""
@@ -427,7 +478,15 @@ def test_search_expande_child_matcheado_a_su_parent_completo(monkeypatch: pytest
     monkeypatch.setattr(
         azure_search,
         "_search_chunk_select_fields",
-        lambda: ["id", "analysis_id", "document_id", "content", "chunk_type", "parent_chunk_id", "child_chunk_ids"],
+        lambda: [
+            "id",
+            "analysis_id",
+            "document_id",
+            "content",
+            "chunk_type",
+            "parent_chunk_id",
+            "child_chunk_ids",
+        ],
     )
 
     fake_client = _FakeParentChildSearchClient()
@@ -435,7 +494,9 @@ def test_search_expande_child_matcheado_a_su_parent_completo(monkeypatch: pytest
 
     monkeypatch.setattr(search_documents, "SearchClient", lambda *args, **kwargs: fake_client)
 
-    results = azure_search.search_hybrid(query="propuesta tecnica", analysis_id="analysis-1", top_k=5)
+    results = azure_search.search_hybrid(
+        query="propuesta tecnica", analysis_id="analysis-1", top_k=5
+    )
 
     by_doc = {item["document_id"]: item for item in results}
 
@@ -459,7 +520,9 @@ def test_search_expande_child_matcheado_a_su_parent_completo(monkeypatch: pytest
     assert fake_client.parent_lookup_calls[0].count("analysis-1--doc-1--10") == 1
 
 
-def test_search_conserva_child_si_falla_la_expansion_a_parent(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_search_conserva_child_si_falla_la_expansion_a_parent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Si el parent fue borrado o falla la red, mejor devolver el child tal
     cual (contexto parcial) que perder el resultado por completo."""
     _set_production_env(monkeypatch)
@@ -469,7 +532,15 @@ def test_search_conserva_child_si_falla_la_expansion_a_parent(monkeypatch: pytes
     monkeypatch.setattr(
         azure_search,
         "_search_chunk_select_fields",
-        lambda: ["id", "analysis_id", "document_id", "content", "chunk_type", "parent_chunk_id", "child_chunk_ids"],
+        lambda: [
+            "id",
+            "analysis_id",
+            "document_id",
+            "content",
+            "chunk_type",
+            "parent_chunk_id",
+            "child_chunk_ids",
+        ],
     )
 
     fake_client = _FakeParentChildSearchClient(get_document_error=True)
@@ -477,7 +548,9 @@ def test_search_conserva_child_si_falla_la_expansion_a_parent(monkeypatch: pytes
 
     monkeypatch.setattr(search_documents, "SearchClient", lambda *args, **kwargs: fake_client)
 
-    results = azure_search.search_hybrid(query="propuesta tecnica", analysis_id="analysis-1", top_k=5)
+    results = azure_search.search_hybrid(
+        query="propuesta tecnica", analysis_id="analysis-1", top_k=5
+    )
 
     doc1_results = [item for item in results if item["document_id"] == "doc-1"]
     # Sin expansion exitosa, los dos children quedan tal cual (no se dedupean
@@ -494,7 +567,11 @@ def test_search_sin_children_es_identico_a_antes_de_us_3_1(monkeypatch: pytest.M
     get_settings.cache_clear()
     azure_search._azure_index_fields_cache.cache_clear()
 
-    monkeypatch.setattr(azure_search, "_search_chunk_select_fields", lambda: ["analysis_id", "document_id", "content"])
+    monkeypatch.setattr(
+        azure_search,
+        "_search_chunk_select_fields",
+        lambda: ["analysis_id", "document_id", "content"],
+    )
 
     class _NoGetDocumentClient:
         def search(self, **kwargs) -> Iterator[dict]:
@@ -510,7 +587,9 @@ def test_search_sin_children_es_identico_a_antes_de_us_3_1(monkeypatch: pytest.M
             )
 
         def get_document(self, key: str) -> dict:  # pragma: no cover
-            raise AssertionError("no deberia llamarse -- no hay ningun chunk_type='child' en los resultados")
+            raise AssertionError(
+                "no deberia llamarse -- no hay ningun chunk_type='child' en los resultados"
+            )
 
         # RET-03: sin children tampoco puede haber una búsqueda de parents.
         # `search` de arriba ignora el filtro, así que si el código intentara
@@ -518,7 +597,9 @@ def test_search_sin_children_es_identico_a_antes_de_us_3_1(monkeypatch: pytest.M
 
     import azure.search.documents as search_documents
 
-    monkeypatch.setattr(search_documents, "SearchClient", lambda *args, **kwargs: _NoGetDocumentClient())
+    monkeypatch.setattr(
+        search_documents, "SearchClient", lambda *args, **kwargs: _NoGetDocumentClient()
+    )
 
     results = azure_search.search_hybrid(query="cualquier cosa", analysis_id="analysis-1", top_k=5)
 
@@ -590,7 +671,15 @@ class _FakeChildThenParentSearchClient:
 def _patch_search_client(monkeypatch: pytest.MonkeyPatch, client) -> None:
     monkeypatch.setattr(
         "shared.ports.azure_search._search_chunk_select_fields",
-        lambda: ["id", "analysis_id", "document_id", "content", "chunk_type", "parent_chunk_id", "child_chunk_ids"],
+        lambda: [
+            "id",
+            "analysis_id",
+            "document_id",
+            "content",
+            "chunk_type",
+            "parent_chunk_id",
+            "child_chunk_ids",
+        ],
     )
     monkeypatch.setattr("shared.ports.azure_search._embed_query_or_none", lambda query: None)
     monkeypatch.setattr(
@@ -599,7 +688,9 @@ def _patch_search_client(monkeypatch: pytest.MonkeyPatch, client) -> None:
     )
 
 
-def test_parent_no_se_duplica_cuando_su_child_rankea_primero(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_parent_no_se_duplica_cuando_su_child_rankea_primero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from shared.ports.azure_search import search_hybrid
 
     client = _FakeChildThenParentSearchClient()
@@ -726,12 +817,24 @@ def _enumeration_documents() -> list[dict]:
 def _patch_enumeration(monkeypatch: pytest.MonkeyPatch, client) -> None:
     monkeypatch.setattr(
         "shared.ports.azure_search._search_chunk_select_fields",
-        lambda: ["id", "analysis_id", "document_id", "page_number", "chunk_index", "content", "chunk_type", "parent_chunk_id", "child_chunk_ids"],
+        lambda: [
+            "id",
+            "analysis_id",
+            "document_id",
+            "page_number",
+            "chunk_index",
+            "content",
+            "chunk_type",
+            "parent_chunk_id",
+            "child_chunk_ids",
+        ],
     )
     monkeypatch.setattr("azure.search.documents.SearchClient", lambda **kwargs: client)
 
 
-def test_fetch_all_analysis_chunks_no_usa_busqueda_vectorial(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_fetch_all_analysis_chunks_no_usa_busqueda_vectorial(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Enumerar no es buscar: nada de embeddings ni de kNN."""
     from shared.ports.azure_search import fetch_all_analysis_chunks
 
@@ -741,7 +844,9 @@ def test_fetch_all_analysis_chunks_no_usa_busqueda_vectorial(monkeypatch: pytest
     def _embed_should_not_be_called(query):
         raise AssertionError(f"no se debe vectorizar nada al enumerar (recibió {query!r})")
 
-    monkeypatch.setattr("shared.ports.azure_search._embed_query_or_none", _embed_should_not_be_called)
+    monkeypatch.setattr(
+        "shared.ports.azure_search._embed_query_or_none", _embed_should_not_be_called
+    )
 
     chunks, truncated = fetch_all_analysis_chunks("analysis-1")
 

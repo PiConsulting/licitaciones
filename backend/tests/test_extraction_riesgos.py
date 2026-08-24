@@ -52,7 +52,7 @@ class TestRiesgoItem:
             TipoRiesgo.FINANCIERO,
             TipoRiesgo.OTRO,
         ]
-        
+
         for tipo in tipos:
             item = RiesgoItem(
                 tipo=tipo,

@@ -14,6 +14,7 @@ jurídicas del tipo "conforme lo establecido en el presente pliego") se podía
 resolver al chunk equivocado -- el usuario clickea un dato de garantías y
 aterriza en adjudicación.
 """
+
 from __future__ import annotations
 
 from analysis.extraction.extractors.base import _find_grounding_chunk, _verify_citation_grounding
@@ -40,9 +41,7 @@ def _item(citation: str) -> dict:
         "tipo": "mantenimiento_oferta",
         "valor": "1%",
         "extraction_status": "success",
-        "source_references": [
-            {"document_id": "doc-1", "page_number": 4, "citation": citation}
-        ],
+        "source_references": [{"document_id": "doc-1", "page_number": 4, "citation": citation}],
     }
 
 
@@ -240,9 +239,7 @@ def test_sin_pdf_no_hay_coordenadas_aunque_haya_chunk(tmp_path) -> None:
         "text": f"{citation}.",
         "bbox": [{"page": 4, "x": 10.0, "y": 250.0, "width": 300.0, "height": 20.0}],
     }
-    chunks_by_doc_page = {
-        ("doc-1", 4): [_chunk("an-1--doc-1--7", f"{citation}.", blocks=[bloque])]
-    }
+    chunks_by_doc_page = {("doc-1", 4): [_chunk("an-1--doc-1--7", f"{citation}.", blocks=[bloque])]}
 
     enriched = compute_highlights_for_sources(
         sources=[{"document_id": "doc-1", "page_number": 4, "citation": citation}],

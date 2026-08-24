@@ -128,7 +128,9 @@ def test_start_tracking_is_idempotent(client, cosmos_only) -> None:
 
 def test_start_tracking_rejects_non_consultable_analysis(client, cosmos_only) -> None:
     container, user_id, token = cosmos_only
-    analysis_id, _version_id = _seed_analysis_with_version(container, user_id=user_id, status="processing")
+    analysis_id, _version_id = _seed_analysis_with_version(
+        container, user_id=user_id, status="processing"
+    )
 
     response = client.post(
         f"/api/v1/analyses/{analysis_id}/tracking/start",
@@ -347,10 +349,13 @@ def test_comment_edit_same_author_no_special_audit_flag(client, cosmos_only) -> 
     _container, _user_id, token = cosmos_only
     analysis_id, _version_id = _seed_analysis_with_version(_container, user_id=_user_id)
 
-    assert client.post(
-        f"/api/v1/analyses/{analysis_id}/tracking/start",
-        headers={"Authorization": f"Bearer {token}"},
-    ).status_code == 200
+    assert (
+        client.post(
+            f"/api/v1/analyses/{analysis_id}/tracking/start",
+            headers={"Authorization": f"Bearer {token}"},
+        ).status_code
+        == 200
+    )
 
     created = client.post(
         f"/api/v1/analyses/{analysis_id}/tracking/categories/objeto_alcance/comments",
@@ -375,10 +380,13 @@ def test_comment_edit_other_author_sets_audit_metadata(client, cosmos_only) -> N
     container, user_id, token = cosmos_only
     analysis_id, _version_id = _seed_analysis_with_version(container, user_id=user_id)
 
-    assert client.post(
-        f"/api/v1/analyses/{analysis_id}/tracking/start",
-        headers={"Authorization": f"Bearer {token}"},
-    ).status_code == 200
+    assert (
+        client.post(
+            f"/api/v1/analyses/{analysis_id}/tracking/start",
+            headers={"Authorization": f"Bearer {token}"},
+        ).status_code
+        == 200
+    )
 
     created = client.post(
         f"/api/v1/analyses/{analysis_id}/tracking/categories/objeto_alcance/comments",
@@ -423,10 +431,13 @@ def test_comment_soft_delete_hides_from_list(client, cosmos_only) -> None:
     container, user_id, token = cosmos_only
     analysis_id, _version_id = _seed_analysis_with_version(container, user_id=user_id)
 
-    assert client.post(
-        f"/api/v1/analyses/{analysis_id}/tracking/start",
-        headers={"Authorization": f"Bearer {token}"},
-    ).status_code == 200
+    assert (
+        client.post(
+            f"/api/v1/analyses/{analysis_id}/tracking/start",
+            headers={"Authorization": f"Bearer {token}"},
+        ).status_code
+        == 200
+    )
 
     created = client.post(
         f"/api/v1/analyses/{analysis_id}/tracking/categories/objeto_alcance/comments",

@@ -135,7 +135,12 @@ def create_analysis_with_documents(
     if primary_file_index < 0 or primary_file_index >= len(files):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": {"code": "MISSING_PRIMARY", "message": "Seleccioná cuál es el pliego principal"}},
+            detail={
+                "error": {
+                    "code": "MISSING_PRIMARY",
+                    "message": "Seleccioná cuál es el pliego principal",
+                }
+            },
         )
 
     blob_storage = _build_blob_storage()
@@ -185,10 +190,6 @@ def create_analysis_with_documents(
             event="analysis_created",
         )
 
-        # Detectar duplicados acá, apenas se suben los archivos, en vez de
-        # esperar a que el usuario le de a "iniciar análisis": el archivo ya
-        # está en blob y hasheado en este punto, no hay motivo para
-        # posponer el aviso.
         duplicates = find_duplicates_for_analysis(db, analysis.id, user_id)
 
         return analysis, documents, warnings, duplicates
@@ -210,7 +211,9 @@ def to_document_response(document: Document) -> DocumentResponse:
 
 
 def validate_analysis_ownership(db: Session, analysis_id: str, user_id: str) -> Analysis:
-    analysis = db.query(Analysis).filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None)).first()
+    analysis = (
+        db.query(Analysis).filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None)).first()
+    )
     if analysis is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -226,7 +229,9 @@ def validate_analysis_ownership(db: Session, analysis_id: str, user_id: str) -> 
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail={"error": {"code": "FORBIDDEN", "message": "No tenés permisos para este análisis"}},
+            detail={
+                "error": {"code": "FORBIDDEN", "message": "No tenés permisos para este análisis"}
+            },
         )
 
     return analysis
@@ -325,7 +330,9 @@ def enqueue_analysis(background_tasks: BackgroundTasks, analysis_id: str) -> Non
 
 
 def request_cancellation(db: Session, analysis_id: str, user_id: str) -> Analysis:
-    analysis = db.query(Analysis).filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None)).first()
+    analysis = (
+        db.query(Analysis).filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None)).first()
+    )
     if analysis is None:
         raise ValueError("Analysis not found")
 
@@ -394,11 +401,8 @@ def _extract_organism(extracted_data: dict | None) -> str | None:
         return None
 
     datos_procedimiento = extracted_data.get("datos_procedimiento")
-
-    # Forma actual del pipeline: lista de GenericCategoryItem (`tipo`/`valor`).
     items = datos_procedimiento if isinstance(datos_procedimiento, list) else None
     if items is None and isinstance(datos_procedimiento, dict):
-        # Forma legada, por si algún análisis viejo quedó persistido así.
         candidate = datos_procedimiento.get("items")
         items = candidate if isinstance(candidate, list) else None
 
@@ -486,7 +490,9 @@ def list_analyses(
             or_(
                 func.lower(func.coalesce(Analysis.analysis_name, "")).like(normalized),
                 func.lower(func.coalesce(primary_document.filename, "")).like(normalized),
-                func.lower(func.coalesce(cast(AnalysisVersion.extracted_data, String), "")).like(normalized),
+                func.lower(func.coalesce(cast(AnalysisVersion.extracted_data, String), "")).like(
+                    normalized
+                ),
                 func.lower(func.coalesce(Analysis.id, "")).like(normalized),
             )
         )
@@ -530,7 +536,11 @@ def run_analysis_stub(analysis_id: str) -> None:
     """STUB sync processor for Story 2.3 background execution."""
     db = SessionLocal()
     try:
-        analysis = db.query(Analysis).filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None)).first()
+        analysis = (
+            db.query(Analysis)
+            .filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None))
+            .first()
+        )
         if analysis is None:
             logger.error("[STUB] Analysis %s not found", analysis_id)
             return
@@ -539,8 +549,6 @@ def run_analysis_stub(analysis_id: str) -> None:
         analysis.current_stage = "stub_processing"
         analysis.updated_at = datetime.now(UTC)
         db.commit()
-
-        # Keep the delay short to avoid slowing down test suite significantly.
         time.sleep(0.2)
 
         analysis.status = "completed"

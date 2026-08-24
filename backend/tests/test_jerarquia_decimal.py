@@ -46,9 +46,13 @@ BLOQUES_BANCOR = [
     _heading("PLIEGO DE ESPECIFICACIONES TÉCNICAS", 1, 1, 0),
     _heading("1. Generalidades", 2, 4, 1),
     _heading("1.6. Visita técnica obligatoria", 3, 6, 2),
-    _parrafo("Los oferentes deberán realizar una visita técnica obligatoria a ambos data centers.", 6, 3),
+    _parrafo(
+        "Los oferentes deberán realizar una visita técnica obligatoria a ambos data centers.", 6, 3
+    ),
     _heading("1.7. Plazo de entrega", 4, 6, 4),
-    _parrafo("La entrega deberá producirse dentro de los cuarenta y cinco (45) días corridos.", 6, 5),
+    _parrafo(
+        "La entrega deberá producirse dentro de los cuarenta y cinco (45) días corridos.", 6, 5
+    ),
 ]
 
 
@@ -116,7 +120,7 @@ def test_el_escape_de_markdown_no_rompe_la_deteccion() -> None:
 
 
 def test_sin_punto_final_no_es_un_encabezado_numerado() -> None:
-    """"1 Plataforma de software" es la columna Ítem de una planilla."""
+    """ "1 Plataforma de software" es la columna Ítem de una planilla."""
     assert _decimal_heading_depth("1 Plataforma de software de Nube Privada") is None
     assert _decimal_heading_depth("ARTÍCULO 12: PLAZO DE ENTREGA") is None
     assert _decimal_heading_depth("") is None

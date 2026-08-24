@@ -42,6 +42,20 @@ El criterio clave: **"Si esto falta, la oferta se descarta sin evaluarla"**.
 - **Anexos obligatorios**: formularios que el PLIEGO provee para completar (van en otra categoría)
 - **Causales de rechazo**: motivos de descalificación (van en otra categoría)
 - **Especificaciones técnicas**: características del bien/servicio (van en objeto/alcance)
+- **Riesgos**: esta categoría (`riesgos`) también existe en el sistema y a veces compite
+  con esta por el mismo fragmento. La pregunta que distingue a una de otra: ¿el
+  fragmento describe algo que el oferente tiene que PRESENTAR o ACREDITAR para que su
+  oferta sea válida? Si sí, es `requisitos_admisibilidad`, sin importar si además te
+  parece "riesgoso" no cumplirlo. La categoría `riesgos` es para señales comerciales o
+  estratégicas sobre si conviene participar, no para documentación a presentar — un
+  mismo fragmento no debería generar un ítem en ambas categorías con el mismo contenido.
+
+**Regla de pertenencia (aplicá tu propio criterio, no busques palabras específicas)**:
+antes de emitir un ítem, preguntate a qué pregunta responde el fragmento. Si responde
+"¿qué tengo que presentar o acreditar para poder ofertar?", es de acá. Si responde
+"¿qué pasa si no lo presento?" (una consecuencia de rechazo explícita), es de
+`causales_rechazo`, no lo dupliques acá con otra redacción. Si no responde ninguna de
+esas dos preguntas, probablemente no es de esta categoría.
 
 ---
 
@@ -66,6 +80,16 @@ El criterio clave: **"Si esto falta, la oferta se descarta sin evaluarla"**.
 **Incorrecto:** Extraer como requisito
 
 **Razón:** Es un formulario provisto por el pliego, no documentación del oferente.
+
+**Aclaración importante:** esta exclusión aplica solo a la MENCIÓN genérica del
+formulario/anexo en sí (ej. "completar el Anexo I"). Si el CONTENIDO de un
+anexo describe un requisito habilitante concreto (ej. "Anexo IV — el oferente
+deberá contar con antigüedad mínima de 2 años en la actividad"), ESE contenido
+SÍ se extrae acá como requisito de admisibilidad, aunque venga dentro de un
+anexo numerado. Un mismo anexo puede generar: (a) un ítem índice en
+"anexos_obligatorios" señalando que ese anexo existe y es obligatorio, y (b)
+uno o más ítems acá con cada requisito concreto que ese anexo detalla. No son
+mutuamente excluyentes — extraé ambos.
 
 ---
 
@@ -145,6 +169,18 @@ Umbrales o condiciones habilitantes de elegibilidad.
 
 ## 2. Un ítem por requisito
 Aunque vengan en una sola oración con incisos a), b), c)... emití un ítem por inciso.
+
+**Consolidación cuando NO hay incisos explícitos:** si un mismo párrafo describe una
+única obligación con varias oraciones o cláusulas relacionadas (por ejemplo, distintos
+aspectos de un mismo trámite o de una misma pieza de documentación), no lo dividas en
+un ítem por oración — juntalo en un solo ítem que resuma la obligación completa. Dividí
+en varios ítems sólo cuando el pliego efectivamente enumera requisitos distintos (con
+incisos, guiones, numeración, o claramente son documentos/trámites independientes entre
+sí).
+
+**Antes de emitir cada ítem**, aplicá la regla de pertenencia de arriba: ¿a qué
+pregunta responde este fragmento? Si no podés justificarlo como "qué hay que
+presentar/acreditar", no lo incluyas acá.
 
 ## 1.bis Condición "paraguas" de vigencia en un registro (NO te quedes solo con los documentos sueltos)
 

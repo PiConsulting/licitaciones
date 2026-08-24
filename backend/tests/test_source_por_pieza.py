@@ -32,7 +32,15 @@ def _parrafo(content: str, para_id: str, page: int = 1, source_order: int = 0) -
         "page_number": page,
         "source_order": source_order,
         "para_id": para_id,
-        "bbox": [{"page": page, "x": 10.0, "y": 100.0 * (source_order + 1), "width": 400.0, "height": 20.0}],
+        "bbox": [
+            {
+                "page": page,
+                "x": 10.0,
+                "y": 100.0 * (source_order + 1),
+                "width": 400.0,
+                "height": 20.0,
+            }
+        ],
     }
 
 
@@ -49,7 +57,11 @@ def _para_ids(chunk: dict[str, Any]) -> set[str]:
 def test_cada_pieza_declara_solo_los_parrafos_que_contiene() -> None:
     """Cinco párrafos largos que se fusionan y después se parten por tamaño."""
     parrafos = [
-        _parrafo(f"Párrafo número {i} del artículo. " + " ".join([f"palabra{i}"] * 60), f"para_{i}", source_order=i)
+        _parrafo(
+            f"Párrafo número {i} del artículo. " + " ".join([f"palabra{i}"] * 60),
+            f"para_{i}",
+            source_order=i,
+        )
         for i in range(5)
     ]
 
@@ -68,7 +80,8 @@ def test_cada_pieza_declara_solo_los_parrafos_que_contiene() -> None:
 
 def test_dos_piezas_del_mismo_bloque_no_declaran_los_mismos_parrafos() -> None:
     parrafos = [
-        _parrafo(f"Sección {i}. " + " ".join([f"termino{i}"] * 60), f"para_{i}", source_order=i) for i in range(4)
+        _parrafo(f"Sección {i}. " + " ".join([f"termino{i}"] * 60), f"para_{i}", source_order=i)
+        for i in range(4)
     ]
 
     chunks = create_chunks(parrafos, document_id="doc", correlation_id="corr", chunk_size=120)

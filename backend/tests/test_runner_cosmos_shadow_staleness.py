@@ -61,7 +61,9 @@ def test_extract_and_index_actualiza_shadow_cosmos_en_etapas_intermedias(
     user = db.query(User).filter(User.email == "test@cedia.com").first()
     assert user is not None
 
-    analysis = Analysis(created_by=user.id, status="queued", current_stage="queued", correlation_id=str(uuid4()))
+    analysis = Analysis(
+        created_by=user.id, status="queued", current_stage="queued", correlation_id=str(uuid4())
+    )
     db.add(analysis)
     db.flush()
 
@@ -144,7 +146,9 @@ def test_extract_and_index_actualiza_shadow_cosmos_en_etapas_intermedias(
     assert shadow_item["current_stage"] in {"indexing", "analyzing"}
 
 
-def test_persist_runtime_state_se_llama_en_indexing_y_analyzing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_persist_runtime_state_se_llama_en_indexing_y_analyzing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Prueba mas directa: instrumentamos `_persist_runtime_state` para
     capturar la secuencia exacta de eventos que dispara `extract_and_index`,
     y confirmamos que "analysis_indexing" y "analysis_analyzing" -- los dos
@@ -155,7 +159,9 @@ def test_persist_runtime_state_se_llama_en_indexing_y_analyzing(monkeypatch: pyt
     user = db.query(User).filter(User.email == "test@cedia.com").first()
     assert user is not None
 
-    analysis = Analysis(created_by=user.id, status="queued", current_stage="queued", correlation_id=str(uuid4()))
+    analysis = Analysis(
+        created_by=user.id, status="queued", current_stage="queued", correlation_id=str(uuid4())
+    )
     db.add(analysis)
     db.flush()
 
@@ -186,6 +192,7 @@ def test_persist_runtime_state_se_llama_en_indexing_y_analyzing(monkeypatch: pyt
         events_seen.append(event)
 
     monkeypatch.setattr("extraction.runner._persist_runtime_state", _fake_persist_runtime_state)
+
     class _FakeBlobStorage:
         def generate_download_url(self, _blob_name: str) -> str:
             return "https://example.invalid/fake.pdf"

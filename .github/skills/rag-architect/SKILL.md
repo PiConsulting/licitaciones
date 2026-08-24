@@ -53,7 +53,10 @@ splitter = RecursiveCharacterTextSplitter(
 
 chunks = splitter.create_documents(
     texts=[doc.page_content for doc in raw_docs],
-    metadatas=[{"source": doc.metadata["source"], "timestamp": doc.metadata.get("timestamp")} for doc in raw_docs],
+    metadatas=[
+        {"source": doc.metadata["source"], "timestamp": doc.metadata.get("timestamp")}
+        for doc in raw_docs
+    ],
 )
 ```
 
@@ -75,9 +78,13 @@ qdrant.recreate_collection(
     vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
 )
 
-def embed_chunks(chunks: list[str], model: str = "text-embedding-3-small") -> list[list[float]]:
+
+def embed_chunks(
+    chunks: list[str], model: str = "text-embedding-3-small"
+) -> list[list[float]]:
     response = client.embeddings.create(input=chunks, model=model)
     return [r.embedding for r in response.data]
+
 
 # Idempotent upsert with deduplication via deterministic IDs
 import hashlib, uuid
@@ -99,10 +106,13 @@ qdrant.upsert(collection_name="knowledge_base", points=points)
 from qdrant_client.models import Filter, FieldCondition, MatchValue, SparseVector
 from rank_bm25 import BM25Okapi
 
+
 def hybrid_search(query: str, tenant_id: str, top_k: int = 20) -> list:
     # Dense retrieval
     query_embedding = embed_chunks([query])[0]
-    tenant_filter = Filter(must=[FieldCondition(key="tenant_id", match=MatchValue(value=tenant_id))])
+    tenant_filter = Filter(
+        must=[FieldCondition(key="tenant_id", match=MatchValue(value=tenant_id))]
+    )
     dense_results = qdrant.search(
         collection_name="knowledge_base",
         query_vector=query_embedding,
@@ -137,9 +147,12 @@ import cohere
 
 co = cohere.Client(os.environ["COHERE_API_KEY"])
 
+
 def rerank(query: str, results: list, top_n: int = 5) -> list:
     docs = [r.payload.get("text", "") for r in results]
-    reranked = co.rerank(query=query, documents=docs, top_n=top_n, model="rerank-english-v3.0")
+    reranked = co.rerank(
+        query=query, documents=docs, top_n=top_n, model="rerank-english-v3.0"
+    )
     return [results[r.index] for r in reranked.results]
 ```
 
@@ -150,17 +163,27 @@ def rerank(query: str, results: list, top_n: int = 5) -> list:
 # python evaluate.py --metrics precision@10 recall@10 mrr --collection knowledge_base
 
 from ragas import evaluate
-from ragas.metrics import context_precision, context_recall, faithfulness, answer_relevancy
+from ragas.metrics import (
+    context_precision,
+    context_recall,
+    faithfulness,
+    answer_relevancy,
+)
 from datasets import Dataset
 
-eval_dataset = Dataset.from_dict({
-    "question": questions,
-    "contexts": retrieved_contexts,
-    "answer": generated_answers,
-    "ground_truth": ground_truth_answers,
-})
+eval_dataset = Dataset.from_dict(
+    {
+        "question": questions,
+        "contexts": retrieved_contexts,
+        "answer": generated_answers,
+        "ground_truth": ground_truth_answers,
+    }
+)
 
-results = evaluate(eval_dataset, metrics=[context_precision, context_recall, faithfulness, answer_relevancy])
+results = evaluate(
+    eval_dataset,
+    metrics=[context_precision, context_recall, faithfulness, answer_relevancy],
+)
 print(results)
 ```
 

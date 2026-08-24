@@ -74,6 +74,7 @@ def _pymupdf_health() -> tuple[str, str]:
     """FIX MEDIUM (#9): Validar que PyMuPDF esté disponible para highlights."""
     try:
         import fitz  # PyMuPDF
+
         version = fitz.VersionBind
         return "ok", f"PyMuPDF disponible (versión {version})"
     except ImportError:
@@ -227,11 +228,12 @@ def create_app() -> FastAPI:
     app.include_router(analysis_router, prefix="/api/v1")
     app.include_router(tracking_router, prefix="/api/v1")
     app.include_router(documents_router, prefix="/api/v1")
-    
+
     # 🔧 DEBUG - quitar antes de commitear
     from debug.chunks_viewer import debug_router
+
     app.include_router(debug_router, prefix="/api/debug")
-    
+
     return app
 
 

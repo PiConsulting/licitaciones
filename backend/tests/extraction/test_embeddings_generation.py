@@ -18,27 +18,27 @@ class TestDynamicBatchSize:
     def test_default_batch_size_for_normal_chunks(self):
         """Chunks normales (~700 tokens) usan batch size cercano al configurado."""
         chunks = [{"token_count": 700} for _ in range(100)]
-        
+
         batch_size = _calculate_dynamic_batch_size(chunks, max_tokens_per_batch=20000)
-        
+
         # 20000 / 700 ≈ 28, pero limitado por configured max (16)
         assert batch_size == 16  # Limitado por config
 
     def test_reduced_batch_size_for_large_chunks(self):
         """Chunks grandes (>1500 tokens) reducen batch size automáticamente."""
         chunks = [{"token_count": 1800} for _ in range(100)]
-        
+
         batch_size = _calculate_dynamic_batch_size(chunks, max_tokens_per_batch=20000)
-        
+
         # 20000 / 1800 ≈ 11
         assert batch_size == 11
 
     def test_minimum_batch_size_is_one(self):
         """Batch size mínimo es 1 incluso con chunks gigantes."""
         chunks = [{"token_count": 25000} for _ in range(10)]
-        
+
         batch_size = _calculate_dynamic_batch_size(chunks, max_tokens_per_batch=20000)
-        
+
         assert batch_size == 1
 
     def test_uses_sample_for_large_datasets(self):
@@ -46,9 +46,9 @@ class TestDynamicBatchSize:
         # Primeros 100: 700 tokens, resto: 2000 tokens
         chunks = [{"token_count": 700} for _ in range(100)]
         chunks.extend([{"token_count": 2000} for _ in range(400)])
-        
+
         batch_size = _calculate_dynamic_batch_size(chunks, max_tokens_per_batch=20000)
-        
+
         # Debe usar promedio de primeros 100 (700), no de todos
         # 20000 / 700 ≈ 28 → limitado a 16
         assert batch_size == 16
@@ -56,18 +56,18 @@ class TestDynamicBatchSize:
     def test_handles_missing_token_count(self):
         """Si falta token_count, usa default 700."""
         chunks = [{"content": "text"} for _ in range(50)]  # Sin token_count
-        
+
         batch_size = _calculate_dynamic_batch_size(chunks, max_tokens_per_batch=20000)
-        
+
         # Usa 700 como default → 20000/700 ≈ 28 → limitado a 16
         assert batch_size == 16
 
     def test_empty_chunks_returns_default(self):
         """Lista vacía retorna default 16."""
         chunks = []
-        
+
         batch_size = _calculate_dynamic_batch_size(chunks)
-        
+
         assert batch_size == 16
 
 
@@ -82,19 +82,19 @@ class TestEmbeddingGeneration:
         mock_settings.return_value.azure_openai_retry_attempts = 3
         mock_settings.return_value.azure_openai_embeddings_batch_size = 16
         mock_settings.return_value.azure_search_embedding_dimensions = 3072
-        
+
         mock_adapter_instance = Mock()
         mock_adapter.return_value = mock_adapter_instance
         mock_adapter_instance.generate_embeddings.return_value = [[0.1] * 3072, [0.2] * 3072]
-        
+
         chunks = [
             {"content": "Chunk 1", "chunk_index": 0, "token_count": 500},
             {"content": "Chunk 2", "chunk_index": 1, "token_count": 600},
         ]
-        
+
         # Execute
         result = generate_embeddings(chunks, correlation_id="test-123")
-        
+
         # Verify
         assert len(result) == 2
         assert "embedding" in result[0]
@@ -114,9 +114,9 @@ class TestEmbeddingGeneration:
         mock_adapter.return_value = mock_adapter_instance
         # Generar embedding con dimensiones incorrectas
         mock_adapter_instance.generate_embeddings.return_value = [[0.1] * 1536]  # Wrong dims!
-        
+
         chunks = [{"content": "Chunk 1", "chunk_index": 0, "token_count": 500}]
-        
+
         # Debe elevar RuntimeError por dimension mismatch
         with pytest.raises(RuntimeError, match="Embedding dimension mismatch"):
             generate_embeddings(chunks, correlation_id="test-123")
@@ -136,14 +136,11 @@ class TestEmbeddingGeneration:
             [[0.1] * 3072, [0.2] * 3072],  # Batch 1
             [[0.3] * 3072],  # Batch 2 (solo 1 chunk)
         ]
-        
-        chunks = [
-            {"content": f"Chunk {i}", "chunk_index": i, "token_count": 500}
-            for i in range(3)
-        ]
-        
+
+        chunks = [{"content": f"Chunk {i}", "chunk_index": i, "token_count": 500} for i in range(3)]
+
         result = generate_embeddings(chunks, correlation_id="test-123")
-        
+
         # Verifica que se llamó 2 veces (2 batches)
         assert mock_adapter_instance.generate_embeddings.call_count == 2
         assert len(result) == 3
@@ -156,22 +153,24 @@ class TestEmbeddingGeneration:
         mock_settings.return_value.azure_openai_embeddings_batch_size = 16
         mock_settings.return_value.azure_search_embedding_dimensions = 3072
         mock_settings.return_value.is_development = False
-        
+
         mock_adapter.return_value = mock_adapter_instance
         mock_adapter_instance.generate_embeddings.return_value = [[0.1] * 3072]
-        
-        chunks = [{
-            "content": "Text",
-            "chunk_index": 0,
-            "document_id": "doc-123",
-            "page_number": 5,
-            "heading_path": ["TÍTULO"],
-            "primary_category": "garantias",
-            "token_count": 450,
-        }]
-        
+
+        chunks = [
+            {
+                "content": "Text",
+                "chunk_index": 0,
+                "document_id": "doc-123",
+                "page_number": 5,
+                "heading_path": ["TÍTULO"],
+                "primary_category": "garantias",
+                "token_count": 450,
+            }
+        ]
+
         result = generate_embeddings(chunks, correlation_id="test-123")
-        
+
         # Todos los campos originales deben estar presentes
         assert result[0]["chunk_index"] == 0
         assert result[0]["document_id"] == "doc-123"
@@ -191,9 +190,9 @@ class TestEmbedQuery:
         mock_adapter_instance = Mock()
         mock_adapter.return_value = mock_adapter_instance
         mock_adapter_instance.generate_embeddings.return_value = [[0.5] * 3072]
-        
+
         result = embed_query("búsqueda de garantías")
-        
+
         # Verifica llamada con lista de 1 elemento
         mock_adapter_instance.generate_embeddings.assert_called_once_with(["búsqueda de garantías"])
         # Retorna solo el primer embedding
@@ -206,11 +205,48 @@ class TestEmbedQuery:
         mock_adapter_instance = Mock()
         mock_adapter.return_value = mock_adapter_instance
         mock_adapter_instance.generate_embeddings.return_value = [[0.1] * 3072]
-        
+
         embed_query("test")
-        
+
         # Debe usar _build_adapter (misma fuente que chunks)
         mock_adapter.assert_called_once()
+
+    def test_embed_query_determinism(self):
+        """
+        Story 10.2, AC #3: embed_query debe ser determinista.
+        
+        Misma query → mismo embedding (cosine similarity = 1.0)
+        Queries distintas → embeddings distintos (cosine similarity < 0.95)
+        """
+        from math import sqrt
+        
+        def cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
+            """Calcula similitud coseno entre dos vectores."""
+            dot_product = sum(a * b for a, b in zip(vec_a, vec_b))
+            norm_a = sqrt(sum(a * a for a in vec_a))
+            norm_b = sqrt(sum(b * b for b in vec_b))
+            return dot_product / (norm_a * norm_b) if norm_a > 0 and norm_b > 0 else 0.0
+        
+        # Test 1: Misma query retorna embedding idéntico (determinismo)
+        query_1 = "garantías de cumplimiento de contrato"
+        embed_1_first = embed_query(query_1)
+        embed_1_second = embed_query(query_1)
+        
+        similarity_same = cosine_similarity(embed_1_first, embed_1_second)
+        assert similarity_same == 1.0, (
+            f"Embedding de misma query debe ser idéntico (similarity=1.0), "
+            f"pero obtuvo {similarity_same}"
+        )
+        
+        # Test 2: Queries distintas retornan embeddings distintos
+        query_2 = "plazos de presentación de ofertas"
+        embed_2 = embed_query(query_2)
+        
+        similarity_different = cosine_similarity(embed_1_first, embed_2)
+        assert similarity_different < 0.95, (
+            f"Embeddings de queries distintas deben diferir (similarity < 0.95), "
+            f"pero obtuvo {similarity_different}"
+        )
 
 
 @pytest.mark.parametrize(
@@ -218,14 +254,14 @@ class TestEmbedQuery:
     [
         ([500] * 100, 16),  # Normal chunks → max batch
         ([1500] * 100, 13),  # Large chunks → reduced batch
-        ([2500] * 100, 8),   # Very large chunks → smaller batch
+        ([2500] * 100, 8),  # Very large chunks → smaller batch
         ([700, 1200, 500] * 33, 16),  # Mixed sizes → avg ~800 → max batch
     ],
 )
 def test_batch_size_parametrized(chunks_token_counts: list[int], expected_batch_size: int):
     """Tests parametrizados para diferentes distribuciones de token_count."""
     chunks = [{"token_count": count} for count in chunks_token_counts]
-    
+
     batch_size = _calculate_dynamic_batch_size(chunks, max_tokens_per_batch=20000)
-    
+
     assert batch_size == expected_batch_size

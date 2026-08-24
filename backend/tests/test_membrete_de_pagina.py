@@ -90,7 +90,9 @@ def _pliego_con_membrete_pegado_a_una_tabla() -> list[dict[str, Any]]:
 
 
 def test_el_pipeline_no_produce_un_chunk_que_es_solo_membrete() -> None:
-    chunks = create_chunks(_pliego_con_membrete_pegado_a_una_tabla(), document_id="doc", correlation_id="corr")
+    chunks = create_chunks(
+        _pliego_con_membrete_pegado_a_una_tabla(), document_id="doc", correlation_id="corr"
+    )
 
     assert chunks
     for chunk in chunks:
@@ -103,7 +105,9 @@ def test_el_pipeline_no_produce_un_chunk_que_es_solo_membrete() -> None:
 def test_el_membrete_no_termina_como_contexto_de_una_tabla() -> None:
     """El síntoma concreto: los chunks de tabla de Bancor arrancaban con
     `BANCO DE LA PROVINCIA DE CÓRDOBA / BANCOR`."""
-    chunks = create_chunks(_pliego_con_membrete_pegado_a_una_tabla(), document_id="doc", correlation_id="corr")
+    chunks = create_chunks(
+        _pliego_con_membrete_pegado_a_una_tabla(), document_id="doc", correlation_id="corr"
+    )
     tablas = [c for c in chunks if c["block_type"] == "table"]
 
     assert tablas

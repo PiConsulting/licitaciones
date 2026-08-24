@@ -88,7 +88,12 @@ def find_skill_dirs(base_path: str) -> list:
 
 # Markers that mean a directory holds LIVE BMAD config or installer-manifest
 # state — never a disposable skill payload. Their presence protects the directory.
-_CONFIG_MARKERS = ("config.yaml", "config.user.yaml", "module-help.csv", "manifest.yaml")
+_CONFIG_MARKERS = (
+    "config.yaml",
+    "config.user.yaml",
+    "module-help.csv",
+    "manifest.yaml",
+)
 
 
 def _inside_skill_payload(item: Path, root: Path) -> bool:
@@ -166,7 +171,9 @@ def classify_dirs(
             continue
 
         if target.name in ("_config", "core"):
-            protected.append({"dir": dirname, "reason": "live BMAD dir (protected by name)"})
+            protected.append(
+                {"dir": dirname, "reason": "live BMAD dir (protected by name)"}
+            )
             if verbose:
                 print(f"Protected by name, not removing: {target}", file=sys.stderr)
             continue
@@ -174,7 +181,10 @@ def classify_dirs(
         if is_config_bearing(target):
             protected.append({"dir": dirname, "reason": "holds live config/manifest"})
             if verbose:
-                print(f"Protected (live config/manifest), not removing: {target}", file=sys.stderr)
+                print(
+                    f"Protected (live config/manifest), not removing: {target}",
+                    file=sys.stderr,
+                )
             continue
 
         skill_names = find_skill_dirs(str(target))
@@ -185,12 +195,17 @@ def classify_dirs(
             continue
 
         if skills_dir:
-            dir_missing = [s for s in skill_names if not (Path(skills_dir) / s).is_dir()]
+            dir_missing = [
+                s for s in skill_names if not (Path(skills_dir) / s).is_dir()
+            ]
             if dir_missing:
                 missing.extend(dir_missing)
                 if verbose:
                     for s in dir_missing:
-                        print(f"MISSING: {s} not found under {skills_dir}", file=sys.stderr)
+                        print(
+                            f"MISSING: {s} not found under {skills_dir}",
+                            file=sys.stderr,
+                        )
                 continue
             verified.extend(skill_names)
 
@@ -218,7 +233,9 @@ def count_files(path: Path) -> int:
     return count
 
 
-def cleanup_directories(bmad_dir: str, dirs_to_remove: list, verbose: bool = False) -> tuple:
+def cleanup_directories(
+    bmad_dir: str, dirs_to_remove: list, verbose: bool = False
+) -> tuple:
     """Remove specified directories under bmad_dir.
 
     Returns:
@@ -294,7 +311,9 @@ def reject_unresolved_paths(named_paths: list[tuple[str, str]]) -> None:
 def main():
     args = parse_args()
 
-    reject_unresolved_paths([("--bmad-dir", args.bmad_dir), ("--skills-dir", args.skills_dir)])
+    reject_unresolved_paths(
+        [("--bmad-dir", args.bmad_dir), ("--skills-dir", args.skills_dir)]
+    )
 
     bmad_dir = args.bmad_dir
     module_code = args.module_code
@@ -326,7 +345,9 @@ def main():
     # vanish between classify_dirs() and here (TOCTOU) or a nested --also-remove
     # target can be removed with its parent earlier in this loop; surface those in
     # directories_not_found rather than silently dropping them.
-    removed, removal_not_found, total_files = cleanup_directories(bmad_dir, removable, args.verbose)
+    removed, removal_not_found, total_files = cleanup_directories(
+        bmad_dir, removable, args.verbose
+    )
     not_found = not_found + removal_not_found
 
     # Build result

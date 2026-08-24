@@ -17,7 +17,9 @@ def test_response_base_prompt_no_fuerza_formato_por_categoria() -> None:
     assert "Elegís el formato según el contenido" in prompt
 
 
-def test_run_synthesis_respeta_el_formato_que_devuelve_el_llm_bullet_list(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_synthesis_respeta_el_formato_que_devuelve_el_llm_bullet_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def fake_call_llm(*, messages, correlation_id):
         return (
             {
@@ -25,8 +27,16 @@ def test_run_synthesis_respeta_el_formato_que_devuelve_el_llm_bullet_list(monkey
                     {
                         "type": "bullet_list",
                         "items": [
-                            {"text": "Presentar certificado fiscal.", "confidence_level": "alta", "item_refs": [0]},
-                            {"text": "Acreditar capacidad técnica mínima.", "confidence_level": "alta", "item_refs": [0]},
+                            {
+                                "text": "Presentar certificado fiscal.",
+                                "confidence_level": "alta",
+                                "item_refs": [0],
+                            },
+                            {
+                                "text": "Acreditar capacidad técnica mínima.",
+                                "confidence_level": "alta",
+                                "item_refs": [0],
+                            },
                         ],
                     }
                 ],
@@ -42,13 +52,19 @@ def test_run_synthesis_respeta_el_formato_que_devuelve_el_llm_bullet_list(monkey
             "valor": "Certificado fiscal",
             "confidence": 0.9,
             "source_references": [
-                {"document_id": "doc-1", "page_number": 2, "citation": "Certificado fiscal vigente al momento de la oferta."}
+                {
+                    "document_id": "doc-1",
+                    "page_number": 2,
+                    "citation": "Certificado fiscal vigente al momento de la oferta.",
+                }
             ],
             "extraction_status": "success",
         }
     ]
 
-    result = run_synthesis(category_key="requisitos_admisibilidad", items=items, correlation_id="corr-1")
+    result = run_synthesis(
+        category_key="requisitos_admisibilidad", items=items, correlation_id="corr-1"
+    )
     assert result is not None
     narrative, _token_usage = result
 
@@ -63,7 +79,9 @@ def test_run_synthesis_respeta_el_formato_que_devuelve_el_llm_bullet_list(monkey
     assert narrative.blocks[0].items[1].source_ids == [0]
 
 
-def test_run_synthesis_respeta_el_formato_que_devuelve_el_llm_paragraph(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_synthesis_respeta_el_formato_que_devuelve_el_llm_paragraph(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def fake_call_llm(*, messages, correlation_id):
         return (
             {
@@ -87,7 +105,11 @@ def test_run_synthesis_respeta_el_formato_que_devuelve_el_llm_paragraph(monkeypa
             "valor": "Causal uno",
             "confidence": 0.9,
             "source_references": [
-                {"document_id": "doc-1", "page_number": 2, "citation": "Serán causales de rechazo formal la falta de garantía."}
+                {
+                    "document_id": "doc-1",
+                    "page_number": 2,
+                    "citation": "Serán causales de rechazo formal la falta de garantía.",
+                }
             ],
             "extraction_status": "success",
         }
@@ -120,7 +142,9 @@ def test_response_base_prompt_prioriza_checklist_breve() -> None:
     assert "items de una sola idea" in prompt
 
 
-def test_run_synthesis_convierte_fecha_iso_a_formato_natural(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_synthesis_convierte_fecha_iso_a_formato_natural(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def fake_call_llm(*, messages, correlation_id):
         prompt = messages[0][1]
         assert "Fechas y horas en formato natural" in prompt
@@ -147,7 +171,11 @@ def test_run_synthesis_convierte_fecha_iso_a_formato_natural(monkeypatch: pytest
             "hora": "14:30",
             "confidence": 0.9,
             "source_references": [
-                {"document_id": "doc-1", "page_number": 4, "citation": "La oferta debe presentarse antes del 15/09/2026 14:30."}
+                {
+                    "document_id": "doc-1",
+                    "page_number": 4,
+                    "citation": "La oferta debe presentarse antes del 15/09/2026 14:30.",
+                }
             ],
             "extraction_status": "success",
         }
@@ -189,7 +217,9 @@ def test_run_synthesis_incluye_item_index_en_el_prompt(monkeypatch: pytest.Monke
             "tipo": "resumen_objeto",
             "valor": "Objeto",
             "confidence": 0.9,
-            "source_references": [{"document_id": "doc-1", "page_number": 1, "citation": "cita larga y valida"}],
+            "source_references": [
+                {"document_id": "doc-1", "page_number": 1, "citation": "cita larga y valida"}
+            ],
             "extraction_status": "success",
         }
     ]
@@ -225,7 +255,9 @@ def test_run_synthesis_descarta_item_refs_fuera_de_rango(monkeypatch: pytest.Mon
             "tipo": "resumen_objeto",
             "valor": "Objeto",
             "confidence": 0.9,
-            "source_references": [{"document_id": "doc-1", "page_number": 1, "citation": "cita larga y valida"}],
+            "source_references": [
+                {"document_id": "doc-1", "page_number": 1, "citation": "cita larga y valida"}
+            ],
             "extraction_status": "success",
         }
     ]

@@ -24,13 +24,22 @@ def upgrade() -> None:
         sa.Column("extracted_data", sa.JSON(), nullable=False),
         sa.Column("conflicts", sa.JSON(), nullable=True),
         sa.Column("created_by", sa.String(length=36), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+        ),
         sa.ForeignKeyConstraint(["analysis_id"], ["analyses.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["created_by"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("analysis_id", "version_number", name="uq_analysis_versions_analysis_version"),
+        sa.UniqueConstraint(
+            "analysis_id", "version_number", name="uq_analysis_versions_analysis_version"
+        ),
     )
-    op.create_index("idx_analysis_versions_analysis_id", "analysis_versions", ["analysis_id"], unique=False)
+    op.create_index(
+        "idx_analysis_versions_analysis_id", "analysis_versions", ["analysis_id"], unique=False
+    )
 
     op.add_column("analyses", sa.Column("extraction_metadata", sa.JSON(), nullable=True))
 
