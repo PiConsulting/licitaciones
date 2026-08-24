@@ -106,6 +106,75 @@ class Settings(BaseSettings):
         description="Máximo de tokens por chunk de tabla (aprox). Tablas más grandes se dividen en múltiples chunks.",
     )
 
+    # Fase 2 del plan RAG v2 (2026-08-24, sección 4.3): clasificación de
+    # categoría por similitud semántica (embeddings), como fallback cuando ni
+    # el heading ni las keywords del glosario clasifican un chunk. Ver
+    # `extraction/chunking.py::_classify_by_semantic_similarity` y
+    # `analysis/extraction/category_definitions.json`. Default False -- sin
+    # activar, `classify_chunk_categories` se comporta exactamente igual que
+    # antes de esta fase. Activa una llamada real a Azure OpenAI Embeddings
+    # por cada chunk que cae en el fallback (no por cada chunk del pliego).
+    chunking_use_semantic_classification: bool = Field(
+        default=False,
+        alias="CHUNKING_USE_SEMANTIC_CLASSIFICATION",
+        description=(
+            "Si es true, los chunks sin categoría por heading ni por "
+            "keywords del glosario se clasifican por similitud coseno "
+            "contra la definición semántica de cada categoría "
+            "(category_definitions.json), en vez de quedar sin categoría."
+        ),
+    )
+
+    # Fase 3 del plan RAG v2 (2026-08-24, sección 4.2): candidate pool
+    # compartido entre las 9 ramas de extracción, en vez de 9 round-trips
+    # independientes a Azure AI Search por análisis. `setup_node`
+    # (analysis/extraction/graph.py) hace UNA query de alto recall sin boost
+    # de categoría; cada rama evalúa primero si ese pool ya le alcanza
+    # (boost/penalty de categoría aplicado localmente, sin red) antes de
+    # disparar su propia query. Default False -- sin activar, el
+    # comportamiento es idéntico al de antes de esta fase (9 queries
+    # independientes, como siempre).
+    use_shared_candidate_pool: bool = Field(
+        default=False,
+        alias="USE_SHARED_CANDIDATE_POOL",
+        description=(
+            "Si es true, setup_node puebla un candidate pool compartido de "
+            "alto recall y cada categoría lo reusa cuando alcanza el "
+            "purity_rate mínimo, evitando su round-trip específico a Azure."
+        ),
+    )
+    shared_candidate_pool_top_k: int = Field(
+        default=60,
+        alias="SHARED_CANDIDATE_POOL_TOP_K",
+        description="Cuántos chunks trae la query global de setup_node para el candidate pool compartido.",
+    )
+    shared_candidate_pool_purity_threshold: float = Field(
+        default=0.5,
+        alias="SHARED_CANDIDATE_POOL_PURITY_THRESHOLD",
+        description=(
+            "purity_rate mínimo (fracción de chunks de la categoría target, "
+            "0-1) que el pool compartido, ya boosteado para una categoría, "
+            "tiene que alcanzar para usarse sin disparar la query específica "
+            "de esa categoría. Punto de partida razonable, no calibrado "
+            "contra datos reales todavía -- calibrar con el dataset de "
+            "evaluación (plan RAG v2, sección 6) antes de confiar en él para "
+            "producción."
+        ),
+    )
+    query_expansion_use_semantic_definition: bool = Field(
+        default=False,
+        alias="QUERY_EXPANSION_USE_SEMANTIC_DEFINITION",
+        description=(
+            "Si es true, run_extractor() enriquece la query que cada rama "
+            "vectoriza para el vector search con la definición semántica "
+            "completa de la categoría (category_definitions.json, misma "
+            "fuente que usa la Fase 2 / 4.3 para clasificación de chunks), "
+            "en vez de usar solo la frase corta que arma cada extractor. La "
+            "query de keywords para BM25 (build_keyword_query) no cambia. "
+            "Fase 4 del plan RAG v2, sección 4.4."
+        ),
+    )
+
     # Highlight configuration
     highlight_citation_min_length: int = Field(
         default=3,
@@ -118,6 +187,28 @@ class Settings(BaseSettings):
         default=False,
         alias="ENABLE_BM25_IMPACT_ANALYSIS",
         description="Activa logs detallados para medir contribución de BM25 vs Vector al hybrid search",
+    )
+
+    # Fase 1 del plan RAG v2 (2026-08-24; revisado el mismo día — el servicio
+    # de Azure AI Search de este proyecto NO tiene el add-on de Semantic
+    # Ranker habilitado, así que esta fase quedó en Hybrid Search "clásico":
+    # BM25 real (sobre el corpus completo del análisis) + vector, fusionados
+    # por Azure vía RRF — sin paso de reranking semántico). Reemplaza el BM25
+    # local aproximado (`_local_bm25_score`), que sólo reordena el pool ya
+    # devuelto por el kNN. Se activa por flag para poder correr A/B contra el
+    # baseline actual (`_run_vector_only_query` + combinación manual 0.6/0.4)
+    # antes de promoverlo — no requiere ningún cambio de schema del índice.
+    azure_search_use_native_hybrid: bool = Field(
+        default=False,
+        alias="AZURE_SEARCH_USE_NATIVE_HYBRID",
+        description=(
+            "Si es true, _search_azure() usa Hybrid Search nativo de Azure "
+            "(search_text real + vector_queries en la misma llamada, "
+            "fusionados por Azure vía RRF) en vez del BM25 local aproximado "
+            "sobre el pool ya recuperado por kNN. No incluye reranking "
+            "semántico (add-on Semantic Ranker no disponible en este "
+            "proyecto)."
+        ),
     )
 
     # FIX: Dead code eliminado (#1, #2, #3) - campos legacy de adaptadores locales:
