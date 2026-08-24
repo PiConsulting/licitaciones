@@ -16,9 +16,13 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.create_index("idx_analyses_created_at", "analyses", ["created_at"], unique=False, if_not_exists=True)
+    op.create_index(
+        "idx_analyses_created_at", "analyses", ["created_at"], unique=False, if_not_exists=True
+    )
     op.create_index("idx_analyses_status", "analyses", ["status"], unique=False, if_not_exists=True)
-    op.create_index("idx_analyses_deleted_at", "analyses", ["deleted_at"], unique=False, if_not_exists=True)
+    op.create_index(
+        "idx_analyses_deleted_at", "analyses", ["deleted_at"], unique=False, if_not_exists=True
+    )
     op.create_index(
         "idx_analyses_list",
         "analyses",

@@ -21,8 +21,16 @@ from analysis.extraction.extractors.criterios_evaluacion import extractor_criter
 from analysis.extraction.extractors.garantias import extractor_garantias
 from analysis.extraction.extractors.objeto_alcance import extractor_objeto_alcance
 from analysis.extraction.extractors.plazos import extractor_plazos
-from analysis.extraction.extractors.requisitos_admisibilidad import extractor_requisitos_admisibilidad
-from analysis.extraction.graph import calculate_confidence, graph, merge_node, setup_node, synthesize_node
+from analysis.extraction.extractors.requisitos_admisibilidad import (
+    extractor_requisitos_admisibilidad,
+)
+from analysis.extraction.graph import (
+    calculate_confidence,
+    graph,
+    merge_node,
+    setup_node,
+    synthesize_node,
+)
 from analysis.extraction.schemas import ExtractedData
 
 
@@ -88,8 +96,9 @@ def _fake_llm_result(messages: list[tuple[str, str]]) -> dict:
         return {
             "plazos_clave": [
                 {
-                    "tipo": "presentación ofertas",
+                    "referencia": "Presentación de ofertas",
                     "fecha": "2024-05-15",
+                    "texto_original": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
                     "confidence": 0.95,
                     "source_references": [
                         {
@@ -250,7 +259,10 @@ def test_document_mapping_fluye_de_setup_a_synthesize_para_highlights(
     monkeypatch.setattr(
         graph_module,
         "run_synthesis",
-        lambda **_kwargs: (fake_narrative, {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}),
+        lambda **_kwargs: (
+            fake_narrative,
+            {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        ),
     )
 
     state["extracted_data"] = {"objeto_alcance": [{"tipo": "resumen_objeto", "valor": "algo"}]}
@@ -269,47 +281,72 @@ def test_graph_execution_all_success(mock_state: dict, mock_search: None, mock_l
     assert "anexos_obligatorios" in result["extracted_data"]
 
 
-def test_extractor_retry_on_failure(mock_state: dict, mock_search: None, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_extractor_retry_on_failure(
+    mock_state: dict, mock_search: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     class Response:
         content = '{"plazos_clave": []}'
-        response_metadata = {"token_usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}}
+        response_metadata = {
+            "token_usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+        }
 
     mock_client = Mock()
     mock_client.bind.return_value = mock_client
     mock_client.invoke.side_effect = [Exception("Timeout"), Response()]
-    monkeypatch.setattr("analysis.extraction.extractors.base.get_azure_openai_client", lambda: mock_client)
+    monkeypatch.setattr(
+        "analysis.extraction.extractors.base.get_azure_openai_client", lambda: mock_client
+    )
 
     result = extractor_plazos(mock_state)
     assert mock_client.invoke.call_count == 2
     assert result["plazos_status"] in {"success", "not_found"}
 
 
-def test_extractor_failure_continues(mock_state: dict, mock_search: None, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_extractor_failure_continues(
+    mock_state: dict, mock_search: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     mock_client = Mock()
     mock_client.bind.return_value = mock_client
     mock_client.invoke.side_effect = Exception("Permanent failure")
-    monkeypatch.setattr("analysis.extraction.extractors.base.get_azure_openai_client", lambda: mock_client)
+    monkeypatch.setattr(
+        "analysis.extraction.extractors.base.get_azure_openai_client", lambda: mock_client
+    )
 
     result = extractor_plazos(mock_state)
     assert result["plazos_status"] == "failed"
 
 
 def test_merge_node_detects_conflicts() -> None:
+    """FIX (2026-08-22): agrupar por `referencia` (texto libre) en vez del
+    viejo `tipo` (enum eliminado). Dos ítems con la MISMA `referencia` y
+    fechas distintas siguen marcándose como conflicto."""
     state = {
         "analysis_id": "analysis-1",
         "correlation_id": "corr-1",
         "plazos": [
             {
-                "tipo": "presentación ofertas",
+                "referencia": "Presentación de ofertas",
                 "fecha": "2024-05-15",
-                "source_references": [{"document_id": "doc-1", "page_number": 1, "citation": "Cita literal de la fuente A del pliego."}],
+                "source_references": [
+                    {
+                        "document_id": "doc-1",
+                        "page_number": 1,
+                        "citation": "Cita literal de la fuente A del pliego.",
+                    }
+                ],
                 "extraction_status": "success",
                 "confidence": 0.8,
             },
             {
-                "tipo": "presentación ofertas",
+                "referencia": "Presentación de ofertas",
                 "fecha": "2024-05-20",
-                "source_references": [{"document_id": "doc-2", "page_number": 2, "citation": "Cita literal de la fuente B del pliego."}],
+                "source_references": [
+                    {
+                        "document_id": "doc-2",
+                        "page_number": 2,
+                        "citation": "Cita literal de la fuente B del pliego.",
+                    }
+                ],
                 "extraction_status": "success",
                 "confidence": 0.8,
             },
@@ -334,26 +371,45 @@ def test_merge_fusiona_plazos_duplicados_del_mismo_hecho() -> None:
     """Bug real reportado: 'mantenimiento de oferta' aparecía dos veces en
     Plazos Clave porque cada documento citaba el mismo plazo por separado y
     nunca se fusionaban en un solo ítem (solo se comparaban para detectar
-    conflictos, nunca para deduplicar)."""
+    conflictos, nunca para deduplicar).
+
+    FIX (2026-08-22): la dedup ya no depende de canonicalizar `tipo` (enum
+    eliminado) -- agrupa directamente por el valor del plazo
+    (`_plazo_dedup_value`: fecha/expresion_relativa/texto_original). Acá los
+    dos ítems traen `referencia` con redacciones distintas a propósito (cada
+    documento la tituló distinto) para probar que el merge no depende de que
+    coincidan."""
     state = {
         "analysis_id": "analysis-1",
         "correlation_id": "corr-1",
         "plazos": [
             {
-                "tipo": "mantenimiento de la oferta",
+                "referencia": "Mantenimiento de oferta",
                 "fecha": None,
                 "expresion_relativa": "30 días corridos desde la apertura",
                 "texto_original": "El oferente deberá mantener su oferta por 30 días corridos desde la apertura.",
-                "source_references": [{"document_id": "doc-1", "page_number": 4, "citation": "El oferente deberá mantener su oferta por 30 días corridos desde la apertura del procedimiento."}],
+                "source_references": [
+                    {
+                        "document_id": "doc-1",
+                        "page_number": 4,
+                        "citation": "El oferente deberá mantener su oferta por 30 días corridos desde la apertura del procedimiento.",
+                    }
+                ],
                 "extraction_status": "success",
                 "confidence": 0.8,
             },
             {
-                "tipo": "garantía de mantenimiento de oferta",
+                "referencia": "Vigencia de la oferta",
                 "fecha": None,
                 "expresion_relativa": "30 días corridos desde la apertura",
                 "texto_original": "El oferente deberá mantener su oferta por 30 días corridos desde la apertura.",
-                "source_references": [{"document_id": "doc-2", "page_number": 7, "citation": "El oferente deberá mantener su oferta por 30 días corridos desde la apertura del procedimiento."}],
+                "source_references": [
+                    {
+                        "document_id": "doc-2",
+                        "page_number": 7,
+                        "citation": "El oferente deberá mantener su oferta por 30 días corridos desde la apertura del procedimiento.",
+                    }
+                ],
                 "extraction_status": "success",
                 "confidence": 0.75,
             },
@@ -372,9 +428,9 @@ def test_merge_fusiona_plazos_duplicados_del_mismo_hecho() -> None:
     result = merge_node(state)
     plazos = result["extracted_data"]["plazos_clave"]
 
-    mantenimiento = [item for item in plazos if item["tipo"] == "mantenimiento_oferta"]
-    assert len(mantenimiento) == 1
-    assert len(mantenimiento[0]["source_references"]) == 2
+    assert len(plazos) == 1
+    assert plazos[0]["referencia"] in {"Mantenimiento de oferta", "Vigencia de la oferta"}
+    assert len(plazos[0]["source_references"]) == 2
     assert result["conflicts"] == []
 
 
@@ -393,11 +449,12 @@ def test_json_contract_allows_not_applicable_status() -> None:
     payload = {
         "plazos": [
             {
-                # El enum `TipoPlazo` es el contrato del schema. La forma con
-                # espacios la produce el LLM y la canonicaliza merge_node; este
-                # test valida el schema directo, asi que usa el valor canonico.
-                "tipo": "mantenimiento_oferta",
+                # FIX (2026-08-22): el enum `TipoPlazo` se eliminó del schema
+                # (ver PlazoItem en schemas.py) -- `referencia` es texto libre,
+                # no un valor canónico de un enum.
+                "referencia": "Mantenimiento de oferta",
                 "fecha": None,
+                "texto_original": "No se exige plazo de mantenimiento de oferta.",
                 "confidence": 0.85,
                 "source_references": [
                     {
@@ -427,7 +484,7 @@ def test_merge_preserves_table_citation_header_and_row() -> None:
         "correlation_id": "corr-1",
         "plazos": [
             {
-                "tipo": "presentacion_ofertas",
+                "referencia": "Presentación de ofertas",
                 "fecha": "2024-05-15",
                 "texto_original": "Fecha limite de presentacion de ofertas: 15/05/2024",
                 "source_references": [
@@ -487,21 +544,29 @@ def test_verify_citation_grounding_expands_short_verified_citation() -> None:
         }
     ]
 
-    _verify_citation_grounding(items, chunks, category="identificacion_procedimiento", correlation_id="corr-1")
+    _verify_citation_grounding(
+        items, chunks, category="identificacion_procedimiento", correlation_id="corr-1"
+    )
 
     citation = items[0]["source_references"][0]["citation"]
     assert len(citation) >= 40
     assert "Expediente N 0100-EXP-2026" in citation
 
 
-def test_merge_node_maps_plazo_types_to_schema_contract() -> None:
+def test_merge_node_preserves_free_text_referencia() -> None:
+    """FIX (2026-08-22): `referencia` es texto libre, no un enum -- `merge_node`
+    ya no canonicaliza el `tipo` (esa función, `_canonical_plazo_tipo`, se
+    eliminó junto con el enum). Reemplaza a la vieja
+    `test_merge_node_maps_plazo_types_to_schema_contract`, que probaba
+    justamente esa canonicalización."""
     state = {
         "analysis_id": "analysis-1",
         "correlation_id": "corr-1",
         "plazos": [
             {
-                "tipo": "apertura de ofertas",
+                "referencia": "Apertura de ofertas",
                 "fecha": "2026-09-15",
+                "texto_original": "Apertura de ofertas: 15/09/2026 a las 11:00 hs en la Sala de Licitaciones del municipio.",
                 "source_references": [
                     {
                         "document_id": "doc-1",
@@ -513,8 +578,9 @@ def test_merge_node_maps_plazo_types_to_schema_contract() -> None:
                 "confidence": 0.8,
             },
             {
-                "tipo": "plazo de entrega",
+                "referencia": "Plazo de entrega de los productos",
                 "expresion_relativa": "90 dias corridos",
+                "texto_original": "El plazo de entrega de los productos sera como maximo de noventa dias corridos a partir de la recepcion de la orden de provision.",
                 "source_references": [
                     {
                         "document_id": "doc-1",
@@ -540,9 +606,9 @@ def test_merge_node_maps_plazo_types_to_schema_contract() -> None:
     }
 
     result = merge_node(state)
-    tipos = [item["tipo"] for item in result["extracted_data"]["plazos_clave"]]
-    assert "apertura_ofertas" in tipos
-    assert "otro" in tipos
+    referencias = [item["referencia"] for item in result["extracted_data"]["plazos_clave"]]
+    assert "Apertura de ofertas" in referencias
+    assert "Plazo de entrega de los productos" in referencias
 
 
 def test_merge_exposes_ui_category_keys() -> None:
@@ -557,7 +623,13 @@ def test_merge_exposes_ui_category_keys() -> None:
                 "tipo": "documento",
                 "valor": "estatuto",
                 "confidence": 0.8,
-                "source_references": [{"document_id": "doc-1", "page_number": 2, "citation": "Texto literal tomado del pliego analizado."}],
+                "source_references": [
+                    {
+                        "document_id": "doc-1",
+                        "page_number": 2,
+                        "citation": "Texto literal tomado del pliego analizado.",
+                    }
+                ],
                 "extraction_status": "success",
             }
         ],
@@ -633,7 +705,13 @@ def test_merge_populates_datos_procedimiento_desde_identificacion() -> None:
                 "tipo": "organismo_convocante",
                 "valor": "Municipalidad de Villa Nueva",
                 "confidence": 0.9,
-                "source_references": [{"document_id": "doc-1", "page_number": 1, "citation": "Texto literal tomado del fragmento recuperado."}],
+                "source_references": [
+                    {
+                        "document_id": "doc-1",
+                        "page_number": 1,
+                        "citation": "Texto literal tomado del fragmento recuperado.",
+                    }
+                ],
                 "extraction_status": "success",
             }
         ],
@@ -654,17 +732,43 @@ def test_extract_identificacion_esta_conectado_al_grafo() -> None:
 
 
 def test_individual_extractors(mock_state: dict, mock_search: None, mock_llm: None) -> None:
-    assert extractor_objeto_alcance(dict(mock_state))["objeto_alcance_status"] in {"success", "not_found", "partial"}
-    assert extractor_plazos(dict(mock_state))["plazos_status"] in {"success", "not_found", "partial"}
-    assert extractor_garantias(dict(mock_state))["garantias_status"] in {"success", "not_found", "partial"}
-    assert extractor_causales(dict(mock_state))["causales_status"] in {"success", "not_found", "partial"}
-    assert extractor_anexos_obligatorios(dict(mock_state))["anexos_status"] in {"success", "not_found", "partial"}
-    assert extractor_requisitos_admisibilidad(dict(mock_state))["requisitos_admisibilidad_status"] in {
+    assert extractor_objeto_alcance(dict(mock_state))["objeto_alcance_status"] in {
         "success",
         "not_found",
         "partial",
     }
-    assert extractor_criterios_evaluacion(dict(mock_state))["criterios_status"] in {"success", "not_found", "partial"}
+    assert extractor_plazos(dict(mock_state))["plazos_status"] in {
+        "success",
+        "not_found",
+        "partial",
+    }
+    assert extractor_garantias(dict(mock_state))["garantias_status"] in {
+        "success",
+        "not_found",
+        "partial",
+    }
+    assert extractor_causales(dict(mock_state))["causales_status"] in {
+        "success",
+        "not_found",
+        "partial",
+    }
+    assert extractor_anexos_obligatorios(dict(mock_state))["anexos_status"] in {
+        "success",
+        "not_found",
+        "partial",
+    }
+    assert extractor_requisitos_admisibilidad(dict(mock_state))[
+        "requisitos_admisibilidad_status"
+    ] in {
+        "success",
+        "not_found",
+        "partial",
+    }
+    assert extractor_criterios_evaluacion(dict(mock_state))["criterios_status"] in {
+        "success",
+        "not_found",
+        "partial",
+    }
 
 
 def test_extractor_usa_una_query_semantica_rica_sin_glosario(
@@ -744,7 +848,9 @@ def test_todos_los_prompts_referenciados_existen_y_tienen_placeholders() -> None
     assert en_disco == CANONICAL_PROMPT_FILES
 
 
-def test_inventario_canonico_de_prompts_es_estricto(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_inventario_canonico_de_prompts_es_estricto(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     prompts_dir = tmp_path / "prompts"
     prompts_dir.mkdir(parents=True, exist_ok=True)
     for name in CANONICAL_PROMPT_FILES:
@@ -783,7 +889,9 @@ def test_esquema_de_cada_prompt_usa_result_key_como_raiz() -> None:
     for category_key, prompt_file_name in CANONICAL_CATEGORY_PROMPT_MAP.items():
         contenido = (base / prompt_file_name).read_text(encoding="utf-8")
         clave_declarada = re.search(r'^\s*"([a-z_]+)":\s*\[', contenido, re.MULTILINE)
-        assert clave_declarada is not None, f"{prompt_file_name} no declara una clave raiz de ESQUEMA reconocible"
+        assert clave_declarada is not None, (
+            f"{prompt_file_name} no declara una clave raiz de ESQUEMA reconocible"
+        )
         assert clave_declarada.group(1) == category_key, (
             f"{prompt_file_name} declara la clave raiz '{clave_declarada.group(1)}' "
             f"pero result_key es '{category_key}': el LLM va a responder con la clave "
@@ -811,7 +919,13 @@ def _anexo_item(valor: str, page_number: int, **overrides: object) -> dict:
         "tipo": "anexo",
         "valor": valor,
         "confidence": 0.8,
-        "source_references": [{"document_id": "doc-1", "page_number": page_number, "citation": "Cita literal tomada del pliego analizado."}],
+        "source_references": [
+            {
+                "document_id": "doc-1",
+                "page_number": page_number,
+                "citation": "Cita literal tomada del pliego analizado.",
+            }
+        ],
         "extraction_status": "success",
     }
     item.update(overrides)
@@ -820,7 +934,10 @@ def _anexo_item(valor: str, page_number: int, **overrides: object) -> dict:
 
 def test_dedup_anexos_fusiona_duplicado_exacto() -> None:
     state = _dedup_base_state()
-    state["anexos"] = [_anexo_item("Anexo I — Planilla de Cotización", 3), _anexo_item("Anexo I — Planilla de Cotización", 7)]
+    state["anexos"] = [
+        _anexo_item("Anexo I — Planilla de Cotización", 3),
+        _anexo_item("Anexo I — Planilla de Cotización", 7),
+    ]
 
     result = merge_node(state)
     anexos = result["extracted_data"]["anexos_obligatorios"]
@@ -879,14 +996,26 @@ def test_dedup_causales_sin_campo_tipo_util_no_fusiona_hechos_distintos() -> Non
             "tipo": "causal_rechazo",
             "valor": "No presentar la garantía de mantenimiento de oferta.",
             "confidence": 0.9,
-            "source_references": [{"document_id": "doc-1", "page_number": 4, "citation": "Cita literal tomada del pliego analizado."}],
+            "source_references": [
+                {
+                    "document_id": "doc-1",
+                    "page_number": 4,
+                    "citation": "Cita literal tomada del pliego analizado.",
+                }
+            ],
             "extraction_status": "success",
         },
         {
             "tipo": "causal_rechazo",
             "valor": "Presentar la oferta fuera del plazo establecido.",
             "confidence": 0.9,
-            "source_references": [{"document_id": "doc-1", "page_number": 5, "citation": "Cita literal tomada del pliego analizado."}],
+            "source_references": [
+                {
+                    "document_id": "doc-1",
+                    "page_number": 5,
+                    "citation": "Cita literal tomada del pliego analizado.",
+                }
+            ],
             "extraction_status": "success",
         },
     ]
@@ -904,14 +1033,26 @@ def test_dedup_causales_mismo_tipo_y_valor_se_fusiona() -> None:
             "tipo": "causal_rechazo",
             "valor": "No presentar la garantía de mantenimiento de oferta.",
             "confidence": 0.9,
-            "source_references": [{"document_id": "doc-1", "page_number": 4, "citation": "Cita literal tomada del pliego analizado."}],
+            "source_references": [
+                {
+                    "document_id": "doc-1",
+                    "page_number": 4,
+                    "citation": "Cita literal tomada del pliego analizado.",
+                }
+            ],
             "extraction_status": "success",
         },
         {
             "tipo": "causal_rechazo",
             "valor": "no presentar la garantía de mantenimiento de oferta.",
             "confidence": 0.85,
-            "source_references": [{"document_id": "doc-1", "page_number": 9, "citation": "Cita literal tomada del pliego analizado."}],
+            "source_references": [
+                {
+                    "document_id": "doc-1",
+                    "page_number": 9,
+                    "citation": "Cita literal tomada del pliego analizado.",
+                }
+            ],
             "extraction_status": "success",
         },
     ]
@@ -926,17 +1067,31 @@ def test_dedup_no_cambia_comportamiento_de_plazos_y_garantias() -> None:
     state = _dedup_base_state()
     state["plazos"] = [
         {
-            "tipo": "presentación ofertas",
+            "referencia": "Presentación de ofertas",
             "fecha": "2024-05-15",
+            "texto_original": "Las ofertas se recibirán hasta el 15/05/2024.",
             "confidence": 0.9,
-            "source_references": [{"document_id": "doc-1", "page_number": 1, "citation": "Cita literal de la fuente A del pliego."}],
+            "source_references": [
+                {
+                    "document_id": "doc-1",
+                    "page_number": 1,
+                    "citation": "Cita literal de la fuente A del pliego.",
+                }
+            ],
             "extraction_status": "success",
         },
         {
-            "tipo": "presentación de ofertas",
+            "referencia": "Presentación de las ofertas",
             "fecha": "2024-05-15",
+            "texto_original": "Las ofertas se recibirán hasta el 15/05/2024.",
             "confidence": 0.8,
-            "source_references": [{"document_id": "doc-2", "page_number": 2, "citation": "Cita literal de la fuente B del pliego."}],
+            "source_references": [
+                {
+                    "document_id": "doc-2",
+                    "page_number": 2,
+                    "citation": "Cita literal de la fuente B del pliego.",
+                }
+            ],
             "extraction_status": "success",
         },
     ]
@@ -946,7 +1101,13 @@ def test_dedup_no_cambia_comportamiento_de_plazos_y_garantias() -> None:
             "monto_porcentaje": 1.0,
             "monto_valor": None,
             "confidence": 0.9,
-            "source_references": [{"document_id": "doc-1", "page_number": 5, "citation": "Cita literal de la fuente A del pliego."}],
+            "source_references": [
+                {
+                    "document_id": "doc-1",
+                    "page_number": 5,
+                    "citation": "Cita literal de la fuente A del pliego.",
+                }
+            ],
             "extraction_status": "success",
         },
         {
@@ -954,7 +1115,13 @@ def test_dedup_no_cambia_comportamiento_de_plazos_y_garantias() -> None:
             "monto_porcentaje": 1.0,
             "monto_valor": None,
             "confidence": 0.85,
-            "source_references": [{"document_id": "doc-1", "page_number": 6, "citation": "Cita literal de la fuente B del pliego."}],
+            "source_references": [
+                {
+                    "document_id": "doc-1",
+                    "page_number": 6,
+                    "citation": "Cita literal de la fuente B del pliego.",
+                }
+            ],
             "extraction_status": "success",
         },
     ]
@@ -1059,15 +1226,16 @@ def test_synthesize_node_enumera_el_indice_una_sola_vez(monkeypatch) -> None:
             False,
         )
 
-    monkeypatch.setattr(
-        "shared.ports.azure_search.fetch_all_analysis_chunks", _fake_fetch_all
-    )
+    monkeypatch.setattr("shared.ports.azure_search.fetch_all_analysis_chunks", _fake_fetch_all)
 
     narrative = CategoryNarrative(blocks=[], sources=[])
     monkeypatch.setattr(
         graph_module,
         "run_synthesis",
-        lambda **_kwargs: (narrative, {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}),
+        lambda **_kwargs: (
+            narrative,
+            {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        ),
     )
 
     enrich_calls: list[dict] = []

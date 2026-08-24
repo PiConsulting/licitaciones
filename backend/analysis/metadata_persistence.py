@@ -55,7 +55,9 @@ class CosmosMetadataSink:
         self._container = container
 
     def _get_container_client(self):
-        return _build_cosmos_container_client(self._endpoint, self._key, self._database, self._container)
+        return _build_cosmos_container_client(
+            self._endpoint, self._key, self._database, self._container
+        )
 
     @staticmethod
     def _request_charge(response: object) -> float:
@@ -89,29 +91,20 @@ class CosmosMetadataSink:
             "status": analysis.status,
             "current_stage": analysis.current_stage,
             "progress_percentage": int(analysis.progress_percentage or 0),
-            "current_version_id": str(analysis.current_version_id) if analysis.current_version_id else None,
+            "current_version_id": str(analysis.current_version_id)
+            if analysis.current_version_id
+            else None,
             "correlation_id": str(analysis.correlation_id),
             "created_by": str(analysis.created_by),
             "extraction_metadata": analysis.extraction_metadata or {},
             "event": event,
             "started_at": analysis.started_at.isoformat() if analysis.started_at else None,
             "timeout_at": analysis.timeout_at.isoformat() if analysis.timeout_at else None,
-            "timeout_warning_at": analysis.timeout_warning_at.isoformat() if analysis.timeout_warning_at else None,
+            "timeout_warning_at": analysis.timeout_warning_at.isoformat()
+            if analysis.timeout_warning_at
+            else None,
             "error_message": analysis.error_message,
             "updated_at": timestamp,
-            # FIX (auditoría 2026-08-12, flujo Cosmos, hallazgo relacionado a
-            # US-5.1): este sink escribe el "shadow copy" de Cosmos en modo
-            # dual_write/cosmos_temporal/cosmos, pensado justamente para poder
-            # cortar a cosmos_only más adelante sin perder datos. Pero le
-            # faltaban campos que SÍ escribe el runtime nativo de Cosmos
-            # (`cosmos_runtime.py::create_analysis_cosmos`) y que
-            # `list_analyses_cosmos`/`get_analysis_detail_cosmos` sí leen:
-            # sin "analysis_name" el listado mostraría el nombre vacío para
-            # cualquier análisis creado en modo dual_write; sin "created_at"
-            # (antes solo se escribía "updated_at") el sort_by="created_at"
-            # de `list_analyses_cosmos` trataría a estos análisis como si no
-            # tuvieran fecha, rompiendo el orden; sin "deleted" el filtro de
-            # borrado lógico no tendría ese campo para leer.
             "analysis_name": analysis.analysis_name,
             "created_at": analysis.created_at.isoformat() if analysis.created_at else timestamp,
             "cancellation_requested": bool(analysis.cancellation_requested),
@@ -135,22 +128,13 @@ class CosmosMetadataSink:
                         "deleted": document.deleted_at is not None,
                         "event": event,
                         "updated_at": timestamp,
-                        # FIX (auditoría 2026-08-12, flujo Cosmos): mismo
-                        # problema que en el item de análisis -- sin
-                        # "content_hash" la detección de duplicados
-                        # (`find_duplicate_documents_cosmos`, que filtra por
-                        # `c.content_hash = @content_hash`) nunca matchearía
-                        # contra documentos creados en modo dual_write; sin
-                        # "file_size_bytes"/"sha256_hash" quedarían en 0/ausente
-                        # al leerlos de vuelta con el runtime nativo de Cosmos;
-                        # sin "uploaded_at" (antes solo "updated_at", campo
-                        # distinto) el runtime nativo no tendría fecha de
-                        # subida para ese documento.
                         "file_size_bytes": int(document.file_size_bytes or 0),
                         "sha256_hash": document.sha256_hash,
                         "content_hash": document.content_hash,
                         "created_by": str(document.created_by) if document.created_by else None,
-                        "uploaded_at": document.uploaded_at.isoformat() if document.uploaded_at else timestamp,
+                        "uploaded_at": document.uploaded_at.isoformat()
+                        if document.uploaded_at
+                        else timestamp,
                     }
                 )
             )
@@ -197,7 +181,9 @@ class DualWriteMetadataSink:
         event: str,
     ) -> None:
         self.primary.persist(analysis=analysis, documents=documents, versions=versions, event=event)
-        self.secondary.persist(analysis=analysis, documents=documents, versions=versions, event=event)
+        self.secondary.persist(
+            analysis=analysis, documents=documents, versions=versions, event=event
+        )
 
 
 def build_metadata_sink(settings: Settings | None = None) -> AnalysisMetadataSink:
@@ -248,7 +234,9 @@ def persist_analysis_metadata(
             raise RuntimeError("No se pudo persistir metadata en Cosmos para modo cloud") from exc
 
 
-def read_runtime_analysis_from_cosmos(analysis_id: str, settings: Settings | None = None) -> dict | None:
+def read_runtime_analysis_from_cosmos(
+    analysis_id: str, settings: Settings | None = None
+) -> dict | None:
     settings = settings or get_settings()
     sink = CosmosMetadataSink(
         endpoint=settings.cosmos_endpoint,

@@ -27,7 +27,9 @@ from extraction.chunking import (
 )
 
 
-def _fila(contenido: str, page: int = 2, table_id: str = "T1", row_order: int = 0) -> dict[str, Any]:
+def _fila(
+    contenido: str, page: int = 2, table_id: str = "T1", row_order: int = 0
+) -> dict[str, Any]:
     return {
         "content": contenido,
         "page_number": page,
@@ -80,7 +82,9 @@ def _tabla_indice(page: int = 2, table_id: str = "T1") -> list[dict[str, Any]]:
 
 
 def test_el_indice_en_forma_de_tabla_se_descarta() -> None:
-    bloques = _tabla_indice() + [_parrafo("El presente Pliego tiene por finalidad establecer.", 4, 0)]
+    bloques = _tabla_indice() + [
+        _parrafo("El presente Pliego tiene por finalidad establecer.", 4, 0)
+    ]
 
     resultado = _drop_index_listings(bloques + [_parrafo("Texto de la página 45.", 45, 0)])
 
@@ -172,11 +176,29 @@ def test_una_planilla_de_cotizacion_no_es_un_indice() -> None:
     casi siempre 1."""
     filas = [
         _fila("col_1: Ítem\ncol_2: Descripción\ncol_3: Cant.", page=7, row_order=0),
-        _fila("col_1: 1\ncol_2: Plataforma de software de Nube Privada.\ncol_3: 1", page=7, row_order=1),
-        _fila("col_1: 2\ncol_2: Conectividad de red de centro de datos.\ncol_3: 1", page=7, row_order=2),
-        _fila("col_1: 3\ncol_2: Solución integral de resguardo de información.\ncol_3: 1", page=7, row_order=3),
-        _fila("col_1: 4\ncol_2: Equipamiento de cómputo para ambos sitios.\ncol_3: 1", page=7, row_order=4),
-        _fila("col_1: 5\ncol_2: Servicios profesionales llave en mano.\ncol_3: 1", page=7, row_order=5),
+        _fila(
+            "col_1: 1\ncol_2: Plataforma de software de Nube Privada.\ncol_3: 1",
+            page=7,
+            row_order=1,
+        ),
+        _fila(
+            "col_1: 2\ncol_2: Conectividad de red de centro de datos.\ncol_3: 1",
+            page=7,
+            row_order=2,
+        ),
+        _fila(
+            "col_1: 3\ncol_2: Solución integral de resguardo de información.\ncol_3: 1",
+            page=7,
+            row_order=3,
+        ),
+        _fila(
+            "col_1: 4\ncol_2: Equipamiento de cómputo para ambos sitios.\ncol_3: 1",
+            page=7,
+            row_order=4,
+        ),
+        _fila(
+            "col_1: 5\ncol_2: Servicios profesionales llave en mano.\ncol_3: 1", page=7, row_order=5
+        ),
     ]
     bloques = filas + [_parrafo("Texto de la última página.", 45, 0)]
 

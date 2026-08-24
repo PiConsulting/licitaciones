@@ -37,15 +37,27 @@ class Settings(BaseSettings):
     )
     azure_blob_connection_string: str = Field(default="", alias="AZURE_BLOB_CONNECTION_STRING")
     azure_blob_container_name: str = Field(default="", alias="AZURE_BLOB_CONTAINER_NAME")
-    azure_document_intelligence_endpoint: str = Field(default="", alias="AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT")
-    azure_document_intelligence_key: str = Field(default="", alias="AZURE_DOCUMENT_INTELLIGENCE_KEY")
-    document_intelligence_timeout_seconds: int = Field(default=60, alias="DOCUMENT_INTELLIGENCE_TIMEOUT_SECONDS")
-    document_intelligence_retry_attempts: int = Field(default=3, alias="DOCUMENT_INTELLIGENCE_RETRY_ATTEMPTS")
+    azure_document_intelligence_endpoint: str = Field(
+        default="", alias="AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT"
+    )
+    azure_document_intelligence_key: str = Field(
+        default="", alias="AZURE_DOCUMENT_INTELLIGENCE_KEY"
+    )
+    document_intelligence_timeout_seconds: int = Field(
+        default=60, alias="DOCUMENT_INTELLIGENCE_TIMEOUT_SECONDS"
+    )
+    document_intelligence_retry_attempts: int = Field(
+        default=3, alias="DOCUMENT_INTELLIGENCE_RETRY_ATTEMPTS"
+    )
     azure_search_endpoint: str = Field(default="", alias="AZURE_SEARCH_ENDPOINT")
     azure_search_key: str = Field(default="", alias="AZURE_SEARCH_KEY")
     azure_search_index_name: str = Field(default="", alias="AZURE_SEARCH_INDEX_NAME")
-    azure_search_embedding_dimensions: int = Field(default=3072, alias="AZURE_SEARCH_EMBEDDING_DIMENSIONS")
-    azure_search_upload_batch_size: int = Field(default=1000, alias="AZURE_SEARCH_UPLOAD_BATCH_SIZE")
+    azure_search_embedding_dimensions: int = Field(
+        default=3072, alias="AZURE_SEARCH_EMBEDDING_DIMENSIONS"
+    )
+    azure_search_upload_batch_size: int = Field(
+        default=1000, alias="AZURE_SEARCH_UPLOAD_BATCH_SIZE"
+    )
     azure_search_retry_attempts: int = Field(default=3, alias="AZURE_SEARCH_RETRY_ATTEMPTS")
     azure_openai_endpoint: str = Field(default="", alias="AZURE_OPENAI_ENDPOINT")
     azure_openai_api_key: str = Field(default="", alias="AZURE_OPENAI_API_KEY")
@@ -55,9 +67,11 @@ class Settings(BaseSettings):
         alias="AZURE_OPENAI_EMBEDDING_DEPLOYMENT",
     )
     azure_openai_api_version: str = Field(default="", alias="AZURE_OPENAI_API_VERSION")
-    azure_openai_embeddings_batch_size: int = Field(default=16, alias="AZURE_OPENAI_EMBEDDINGS_BATCH_SIZE")
+    azure_openai_embeddings_batch_size: int = Field(
+        default=16, alias="AZURE_OPENAI_EMBEDDINGS_BATCH_SIZE"
+    )
     azure_openai_retry_attempts: int = Field(default=3, alias="AZURE_OPENAI_RETRY_ATTEMPTS")
-    
+
     # Extraction configuration
     extraction_max_concurrency: int = Field(
         default=4,
@@ -84,19 +98,26 @@ class Settings(BaseSettings):
             "acotado incluso en el peor caso."
         ),
     )
-    
+
     # Chunking configuration
     chunking_max_table_tokens: int = Field(
         default=500,
         alias="CHUNKING_MAX_TABLE_TOKENS",
         description="Máximo de tokens por chunk de tabla (aprox). Tablas más grandes se dividen en múltiples chunks.",
     )
-    
+
     # Highlight configuration
     highlight_citation_min_length: int = Field(
         default=3,
         alias="HIGHLIGHT_CITATION_MIN_LENGTH",
         description="Longitud mínima de citation para calcular highlights (caracteres)",
+    )
+
+    # Story 12.1: Análisis de impacto BM25 vs Vector
+    enable_bm25_impact_analysis: bool = Field(
+        default=False,
+        alias="ENABLE_BM25_IMPACT_ANALYSIS",
+        description="Activa logs detallados para medir contribución de BM25 vs Vector al hybrid search",
     )
 
     # FIX: Dead code eliminado (#1, #2, #3) - campos legacy de adaptadores locales:

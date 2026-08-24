@@ -109,10 +109,16 @@ def test_list_analyses_returns_cosmos_items_instead_of_501(
     assert analyzed_a["organismo"] == "Ministerio A"
 
 
-def test_list_analyses_filters_by_status(client, cosmos_only: tuple[FakeCosmosContainer, str, str]) -> None:
+def test_list_analyses_filters_by_status(
+    client, cosmos_only: tuple[FakeCosmosContainer, str, str]
+) -> None:
     container, user_id, token = cosmos_only
-    id_a = _add_analysis(container, user_id=user_id, status="analyzed", created_at="2026-01-01T00:00:00+00:00")
-    _add_analysis(container, user_id=user_id, status="draft", created_at="2026-02-01T00:00:00+00:00")
+    id_a = _add_analysis(
+        container, user_id=user_id, status="analyzed", created_at="2026-01-01T00:00:00+00:00"
+    )
+    _add_analysis(
+        container, user_id=user_id, status="draft", created_at="2026-02-01T00:00:00+00:00"
+    )
 
     response = client.get(
         "/api/v1/analyses?status=analyzed&page=1&per_page=20",

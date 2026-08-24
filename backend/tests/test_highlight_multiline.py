@@ -12,6 +12,7 @@ chico.
 Observado en producción: una cita de 154 caracteres resaltada con un recuadro
 de `width: 8.93` px.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -32,7 +33,11 @@ class _Rect:
 
 def test_renglones_consecutivos_son_una_sola_aparicion() -> None:
     # Medidas reales de una cita de 3 renglones (interlineado 12pt, alto 15.1pt).
-    rects = [_Rect(60.0, 88.2, 318.5, 15.1), _Rect(60.0, 100.2, 314.2, 15.1), _Rect(60.0, 112.2, 120.5, 15.1)]
+    rects = [
+        _Rect(60.0, 88.2, 318.5, 15.1),
+        _Rect(60.0, 100.2, 314.2, 15.1),
+        _Rect(60.0, 112.2, 120.5, 15.1),
+    ]
 
     groups = _group_rects_by_occurrence(rects)
 
@@ -55,7 +60,7 @@ def test_fragmentos_contiguos_del_mismo_renglon_son_una_sola_aparicion() -> None
     se parte en "c)" (ancho 8.9) + el resto del renglón, separados por 3.1 px.
     Ese primer fragmento de 8.9 px era el que llegaba a producción."""
     rects = [
-        _Rect(56.8, 448.5, 8.9, 11.5),    # "c)"
+        _Rect(56.8, 448.5, 8.9, 11.5),  # "c)"
         _Rect(68.8, 448.5, 469.4, 11.5),  # resto del renglón 1
         _Rect(56.8, 460.0, 242.3, 11.5),  # renglón 2
     ]

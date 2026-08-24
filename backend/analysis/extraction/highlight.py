@@ -24,7 +24,7 @@ logger = structlog.get_logger(__name__)
 
 def _normalize_for_search(text: str) -> str:
     """Normaliza texto para búsqueda tolerante a diferencias de OCR/extracción.
-    
+
     Replica la normalización del backend (_normalize_for_grounding) y la
     extiende para tolerar diferencias comunes de OCR:
     - Elimina acentos (á → a)
@@ -33,27 +33,25 @@ def _normalize_for_search(text: str) -> str:
     - Normaliza guiones (– — → -)
     - Elimina puntuación de fin de oración (opcional, preserva dentro de texto)
     """
-    # 1. Normalización Unicode: decompose
     normalized = unicodedata.normalize("NFKD", str(text or ""))
-    
-    # 2. Eliminar marcas diacríticas (acentos)
     normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
-    
-    # 3. Normalizar espacios (múltiples → simple, tabs/newlines → espacio)
     normalized = " ".join(normalized.split())
-    
-    # 4. Lowercase
     normalized = normalized.lower()
-    
-    # 5. Normalizar guiones de diferentes tipos
     normalized = normalized.replace("–", "-").replace("—", "-")
-    
+
     return normalized.strip()
 
 
-# Palabras que aparecen en el encabezado de CUALQUIER artículo de un pliego:
-# no distinguen una sección de otra, así que no pueden contar como coincidencia.
-_HEADING_STOPWORDS = {"articulo", "art", "capitulo", "seccion", "anexo", "clausula", "punto", "inciso"}
+_HEADING_STOPWORDS = {
+    "articulo",
+    "art",
+    "capitulo",
+    "seccion",
+    "anexo",
+    "clausula",
+    "punto",
+    "inciso",
+}
 
 
 def _heading_tokens(text: str) -> set[str]:
@@ -69,44 +67,38 @@ def _select_best_instance(
     section_hint: str,
     correlation_id: str,
 ) -> list[Any]:
-    """Selecciona la instancia más relevante cuando hay múltiples matches.
-    """
+    """Selecciona la instancia más relevante cuando hay múltiples matches."""
     try:
         import fitz
-        
-        # Extraer todos los bloques de texto de la página con su posición
+
         blocks = page.get_text("dict")["blocks"]
-        
+
         section_words = _heading_tokens(section_hint)
         relevant_headings = []
-        
+
         for block in blocks:
             if block.get("type") != 0:  # Solo bloques de texto
                 continue
-            
+
             for line in block.get("lines", []):
                 for span in line.get("spans", []):
                     text = str(span.get("text", ""))
                     size = float(span.get("size", 0))
                     bbox = span.get("bbox", None)
-                    
-                    # Considerar como heading si es texto grande (> 11pt típicamente)
                     if size < 11 or not bbox:
                         continue
-                    
-                    # Verificar si contiene palabras del section_hint
                     text_words = _heading_tokens(text)
-
-                    # Match si comparte al menos 1 palabra significativa
                     common_words = section_words & text_words
                     if common_words:
-                        relevant_headings.append({
-                            "text": text,
-                            "y": bbox[1],  # top y coordinate
-                            "x": bbox[0],  # left x coordinate
-                            "common_words": len(common_words),
-                        })
-        
+                        relevant_headings.append(
+                            {
+                                "text": text,
+                                "y": bbox[1],  # top y coordinate
+                                "x": bbox[0],  # left x coordinate
+                                "common_words": len(common_words),
+                            }
+                        )
+
         if not relevant_headings:
             logger.info(
                 "highlight_no_relevant_headings_found",
@@ -114,38 +106,30 @@ def _select_best_instance(
                 section_hint=section_hint,
                 returning_first_instance=True,
             )
-            # Sin headings relevantes, retornar primera instancia (más arriba)
             return [min(instances, key=lambda r: r.y0)]
-        
-        # Calcular distancia de cada instancia al heading más cercano
         instance_scores = []
         for instance in instances:
-            # Calcular distancia Manhattan al heading más cercano y relevante
-            min_distance = float('inf')
+            min_distance = float("inf")
             best_heading = None
-            
+
             for heading in relevant_headings:
-                # Distancia vertical (más importante) + distancia horizontal
                 v_dist = abs(instance.y0 - heading["y"])
                 h_dist = abs(instance.x0 - heading["x"])
-                
-                # Peso mayor a distancia vertical (secciones están una sobre otra)
-                # Bonus por cada palabra común con el section_hint
                 distance = (v_dist * 2 + h_dist * 0.5) / (1 + heading["common_words"])
-                
+
                 if distance < min_distance:
                     min_distance = distance
                     best_heading = heading
-            
-            instance_scores.append({
-                "instance": instance,
-                "distance": min_distance,
-                "heading": best_heading["text"] if best_heading else None,
-            })
-        
-        # Seleccionar la instancia con menor distancia
+
+            instance_scores.append(
+                {
+                    "instance": instance,
+                    "distance": min_distance,
+                    "heading": best_heading["text"] if best_heading else None,
+                }
+            )
         best = min(instance_scores, key=lambda s: s["distance"])
-        
+
         logger.info(
             "highlight_instance_selected",
             correlation_id=correlation_id,
@@ -154,9 +138,9 @@ def _select_best_instance(
             distance=round(best["distance"], 2),
             total_instances=len(instances),
         )
-        
+
         return [best["instance"]]
-        
+
     except Exception as exc:
         logger.warning(
             "highlight_instance_selection_failed",
@@ -164,13 +148,12 @@ def _select_best_instance(
             error=str(exc),
             fallback="returning first instance",
         )
-        # Fallback: retornar primera instancia
         return [instances[0]] if instances else []
 
 
 def _normalize_for_search(text: str) -> str:
     """Normaliza texto para búsqueda tolerante a diferencias de OCR/extracción.
-    
+
     Replica la normalización del backend (_normalize_for_grounding) y la
     extiende para tolerar diferencias comunes de OCR:
     - Elimina acentos (á → a)
@@ -179,27 +162,17 @@ def _normalize_for_search(text: str) -> str:
     - Normaliza guiones (– — → -)
     - Elimina puntuación de fin de oración (opcional, preserva dentro de texto)
     """
-    # 1. Normalización Unicode: decompose
     normalized = unicodedata.normalize("NFKD", str(text or ""))
-    
-    # 2. Eliminar marcas diacríticas (acentos)
     normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
-    
-    # 3. Normalizar espacios (múltiples → simple, tabs/newlines → espacio)
     normalized = " ".join(normalized.split())
-    
-    # 4. Lowercase
     normalized = normalized.lower()
-    
-    # 5. Normalizar guiones de diferentes tipos
     normalized = normalized.replace("–", "-").replace("—", "-")
-    
+
     return normalized.strip()
 
 
 def _group_rects_by_occurrence(instances: list[Any]) -> list[list[Any]]:
-    """Agrupa los rectángulos de `page.search_for()` por APARICIÓN.
-    """
+    """Agrupa los rectángulos de `page.search_for()` por APARICIÓN."""
     if not instances:
         return []
 
@@ -217,12 +190,9 @@ def _group_rects_by_occurrence(instances: list[Any]) -> list[list[Any]]:
 
         same_line = abs(line_advance) <= line_height * 0.3
         if same_line:
-            # Continuación en el mismo renglón: el hueco tiene que ser del
-            # orden de un espacio, no de media página.
             horizontal_gap = float(rect.x0) - _right_edge(previous)
             belongs = 0 <= horizontal_gap <= line_height * 1.5
         else:
-            # Renglón siguiente, con tolerancia para interlineado holgado.
             belongs = 0 < line_advance <= line_height * 1.8
 
         if belongs:
@@ -270,8 +240,6 @@ def _select_from_occurrences(
         return occurrences[0]
 
     if section_hint:
-        # Se desambigua entre apariciones usando su primer renglón, y después
-        # se devuelve la aparición ENTERA.
         first_rects = [occurrence[0] for occurrence in occurrences]
         chosen = _select_best_instance(
             page=page,
@@ -290,8 +258,6 @@ def _select_from_occurrences(
                         section_hint=section_hint,
                     )
                     return occurrence
-
-    # Sin hint para desambiguar: la primera aparición en orden de lectura.
     logger.info(
         "highlight_multiple_occurrences_first_kept",
         correlation_id=correlation_id,
@@ -300,7 +266,6 @@ def _select_from_occurrences(
         reason="sin section_hint para desambiguar; resaltar todas confundiría más",
     )
     return occurrences[0]
-
 
 
 _ALNUM_RE = re.compile(r"[^a-z0-9]")
@@ -353,7 +318,6 @@ def _renglones_del_chunk(chunk: dict[str, Any] | None, page_number: int) -> list
     for bloque in origen.get("blocks") or []:
         if not isinstance(bloque, dict):
             continue
-        # El bloque puede ser de otra página del mismo chunk.
         paginas = {
             _safe_int_page(caja.get("page"))
             for caja in (bloque.get("bbox") or [])
@@ -377,16 +341,13 @@ def _safe_int_page(valor: Any) -> int:
 def regiones_desde_renglones_ocr(
     renglones: list[dict[str, Any]], citation: str
 ) -> list[dict[str, float]]:
-    """Ubica la cita entre los renglones que leyó Azure DI (HL-09).
-    """
+    """Ubica la cita entre los renglones que leyó Azure DI (HL-09)."""
     if not renglones or not citation:
         return []
 
     buscada = _fold(citation)
     if not buscada:
         return []
-
-    # Concatenación plegada de todos los renglones + de dónde salió cada carácter.
     concatenado: list[str] = []
     procedencia: list[tuple[int, int, int]] = []  # (índice de renglón, offset, largo del renglón)
     for indice, renglon in enumerate(renglones):
@@ -402,8 +363,6 @@ def regiones_desde_renglones_ocr(
     if comienzo < 0:
         return []
     final = comienzo + len(buscada) - 1
-
-    # Qué porción de cada renglón toca el match.
     por_renglon: dict[int, tuple[int, int, int]] = {}
     for posicion in range(comienzo, final + 1):
         indice, offset, largo = procedencia[posicion]
@@ -440,8 +399,7 @@ def regiones_desde_renglones_ocr(
 
 
 def _search_citation_by_words(page: Any, citation: str) -> list[list[Any]]:
-    """Ubica la cita en la página comparando PALABRAS, no la cadena entera.
-    """
+    """Ubica la cita en la página comparando PALABRAS, no la cadena entera."""
     import fitz  # PyMuPDF
 
     words = page.get_text("words")
@@ -451,8 +409,6 @@ def _search_citation_by_words(page: Any, citation: str) -> list[list[Any]]:
     target = _fold(citation)
     if not target:
         return []
-
-    # Texto plegado de la página + mapa carácter -> índice de palabra.
     pieces: list[str] = []
     owner: list[int] = []
     for index, word in enumerate(words):
@@ -527,8 +483,7 @@ def compute_highlight_regions(
     correlation_id: str,
     section_hint: str | None = None,
 ) -> list[dict[str, float]]:
-    """Calcula las coordenadas exactas donde aparece una citation en el PDF.
-    """
+    """Calcula las coordenadas exactas donde aparece una citation en el PDF."""
     try:
         import fitz  # PyMuPDF
     except ImportError:
@@ -538,12 +493,11 @@ def compute_highlight_regions(
             message="PyMuPDF (fitz) no está instalado. Instalar con: pip install PyMuPDF",
         )
         return []
-    
-    # Threshold configurable para longitud mínima de citation
     from shared.config import get_settings
+
     settings = get_settings()
     min_length = getattr(settings, "highlight_citation_min_length", 3)
-    
+
     if not citation or len(citation.strip()) < min_length:
         logger.warning(
             "highlight_citation_too_short",
@@ -552,10 +506,10 @@ def compute_highlight_regions(
             min_length_required=min_length,
         )
         return []
-    
+
     try:
         doc = fitz.open(pdf_path)
-        
+
         if page_number < 1 or page_number > len(doc):
             logger.warning(
                 "highlight_invalid_page_number",
@@ -564,17 +518,13 @@ def compute_highlight_regions(
                 total_pages=len(doc),
             )
             return []
-        
+
         page = doc[page_number - 1]  # PyMuPDF usa 0-indexed
 
         text_instances = page.search_for(citation)
-        
+
         if text_instances:
-            # Los rects ya vienen en el contrato de coordenadas del módulo
-            # (top-left, puntos, página sin escalar) -- ver docstring.
-            selected = _select_occurrence_rects(
-                page, text_instances, section_hint, correlation_id
-            )
+            selected = _select_occurrence_rects(page, text_instances, section_hint, correlation_id)
             regions = _rects_to_regions(selected)
             logger.info(
                 "highlight_found_exact",
@@ -584,13 +534,10 @@ def compute_highlight_regions(
                 regions_count=len(regions),
             )
             return regions
-        
-        
+
         occurrences = _search_citation_by_words(page, citation)
         if occurrences:
-            selected = _select_from_occurrences(
-                page, occurrences, section_hint, correlation_id
-            )
+            selected = _select_from_occurrences(page, occurrences, section_hint, correlation_id)
             regions = _rects_to_regions(selected)
             logger.info(
                 "highlight_found_by_words",
@@ -609,7 +556,7 @@ def compute_highlight_regions(
             citation_preview=citation[:50],
         )
         return []
-        
+
     except Exception as exc:
         logger.error(
             "highlight_computation_failed",
@@ -671,26 +618,23 @@ def compute_highlights_for_sources(
     category_key: str | None = None,
     chunks_by_doc_page: dict[tuple[str, int], list[dict[str, Any]]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Enriquece una lista de sources con highlight_regions pre-computadas.
-    """
+    """Enriquece una lista de sources con highlight_regions pre-computadas."""
     enriched_sources = []
     stats = {"total": 0, "with_bbox": 0, "no_bbox": 0}
-    
+
     for source in sources:
         stats["total"] += 1
         source_copy = dict(source)
         document_id = source.get("document_id")
         page_number = source.get("page_number")
         citation = source.get("citation", "")
-        
+
         if not document_id or not page_number or not citation:
-            # Source incompleta, conservar sin highlight
             source_copy["highlight_regions"] = []
             stats["no_bbox"] += 1
             enriched_sources.append(source_copy)
             continue
-        
-    
+
         source_chunk = _resolve_source_chunk(source, chunks_by_doc_page, correlation_id)
         section_hint = None
         if source_chunk:
@@ -745,10 +689,9 @@ def compute_highlights_for_sources(
                 )
                 enriched_sources.append(source_copy)
                 continue
-            
+
             source_copy["highlight_unavailable_reason"] = "documento_escaneado"
 
-     
         stats["no_bbox"] += 1
         logger.warning(
             "highlight_live_search_found_nothing",
@@ -764,8 +707,6 @@ def compute_highlights_for_sources(
 
         source_copy["highlight_regions"] = []
         enriched_sources.append(source_copy)
-    
-    # Log stats finales
     bbox_rate = (stats["with_bbox"] / stats["total"] * 100) if stats["total"] > 0 else 0
     logger.info(
         "highlight_enrichment_complete",
@@ -775,10 +716,8 @@ def compute_highlights_for_sources(
         with_bbox=stats["with_bbox"],
         no_bbox=stats["no_bbox"],
         from_live_search=stats.get("from_live_search", 0),
-        # HL-09: cuántas se resolvieron por el camino OCR. Si este número es > 0
-        # en un análisis, ese documento es un escaneo.
         from_ocr_lines=stats.get("from_ocr_lines", 0),
         bbox_rate_pct=round(bbox_rate, 1),
     )
-    
+
     return enriched_sources

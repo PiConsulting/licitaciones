@@ -55,9 +55,13 @@ def _sanitize_filename(filename: str) -> str:
 def _compute_cost(metadata: dict) -> dict:
     usage_by_category = metadata.get("token_usage", {}) if metadata else {}
     prompt_tokens = sum(int(item.get("prompt_tokens", 0)) for item in usage_by_category.values())
-    completion_tokens = sum(int(item.get("completion_tokens", 0)) for item in usage_by_category.values())
+    completion_tokens = sum(
+        int(item.get("completion_tokens", 0)) for item in usage_by_category.values()
+    )
     total_tokens = sum(int(item.get("total_tokens", 0)) for item in usage_by_category.values())
-    total_cost = ((prompt_tokens / 1000) * _PROMPT_COST_PER_1K) + ((completion_tokens / 1000) * _COMPLETION_COST_PER_1K)
+    total_cost = ((prompt_tokens / 1000) * _PROMPT_COST_PER_1K) + (
+        (completion_tokens / 1000) * _COMPLETION_COST_PER_1K
+    )
     return {
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
@@ -115,24 +119,7 @@ def _load_analysis_or_none(analysis_id: str) -> dict | None:
 
 
 def _upsert_analysis(analysis: dict, event: str) -> None:
-    """Persiste el estado de un analysis en Cosmos.
-
-    FIX (auditoría 2026-08-12, hallazgo #6 -- sin concurrencia optimista):
-    esto era un `upsert_item` ciego, sin ETag. Dos escritores tocando el
-    mismo analysis al mismo tiempo -- ej: el background task escribiendo un
-    tick de progreso mientras el usuario cancela desde otro request -- se
-    resolvían "last write wins" sin ningún aviso: el que llegaba último
-    pisaba al otro aunque fuera el cambio más viejo. Ahora, si el dict trae
-    un `_etag` (viene de una lectura previa vía `_load_analysis_or_none` o de
-    una escritura anterior en esta misma ejecución), el write es condicional:
-    Cosmos lo rechaza con 412 (`CosmosAccessConditionFailedError`) si el item
-    cambió desde que lo leímos, en vez de pisarlo en silencio. Deliberadamente
-    NO reintentamos acá con los mismos datos -- reintentar a ciegas con el
-    `analysis` que ya tenemos en memoria volvería a pisar el cambio ajeno; el
-    llamador tiene que releer el estado fresco si quiere decidir qué hacer.
-    Items sin `_etag` (recién creados en memoria, nunca leídos de Cosmos)
-    hacen upsert normal, igual que antes.
-    """
+    """Persiste el estado de un analysis en Cosmos."""
     analysis["event"] = event
     analysis["updated_at"] = datetime.now(UTC).isoformat()
     container = get_cosmos_container()
@@ -156,23 +143,6 @@ def _finalize_analysis_cosmos(analysis_id: str, event: str, mutate) -> bool:
     """Relee el estado más fresco antes de aplicar una transición TERMINAL
     (analyzed / error / cancelled) y nunca pisa un estado terminal al que ya
     se haya llegado por otro camino mientras corría el trabajo en background.
-
-    FIX (auditoría 2026-08-12, hallazgo #2 -- "un-cancel" silencioso): antes,
-    el final de `extract_and_index_cosmos` (y su manejador de excepciones)
-    mutaban directamente el dict `analysis` capturado ANTES del loop de
-    documentos y lo volvían a escribir entero al terminar `graph.invoke()`.
-    Si el usuario cancelaba el análisis MIENTRAS `graph.invoke()` corría
-    (varios minutos, sin ningún chequeo de cancelación en el medio -- ver
-    hallazgo #2 más abajo), Cosmos ya tenía `status="cancelled"` escrito por
-    `cancel_analysis_cosmos`, pero el write final de éxito pisaba eso con
-    `status="analyzed"` sin enterarse: la cancelación del usuario quedaba
-    revertida en silencio y la UI mostraba un análisis completo que el
-    usuario había cancelado. Ahora toda transición terminal relee el estado
-    vivo, y si ya está en un status terminal (`analyzed`/`error`/`cancelled`)
-    simplemente no escribe -- se respeta lo que haya pasado mientras tanto.
-
-    `mutate` recibe el dict fresco y lo modifica in-place. Devuelve True si
-    se escribió, False si se saltó por encontrar un estado terminal previo.
     """
     fresh = _load_analysis_or_none(analysis_id)
     if fresh is None:
@@ -192,22 +162,7 @@ def _finalize_analysis_cosmos(analysis_id: str, event: str, mutate) -> bool:
 
 
 def _check_should_stop_cosmos(analysis_id: str) -> bool:
-    """Chequeo combinado de cancelación + timeout, releyendo estado vivo.
-
-    FIX (auditoría 2026-08-12, hallazgo #1 -- timeout nunca se hace cumplir
-    en cosmos_only, y hallazgo #2 -- chequeo de cancelación con huecos): el
-    modo SQL (`extraction/runner.py::check_cancellation_requested` /
-    `check_timeout_exceeded`) chequea cancelación Y timeout antes de CADA
-    etapa del pipeline (por documento, antes de indexar, antes de analizar).
-    `extract_and_index_cosmos` en cambio solo chequeaba cancelación una vez
-    por documento y JAMÁS chequeaba timeout -- un análisis en cosmos_only que
-    se colgara (ej: Document Intelligence tarda de más) podía quedar
-    "processing" para siempre, sin que nada lo marcara como error, a
-    diferencia de SQL donde `check_timeout_exceeded` lo hace. Esta función
-    replica esos mismos puntos de control para Cosmos. Devuelve True si el
-    análisis fue detenido (cancelado o por timeout) y el llamador debe
-    retornar sin seguir procesando.
-    """
+    """Chequeo combinado de cancelación + timeout, releyendo estado vivo."""
     fresh = _load_analysis_or_none(analysis_id)
     if fresh is None:
         return False
@@ -267,7 +222,9 @@ def _upsert_document(document: dict, event: str) -> None:
 
 
 def _derive_page_count_from_blocks(blocks: list[dict]) -> int:
-    page_numbers = [int(block.get("page_number") or 0) for block in blocks if isinstance(block, dict)]
+    page_numbers = [
+        int(block.get("page_number") or 0) for block in blocks if isinstance(block, dict)
+    ]
     return max(page_numbers, default=0)
 
 
@@ -313,7 +270,9 @@ def _fetch_analysis_enrichment(analysis: dict) -> tuple[list[dict], object]:
     return documents, extracted_data
 
 
-def _build_analysis_list_item(analysis: dict, documents: list[dict], extracted_data: object) -> dict:
+def _build_analysis_list_item(
+    analysis: dict, documents: list[dict], extracted_data: object
+) -> dict:
     analysis_id = str(analysis.get("analysis_id"))
     primary_document_name = next(
         (document.get("filename") for document in documents if document.get("is_primary")),
@@ -323,8 +282,6 @@ def _build_analysis_list_item(analysis: dict, documents: list[dict], extracted_d
     metadata = analysis.get("extraction_metadata") or {}
     raw_stage_progress = metadata.get("stage_progress")
     stage_progress = raw_stage_progress if isinstance(raw_stage_progress, str) else None
-
-    # Obtener el nombre del usuario desde Cosmos
     created_by_name = analysis.get("created_by_name")
 
     return {
@@ -334,7 +291,9 @@ def _build_analysis_list_item(analysis: dict, documents: list[dict], extracted_d
         "current_stage": analysis.get("current_stage", CurrentStage.QUEUED.value),
         "stage_progress": stage_progress,
         "progress_percentage": int(analysis.get("progress_percentage", 0) or 0),
-        "confidence_avg": calculate_confidence_avg(extracted_data if isinstance(extracted_data, dict) else None),
+        "confidence_avg": calculate_confidence_avg(
+            extracted_data if isinstance(extracted_data, dict) else None
+        ),
         "created_at": _parse_dt(analysis.get("created_at")),
         "primary_document_name": primary_document_name,
         "organismo": _extract_organism(extracted_data),
@@ -390,9 +349,6 @@ def list_analyses_cosmos(
 
     normalized_search = search.strip().lower() if search and search.strip() else None
 
-    # Sorting only needs fields already present on the analysis item, so when there's
-    # no search term we can page first and only fetch documents/versions (the
-    # expensive per-item lookups) for the page actually being returned.
     if normalized_search is None:
         total = len(analyses)
         start = (page - 1) * per_page
@@ -402,8 +358,6 @@ def list_analyses_cosmos(
             items.append(_build_analysis_list_item(analysis, documents, extracted_data))
         return items, total
 
-    # Search inspects document filenames and extracted data, which live outside the
-    # analysis item, so every candidate has to be enriched before we can filter.
     items = []
     for analysis in analyses:
         documents, extracted_data = _fetch_analysis_enrichment(analysis)
@@ -414,7 +368,12 @@ def list_analyses_cosmos(
         )
         haystack = " ".join(
             str(value).lower()
-            for value in (analysis.get("analysis_name"), primary_document_name, extracted_data, analysis_id)
+            for value in (
+                analysis.get("analysis_name"),
+                primary_document_name,
+                extracted_data,
+                analysis_id,
+            )
             if value
         )
         if normalized_search not in haystack:
@@ -512,11 +471,11 @@ def create_analysis_with_documents_cosmos(
         for document in documents:
             container.upsert_item(document)
 
-        # Igual que en el camino SQL: se detectan duplicados apenas se sube el
-        # archivo, no recién cuando el usuario inicia el análisis.
         duplicates = find_duplicates_for_analysis_cosmos(analysis_id, user_id, user_name)
 
-        return CosmosAnalysisResult(analysis=analysis, documents=documents, warnings=warnings, duplicates=duplicates)
+        return CosmosAnalysisResult(
+            analysis=analysis, documents=documents, warnings=warnings, duplicates=duplicates
+        )
     except Exception:
         for blob_name in uploaded_blob_names:
             blob_storage.delete(blob_name)
@@ -669,7 +628,9 @@ def delete_analysis_cosmos(analysis_id: str, user_id: str) -> str:
     return "soft"
 
 
-def start_analysis_cosmos(analysis_id: str, user_id: str, *, analysis_name: str | None = None) -> dict:
+def start_analysis_cosmos(
+    analysis_id: str, user_id: str, *, analysis_name: str | None = None
+) -> dict:
     analysis = _load_analysis_or_none(analysis_id)
     if analysis is None:
         raise ValueError("ANALYSIS_NOT_FOUND")
@@ -827,7 +788,9 @@ def get_analysis_status_cosmos(analysis_id: str, user_id: str) -> dict:
     if analysis.get("created_by") != user_id:
         raise PermissionError("FORBIDDEN")
 
-    latest_version = _get_latest_version(analysis_id) if analysis.get("current_version_id") else None
+    latest_version = (
+        _get_latest_version(analysis_id) if analysis.get("current_version_id") else None
+    )
     metadata = analysis.get("extraction_metadata") or {}
     return {
         "id": analysis_id,
@@ -866,16 +829,6 @@ def extract_and_index_cosmos(analysis_id: str) -> None:
     try:
         analysis = _load_analysis_or_none(analysis_id)
     except Exception as exc:  # noqa: BLE001
-        # FIX (auditoría 2026-08-12, flujo Cosmos): antes esta excepción se
-        # propagaba sin atrapar desde el punto de entrada del análisis en
-        # background -- si Cosmos fallaba justo acá (throttling, timeout,
-        # outage transitorio), el análisis quedaba stranded en "queued" para
-        # siempre: nunca llegó a existir el dict `analysis` en memoria, así
-        # que ni siquiera se pudo escribir un status "error" de vuelta, y no
-        # quedaba ningún registro buscable salvo lo que el framework de
-        # background tasks loguee por su cuenta (si loguea algo). Ahora al
-        # menos queda un error explícito, distinguible de "análisis no
-        # existe" (`analysis_not_found` más abajo, que sí es un 404 real).
         logger.error(
             "analysis_load_failed_at_start",
             analysis_id=analysis_id,
@@ -926,16 +879,18 @@ def extract_and_index_cosmos(analysis_id: str) -> None:
         processed_documents = 0
 
         for index, document in enumerate(documents, start=1):
-            # FIX (auditoría 2026-08-12, hallazgo #1 y #2): antes esto solo
-            # chequeaba cancelación, nunca timeout -- ver docstring de
-            # `_check_should_stop_cosmos`.
             if _check_should_stop_cosmos(analysis_id):
                 return
 
             analysis["current_stage"] = CurrentStage.EXTRACTING_TEXT.value
-            analysis["progress_percentage"] = min(100, max(int(analysis.get("progress_percentage") or 0), int((index / total_docs) * 20)))
+            analysis["progress_percentage"] = min(
+                100,
+                max(int(analysis.get("progress_percentage") or 0), int((index / total_docs) * 20)),
+            )
             metadata = analysis.get("extraction_metadata") or {}
-            metadata["stage_progress"] = build_stage_progress(CurrentStage.EXTRACTING_TEXT, done=index, total=total_docs)
+            metadata["stage_progress"] = build_stage_progress(
+                CurrentStage.EXTRACTING_TEXT, done=index, total=total_docs
+            )
             analysis["extraction_metadata"] = metadata
             _upsert_analysis(analysis, "analysis_processing")
 
@@ -992,12 +947,6 @@ def extract_and_index_cosmos(analysis_id: str) -> None:
             analysis["extraction_metadata"] = metadata
             _upsert_analysis(analysis, "analysis_processing")
 
-        # FIX (auditoría 2026-08-12, hallazgo #2): SQL mode chequea
-        # cancelación/timeout antes de indexar Y antes de analizar (ver
-        # `extraction/runner.py::extract_and_index`) -- cosmos_only no tenía
-        # ninguno de los dos chequeos acá, así que un análisis podía seguir
-        # gastando embeddings/LLM calls varios minutos después de que el
-        # usuario lo cancelara o de que venciera su timeout.
         if _check_should_stop_cosmos(analysis_id):
             return
 
@@ -1014,7 +963,9 @@ def extract_and_index_cosmos(analysis_id: str) -> None:
         analysis["current_stage"] = CurrentStage.ANALYZING.value
         analysis["progress_percentage"] = max(int(analysis.get("progress_percentage") or 0), 50)
         metadata = analysis.get("extraction_metadata") or {}
-        metadata["stage_progress"] = build_stage_progress(CurrentStage.ANALYZING, done=0, total=_TOTAL_CATEGORIES)
+        metadata["stage_progress"] = build_stage_progress(
+            CurrentStage.ANALYZING, done=0, total=_TOTAL_CATEGORIES
+        )
         analysis["extraction_metadata"] = metadata
         _upsert_analysis(analysis, "analysis_processing")
 
@@ -1064,17 +1015,6 @@ def extract_and_index_cosmos(analysis_id: str) -> None:
         }
         get_cosmos_container().upsert_item(version_item)
 
-        # FIX (auditoría 2026-08-12, hallazgo #2 -- "un-cancel" silencioso):
-        # `graph.invoke()` recién terminado pudo tardar varios minutos sin
-        # ningún chequeo de cancelación/timeout en el medio (LangGraph no
-        # expone puntos de interrupción intermedios acá, igual que en modo
-        # SQL). Si el usuario canceló o el timeout venció DURANTE esa
-        # llamada, Cosmos ya tiene `status="cancelled"`/`"error"` escrito por
-        # otro camino (`cancel_analysis_cosmos` / `_check_should_stop_cosmos`
-        # corriendo en otra invocación) -- `_finalize_analysis_cosmos` relee
-        # ese estado antes de escribir "analyzed" y, si ya es terminal, NO lo
-        # pisa. Antes esto escribía `analysis` (el dict capturado ANTES de
-        # `graph.invoke()`) a ciegas, revirtiendo la cancelación del usuario.
         _finalize_analysis_cosmos(
             analysis_id,
             "analysis_version_created",
@@ -1088,9 +1028,6 @@ def extract_and_index_cosmos(analysis_id: str) -> None:
             ),
         )
     except Exception:
-        # Mismo motivo que el bloque de éxito de arriba: no pisar a ciegas un
-        # estado terminal (ej. "cancelled") al que ya se haya llegado por
-        # otro camino mientras esta ejecución fallaba.
         _finalize_analysis_cosmos(
             analysis_id,
             "analysis_error",

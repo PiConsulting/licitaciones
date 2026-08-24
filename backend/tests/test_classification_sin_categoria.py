@@ -55,7 +55,9 @@ def test_un_considerando_no_queda_etiquetado_como_identificacion() -> None:
 
 
 def test_texto_sin_senal_alguna_queda_sin_categoria() -> None:
-    resultado = classify_chunk_categories(_chunk("Fojas útiles: diez. Continúa en la página siguiente."))
+    resultado = classify_chunk_categories(
+        _chunk("Fojas útiles: diez. Continúa en la página siguiente.")
+    )
 
     assert resultado["primary_category"] is None
 
@@ -113,7 +115,9 @@ def _candidato(chunk_index: int, primary: str | None, score: float) -> dict[str,
     }
 
 
-def test_el_ruido_sin_categoria_no_le_gana_a_la_caratula_real(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_el_ruido_sin_categoria_no_le_gana_a_la_caratula_real(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Reproduce el escenario de falla del hallazgo.
 
     Con el fallback viejo, el considerando también era

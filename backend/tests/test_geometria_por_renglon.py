@@ -62,9 +62,16 @@ def _resultado_de_una_pagina() -> _Resultado:
             _Pagina(
                 1,
                 [
-                    _Renglon("OBJETO: ADQUISICIÓN DE UN SISTEMA DE ALMACENAMIENTO", _rect(1.0, 2.0, 6.0, 0.15)),
-                    _Renglon("COMPUESTO POR 2 (DOS) SUBSISTEMAS QUE TRABAJEN", _rect(1.0, 2.2, 5.8, 0.15)),
-                    _Renglon("ACTIVO-ACTIVO Y SERVICIOS DE INSTALACIÓN", _rect(1.0, 2.4, 5.0, 0.15)),
+                    _Renglon(
+                        "OBJETO: ADQUISICIÓN DE UN SISTEMA DE ALMACENAMIENTO",
+                        _rect(1.0, 2.0, 6.0, 0.15),
+                    ),
+                    _Renglon(
+                        "COMPUESTO POR 2 (DOS) SUBSISTEMAS QUE TRABAJEN", _rect(1.0, 2.2, 5.8, 0.15)
+                    ),
+                    _Renglon(
+                        "ACTIVO-ACTIVO Y SERVICIOS DE INSTALACIÓN", _rect(1.0, 2.4, 5.0, 0.15)
+                    ),
                 ],
             )
         ]
@@ -195,7 +202,9 @@ def test_un_renglon_que_sobresale_un_punto_sigue_siendo_del_parrafo() -> None:
 def test_un_bloque_sin_bbox_no_recibe_renglones() -> None:
     bloques: list[dict[str, Any]] = [{"content": "…", "bbox": []}]
 
-    _attach_lines_to_blocks(bloques, _build_line_index(_resultado_de_una_pagina(), PULGADAS_A_PUNTOS))
+    _attach_lines_to_blocks(
+        bloques, _build_line_index(_resultado_de_una_pagina(), PULGADAS_A_PUNTOS)
+    )
 
     assert "lines" not in bloques[0]
 
@@ -213,7 +222,12 @@ def test_sin_indice_no_se_toca_ningun_bloque() -> None:
 
 def test_un_bloque_de_otra_pagina_no_se_lleva_nada() -> None:
     index = _build_line_index(_resultado_de_una_pagina(), PULGADAS_A_PUNTOS)
-    bloques = [{"content": "…", "bbox": [{"page": 7, "x": 72.0, "y": 144.0, "width": 432.0, "height": 40.0}]}]
+    bloques = [
+        {
+            "content": "…",
+            "bbox": [{"page": 7, "x": 72.0, "y": 144.0, "width": 432.0, "height": 40.0}],
+        }
+    ]
 
     _attach_lines_to_blocks(bloques, index)
 
@@ -260,10 +274,18 @@ def test_la_geometria_sobrevive_cuando_el_bloque_viene_de_varios_parrafos() -> N
     bloque = {
         "content": "el primer párrafo\n\nel segundo párrafo",
         "merged_blocks": [
-            {"para_id": [1, 4], "bbox": [{"page": 1, "x": 72.0, "y": 144.0, "width": 432.0, "height": 10.0}],
-             "content": "el primer párrafo", "lines": primero},
-            {"para_id": [1, 5], "bbox": [{"page": 1, "x": 72.0, "y": 200.0, "width": 400.0, "height": 10.0}],
-             "content": "el segundo párrafo", "lines": segundo},
+            {
+                "para_id": [1, 4],
+                "bbox": [{"page": 1, "x": 72.0, "y": 144.0, "width": 432.0, "height": 10.0}],
+                "content": "el primer párrafo",
+                "lines": primero,
+            },
+            {
+                "para_id": [1, 5],
+                "bbox": [{"page": 1, "x": 72.0, "y": 200.0, "width": 400.0, "height": 10.0}],
+                "content": "el segundo párrafo",
+                "lines": segundo,
+            },
         ],
     }
 

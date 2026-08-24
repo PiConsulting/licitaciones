@@ -5,9 +5,17 @@ import structlog
 from fastapi.testclient import TestClient
 
 from analysis.models import Analysis, CurrentStage
-from analysis.progress import calculate_timeout_minutes, set_timeout_timestamps, update_stage_and_progress
+from analysis.progress import (
+    calculate_timeout_minutes,
+    set_timeout_timestamps,
+    update_stage_and_progress,
+)
 from shared.database import SessionLocal
-from extraction.runner import check_cancellation_requested, check_timeout_exceeded, check_timeout_warning
+from extraction.runner import (
+    check_cancellation_requested,
+    check_timeout_exceeded,
+    check_timeout_warning,
+)
 from users.models import User
 
 logger = structlog.get_logger(__name__)
@@ -39,7 +47,9 @@ def test_update_stage_and_progress() -> None:
     user = db.query(User).filter(User.email == "test@cedia.com").first()
     assert user is not None
 
-    analysis = Analysis(created_by=user.id, status="processing", current_stage="queued", progress_percentage=0)
+    analysis = Analysis(
+        created_by=user.id, status="processing", current_stage="queued", progress_percentage=0
+    )
     db.add(analysis)
     db.commit()
 
@@ -108,7 +118,9 @@ def test_cancel_endpoint_success(client: TestClient, auth_token: str) -> None:
     user = db.query(User).filter(User.email == "test@cedia.com").first()
     assert user is not None
 
-    analysis = Analysis(created_by=user.id, status="processing", current_stage="analyzing", progress_percentage=50)
+    analysis = Analysis(
+        created_by=user.id, status="processing", current_stage="analyzing", progress_percentage=50
+    )
     db.add(analysis)
     db.commit()
 

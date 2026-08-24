@@ -145,7 +145,12 @@ def test_finalize_analysis_cosmos_no_pisa_estado_terminal_previo(cosmos_only) ->
     análisis como terminal), el write final de éxito NO debe pisarlo."""
     container, _user_id, _token = cosmos_only
     analysis_id = "analysis-finalize-1"
-    _seed_analysis(container, analysis_id, status="cancelled", error_message="El analisis fue cancelado por el usuario")
+    _seed_analysis(
+        container,
+        analysis_id,
+        status="cancelled",
+        error_message="El analisis fue cancelado por el usuario",
+    )
 
     wrote = cosmos_runtime._finalize_analysis_cosmos(
         analysis_id,
@@ -191,7 +196,9 @@ def test_upsert_analysis_sin_etag_hace_upsert_normal(cosmos_only) -> None:
 
     stored = container.items[cosmos_runtime._analysis_item_id(analysis_id)]
     assert stored["status"] == "draft"
-    assert stored["_etag"]  # Cosmos siempre devuelve un etag nuevo, aunque el llamador no lo haya pedido
+    assert stored[
+        "_etag"
+    ]  # Cosmos siempre devuelve un etag nuevo, aunque el llamador no lo haya pedido
 
 
 def test_upsert_analysis_con_etag_desactualizado_no_pisa_en_silencio(cosmos_only) -> None:
@@ -283,7 +290,15 @@ def test_extract_and_index_cosmos_no_revierte_cancelacion_ocurrida_durante_graph
     monkeypatch.setattr(
         cosmos_runtime,
         "create_chunks",
-        lambda *_a, **_k: [{"document_id": "doc-1", "page_number": 1, "chunk_index": 0, "content": "x", "token_count": 1}],
+        lambda *_a, **_k: [
+            {
+                "document_id": "doc-1",
+                "page_number": 1,
+                "chunk_index": 0,
+                "content": "x",
+                "token_count": 1,
+            }
+        ],
     )
     monkeypatch.setattr(cosmos_runtime, "generate_embeddings", lambda chunks, *_a, **_k: chunks)
     monkeypatch.setattr(cosmos_runtime, "upload_chunks", lambda *_a, **_k: None)

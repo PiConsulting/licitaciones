@@ -1,7 +1,7 @@
 """Tests para casos edge de extracción de markdown en document_intelligence.py.
 
 Valida los fixes implementados para:
-- DI-1: Detección de headings 
+- DI-1: Detección de headings
 - DI-2: Dehyphenation mejorado (mayúsculas, ü)
 - DI-3: Figuras descartadas
 - DI-4: Posicionamiento de tablas
@@ -88,11 +88,11 @@ class TestMarkdownHeadingDetection:
         """H2 y H3 con ## y ###."""
         line_h2 = "## Sección 2"
         line_h3 = "### Subsección 3"
-        
+
         match_h2 = _MD_HEADING_RE.match(line_h2)
         assert match_h2 is not None
         assert len(match_h2.group(1)) == 2
-        
+
         match_h3 = _MD_HEADING_RE.match(line_h3)
         assert match_h3 is not None
         assert len(match_h3.group(1)) == 3
@@ -128,7 +128,7 @@ Párrafo 1
 ## Título 2
 Párrafo 2"""
         blocks, heading_levels, table_positions = _parse_markdown_blocks(markdown)
-        
+
         assert len(blocks) == 4  # 2 headings + 2 párrafos
         assert len(heading_levels) == 2  # 2 headings
         assert 0 in heading_levels  # primer heading en source_order 0
@@ -144,10 +144,10 @@ Contenido página 1
 # Título página 2
 Contenido página 2"""
         blocks, _, _ = _parse_markdown_blocks(markdown)
-        
+
         page_1_blocks = [b for b in blocks if b["page_number"] == 1]
         page_2_blocks = [b for b in blocks if b["page_number"] == 2]
-        
+
         assert len(page_1_blocks) == 2  # título + contenido
         assert len(page_2_blocks) == 2  # título + contenido
 
@@ -160,7 +160,7 @@ Párrafo antes de tabla
 </table>
 Párrafo después de tabla"""
         blocks, _, table_positions = _parse_markdown_blocks(markdown)
-        
+
         assert len(table_positions) == 1  # una tabla detectada
         page, source_order = table_positions[0]
         assert page == 1
@@ -176,7 +176,7 @@ Pie de figura
 </figure>
 Texto después"""
         blocks, _, _ = _parse_markdown_blocks(markdown)
-        
+
         # Solo debe haber 3 bloques: título, texto antes, texto después
         assert len(blocks) == 3
         assert "logo" not in str(blocks)  # contenido de figura no presente
@@ -266,7 +266,7 @@ Intro
 </table>
 Final"""
         blocks, _, table_positions = _parse_markdown_blocks(markdown)
-        
+
         assert len(table_positions) == 1
         page, source_order = table_positions[0]
         assert source_order == 2  # después de título (0) e intro (1)
@@ -281,7 +281,7 @@ Texto intermedio
 <tr><td>Tabla 2</td></tr>
 </table>"""
         blocks, _, table_positions = _parse_markdown_blocks(markdown)
-        
+
         assert len(table_positions) == 2
         _, order_1 = table_positions[0]
         _, order_2 = table_positions[1]
@@ -293,7 +293,7 @@ Texto intermedio
 <tr><td><table><tr><td>Nested</td></tr></table></td></tr>
 </table>"""
         blocks, _, table_positions = _parse_markdown_blocks(markdown)
-        
+
         # Implementación actual: no soporta anidamiento correctamente
         # pero tampoco debería crashear
         assert len(table_positions) >= 1  # al menos la tabla exterior

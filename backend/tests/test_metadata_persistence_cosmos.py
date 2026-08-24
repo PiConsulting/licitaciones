@@ -70,7 +70,9 @@ def _fake_document(**overrides) -> SimpleNamespace:
 @pytest.fixture
 def sink(monkeypatch: pytest.MonkeyPatch) -> tuple[CosmosMetadataSink, _FakeContainer]:
     fake_container = _FakeContainer()
-    sink = CosmosMetadataSink(endpoint="https://fake", key="fake", database="db", container="container")
+    sink = CosmosMetadataSink(
+        endpoint="https://fake", key="fake", database="db", container="container"
+    )
     monkeypatch.setattr(sink, "_get_container_client", lambda: fake_container)
     return sink, fake_container
 
@@ -120,7 +122,9 @@ def test_persist_document_incluye_content_hash_para_deteccion_de_duplicados(
     analysis = _fake_analysis()
     document = _fake_document()
 
-    cosmos_sink.persist(analysis=analysis, documents=[document], versions=[], event="analysis_completed")
+    cosmos_sink.persist(
+        analysis=analysis, documents=[document], versions=[], event="analysis_completed"
+    )
 
     doc_items = [item for item in fake_container.upserted if item["type"] == "document"]
     assert len(doc_items) == 1

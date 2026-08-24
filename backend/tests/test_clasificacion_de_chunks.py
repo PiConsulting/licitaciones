@@ -1,15 +1,15 @@
 """CHK-07 y CHK-08: cómo un chunk termina con una categoría que no le toca.
 
-  - CHK-07: un término de varias palabras se descomponía en un CONJUNTO de
-    tokens y matcheaba si todos aparecían en cualquier lugar del chunk, en
-    cualquier orden y a cualquier distancia. `"mantenimiento de oferta"` se
-    volvía `{mantenimiento, de, oferta}`, y "de" está en el 100% de los chunks
-    en castellano.
+- CHK-07: un término de varias palabras se descomponía en un CONJUNTO de
+  tokens y matcheaba si todos aparecían en cualquier lugar del chunk, en
+  cualquier orden y a cualquier distancia. `"mantenimiento de oferta"` se
+  volvía `{mantenimiento, de, oferta}`, y "de" está en el 100% de los chunks
+  en castellano.
 
-  - CHK-08: la densidad satura con un solo match en cualquier chunk de menos de
-    100 palabras, y eso alcanza exactamente el umbral primario. Acá sólo se fija
-    el comportamiento actual y la constante que lo gobierna: corregirlo es
-    calibración y necesita datos. Ver el docstring de `_compute_density_score`.
+- CHK-08: la densidad satura con un solo match en cualquier chunk de menos de
+  100 palabras, y eso alcanza exactamente el umbral primario. Acá sólo se fija
+  el comportamiento actual y la constante que lo gobierna: corregirlo es
+  calibración y necesita datos. Ver el docstring de `_compute_density_score`.
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ def test_la_frase_real_si_matchea() -> None:
 
 
 def test_el_orden_de_las_palabras_importa() -> None:
-    """"oferta de mantenimiento" no es "mantenimiento de oferta"."""
+    """ "oferta de mantenimiento" no es "mantenimiento de oferta"."""
     assert "garantias" not in _count_keyword_matches(
         "Se presentará una oferta de mantenimiento para los equipos instalados.", GLOSARIO
     )

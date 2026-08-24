@@ -16,7 +16,9 @@ def _set_cloud_minimum(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("USE_LOCAL_ADAPTERS", "false")
     monkeypatch.setenv("AZURE_BLOB_CONNECTION_STRING", "blob")
     monkeypatch.setenv("AZURE_BLOB_CONTAINER_NAME", "pliegos")
-    monkeypatch.setenv("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT", "https://di.example.cognitiveservices.azure.com")
+    monkeypatch.setenv(
+        "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT", "https://di.example.cognitiveservices.azure.com"
+    )
     monkeypatch.setenv("AZURE_DOCUMENT_INTELLIGENCE_KEY", "fake")
     monkeypatch.setenv("AZURE_SEARCH_ENDPOINT", "https://search.example.windows.net")
     monkeypatch.setenv("AZURE_SEARCH_KEY", "fake")
@@ -32,7 +34,9 @@ def _set_cloud_minimum(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("COSMOS_CONTAINER", "container_pliegos")
 
 
-def test_validate_cloud_configuration_allows_cosmos_temporal_with_localhost_db(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_validate_cloud_configuration_allows_cosmos_temporal_with_localhost_db(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _set_cloud_minimum(monkeypatch)
     monkeypatch.setenv("PERSISTENCE_MODE", "cosmos_temporal")
     monkeypatch.setenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/licitaciones")
@@ -75,7 +79,9 @@ def test_health_skips_database_check_in_cosmos_temporal(monkeypatch: pytest.Monk
     assert payload["checks"]["adapters"]["mode"] == "cloud"
 
 
-def test_cosmos_metadata_sink_upserts_with_analysis_partition_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cosmos_metadata_sink_upserts_with_analysis_partition_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class _Response(dict):
         def get_response_headers(self):
             return {"x-ms-request-charge": "3.14"}

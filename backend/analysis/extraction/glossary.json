@@ -28,57 +28,7 @@
       "items a cotizar"
     ],
     "thresholds": {
-      "primary": 0.30,
-      "secondary": 0.12
-    },
-    "weight": 1.0
-  },
-  "requisitos_admisibilidad": {
-    "query_terms": [
-      "requisitos de admisibilidad",
-      "condiciones de admision",
-      "requisitos habilitantes",
-      "documentacion requerida",
-      "subsanable",
-      "momento de presentacion",
-      "capacidad tecnica",
-      "capacidad financiera",
-      "inscripcion registro proveedores",
-      "antecedentes",
-      "certificaciones",
-      "habilitacion",
-      "constancia"
-    ],
-    "aliases": [
-      "requisitos legales",
-      "requisitos tecnicos",
-      "requisitos economico financieros",
-      "requisitos administrativos",
-      "documentacion a presentar",
-      "sobre A",
-      "sobre 1",
-      "condiciones de participacion",
-      "restricciones de participacion",
-      "impedimentos para contratar",
-      "habilitaciones",
-      "antecedentes exigidos",
-      "capacidad para contratar",
-      "requisitos minimos",
-      "requisitos tecnicos minimos",
-      "certificacion del fabricante",
-      "antecedentes de provision",
-      "experiencia comprobable",
-      "personal tecnico",
-      "soporte tecnico",
-      "debe acreditar",
-      "debera presentar",
-      "declaracion jurada",
-      "balance",
-      "estados contables",
-      "seguro de responsabilidad civil"
-    ],
-    "thresholds": {
-      "primary": 0.25,
+      "primary": 0.3,
       "secondary": 0.12
     },
     "weight": 1.0
@@ -156,7 +106,7 @@
       "termino"
     ],
     "thresholds": {
-      "primary": 0.30,
+      "primary": 0.3,
       "secondary": 0.15
     },
     "weight": 1.0,
@@ -188,7 +138,7 @@
       "orden de merito"
     ],
     "thresholds": {
-      "primary": 0.30,
+      "primary": 0.3,
       "secondary": 0.15
     },
     "weight": 1.0
@@ -235,43 +185,6 @@
     },
     "weight": 1.2
   },
-  "anexos_obligatorios": {
-    "query_terms": [
-      "anexo",
-      "anexos obligatorios",
-      "formulario",
-      "debe completarse",
-      "debe firmarse",
-      "planilla",
-      "modelo de nota",
-      "formulario adjunto",
-      "debera completar"
-    ],
-    "aliases": [
-      "apendice",
-      "adjunto obligatorio",
-      "modelo de presentacion",
-      "formulario oficial",
-      "declaracion jurada",
-      "nota de oferta",
-      "planilla de cotizacion",
-      "presupuesto detallado",
-      "documentacion tecnica obligatoria",
-      "constancia",
-      "certificado exigido",
-      "modelo adjunto",
-      "formato anexo",
-      "planilla adjunta",
-      "formulario a completar",
-      "debe presentar formulario",
-      "anexo que debera"
-    ],
-    "thresholds": {
-      "primary": 0.40,
-      "secondary": 0.18
-    },
-    "weight": 1.0
-  },
   "identificacion_procedimiento": {
     "query_terms": [
       "organismo convocante",
@@ -298,8 +211,8 @@
       "licitacion privada"
     ],
     "thresholds": {
-      "primary": 0.20,
-      "secondary": 0.10
+      "primary": 0.2,
+      "secondary": 0.1
     },
     "weight": 0.8
   },
@@ -314,7 +227,14 @@
       "consecuencia",
       "responsabilidad",
       "descalificacion",
-      "penalidad"
+      "penalidad",
+      "mantenimiento de oferta",
+      "moneda",
+      "tipo de cambio",
+      "forma de pago",
+      "competencia",
+      "apertura",
+      "cuenta"
     ],
     "aliases": [
       "penalizacion economica",
@@ -342,14 +262,39 @@
       "suspension del registro",
       "ejecucion de garantia",
       "perdida de garantia",
-      "daño y perjuicio",
-      "daños y perjuicios",
+      "daÃ±o y perjuicio",
+      "daÃ±os y perjuicios",
       "indemnizacion",
       "reparacion",
       "subsanar",
       "incumplimiento grave",
       "falta de entrega",
-      "penalidad contractual"
+      "penalidad contractual",
+      "mantenimiento de la oferta",
+      "vigencia de la oferta",
+      "plazo de mantenimiento de oferta",
+      "tipo de cambio",
+      "ajuste por tipo de cambio",
+      "riesgo cambiario",
+      "pago en moneda extranjera",
+      "forma de pago",
+      "condiciones de pago",
+      "plazo de pago",
+      "retencion de pagos",
+      "pago contra entrega",
+      "alta competitividad",
+      "mercado competitivo",
+      "proveedor incumbente",
+      "experiencia previa exigida",
+      "apertura de cuenta",
+      "cuenta bancaria especifica",
+      "control de la cuenta",
+      "apertura de ofertas",
+      "acto de apertura",
+      "presentacion presencial",
+      "requisitos tecnicos exigidos",
+      "capacidad tecnica exigida",
+      "experiencia minima requerida"
     ],
     "top_k": 35,
     "thresholds": {

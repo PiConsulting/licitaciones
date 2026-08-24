@@ -20,48 +20,15 @@ from shared.security import sanitize_error_message, sanitize_url_for_logs
 
 logger = structlog.get_logger(__name__)
 
-# Document Intelligence, en modo markdown, marca cada salto de pagina con este
-# comentario literal -- es la unica forma confiable de recuperar el numero de
-# pagina, porque el `<!-- PageNumber="N de M" -->` que a veces lo acompana no
-# siempre esta presente (depende de si el pie de pagina real del documento
-# tiene forma "N de M").
+
 _MD_PAGE_BREAK = "<!-- PageBreak -->"
 _MD_COMMENT_RE = re.compile(r"^<!--.*-->$")
-# FIX (auditoría 2026-08-14, hallazgo CHK-17): el tope de 6 almohadillas es la
-# regla de CommonMark, pero Document Intelligence NO emite CommonMark: cuando la
-# jerarquía visual del documento tiene más de seis niveles sigue agregando
-# almohadillas (`####### 3.3. …`, `######## 3.3.1. …` en el PET de Bancor). Con
-# el tope, esas líneas no matcheaban y caían al `paragraph_lines` de abajo, así
-# que:
-#   1. el encabezado se convertía en un párrafo más, con las almohadillas
-#      LITERALES dentro del texto del chunk, y
-#   2. toda la rama que colgaba de él perdía a su ancestro, y el heading_stack
-#      la enganchaba del último encabezado válido -- que podía ser de otra
-#      sección entera.
-# Medido en el PET de Bancor: desde la página ~16 hasta la ~33 el `section_path`
-# quedaba mal (chunks 64-72 de la sección 3.3 colgados de "2.3.3) ITEM 3:
-# EQUIPO DE ALMACENAMIENTO DE BACKUP SECUNDARIO").
-# Se conserva la profundidad real en vez de recortarla a 6: dos niveles
-# distintos aplastados al mismo número son hermanos para `pop_to_level`, y
-# `_normalize_decimal_heading_levels` sólo puede reparar los que están
-# numerados.
 _MD_HEADING_RE = re.compile(r"^(#+)\s+(.+)$")
 _MD_TABLE_START_RE = re.compile(r"^<table\b")
 _MD_TABLE_END_RE = re.compile(r"^</table>")
 _MD_FIGURE_START_RE = re.compile(r"^<figure>")
 _MD_FIGURE_END_RE = re.compile(r"^</figure>")
-# Empuja las filas de tabla (extraidas aparte de result.tables, no del texto
-# markdown) siempre despues de los bloques de texto de su misma pagina. No hay
-# un sistema de offsets comun entre el markdown reconstruido y los spans que
-# Azure calcula sobre el documento original, asi que en vez de tratar de
-# interpolar exactamente se aprovecha que en la practica el texto que
-# introduce una tabla siempre viene antes que la tabla misma.
 _TABLE_SOURCE_ORDER_BASE = 10_000_000
-# Une palabras partidas por un salto de linea con guion de fin de renglon
-# ("ad-\nquisicion" -> "adquisicion", "ADQUI-\nSICIÓN" -> "ADQUISICIÓN").
-# Soporta minúsculas, mayúsculas y ü/Ü. Un guion real de palabra compuesta
-# casi siempre separa dos palabras completas, no deja una letra sola pegada
-# al salto de linea, por lo que este regex es suficientemente específico.
 _LINE_WRAP_HYPHEN_RE = re.compile(r"([a-záéíóúñüA-ZÁÉÍÓÚÑÜ])-\n([a-záéíóúñüA-ZÁÉÍÓÚÑÜ])")
 
 
@@ -81,32 +48,11 @@ def _first_page_number(item: object) -> int:
     return 1
 
 
-# Azure Document Intelligence expresa las coordenadas en la unidad que reporta
-# `result.pages[i].unit`: PULGADAS para PDF y PÍXELES para imágenes sueltas.
-# El resto del pipeline (y el visor) trabajan en PUNTOS de PDF, que es lo que
-# devuelve PyMuPDF en `highlight.py`. Ver `_page_unit_scales`.
 _POINTS_PER_INCH = 72.0
 
 
 def _normalized_length_unit(unit: object) -> str:
-    """El nombre de la unidad de `DocumentPage.unit`, venga como enum o como str.
-
-    FIX (auditoría 2026-08-14, hallazgo ING-06): `_page_unit_scales` comparaba
-    `str(page.unit) == "inch"`. Pero el SDK devuelve `LengthUnit.INCH`, un
-    `class LengthUnit(str, Enum)` -- y en un enum de Python `Enum.__str__` le
-    gana a `str.__str__`, así que `str(LengthUnit.INCH)` no es `"inch"` sino
-    `"LengthUnit.INCH"`.
-
-    La comparación fallaba en TODAS las páginas de TODOS los documentos: el
-    diccionario de escalas quedaba vacío y `_extract_bounding_boxes` descartaba
-    el 100% de los bbox por su rama de "unidad desconocida". Medido sobre el
-    pliego de Servidores 2025: 161 párrafos con polígono, 161 con bbox crudo, 0
-    con bbox convertido, `bbox_coverage_pct=0.0`.
-
-    Se lee `.value` primero (el contrato del enum) y, como red, se descarta el
-    prefijo `Clase.` si quedara alguno: sirve igual si el SDK pasa a devolver un
-    `StrEnum`, un string pelado o un enum con otro nombre de clase.
-    """
+    """El nombre de la unidad de `DocumentPage.unit`, venga como enum o como str."""
     if unit is None:
         return ""
     raw = getattr(unit, "value", unit)
@@ -115,26 +61,7 @@ def _normalized_length_unit(unit: object) -> str:
 
 
 def _page_unit_scales(result: object) -> dict[int, float]:
-    """Factor de conversión a PUNTOS para cada página del documento.
-
-    FIX (auditoría 2026-08-13, hallazgo ING-03): el bbox de Azure DI se guardaba
-    en la unidad cruda que devuelve el servicio, sin convertir. Para un PDF eso
-    son PULGADAS (valores del orden de 0-11), mientras que el camino de
-    highlighting con PyMuPDF emite PUNTOS (0-842). Los dos caminos alimentan el
-    mismo campo `highlight_regions` y el visor multiplica lo que reciba por la
-    escala de zoom, así que las regiones en pulgadas se dibujaban como un
-    recuadro de ~7 px pegado al ángulo superior izquierdo.
-
-    Se vio en un análisis real: de ~35 sources, unas 10 salieron en pulgadas
-    (`{"x": 0.77, "y": 2.12, "width": 6.71}`) y el resto en puntos
-    (`{"x": 56.8, "y": 465.2, "width": 240.3}`), mezcladas en la misma
-    respuesta.
-
-    Devuelve {page_number: factor}. Las páginas cuya unidad no se puede
-    convertir con seguridad quedan fuera del diccionario y su bbox se descarta
-    en `_extract_bounding_boxes` -- mejor sin resaltado que con uno que apunta
-    a cualquier lado.
-    """
+    """Factor de conversión a PUNTOS para cada página del documento."""
     scales: dict[int, float] = {}
     unsupported: dict[int, str] = {}
 
@@ -149,9 +76,6 @@ def _page_unit_scales(result: object) -> dict[int, float]:
         elif unit in {"point", "pt"}:
             scales[page_number] = 1.0
         else:
-            # "pixel" (imágenes sueltas) y cualquier unidad futura: no se puede
-            # convertir sin conocer el DPI real del origen. Esta app sólo acepta
-            # PDF, así que llegar acá indica un cambio del servicio.
             unsupported[page_number] = unit or "(sin unidad)"
 
     if unsupported:
@@ -185,9 +109,8 @@ def _extract_bounding_boxes(
     """
     regions = getattr(item, "bounding_regions", None) or []
     bboxes = []
-    
+
     if not regions:
-        # Diagnostic: si no hay bounding_regions, verificar si el atributo existe
         has_attr = hasattr(item, "bounding_regions")
         logger.debug(
             "no_bounding_regions",
@@ -195,20 +118,16 @@ def _extract_bounding_boxes(
             attr_value=getattr(item, "bounding_regions", "NOT_SET"),
         )
         return bboxes
-    
+
     for region in regions:
         page_number = getattr(region, "page_number", None)
         polygon = getattr(region, "polygon", None)
-        
+
         if page_number is None or not polygon or len(polygon) < 4:
             continue
-        
-        # polygon es lista de coordenadas [x0, y0, x1, y1, x2, y2, x3, y3]
-        # donde (x0, y0) es top-left, (x2, y2) es bottom-right
-        # Azure DI ya usa top-left origin, así que no necesitamos convertir
         x_coords = [polygon[i] for i in range(0, len(polygon), 2)]
         y_coords = [polygon[i] for i in range(1, len(polygon), 2)]
-        
+
         x = min(x_coords)
         y = min(y_coords)
         width = max(x_coords) - x
@@ -220,18 +139,18 @@ def _extract_bounding_boxes(
         elif page in unit_scales:
             scale = unit_scales[page]
         else:
-            # Unidad desconocida para esta página: se descarta el bbox en vez
-            # de emitirlo en una escala que el consumidor no puede interpretar.
             continue
 
-        bboxes.append({
-            "page": page,
-            "x": float(x) * scale,
-            "y": float(y) * scale,
-            "width": float(width) * scale,
-            "height": float(height) * scale,
-        })
-    
+        bboxes.append(
+            {
+                "page": page,
+                "x": float(x) * scale,
+                "y": float(y) * scale,
+                "width": float(width) * scale,
+                "height": float(height) * scale,
+            }
+        )
+
     return bboxes
 
 
@@ -265,42 +184,13 @@ def _page_sizes_in_points(
     return sizes
 
 
-# HL-09: cuántos puntos puede sobresalir un renglón del bbox de su bloque para
-# seguir considerándose parte de él. Azure DI da el bbox del párrafo como la
-# envolvente de sus renglones, así que en teoría la contención es exacta; el
-# margen absorbe el redondeo de la conversión a puntos.
 _TOLERANCIA_DE_CONTENCION_PT = 2.0
 
 
 def _build_line_index(
     result: object, unit_scales: dict[int, float] | None = None
 ) -> dict[int, list[dict[str, Any]]]:
-    """Geometría por RENGLÓN de cada página, en puntos (HL-09).
-
-    HALLAZGO HL-09: en el análisis de Santa Fe el resaltado falla al 100 % en
-    exactamente dos de los cinco documentos -- el pliego principal y el Anexo 2 --
-    y al 100 % de las veces funciona en los otros tres. Los dos que fallan son
-    escaneos. `compute_highlight_regions` usa PyMuPDF `search_for`, que sólo
-    encuentra texto EMBEBIDO en el PDF; Azure DI hace OCR y por eso el análisis
-    sale completo mientras el resaltado sale vacío, en silencio.
-
-    Y no hay red debajo: cuando no hay regiones, el visor cae a decorar la capa
-    de texto de react-pdf (`PDFPage.tsx:83`), que en un escaneo también está
-    vacía. O sea que en esos documentos la persona no ve NADA -- ni el rectángulo
-    ni el texto marcado.
-
-    La geometría, sin embargo, existe: DI devuelve dónde leyó cada cosa. Hoy sólo
-    guardamos el bbox del PÁRRAFO, y pintar el párrafo entero es justo lo que se
-    quitó en HL-08 por no señalar nada. Los renglones son el punto medio: DI los
-    devuelve en `result.pages[].lines[]`, son ~10 veces menos que las palabras
-    --lo que importa porque esto engorda cada chunk del índice-- y alcanzan para
-    reproducir lo que hoy se ve en un PDF con texto, donde los rectángulos son
-    justamente del alto de un renglón.
-
-    Devuelve `{page_number: [{"x","y","width","height","t"}, ...]}` ordenado por
-    posición de lectura. `t` es el texto del renglón: sin él no se puede saber
-    QUÉ renglón corresponde a la cita.
-    """
+    """Geometría por RENGLÓN de cada página, en puntos."""
     index: dict[int, list[dict[str, Any]]] = {}
     for page in list(getattr(result, "pages", None) or []):
         page_number = _safe_int(getattr(page, "page_number", None), default=0)
@@ -311,9 +201,6 @@ def _build_line_index(
             contenido = str(getattr(line, "content", "") or "").strip()
             if not contenido:
                 continue
-            # `lines` trae `polygon` directo, no `bounding_regions`. Se envuelve
-            # para reusar la conversión a puntos que ya resolvió ING-03/ING-06,
-            # en vez de repetir acá la aritmética de polígono y escala.
             caja = _extract_bounding_boxes(
                 _RegionDeRenglon(page_number, getattr(line, "polygon", None)), unit_scales
             )
@@ -346,17 +233,7 @@ class _PoligonoDeRenglon:
 def _attach_lines_to_blocks(
     blocks: list[dict], line_index: dict[int, list[dict[str, Any]]]
 ) -> None:
-    """Cuelga de cada bloque los renglones que caen dentro de su bbox (HL-09).
-
-    Se guarda por bloque y no por página porque el consumidor
-    (`highlight.py`) ya resuelve el CHUNK que respaldó la cita
-    (ATR-01, vía `chunk_id`) y de ahí llega al bloque. Guardarlo por página
-    obligaría a arrastrar la página entera en cada chunk que la toca.
-
-    No falla si no hay renglones: el bloque simplemente no lleva la clave, y el
-    consumidor tiene que tratar su ausencia como "no disponible". Es lo que pasa
-    con todo lo ya indexado antes de este cambio.
-    """
+    """Cuelga de cada bloque los renglones que caen dentro de su bbox (HL-09)."""
     if not line_index:
         return
 
@@ -393,8 +270,7 @@ def _renglon_dentro_de(renglon: dict[str, Any], caja: dict[str, Any]) -> bool:
         return False
     margen = _TOLERANCIA_DE_CONTENCION_PT
     return (
-        x - margen <= centro_x <= x + ancho + margen
-        and y - margen <= centro_y <= y + alto + margen
+        x - margen <= centro_x <= x + ancho + margen and y - margen <= centro_y <= y + alto + margen
     )
 
 
@@ -421,9 +297,18 @@ def _serialize_table_rows(
     cells = list(getattr(table, "cells", None) or [])
 
     if row_count <= 0:
-        row_count = max((_safe_int(getattr(cell, "row_index", 0), default=0) for cell in cells), default=-1) + 1
+        row_count = (
+            max((_safe_int(getattr(cell, "row_index", 0), default=0) for cell in cells), default=-1)
+            + 1
+        )
     if column_count <= 0:
-        column_count = max((_safe_int(getattr(cell, "column_index", 0), default=0) for cell in cells), default=-1) + 1
+        column_count = (
+            max(
+                (_safe_int(getattr(cell, "column_index", 0), default=0) for cell in cells),
+                default=-1,
+            )
+            + 1
+        )
 
     if row_count <= 0 or column_count <= 0:
         return []
@@ -431,7 +316,6 @@ def _serialize_table_rows(
     matrix = [["" for _ in range(column_count)] for _ in range(row_count)]
     header_by_col: dict[int, str] = {}
     header_rows: set[int] = set()
-    # Colectar bboxes por fila
     bboxes_by_row: dict[int, list] = {}
 
     for cell in cells:
@@ -451,8 +335,6 @@ def _serialize_table_rows(
         if kind_lower in {"columnheader", "stubhead"} and content:
             header_by_col[col_index] = content
             header_rows.add(row_index)
-        
-        # Extraer bbox de cada celda
         cell_bboxes = _extract_bounding_boxes(cell, unit_scales)
         if cell_bboxes:
             if row_index not in bboxes_by_row:
@@ -472,11 +354,9 @@ def _serialize_table_rows(
             continue
         if not any(cell.strip() for cell in row):
             continue
-
-        # Formato limpio para embeddings (sin "Tabla TX | Fila N")
         content_fragments: list[str] = []
         citation_headers: list[str] = []
-        
+
         for col_index, cell_value in enumerate(row):
             normalized = cell_value.strip()
             if not normalized:
@@ -512,49 +392,37 @@ def _build_para_id_index(
     paragraphs: list, unit_scales: dict[int, float] | None = None
 ) -> dict[tuple[int, int], list[dict[str, float]]]:
     """Construye índice para_id → bounding_boxes para mapeo preciso.
-    
+
     SOLUCIÓN DEFINITIVA V2 (2026-08): Mapeo por posición estructural.
     Usa (page_number, paragraph_index_in_page) como identidad estable.
     Esto garantiza precisión 100% sin ambigüedad por contenido duplicado.
-    
+
     Args:
         paragraphs: Lista de paragraphs de Azure Document Intelligence
-    
+
     Returns:
         Diccionario {(page, index): [bbox1, bbox2, ...]}
     """
-    # Agrupar paragraphs por página
     paras_by_page: dict[int, list] = {}
     for para in paragraphs:
         page = _first_page_number(para)
         if page not in paras_by_page:
             paras_by_page[page] = []
         paras_by_page[page].append(para)
-    
-    # Construir índice: (page, index_in_page) → bbox
     bbox_index = {}
     total_paras = 0
     paras_with_bbox = 0
-    
+
     for page_num, page_paras in paras_by_page.items():
-        # Ordenar por span offset para orden determinístico
         page_paras_sorted = sorted(
-            page_paras,
-            key=lambda p: getattr(getattr(p, "span", None), "offset", 0)
+            page_paras, key=lambda p: getattr(getattr(p, "span", None), "offset", 0)
         )
-        
+
         for idx, para in enumerate(page_paras_sorted):
             total_paras += 1
             bboxes = _extract_bounding_boxes(para, unit_scales)
             if bboxes:
                 para_id = (page_num, idx)
-                # ING-07: se guarda también el texto del párrafo. El índice es
-                # posicional -- (página, orden) -- y sólo es correcto si el
-                # parser de markdown produce exactamente un bloque por párrafo
-                # de DI. Cuando no, el bloque i recibe el bbox del párrafo j:
-                # coordenadas de OTRO texto, sin ninguna señal de que pasó.
-                # Guardar el contenido permite verificarlo en el momento de
-                # asignar, en vez de confiar en la precondición.
                 bbox_index[para_id] = {
                     "bbox": bboxes,
                     "content": str(getattr(para, "content", "") or ""),
@@ -571,25 +439,8 @@ def _build_para_id_index(
     return bbox_index
 
 
-# Cuánto texto se compara para decidir si el bloque y el párrafo son el mismo.
-# Un prefijo alcanza: el desalineamiento que importa corre el índice entero, así
-# que los textos no se parecen ni en la primera frase.
 _PARA_MATCH_PREFIX_CHARS = 40
-# Por debajo de este largo se exige igualdad exacta en vez de contención.
 _PARA_MATCH_EXACT_BELOW_CHARS = 8
-
-# FIX (auditoría 2026-08-14, hallazgo ING-11): en modo markdown, Document
-# Intelligence ESCAPA la puntuación que markdown interpretaría como sintaxis:
-# emite `1\. Etapa 1`, `\+ 10 Gb`, `\> Planificación`, `\- Intel Xeon`. Pero
-# `result.paragraphs[].content` es texto plano, sin escapes. O sea, el mismo
-# texto llega distinto por los dos caminos y `_same_text` los daba por
-# diferentes desde el segundo carácter.
-#
-# Medido sobre el PET de Bancor: 14 de 721 bloques sin bbox (`match_rate 98.1%`),
-# y entre ellos las tres etapas de migración del apartado 3.1.10 --
-# `"1\. Etapa 1 - Migración por el proveedor…"` -- que es contenido de
-# `plazos_clave`, no relleno. Se ve en los chunks 44 y 45 del reanálisis
-# `7bce4799`: `"para_id": null, "bbox": []`.
 _MD_ESCAPE_RE = re.compile(r"\\([-+.>#*_\[\]()!`~])")
 
 
@@ -599,43 +450,11 @@ def _unescape_markdown(texto: str) -> str:
 
 
 def _same_text(block_content: object, para_content: object) -> bool:
-    """¿El bloque del parser y el párrafo de DI son el mismo texto?
-
-    No se exige igualdad: el parser de markdown normaliza espacios, une líneas
-    y a veces recorta viñetas. Se compara un prefijo normalizado, y se acepta
-    que uno sea un fragmento del otro -- pero **anclado a un borde**.
-
-    FIX (auditoría 2026-08-14, hallazgo ING-10): antes se aceptaba la contención
-    en cualquier posición (`izquierda in derecha or derecha in izquierda`). Un
-    párrafo corto se mete por casualidad en el medio de cualquier párrafo largo
-    que mencione las mismas palabras, y `result.paragraphs` incluye las CELDAS de
-    las tablas, que son justamente textos cortos.
-
-    Medido en el reanálisis `7bce4799` del PET de Bancor, chunk 95: el párrafo
-    `"· El adjudicatario deberá tener capacidad de brindar soporte presencial
-    (on-site) cuando la severidad lo requiera o el Banco lo solicite, con un
-    tiempo de respuesta on-site no mayor a 3 horas."` (192 caracteres) se quedó
-    con el bbox de la celda `"Tiempo de respuesta"` del encabezado de la tabla de
-    la misma página -- 84,4 × 30,9 pt, donde no entran 192 caracteres. La causa
-    es literal: `"tiempo de respuesta"` está adentro de ese párrafo, en el medio.
-    El resaltado de esa cita caía sobre una celda de la tabla.
-
-    Un fragmento de verdad empieza donde empieza el otro texto o termina donde
-    termina: el parser corta el párrafo de DI (`"Artículo Nº 10: GAR"` es prefijo
-    de la línea entera) o le saca una viñeta del principio (el párrafo de DI es
-    sufijo del bloque). En el medio no hay ninguna relación estructural -- sólo
-    vocabulario compartido, que es exactamente lo que este emparejamiento NO
-    tiene que usar.
-    """
+    """¿El bloque del parser y el párrafo de DI son el mismo texto?"""
     izquierda = _unescape_markdown(" ".join(str(block_content or "").split()).lower())
     derecha = _unescape_markdown(" ".join(str(para_content or "").split()).lower())
     if not izquierda or not derecha:
         return False
-
-    # Textos muy cortos exigen igualdad: la contención convierte cualquier
-    # número en un match de cualquier otro que lo contenga ("4" dentro de "41"),
-    # y una tabla de contenidos es justamente una página llena de números
-    # sueltos.
     if min(len(izquierda), len(derecha)) < _PARA_MATCH_EXACT_BELOW_CHARS:
         return izquierda == derecha
 
@@ -657,32 +476,7 @@ def _match_paragraph(
     usados: set[int],
     cursor: int,
 ) -> tuple[int | None, dict]:
-    """El párrafo de Document Intelligence que corresponde a este bloque.
-
-    FIX (auditoría 2026-08-14, hallazgo ING-09): el índice bloque → bbox usaba
-    la POSICIÓN -- el bloque n-ésimo de una página tomaba el bbox del párrafo
-    n-ésimo. Eso sólo funciona si el parser de markdown produce exactamente un
-    bloque por párrafo de DI, y no lo hace en cuanto la página tiene una figura
-    o una tabla: `result.paragraphs` las incluye, el parser las emite aparte
-    (`table_ref`) o las descarta, y a partir de ahí los dos índices corren
-    desfasados hasta el final de la página.
-
-    Medido sobre el PET de Bancor (logo en el membrete de todas las páginas,
-    tabla de contenidos en la página 2): de 86 bloques de párrafo, sólo **3**
-    conservaban su bbox -- justo los tres anteriores a la primera figura o tabla
-    de su página. El resto los descartaba la verificación de texto de ING-07,
-    que hizo bien su trabajo: sin ella, 83 bloques habrían llevado en silencio
-    las coordenadas de otro párrafo.
-
-    La identidad pasa a ser el TEXTO, que es lo que de verdad identifica al
-    párrafo. `usados` impide que dos bloques se lleven el mismo párrafo y
-    `cursor` fuerza el orden de lectura, que es lo que desambigua un texto
-    repetido en la misma página (un "BANCOR" de membrete que aparece dos veces).
-    Se busca primero hacia adelante desde el cursor; el barrido completo es la
-    red para cuando DI reordena respecto del markdown.
-
-    Devuelve `(índice del párrafo, entrada)` o `(None, {})`.
-    """
+    """El párrafo de Document Intelligence que corresponde a este bloque."""
     for indice, entrada in candidatos:
         if indice <= cursor or indice in usados:
             continue
@@ -703,20 +497,8 @@ def _enrich_blocks_with_para_id(
     bbox_by_para_id: dict[tuple[int, int], list[dict[str, float]]],
     page_sizes: dict[int, tuple[float, float]] | None = None,
 ) -> None:
-    """Enriquece bloques con para_id y bbox usando posición estructural.
-    
-    SOLUCIÓN DEFINITIVA V2 (2026-08): Identidad por posición, no contenido.
-    - Asigna para_id secuencial a cada bloque según orden de aparición en página
-    - Busca bbox directamente por para_id
-    - Precisión 100% sin ambigüedad por contenido duplicado
-    
-    Args:
-        blocks: Lista de bloques a enriquecer (se modifica in-place)
-        bbox_by_para_id: Índice (page, index) → bboxes
-    """
+    """Enriquece bloques con para_id y bbox usando posición estructural."""
     stats = {"total": 0, "matched": 0, "no_match": 0, "text_mismatch": 0}
-    
-    # Asignar para_id secuencial a blocks por página
     blocks_by_page: dict[int, list[dict]] = {}
     for block in blocks:
         page = block.get("page_number")
@@ -725,16 +507,11 @@ def _enrich_blocks_with_para_id(
         if page not in blocks_by_page:
             blocks_by_page[page] = []
         blocks_by_page[page].append(block)
-    
+
     for page_num, page_blocks in blocks_by_page.items():
-        # Ordenar por source_order para mantener orden de lectura
         page_blocks_sorted = sorted(
-            page_blocks,
-            key=lambda b: (b.get("source_order", 0), b.get("row_order", 0))
+            page_blocks, key=lambda b: (b.get("source_order", 0), b.get("row_order", 0))
         )
-        
-        # ING-09: los candidatos de ESTA página, con su índice real en
-        # `result.paragraphs`. El bloque se empareja por texto, no por posición.
         candidatos = [
             (para_id[1], entrada)
             for para_id, entrada in bbox_by_para_id.items()
@@ -747,10 +524,7 @@ def _enrich_blocks_with_para_id(
 
         for block in page_blocks_sorted:
             stats["total"] += 1
-
-            # Solo asignar para_id a bloques de párrafo (no tablas)
             if block.get("table_ref"):
-                # Tablas no tienen para_id (son extraídas por separado)
                 block["para_id"] = None
                 block["bbox"] = []
                 stats["no_match"] += 1
@@ -781,17 +555,16 @@ def _enrich_blocks_with_para_id(
                 block["bbox"] = []
                 stats["no_match"] += 1
                 continue
-
-            # ING-03: validar contra el tamaño REAL de la página (en puntos),
-            # no contra dos constantes sin unidad. Se deja 1pt de tolerancia
-            # por el redondeo del polígono de Azure DI.
             page_size = (page_sizes or {}).get(page_num)
             valid_bboxes = []
             for bbox in bboxes:
                 if page_size is None:
-                    # Sin dimensiones conocidas sólo se exige que el rectángulo
-                    # exista y no sea negativo.
-                    is_valid = bbox["x"] >= 0 and bbox["y"] >= 0 and bbox["width"] > 0 and bbox["height"] > 0
+                    is_valid = (
+                        bbox["x"] >= 0
+                        and bbox["y"] >= 0
+                        and bbox["width"] > 0
+                        and bbox["height"] > 0
+                    )
                 else:
                     page_width, page_height = page_size
                     is_valid = (
@@ -811,16 +584,14 @@ def _enrich_blocks_with_para_id(
                         bbox=bbox,
                         page_size_points=page_size,
                     )
-            
+
             if not valid_bboxes:
                 block["bbox"] = []
                 stats["no_match"] += 1
                 continue
-            
+
             block["bbox"] = valid_bboxes
             stats["matched"] += 1
-    
-    # Log stats de calidad de mapeo
     match_rate = (stats["matched"] / stats["total"] * 100) if stats["total"] > 0 else 0
     logger.info(
         "para_id_enrichment_complete",
@@ -832,7 +603,9 @@ def _enrich_blocks_with_para_id(
     )
 
 
-def _parse_markdown_blocks(markdown: str) -> tuple[list[dict], dict[int, int], list[tuple[int, int]]]:
+def _parse_markdown_blocks(
+    markdown: str,
+) -> tuple[list[dict], dict[int, int], list[tuple[int, int]]]:
     """Convierte el markdown de Document Intelligence en bloques de encabezado
     (con su nivel, segun cantidad de '#') y parrafo, recuperando la pagina real
     via los marcadores `<!-- PageBreak -->`. Las tablas HTML embebidas se
@@ -867,7 +640,6 @@ def _parse_markdown_blocks(markdown: str) -> tuple[list[dict], dict[int, int], l
                     "table_ref": None,
                 }
             )
-            # LOG diagnóstico: detectar posibles títulos perdidos (heurística)
             if len(text) < 100:
                 uppercase_ratio = sum(1 for c in text if c.isupper()) / len(text) if text else 0
                 if uppercase_ratio > 0.5:
@@ -888,9 +660,6 @@ def _parse_markdown_blocks(markdown: str) -> tuple[list[dict], dict[int, int], l
             page_number += 1
             continue
         if _MD_COMMENT_RE.match(stripped):
-            # <!-- PageNumber=... / PageFooter=... / PageHeader=... --> son
-            # membrete/pie repetido que Azure ya separa del cuerpo: se descarta,
-            # no hace falta la deteccion de boilerplate por repeticion de antes.
             continue
         if _MD_FIGURE_START_RE.match(stripped):
             in_figure = True
@@ -899,7 +668,6 @@ def _parse_markdown_blocks(markdown: str) -> tuple[list[dict], dict[int, int], l
             in_figure = False
             continue
         if in_figure:
-            # LOG diagnóstico: registrar contenido descartado de figuras
             if stripped:
                 logger.debug(
                     "figure_content_discarded",
@@ -909,9 +677,6 @@ def _parse_markdown_blocks(markdown: str) -> tuple[list[dict], dict[int, int], l
             continue  # logos/membretes escaneados como figura: sin texto util
         if _MD_TABLE_START_RE.match(stripped):
             flush_paragraph()
-            # Reserva la posicion de lectura de esta tabla y consume un
-            # source_order, para que las filas se ordenen justo aca respecto de
-            # los parrafos y encabezados vecinos.
             table_positions.append((page_number, source_order))
             source_order += 1
             in_table = True
@@ -938,7 +703,6 @@ def _parse_markdown_blocks(markdown: str) -> tuple[list[dict], dict[int, int], l
                     }
                 )
                 heading_levels_by_order[source_order] = level
-                # LOG diagnóstico: registrar heading detectado
                 logger.debug(
                     "heading_detected",
                     page=page_number,
@@ -950,20 +714,6 @@ def _parse_markdown_blocks(markdown: str) -> tuple[list[dict], dict[int, int], l
             continue
 
         if not stripped:
-            # FIX CRÍTICO (auditoría 2026-08-12, hallazgo C-2): antes, una línea en
-            # blanco NO cerraba el párrafo -- solo se agregaba como separador
-            # interno, así que todo el cuerpo entre dos headings terminaba en un
-            # único bloque con "\n\n" internos. Eso hacía que el índice
-            # (página, índice_secuencial) que arma _build_para_id_index (a partir
-            # de result.paragraphs de Document Intelligence, con un registro por
-            # párrafo REAL) dejara de corresponderse con el índice de "blocks" de
-            # este parser en cuanto había más de un párrafo de cuerpo seguido
-            # -- el caso común, no el edge case. El resultado: bloques (y sus
-            # chunks/highlights) recibían el bbox de OTRO párrafo de la misma
-            # página. Haciendo flush en cada línea en blanco, 1 bloque de este
-            # parser vuelve a corresponder a 1 párrafo real de Document
-            # Intelligence, que es la precondición que _enrich_blocks_with_para_id
-            # necesita para asignar el bbox correcto.
             flush_paragraph()
             continue
 
@@ -983,23 +733,10 @@ def _build_markdown_blocks(result: object) -> tuple[list[dict], EventDict]:
         level = heading_levels_by_order.get(block["source_order"])
         if level is not None:
             block["heading_level"] = level
-    
-    # SOLUCIÓN DEFINITIVA V2 (2026-08): Mapeo por posición estructural
-    # - Construye índice (page, index) → bbox de paragraphs
-    # - Asigna para_id secuencial a bloques por orden de lectura
-    # - Mapea bbox por para_id (identidad estable, no contenido)
-    # - Precisión 100% sin ambigüedad por texto duplicado
-    # ING-03: factor a puntos por página, antes de extraer cualquier bbox.
     unit_scales = _page_unit_scales(result)
 
     bbox_by_para_id = _build_para_id_index(paragraphs, unit_scales)
     _enrich_blocks_with_para_id(blocks, bbox_by_para_id, _page_sizes_in_points(result, unit_scales))
-
-    # HL-09: geometría por renglón, para poder resaltar en PDF escaneados, donde
-    # PyMuPDF no tiene texto que buscar. Se cuelga después del bbox de párrafo
-    # porque la contención se calcula contra ese bbox. Es aditivo: nada de lo que
-    # ya existía lee esta clave, así que indexar con o sin ella no cambia ningún
-    # comportamiento actual.
     _attach_lines_to_blocks(blocks, _build_line_index(result, unit_scales))
 
     total_table_rows = 0
@@ -1008,25 +745,15 @@ def _build_markdown_blocks(result: object) -> tuple[list[dict], EventDict]:
     for index, table in enumerate(tables, start=1):
         table_id = f"T{index}"
         row_blocks = _serialize_table_rows(table, table_id=table_id, unit_scales=unit_scales)
-        # Las tablas aparecen en `result.tables` en el mismo orden en que sus
-        # `<table>` aparecen en el markdown, asi que la posicion i-esima ubica a
-        # la tabla i-esima en el flujo de lectura. Con eso las filas quedan bajo
-        # el encabezado que realmente las precede. Sin esto (fallback historico)
-        # toda tabla se empujaba al final de su pagina y heredaba el ultimo
-        # titulo de la pagina: la caratula de un pliego terminaba etiquetada como
-        # "ANEXOS OBLIGATORIOS" solo por estar en la misma pagina.
         position = table_positions[index - 1] if index - 1 < len(table_positions) else None
         if position is not None:
             table_page, table_order = position
             tables_placed_in_reading_order += 1
             for row_index, row_block in enumerate(row_blocks):
                 row_block["page_number"] = table_page
-                # Las filas comparten la posicion de la tabla y se desempatan
-                # entre si por su indice, sin invadir el source_order siguiente.
                 row_block["source_order"] = table_order
                 row_block["row_order"] = row_index
         else:
-            # Tabla sin posición en markdown - usar fallback artificial
             tables_with_fallback_position += 1
             logger.warning(
                 "table_position_fallback",
@@ -1058,7 +785,6 @@ def _build_markdown_blocks(result: object) -> tuple[list[dict], EventDict]:
         "tables_with_fallback_position": tables_with_fallback_position,
         "table_positions_detected": len(table_positions),
     }
-    # Detectar desincronización entre markdown y result.tables
     if tables_with_fallback_position > 0:
         logger.warning(
             "table_position_mismatch",
@@ -1077,7 +803,10 @@ class AzureDocumentIntelligenceAdapter(DocumentIntelligencePort):
 
     def extract_text(self, blob_url: str) -> list[dict]:
         from azure.ai.documentintelligence import DocumentIntelligenceClient
-        from azure.ai.documentintelligence.models import AnalyzeDocumentRequest, DocumentContentFormat
+        from azure.ai.documentintelligence.models import (
+            AnalyzeDocumentRequest,
+            DocumentContentFormat,
+        )
         from azure.core.credentials import AzureKeyCredential
 
         client = DocumentIntelligenceClient(
@@ -1090,8 +819,6 @@ class AzureDocumentIntelligenceAdapter(DocumentIntelligencePort):
             output_content_format=DocumentContentFormat.MARKDOWN,  # Markdown para estructura + result.paragraphs para bbox
         )
         result = poller.result(timeout=self._timeout_seconds)
-
-        # Validación: verificar que el resultado tiene el formato esperado
         if not hasattr(result, "content"):
             raise DocumentTextExtractionError(
                 "Azure DI result missing 'content' attribute - schema may have changed"
@@ -1111,8 +838,11 @@ class AzureDocumentIntelligenceAdapter(DocumentIntelligencePort):
 
 def _build_adapter() -> DocumentIntelligencePort:
     settings = get_settings()
-    
-    if not settings.azure_document_intelligence_endpoint or not settings.azure_document_intelligence_key:
+
+    if (
+        not settings.azure_document_intelligence_endpoint
+        or not settings.azure_document_intelligence_key
+    ):
         raise DocumentTextExtractionError("Falta configuración de Azure Document Intelligence")
 
     return AzureDocumentIntelligenceAdapter(
@@ -1150,10 +880,8 @@ def extract_text(blob_url: str, document_id: str | UUID, correlation_id: str | U
             return pages
         except DocumentTextExtractionError:
             raise
-        # FIX LOW (#11): Separar Azure errors específicos para mejor handling
         except HttpResponseError as exc:
             is_last_attempt = attempt >= retries
-            # Status code específico ayuda a diagnosticar (429 rate limit, 503 service unavailable, etc.)
             status_code = getattr(exc, "status_code", None)
             logger.warning(
                 "text_extraction_http_error",
@@ -1166,7 +894,6 @@ def extract_text(blob_url: str, document_id: str | UUID, correlation_id: str | U
             )
             if is_last_attempt:
                 raise TransientExtractionError(f"HTTP error {status_code}: {exc}") from exc
-            # Para rate limits (429), esperar más tiempo
             wait_time = backoff_seconds[min(attempt - 1, len(backoff_seconds) - 1)]
             if status_code == 429:
                 wait_time *= 2
@@ -1183,10 +910,11 @@ def extract_text(blob_url: str, document_id: str | UUID, correlation_id: str | U
                 error_type=type(exc).__name__,
             )
             if is_last_attempt:
-                raise TransientExtractionError(f"Service error after {retries} attempts: {exc}") from exc
+                raise TransientExtractionError(
+                    f"Service error after {retries} attempts: {exc}"
+                ) from exc
             sleep(backoff_seconds[min(attempt - 1, len(backoff_seconds) - 1)])
         except Exception as exc:
-            # Errores inesperados (bugs de código, etc.) - loggear más detalles
             is_last_attempt = attempt >= retries
             logger.error(
                 "text_extraction_unexpected_error",
@@ -1199,7 +927,9 @@ def extract_text(blob_url: str, document_id: str | UUID, correlation_id: str | U
                 exc_info=True,
             )
             if is_last_attempt:
-                raise TransientExtractionError(f"Unexpected error after {retries} attempts: {exc}") from exc
+                raise TransientExtractionError(
+                    f"Unexpected error after {retries} attempts: {exc}"
+                ) from exc
             sleep(backoff_seconds[min(attempt - 1, len(backoff_seconds) - 1)])
 
     raise TransientExtractionError("No se pudo extraer texto")

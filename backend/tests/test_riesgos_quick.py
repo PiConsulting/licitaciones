@@ -23,7 +23,7 @@ print("✓ Test 2: ExtractedData schema includes riesgos fields")
 source_ref = SourceReference(
     document_id="test-doc-123",
     page_number=5,
-    citation="Riesgo de descalificación por documentación incompleta según art. 10"
+    citation="Riesgo de descalificación por documentación incompleta según art. 10",
 )
 item = RiesgoItem(
     tipo=TipoRiesgo.DESCALIFICACION,

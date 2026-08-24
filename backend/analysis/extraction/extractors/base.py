@@ -112,7 +112,9 @@ def _build_messages(
         .replace("{root_key}", root_key)
     )
     user_prompt = (
-        _load_prompt(prompt_file_name).replace("{chunks}", chunks_block).replace("{root_key}", root_key)
+        _load_prompt(prompt_file_name)
+        .replace("{chunks}", chunks_block)
+        .replace("{root_key}", root_key)
     )
     return [("system", system_prompt), ("human", user_prompt)]
 
@@ -203,7 +205,9 @@ def _parse_json_response(content: str) -> dict[str, Any]:
     wait=wait_exponential(multiplier=1, min=2, max=10),
     reraise=True,
 )
-def _call_llm(messages: list[tuple[str, str]], correlation_id: str) -> tuple[dict[str, Any], dict[str, int]]:
+def _call_llm(
+    messages: list[tuple[str, str]], correlation_id: str
+) -> tuple[dict[str, Any], dict[str, int]]:
     llm = get_azure_openai_client()
 
     try:
@@ -214,12 +218,19 @@ def _call_llm(messages: list[tuple[str, str]], correlation_id: str) -> tuple[dic
 
     parsed = _parse_json_response(str(response.content))
 
-    usage = response.response_metadata.get("token_usage", {}) if hasattr(response, "response_metadata") else {}
+    usage = (
+        response.response_metadata.get("token_usage", {})
+        if hasattr(response, "response_metadata")
+        else {}
+    )
     if not usage and hasattr(response, "response_metadata"):
         usage = response.response_metadata.get("usage", {}) or {}
 
     prompt_tokens = int(
-        usage.get("prompt_tokens", usage.get("input_tokens", usage.get("billed_units", {}).get("input_tokens", 0)))
+        usage.get(
+            "prompt_tokens",
+            usage.get("input_tokens", usage.get("billed_units", {}).get("input_tokens", 0)),
+        )
         or 0
     )
     completion_tokens = int(
@@ -271,9 +282,10 @@ def _normalize_item(item: dict[str, Any], fallback: dict[str, Any] | None = None
     else:
         normalized["confidence"] = min(parsed_confidence, 1.0)
 
-  
     raw_refs = normalized.get("source_references")
-    normalized["source_references"] = [ref for ref in raw_refs if isinstance(ref, dict)] if isinstance(raw_refs, list) else []
+    normalized["source_references"] = (
+        [ref for ref in raw_refs if isinstance(ref, dict)] if isinstance(raw_refs, list) else []
+    )
     status = str(normalized.get("extraction_status", "")).strip()
     if status not in VALID_EXTRACTION_STATUSES:
         logger.warning("invalid_extraction_status", received=status[:80])
@@ -311,7 +323,9 @@ def _item_has_substantive_content(item: dict[str, Any]) -> bool:
     return bool(item.get("source_references"))
 
 
-def _normalize_mixed_not_found_items(items: list[dict[str, Any]], *, category: str) -> list[dict[str, Any]]:
+def _normalize_mixed_not_found_items(
+    items: list[dict[str, Any]], *, category: str
+) -> list[dict[str, Any]]:
     """Evita `not_found` a nivel ítem cuando la categoría sí tiene hallazgos.
 
     Regla pedida por producto: `not_found` solo corresponde cuando la categoría
@@ -597,7 +611,7 @@ def _widen_citation_with_chunk_context(
         widened = _build_context_citation(
             content, start, start + len(collapsed_citation), min_chars=target_chars
         )
-        
+
         if len(widened) > len(collapsed_citation) and needle in widened.lower():
             return widened
     return citation
@@ -607,7 +621,10 @@ def _candidate_rescue_snippets(item: dict[str, Any], *, category: str) -> list[s
     candidates: list[str] = []
     seen: set[str] = set()
 
-    for raw_value in [item.get("texto_original") if category == "plazos_clave" else None, item.get("valor")]:
+    for raw_value in [
+        item.get("texto_original") if category == "plazos_clave" else None,
+        item.get("valor"),
+    ]:
         snippet = str(raw_value or "").strip()
         if not snippet:
             continue
@@ -653,9 +670,10 @@ def _citation_verified_in_table_chunk(citation: str, chunk: dict[str, Any]) -> b
     column_raw = match.group("column").strip()
     headers = [str(header) for header in (table_ref.get("headers") or [])]
     content = str(chunk.get("content", ""))
-    column_matches = any(_normalize_for_grounding(header) == _normalize_for_grounding(column_raw) for header in headers) or (
-        f"{column_raw}:" in content
-    )
+    column_matches = any(
+        _normalize_for_grounding(header) == _normalize_for_grounding(column_raw)
+        for header in headers
+    ) or (f"{column_raw}:" in content)
     if not column_matches:
         return False
 
@@ -763,8 +781,7 @@ def _citation_anchor_position(citation: str, item: dict[str, Any]) -> int | None
 def shorten_citation_to_evidence(
     citation: str, item: dict[str, Any], *, max_chars: int = CITATION_MAX_CHARS
 ) -> str:
-    """Recorta una cita larga a la ventana que CONTIENE el dato del item.
-    """
+    """Recorta una cita larga a la ventana que CONTIENE el dato del item."""
     text = " ".join(str(citation or "").split())
     if len(text) <= max_chars:
         return text
@@ -797,8 +814,7 @@ def shorten_citation_to_evidence(
 def _find_grounding_chunk(
     citation: str, candidate_chunks: list[dict[str, Any]]
 ) -> dict[str, Any] | None:
-    """Devuelve EL chunk que respalda la cita, o None si ninguno la contiene.
-    """
+    """Devuelve EL chunk que respalda la cita, o None si ninguno la contiene."""
     citation_text = str(citation or "").strip()
     if not citation_text:
         return None
@@ -833,7 +849,9 @@ _PROCEDIMIENTO_CON_NUMERO_RE = re.compile(
     r"(?:n[°ºo\.]?\s*)?(?P<numero>[A-Z0-9\-\/.]+)",
     re.IGNORECASE,
 )
-_EXPEDIENTE_RE = re.compile(r"\bexpediente\b\s*[:\-]?\s*(?P<value>[A-Z0-9][A-Z0-9\-\/.]{4,})", re.IGNORECASE)
+_EXPEDIENTE_RE = re.compile(
+    r"\bexpediente\b\s*[:\-]?\s*(?P<value>[A-Z0-9][A-Z0-9\-\/.]{4,})", re.IGNORECASE
+)
 _ORGANISMO_RE = re.compile(
     r"\borganismo\b\s*[:\-]?\s*(?P<value>.+?)(?=\bprocedimiento\b|\bobjeto\b|\bpresupuesto\b|\bexpediente\b|$)",
     re.IGNORECASE,
@@ -888,8 +906,7 @@ def _build_context_citation(
     min_chars: int = CITATION_MIN_CHARS,
     max_chars: int = CITATION_MAX_CHARS,
 ) -> str:
-    """Ensancha `content[start:end]` con el texto que lo rodea, sin perderlo.
-    """
+    """Ensancha `content[start:end]` con el texto que lo rodea, sin perderlo."""
     text = " ".join(str(content or "").split())
     if not text:
         return ""
@@ -924,10 +941,16 @@ def _build_context_citation(
     return snippet if len(snippet) <= max_chars else clip_citation(snippet, max_chars=max_chars)
 
 
-_TIPOS_IDENTIFICACION_QUE_REQUIEREN_DIGITO = {"numero_procedimiento", "expediente", "presupuesto_oficial"}
+_TIPOS_IDENTIFICACION_QUE_REQUIEREN_DIGITO = {
+    "numero_procedimiento",
+    "expediente",
+    "presupuesto_oficial",
+}
 
 
-def _augment_identificacion_payload(payload: list[dict[str, Any]], chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _augment_identificacion_payload(
+    payload: list[dict[str, Any]], chunks: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     existing_tipos = {
         _normalized_identificacion_tipo(str(item.get("tipo", "")))
         for item in payload
@@ -944,7 +967,9 @@ def _augment_identificacion_payload(payload: list[dict[str, Any]], chunks: list[
         ),
     )
 
-    def add_if_missing(tipo: str, valor: str, chunk: dict[str, Any], match_span: tuple[int, int]) -> None:
+    def add_if_missing(
+        tipo: str, valor: str, chunk: dict[str, Any], match_span: tuple[int, int]
+    ) -> None:
         canonical_tipo = _normalized_identificacion_tipo(tipo)
         clean_valor = " ".join(str(valor or "").split()).strip(" .;:-")
         if not clean_valor or canonical_tipo in existing_tipos:
@@ -959,7 +984,9 @@ def _augment_identificacion_payload(payload: list[dict[str, Any]], chunks: list[
             )
             return
 
-        citation = _build_context_citation(str(chunk.get("content", "")), match_span[0], match_span[1])
+        citation = _build_context_citation(
+            str(chunk.get("content", "")), match_span[0], match_span[1]
+        )
         if len(citation) < CITATION_MIN_CHARS:
             citation = clip_citation(" ".join(str(chunk.get("content", "")).split()))
         if len(citation) < CITATION_MIN_CHARS:
@@ -972,11 +999,11 @@ def _augment_identificacion_payload(payload: list[dict[str, Any]], chunks: list[
             blocks = source_data.get("blocks", [])
             if blocks and isinstance(blocks, list) and blocks[0]:
                 block_id = str(blocks[0].get("block_id") or blocks[0].get("para_id", ""))
-        
+
         if not block_id:
             # Fallback: usar para_id directo del chunk (formato legacy)
             block_id = str(chunk.get("para_id", "")) if chunk.get("para_id") else None
-        
+
         additions.append(
             {
                 "tipo": canonical_tipo,
@@ -1022,7 +1049,9 @@ def _augment_identificacion_payload(payload: list[dict[str, Any]], chunks: list[
         if "presupuesto_oficial" not in existing_tipos:
             match = _PRESUPUESTO_RE.search(content)
             if match:
-                add_if_missing("presupuesto_oficial", match.group("value"), chunk, match.span("value"))
+                add_if_missing(
+                    "presupuesto_oficial", match.group("value"), chunk, match.span("value")
+                )
 
     if not additions:
         return payload
@@ -1100,7 +1129,7 @@ def _verify_citation_grounding(
             if grounding_chunk is not None:
                 any_verified = True
                 normalized_ref = dict(ref)
-                
+
                 _attach_chunk_identity(normalized_ref, grounding_chunk)
                 final_citation = citation_for_verification
                 if not _is_table_citation(citation):
@@ -1112,20 +1141,23 @@ def _verify_citation_grounding(
                         candidates,
                         preferred_snippet=preferred_snippet,
                     )
-                    
+
                     if len(final_citation) < CITATION_PREFERRED_MIN_CHARS:
                         richer = _rescue_paragraph_citation(item, candidates, category=category)
                         if richer and len(richer) > len(final_citation):
                             final_citation = richer
                     if len(final_citation) < CITATION_PREFERRED_MIN_CHARS:
-                        final_citation = _widen_citation_with_chunk_context(final_citation, candidates)
-                
+                        final_citation = _widen_citation_with_chunk_context(
+                            final_citation, candidates
+                        )
+
                 normalized_ref["citation"] = shorten_citation_to_evidence(final_citation, item)
-                
+
                 normalized_ref["citation_llm"] = citation
                 normalized_ref["citation_origin"] = (
                     "llm"
-                    if _normalize_for_grounding(final_citation) == _normalize_for_grounding(citation)
+                    if _normalize_for_grounding(final_citation)
+                    == _normalize_for_grounding(citation)
                     else "ensanchada"
                 )
                 verified_refs.append(normalized_ref)
@@ -1135,7 +1167,6 @@ def _verify_citation_grounding(
                 rescued_citation = _rescue_paragraph_citation(item, candidates, category=category)
 
             if rescued_citation:
-                
                 rescued_refs_count += 1
                 normalized_ref = dict(ref)
                 normalized_ref["citation"] = rescued_citation
@@ -1185,8 +1216,7 @@ def _chunk_identity(chunk: dict[str, Any]) -> tuple[str, int]:
 
 
 def _attach_chunk_identity(ref: dict[str, Any], chunk: dict[str, Any] | None) -> None:
-    """Anota en la `source_reference` de qué chunk salió la evidencia.
-    """
+    """Anota en la `source_reference` de qué chunk salió la evidencia."""
     if chunk is None:
         return
 
@@ -1227,18 +1257,31 @@ def _retrieve_with_category_priority(
     keyword_query: str | None,
     category: str,
     correlation_id: str,
-    category_boost: float = 0.20,  # Parametrizable para benchmark
+    category_boost: float = 0.50,  # Aumentado de 0.20 a 0.50 (50% boost)
+    category_penalty: float = 0.30,  # NUEVO: penalty para chunks de otras categorías
 ) -> list[dict[str, Any]]:
-    """Recupera chunks relevantes usando SCORING HÍBRIDO en vez de filtro rígido.
+    """Recupera chunks relevantes usando SCORING HÍBRIDO con boost Y penalty por categoría.
+    
+    FIX (2026-08-21): Agregado penalty para chunks de categorías incorrectas.
+    El sistema anterior solo boosteaba matches (+20%), pero no penalizaba mismatches.
+    Resultado: chunks de requisitos_admisibilidad con alta similitud vectorial
+    ganaban sobre chunks de plazos_clave con boost.
+    
+    Ahora:
+    - Chunks con categoría correcta: +50% score
+    - Chunks SIN categoría (sin_categoria): score original (neutro)
+    - Chunks con categoría INCORRECTA: -30% score
     """
-    
+
     over_fetch_k = top_k * 3
-    
+
+    # ÉPICA 11: Pasar category para caché determinista de embeddings
     all_candidates = search_hybrid(
         query=query,
         analysis_id=analysis_id,
         top_k=over_fetch_k,
         keyword_query=keyword_query,
+        category=category,
     )
 
     if not all_candidates:
@@ -1250,40 +1293,41 @@ def _retrieve_with_category_priority(
         )
         return []
 
+    BOOST_FACTOR = 1.0 + category_boost  # 0.50 → 1.50
+    PENALTY_FACTOR = 1.0 - category_penalty  # 0.30 → 0.70
 
-    CATEGORY_BOOST_FACTOR = 1.0 + category_boost  # e.g. 0.20 → 1.20
-    
     scored_chunks: list[tuple[float, dict]] = []
     category_match_count = 0
+    category_mismatch_count = 0
 
     for rank, chunk in enumerate(all_candidates):
-       
         base_score = chunk.get("search_score")
         if base_score is None:
             base_score = 1.0 / (rank + 1)
 
-        # Category boost: verificar si el chunk tiene la categoría target
-        has_category = (
-            chunk.get("primary_category") == category
-            or category in chunk.get("secondary_categories", [])
-        )
+        primary_category = chunk.get("primary_category")
+        secondary_categories = chunk.get("secondary_categories", [])
         
-        if has_category:
-            boosted_score = base_score * CATEGORY_BOOST_FACTOR
+        # Determinar ajuste de score
+        if primary_category == category or category in secondary_categories:
+            # Match: boost
+            adjusted_score = base_score * BOOST_FACTOR
             category_match_count += 1
+        elif primary_category and primary_category != "sin_categoria":
+            # Mismatch explícito: penalty
+            adjusted_score = base_score * PENALTY_FACTOR
+            category_mismatch_count += 1
         else:
-            boosted_score = base_score
-        
-        scored_chunks.append((boosted_score, chunk))
-    
+            # Sin categoría asignada: neutro (no boost ni penalty)
+            adjusted_score = base_score
+
+        scored_chunks.append((adjusted_score, chunk))
 
     scored_chunks.sort(key=lambda x: x[0], reverse=True)
     final_chunks = [chunk for _score, chunk in scored_chunks[:top_k]]
 
-    
     category_distribution: dict[str, int] = {}
     for chunk in final_chunks:
-       
         primary = chunk.get("primary_category") or "sin_categoria"
         category_distribution[primary] = category_distribution.get(primary, 0) + 1
 
@@ -1293,20 +1337,22 @@ def _retrieve_with_category_priority(
         if chunk.get("primary_category") == category
         or category in chunk.get("secondary_categories", [])
     )
-    
+
     logger.info(
         "retrieval_hybrid_scoring",
         correlation_id=correlation_id,
         category=category,
         total_candidates=len(all_candidates),
         category_matches=category_match_count,
+        category_mismatches=category_mismatch_count,
         final_chunks=len(final_chunks),
         target_chunks_in_final=target_chunks,
         category_distribution=category_distribution,
-        strategy="hybrid_scoring_with_category_boost",
-        category_boost_factor=f"{category_boost:.0%}",
+        strategy="hybrid_scoring_with_category_boost_and_penalty",
+        category_boost_factor=f"+{category_boost:.0%}",
+        category_penalty_factor=f"-{category_penalty:.0%}",
     )
-    
+
     return final_chunks
 
 
@@ -1362,7 +1408,9 @@ def _merge_two_items(primary: dict[str, Any], secondary: dict[str, Any]) -> dict
             continue
         if primary_text and secondary_text.lower() in primary_text.lower():
             continue
-        merged[field_name] = f"{primary_text} {secondary_text}".strip() if primary_text else secondary_text
+        merged[field_name] = (
+            f"{primary_text} {secondary_text}".strip() if primary_text else secondary_text
+        )
 
     existing_citations = {
         _normalize_for_grounding(ref.get("citation"))
@@ -1380,12 +1428,16 @@ def _merge_two_items(primary: dict[str, Any], secondary: dict[str, Any]) -> dict
     merged["source_references"] = combined_refs
 
     try:
-        merged["confidence"] = max(float(primary.get("confidence") or 0.0), float(secondary.get("confidence") or 0.0))
+        merged["confidence"] = max(
+            float(primary.get("confidence") or 0.0), float(secondary.get("confidence") or 0.0)
+        )
     except (TypeError, ValueError):
         pass
 
     secondary_status = str(secondary.get("extraction_status") or "")
-    if _STATUS_RANK.get(secondary_status, 0) > _STATUS_RANK.get(str(merged.get("extraction_status") or ""), 0):
+    if _STATUS_RANK.get(secondary_status, 0) > _STATUS_RANK.get(
+        str(merged.get("extraction_status") or ""), 0
+    ):
         merged["extraction_status"] = secondary_status
 
     merged["_merged_split_fact"] = True
@@ -1399,8 +1451,7 @@ def _merge_split_fact_items(
     category: str,
     correlation_id: str,
 ) -> list[dict[str, Any]]:
-    """Fusiona ítems que en realidad son UN solo hecho partido en fragmentos.
-    """
+    """Fusiona ítems que en realidad son UN solo hecho partido en fragmentos."""
     if len(items) < 2:
         return items
 
@@ -1450,6 +1501,188 @@ def _merge_split_fact_items(
     return result
 
 
+# Categorías donde "un ítem por unidad documental" es el objetivo explícito
+# del prompt (ver `prompts/anexos_obligatorios.txt`: "COBERTURA COMPLETA --
+# todo Anexo numerado va acá también", "Un ítem por anexo/formulario"). En
+# otras categorías (ej. garantías) que varios ítems compartan documento y
+# sección es normal y legítimo -- ahí NO corresponde fusionar por esta regla.
+# Extender esta lista solo después de confirmar con el dataset de evaluación
+# (`evaluation/`) que no genera fusiones indebidas en esa categoría.
+_DOCUMENT_SECTION_MERGE_CATEGORIES = {"anexos_obligatorios"}
+
+
+def _top_level_section(section_path: Any) -> str:
+    """Primer nivel de `section_path`/`heading_path` (ej. "ANEXO V" de
+    "ANEXO V > 4. PLAN DE TRABAJO"). Deliberadamente no busca ninguna palabra
+    fija ("anexo", "apéndice", etc.) -- toma el heading tal cual lo detectó
+    Document Intelligence al procesar el PDF, sea cual sea el vocabulario del
+    pliego. "general" (la sección catch-all para contenido sin heading propio)
+    no cuenta como unidad identificable: no se debe fusionar nada bajo ella.
+    """
+    if not section_path:
+        return ""
+    top = str(section_path).split(">")[0].strip()
+    if not top or top.strip().lower() == "general":
+        return ""
+    return top
+
+
+def _chunk_section_index(
+    chunks: list[dict[str, Any]],
+) -> tuple[dict[str, tuple[str, str]], dict[str, set[str]]]:
+    """Indexa los chunks recuperados para poder resolver, a partir de un
+    `chunk_id` o un `document_id`, a qué "unidad documental" (documento +
+    sección de primer nivel) pertenecen.
+
+    Devuelve:
+    - `chunk_by_id`: chunk_id -> (document_id, sección de primer nivel)
+    - `sections_by_document`: document_id -> {secciones de primer nivel
+      distintas presentes en ese documento}. Un documento con más de una
+      sección de primer nivel (ej. el pliego general, que trae "ANEXO I" y
+      además "COTIZACIÓN DE OPCIONALES OBLIGATORIO" como secciones propias)
+      es ambiguo para fusionar ítems sin cita verificada -- se usa para
+      decidir cuándo NO adivinar (ver `_item_section_key`).
+    """
+    chunk_by_id: dict[str, tuple[str, str]] = {}
+    sections_by_document: dict[str, set[str]] = defaultdict(set)
+    for chunk in chunks:
+        chunk_id = str(chunk.get("id") or chunk.get("chunk_id") or "")
+        document_id = str(chunk.get("document_id") or "")
+        section = _top_level_section(chunk.get("section_path") or chunk.get("heading_path"))
+        if chunk_id:
+            chunk_by_id[chunk_id] = (document_id, section)
+        if document_id and section:
+            sections_by_document[document_id].add(section)
+    return chunk_by_id, sections_by_document
+
+
+def _item_section_key(
+    item: dict[str, Any],
+    chunk_by_id: dict[str, tuple[str, str]],
+    sections_by_document: dict[str, set[str]],
+) -> tuple[str, str] | None:
+    """(document_id, sección de primer nivel) de un ítem, o `None` si no se
+    puede determinar con confianza.
+
+    Primero intenta a partir de una cita YA VERIFICADA (la fuente más
+    confiable: el `chunk_id` es real y su `section_path` también). Si el
+    ítem no tiene ninguna cita verificada (`source_references` vacío -- el
+    caso típico de un "anexo" fantasma que el LLM generó sin poder citarlo),
+    cae al `document_id` de origen (ver tag `_source_document_id` en
+    `run_extractor`) -- pero SOLO si ese documento tiene una única sección de
+    primer nivel. Si el documento mezcla más de una sección, no hay forma
+    confiable de saber a cuál pertenece el ítem fantasma -- se deja sin
+    fusionar antes que arriesgarse a mezclar dos unidades distintas.
+    """
+    for ref in item.get("source_references") or []:
+        if not isinstance(ref, dict):
+            continue
+        chunk_id = str(ref.get("chunk_id") or "")
+        if chunk_id in chunk_by_id:
+            document_id, section = chunk_by_id[chunk_id]
+            if document_id and section:
+                return (document_id, section)
+
+    source_document_id = item.get("_source_document_id")
+    if source_document_id:
+        candidate_sections = sections_by_document.get(str(source_document_id)) or set()
+        if len(candidate_sections) == 1:
+            return (str(source_document_id), next(iter(candidate_sections)))
+
+    return None
+
+
+def _merge_items_by_document_section(
+    items: list[dict[str, Any]],
+    chunks: list[dict[str, Any]],
+    *,
+    category: str,
+    correlation_id: str,
+) -> list[dict[str, Any]]:
+    """Fusiona ítems que en realidad son la MISMA unidad documental (mismo
+    documento + misma sección de primer nivel ya detectada por Document
+    Intelligence), sin importar cómo el LLM decidió nombrarlos ni en cuántos
+    pedazos los partió.
+
+    Diferencia con `_merge_split_fact_items`: ese mecanismo solo fusiona
+    ítems que comparten una cita verificada en común. Este agarra también el
+    caso de ítems SIN ninguna cita verificada -- típicamente `partial` +
+    `_warning="cita_no_verificada"` -- que el LLM generó a partir de un
+    índice interno de la sección (ej. "1. Características Generales",
+    "2. Presentación Técnica...") sin poder citar contenido real de cada
+    entrada. Hallazgo 2026-08-24 sobre `anexos_obligatorios`: un mismo Anexo
+    V, mismos chunks, dio entre 2 y 5 ítems según la corrida -- de esos, solo
+    1 tenía cita verificada; el resto eran fantasmas de la misma unidad.
+
+    Deliberadamente no depende de ninguna palabra fija ("anexo", "apéndice",
+    "complemento", números romanos, etc.): la clave de fusión es 100%
+    estructural, así que funciona igual sin importar el vocabulario o el
+    esquema de numeración del pliego. Ver `_DOCUMENT_SECTION_MERGE_CATEGORIES`
+    para qué categorías la usan -- no todas: en categorías donde varios
+    hechos distintos comparten legítimamente sección (ej. garantías), esto
+    NO debe aplicarse.
+    """
+    if len(items) < 2:
+        return items
+
+    chunk_by_id, sections_by_document = _chunk_section_index(chunks)
+
+    groups: dict[tuple[str, str], list[int]] = {}
+    for i, item in enumerate(items):
+        key = _item_section_key(item, chunk_by_id, sections_by_document)
+        if key is None:
+            continue
+        groups.setdefault(key, []).append(i)
+
+    merged_by_index: dict[int, dict[str, Any]] = {}
+    consumed_indices: set[int] = set()
+    for _key, idxs in groups.items():
+        if len(idxs) < 2:
+            continue
+        current = items[idxs[0]]
+        for idx in idxs[1:]:
+            current = _merge_two_items(current, items[idx])
+        merged_by_index[idxs[0]] = current
+        consumed_indices.update(idxs)
+
+    if not merged_by_index:
+        return items
+
+    result: list[dict[str, Any]] = []
+    for i, item in enumerate(items):
+        if i in merged_by_index:
+            result.append(merged_by_index[i])
+        elif i in consumed_indices:
+            continue
+        else:
+            result.append(item)
+
+    logger.info(
+        "merged_items_by_document_section",
+        correlation_id=correlation_id,
+        category=category,
+        groups_merged=len(merged_by_index),
+        original_count=len(items),
+        final_count=len(result),
+    )
+    return result
+
+
+def _group_chunks_by_document(chunks: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Agrupa los chunks recuperados por `document_id`, preservando el orden
+    en que llegaron dentro de cada grupo (que ya viene ordenado por
+    relevancia desde el retrieval).
+
+    Usado por el extractor map-reduce (ver `run_extractor`): partir por
+    documento en vez de mandar todo junto en un solo llamado al LLM.
+    """
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for chunk in chunks:
+        document_id = str(chunk.get("document_id") or "sin_documento")
+        groups.setdefault(document_id, []).append(chunk)
+    return groups
+
+
 def run_extractor(
     *,
     state: GraphState,
@@ -1475,11 +1708,12 @@ def run_extractor(
     try:
         settings = get_settings()
         keyword_query = build_keyword_query(result_key)
-        
+
         # FIX MEDIUM (#14): Top-K configurable por categoría desde glossary.json
         from analysis.extraction.glossary import get_category_top_k
+
         category_top_k = get_category_top_k(result_key, default=settings.extraction_top_k)
-        
+
         chunks = _retrieve_with_category_priority(
             query=query,
             analysis_id=analysis_id,
@@ -1489,7 +1723,6 @@ def run_extractor(
             correlation_id=correlation_id,
         )
 
-    
         chunks = _drop_low_relevance_chunks(
             chunks,
             correlation_id=correlation_id,
@@ -1503,10 +1736,8 @@ def run_extractor(
             category=result_key,
         )
 
-       
         category_distribution: dict[str, int] = {}
         for chunk in chunks:
-            
             primary = chunk.get("primary_category") or "sin_categoria"
             category_distribution[primary] = category_distribution.get(primary, 0) + 1
 
@@ -1546,41 +1777,140 @@ def run_extractor(
             }
             return delta
 
-        messages = _build_messages(
-            prompt_file_name=prompt_file_name,
-            chunks_block=_format_chunks(chunks, state.get("document_labels")),
-            glossary_block=build_prompt_glossary_block(result_key),
-            root_key=result_key,
-        )
-
-        llm_result, token_usage = _call_llm(messages=messages, correlation_id=correlation_id)
+        document_labels = state.get("document_labels")
         token_usage_key = f"{state_field}_token_usage"
-        delta[token_usage_key] = token_usage
 
-        if llm_result.get("_diagnostic") == "sin_contenido_recuperado":
-            logger.error(
-                "extractor_empty_content_reported_by_llm",
-                correlation_id=correlation_id,
-                analysis_id=analysis_id,
-                category=result_key,
+        if is_object_result:
+            # Resultado de un solo objeto agregado (ej. estimación de
+            # presupuesto): no aplica "partir por documento y unir" -- se
+            # mantiene el llamado único de siempre.
+            messages = _build_messages(
+                prompt_file_name=prompt_file_name,
+                chunks_block=_format_chunks(chunks, document_labels),
+                glossary_block=build_prompt_glossary_block(result_key),
+                root_key=result_key,
             )
+            llm_result, token_usage = _call_llm(messages=messages, correlation_id=correlation_id)
+            delta[token_usage_key] = token_usage
+            if llm_result.get("_diagnostic") == "sin_contenido_recuperado":
+                logger.error(
+                    "extractor_empty_content_reported_by_llm",
+                    correlation_id=correlation_id,
+                    analysis_id=analysis_id,
+                    category=result_key,
+                )
+            payload = llm_result.get(result_key)
+        else:
+            # MAP-REDUCE POR DOCUMENTO (2026-08-21).
+            #
+            # Un solo llamado con todos los chunks recuperados mezclados sufre
+            # "lost in the middle": con un contexto largo y muchos fragmentos
+            # parecidos entre sí, el LLM no presta atención uniforme a todo el
+            # texto -- lo que queda en el medio se pierde con más frecuencia,
+            # y de forma no determinista entre corridas. Medido en este
+            # proyecto: con retrieval idéntico verificado chunk por chunk,
+            # sólo 1/8 categorías daba el mismo resultado en 5 corridas (ver
+            # `docs/docu/PLAN-structured-outputs-EXT-01.md` y comentario en
+            # `shared/ports/azure_openai.py`). Reproducido también en el
+            # experimento de `scripts/experimento_full_context.py` sobre
+            # `anexos_obligatorios`: mismos 19 chunks, mismo prompt -- "ANEXO
+            # V — Plan de Trabajo" aparecía en un modo y no en el otro.
+            #
+            # Partir por documento (cada pliego/anexo es una unidad lógica
+            # natural, ya disponible en `document_id`) reduce cuánto texto
+            # compite por atención en cada llamado individual, sin tocar el
+            # vocabulario de la extracción -- sigue siendo texto libre, no
+            # structured outputs con enums (descartado deliberadamente por la
+            # variabilidad de terminología entre pliegos, ver
+            # `PLAN-CORRECCION-RAG-VARIANZA.md` Epic 4).
+            groups = _group_chunks_by_document(chunks)
+            all_items: list[Any] = []
+            accumulated_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            groups_failed = 0
 
-        payload = llm_result.get(result_key)
+            for document_id, group_chunks in groups.items():
+                group_messages = _build_messages(
+                    prompt_file_name=prompt_file_name,
+                    chunks_block=_format_chunks(group_chunks, document_labels),
+                    glossary_block=build_prompt_glossary_block(result_key),
+                    root_key=result_key,
+                )
+                try:
+                    group_result, group_usage = _call_llm(
+                        messages=group_messages, correlation_id=correlation_id
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    groups_failed += 1
+                    logger.warning(
+                        "extractor_map_reduce_group_failed",
+                        correlation_id=correlation_id,
+                        category=result_key,
+                        document_id=document_id,
+                        chunks_en_grupo=len(group_chunks),
+                        error=str(exc),
+                    )
+                    continue
+
+                for key in accumulated_usage:
+                    accumulated_usage[key] += int(group_usage.get(key, 0) or 0)
+
+                if group_result.get("_diagnostic") == "sin_contenido_recuperado":
+                    continue
+
+                group_payload = group_result.get(result_key)
+                # FIX (2026-08-24, hallazgo variabilidad anexos_obligatorios):
+                # se etiqueta cada ítem crudo con el `document_id` del grupo
+                # que lo generó. Los ítems sin ninguna cita verificable (ver
+                # `_verify_citation_grounding`, status "partial" +
+                # `_warning="cita_no_verificada"`) no tienen forma de saber
+                # después de qué documento/sección salieron -- esta etiqueta
+                # es la única pista que le queda a `_merge_items_by_document_section`
+                # para poder fusionarlos igual, en vez de dejarlos como
+                # "anexos" fantasma sueltos. No se persiste como fuente de
+                # verdad de nada -- es sólo una pista interna para el merge.
+                if isinstance(group_payload, list):
+                    for item in group_payload:
+                        if isinstance(item, dict):
+                            item.setdefault("_source_document_id", document_id)
+                            all_items.append(item)
+                elif isinstance(group_payload, dict):
+                    group_payload.setdefault("_source_document_id", document_id)
+                    all_items.append(group_payload)
+
+            delta[token_usage_key] = accumulated_usage
+            logger.info(
+                "extractor_map_reduce_completed",
+                correlation_id=correlation_id,
+                category=result_key,
+                documentos=len(groups),
+                documentos_fallidos=groups_failed,
+                items_crudos=len(all_items),
+            )
+            payload = all_items
+
         if is_object_result:
             if not isinstance(payload, dict):
                 payload = _default_not_found_item()
-            normalized_object = _normalize_item(payload, fallback={"tipo": "estimacion_presupuesto"})
-            if normalized_object.get("extraction_status") == "not_found" and _item_has_substantive_content(normalized_object):
+            normalized_object = _normalize_item(
+                payload, fallback={"tipo": "estimacion_presupuesto"}
+            )
+            if normalized_object.get(
+                "extraction_status"
+            ) == "not_found" and _item_has_substantive_content(normalized_object):
                 normalized_object["extraction_status"] = "partial"
             delta[state_field] = normalized_object
         else:
             if not isinstance(payload, list):
-                logger.warning("payload_no_es_lista", category=result_key, tipo=type(payload).__name__)
+                logger.warning(
+                    "payload_no_es_lista", category=result_key, tipo=type(payload).__name__
+                )
                 payload = []
             if result_key == "identificacion_procedimiento":
                 payload = _augment_identificacion_payload(payload, chunks)
             normalized_items = [_normalize_item(item) for item in payload if isinstance(item, dict)]
-            normalized_items = _normalize_mixed_not_found_items(normalized_items, category=result_key)
+            normalized_items = _normalize_mixed_not_found_items(
+                normalized_items, category=result_key
+            )
             # Red de seguridad genérica: si el LLM partió un solo hecho en dos
             # ítems (ver docstring de `_merge_split_fact_items`), se fusionan
             # ANTES de la verificación de citas para que ésta trabaje sobre el
@@ -1589,6 +1919,10 @@ def run_extractor(
             normalized_items = _merge_split_fact_items(
                 normalized_items, chunks, category=result_key, correlation_id=correlation_id
             )
+            if result_key in _DOCUMENT_SECTION_MERGE_CATEGORIES:
+                normalized_items = _merge_items_by_document_section(
+                    normalized_items, chunks, category=result_key, correlation_id=correlation_id
+                )
             delta[state_field] = normalized_items
 
         if is_object_result:
@@ -1610,7 +1944,9 @@ def run_extractor(
 
             delta[status_field] = str(delta[state_field].get("extraction_status", "not_found"))
         else:
-            _verify_citation_grounding(delta[state_field], chunks, category=result_key, correlation_id=correlation_id)
+            _verify_citation_grounding(
+                delta[state_field], chunks, category=result_key, correlation_id=correlation_id
+            )
 
             # Detectar contaminación cruzada en lista
             from analysis.extraction.extractors.validators import detect_cross_contamination

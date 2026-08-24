@@ -59,41 +59,41 @@ El modelo operativo actual vive en Cosmos DB. Los items relacionados con un aná
 ```python
 # Cosmos item: analysis
 {
-  "id": "analysis::<analysis_id>",
-  "type": "analysis",
-  "partition_key": "<analysis_id>",
-  "analysis_id": "<analysis_id>",
-  "created_by": "<user_id>",
-  "status": "draft|queued|processing|analyzed|error|cancelled",
-  "current_stage": "queued|...|completed",
-  "current_version_id": "<version_id|null>",
-  "correlation_id": "<uuid>",
-  "deleted": False,
+    "id": "analysis::<analysis_id>",
+    "type": "analysis",
+    "partition_key": "<analysis_id>",
+    "analysis_id": "<analysis_id>",
+    "created_by": "<user_id>",
+    "status": "draft|queued|processing|analyzed|error|cancelled",
+    "current_stage": "queued|...|completed",
+    "current_version_id": "<version_id|null>",
+    "correlation_id": "<uuid>",
+    "deleted": False,
 }
 
 # Cosmos item: document
 {
-  "id": "document::<document_id>",
-  "type": "document",
-  "partition_key": "<analysis_id>",
-  "analysis_id": "<analysis_id>",
-  "document_id": "<document_id>",
-  "filename": "pliego.pdf",
-  "blob_name": "<analysis_id>/<uuid>-pliego.pdf",
-  "sha256_hash": "...",
-  "content_hash": "...",
-  "deleted": False,
+    "id": "document::<document_id>",
+    "type": "document",
+    "partition_key": "<analysis_id>",
+    "analysis_id": "<analysis_id>",
+    "document_id": "<document_id>",
+    "filename": "pliego.pdf",
+    "blob_name": "<analysis_id>/<uuid>-pliego.pdf",
+    "sha256_hash": "...",
+    "content_hash": "...",
+    "deleted": False,
 }
 
 # Cosmos item: analysis_version
 {
-  "id": "version::<version_id>",
-  "type": "analysis_version",
-  "partition_key": "<analysis_id>",
-  "analysis_id": "<analysis_id>",
-  "version_number": 1,
-  "extracted_data": {},
-  "conflicts": [],
+    "id": "version::<version_id>",
+    "type": "analysis_version",
+    "partition_key": "<analysis_id>",
+    "analysis_id": "<analysis_id>",
+    "version_number": 1,
+    "extracted_data": {},
+    "conflicts": [],
 }
 ```
 

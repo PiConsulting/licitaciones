@@ -154,7 +154,9 @@ class TestTokenBudgetUsesRealTokenizer:
         para una categoría (plazos, garantías) podía perder chunks recuperados
         como relevantes sin ningún rastro. Ahora debe quedar un warning con
         cuántos chunks se descartaron, para cualquier categoría/pliego."""
-        monkeypatch.setattr(base, "_get_token_encoder", lambda: None)  # conteo por palabras, determinístico
+        monkeypatch.setattr(
+            base, "_get_token_encoder", lambda: None
+        )  # conteo por palabras, determinístico
 
         chunks = [
             {"content": "una dos tres"},  # 3 palabras, entra
@@ -169,7 +171,9 @@ class TestTokenBudgetUsesRealTokenizer:
             )
 
         assert len(kept) == 1
-        warnings = [e for e in captured if e.get("event") == "extraction_chunks_dropped_token_budget"]
+        warnings = [
+            e for e in captured if e.get("event") == "extraction_chunks_dropped_token_budget"
+        ]
         assert len(warnings) == 1, "debe loguear un warning con el descarte"
         assert warnings[0]["chunks_dropped"] == 2
         assert warnings[0]["chunks_kept"] == 1
@@ -185,7 +189,10 @@ class TestTokenBudgetUsesRealTokenizer:
 
         with structlog.testing.capture_logs() as captured:
             kept = base._truncate_to_token_budget(
-                [{"content": "una dos"}], budget=10, correlation_id="corr-test", category="garantias"
+                [{"content": "una dos"}],
+                budget=10,
+                correlation_id="corr-test",
+                category="garantias",
             )
 
         assert kept == [{"content": "una dos"}]

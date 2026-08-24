@@ -1,18 +1,18 @@
 """CTX-03 y CTX-04: dos formas de callar información que el sistema tiene.
 
-  - CTX-03: cuatro campos del contrato (`documentos_requeridos`,
-    `restricciones_participacion`, `cronograma_proceso`,
-    `estimacion_presupuesto`) están hardcodeados a vacío con `not_found`. Pero
-    ningún nodo del grafo los completa. `not_found` significa, en toda la UI,
-    "el pliego no lo dice"; la verdad es "no lo buscamos". Para
-    `estimacion_presupuesto` la diferencia es grave: un oferente puede concluir
-    que el pliego no publica presupuesto oficial.
+- CTX-03: cuatro campos del contrato (`documentos_requeridos`,
+  `restricciones_participacion`, `cronograma_proceso`,
+  `estimacion_presupuesto`) están hardcodeados a vacío con `not_found`. Pero
+  ningún nodo del grafo los completa. `not_found` significa, en toda la UI,
+  "el pliego no lo dice"; la verdad es "no lo buscamos". Para
+  `estimacion_presupuesto` la diferencia es grave: un oferente puede concluir
+  que el pliego no publica presupuesto oficial.
 
-  - CTX-04: `merge_node` detecta contradicciones -- dos fechas para el mismo
-    hito, dos montos para la misma garantía -- y las guarda en el estado. La
-    síntesis nunca las recibía, así que la narrativa decía las dos cosas en dos
-    bullets seguidos sin marcar que se contradicen. El sistema LO SABE y no lo
-    dice.
+- CTX-04: `merge_node` detecta contradicciones -- dos fechas para el mismo
+  hito, dos montos para la misma garantía -- y las guarda en el estado. La
+  síntesis nunca las recibía, así que la narrativa decía las dos cosas en dos
+  bullets seguidos sin marcar que se contradicen. El sistema LO SABE y no lo
+  dice.
 """
 
 from __future__ import annotations
@@ -44,7 +44,13 @@ def test_las_categorias_sin_extractor_no_dicen_no_encontrado() -> None:
 def test_el_estado_nuevo_es_distinguible_de_los_demas() -> None:
     """No puede colisionar con ningún estado existente: el frontend decide qué
     mostrar a partir de este string."""
-    assert NOT_ANALYZED_STATUS not in {"success", "partial", "failed", "not_found", "not_applicable"}
+    assert NOT_ANALYZED_STATUS not in {
+        "success",
+        "partial",
+        "failed",
+        "not_found",
+        "not_applicable",
+    }
 
 
 def test_las_categorias_que_si_se_analizan_conservan_sus_estados() -> None:

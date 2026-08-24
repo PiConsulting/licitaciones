@@ -65,7 +65,9 @@ def test_una_palabra_cortada_al_renglon_se_encuentra_igual(tmp_path) -> None:
     )
 
     regions = compute_highlight_regions(
-        ruta, 1, "Se rechazará la Oferta del Proponente en cuyo sobre no obre la oferta económica.",
+        ruta,
+        1,
+        "Se rechazará la Oferta del Proponente en cuyo sobre no obre la oferta económica.",
         correlation_id="t",
     )
 
@@ -76,11 +78,16 @@ def test_una_palabra_cortada_al_renglon_se_encuentra_igual(tmp_path) -> None:
 def test_un_salto_de_renglon_en_el_medio_no_rompe_la_busqueda(tmp_path) -> None:
     ruta = _pdf_con_lineas(
         tmp_path,
-        ["El adjudicatario deberá entregar la Orden de provisión firmada, en el plazo de cinco", "(5) días hábiles de recibida."],
+        [
+            "El adjudicatario deberá entregar la Orden de provisión firmada, en el plazo de cinco",
+            "(5) días hábiles de recibida.",
+        ],
     )
 
     regions = compute_highlight_regions(
-        ruta, 1, "El adjudicatario deberá entregar la Orden de provisión firmada, en el plazo de cinco (5) días hábiles",
+        ruta,
+        1,
+        "El adjudicatario deberá entregar la Orden de provisión firmada, en el plazo de cinco (5) días hábiles",
         correlation_id="t",
     )
 
@@ -111,7 +118,10 @@ def test_una_palabra_partida_en_spans_no_impide_el_match(tmp_path) -> None:
     doc.close()
 
     regions = compute_highlight_regions(
-        str(ruta), 1, "La Municipalidad llama a LICITACIÓN PRIVADA para la adquisición", correlation_id="t"
+        str(ruta),
+        1,
+        "La Municipalidad llama a LICITACIÓN PRIVADA para la adquisición",
+        correlation_id="t",
     )
 
     assert regions

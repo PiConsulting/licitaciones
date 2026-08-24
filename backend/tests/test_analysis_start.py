@@ -51,7 +51,9 @@ def test_check_duplicates_found() -> None:
     user = db.query(User).filter(User.email == "test@cedia.com").first()
     assert user is not None
 
-    existing_analysis = Analysis(created_by=user.id, status="completed", correlation_id=str(uuid4()))
+    existing_analysis = Analysis(
+        created_by=user.id, status="completed", correlation_id=str(uuid4())
+    )
     db.add(existing_analysis)
     db.flush()
 
@@ -78,12 +80,16 @@ def test_check_duplicates_found() -> None:
     db.close()
 
 
-def test_start_analysis_returns_duplicate_resolution_payload(client: TestClient, auth_token: str) -> None:
+def test_start_analysis_returns_duplicate_resolution_payload(
+    client: TestClient, auth_token: str
+) -> None:
     db = SessionLocal()
     user = db.query(User).filter(User.email == "test@cedia.com").first()
     assert user is not None
 
-    existing_analysis = Analysis(created_by=user.id, status="completed", correlation_id=str(uuid4()))
+    existing_analysis = Analysis(
+        created_by=user.id, status="completed", correlation_id=str(uuid4())
+    )
     new_analysis = Analysis(created_by=user.id, status="draft", correlation_id=str(uuid4()))
     db.add(existing_analysis)
     db.add(new_analysis)
@@ -133,7 +139,9 @@ def test_start_analysis_returns_duplicate_resolution_payload(client: TestClient,
     db.close()
 
 
-def test_start_analysis_success_with_analyze_again_decision(client: TestClient, auth_token: str, monkeypatch) -> None:
+def test_start_analysis_success_with_analyze_again_decision(
+    client: TestClient, auth_token: str, monkeypatch
+) -> None:
     from analysis import routes as analysis_routes
 
     monkeypatch.setattr(analysis_routes, "enqueue_analysis", lambda *_args, **_kwargs: None)
@@ -142,7 +150,9 @@ def test_start_analysis_success_with_analyze_again_decision(client: TestClient, 
     user = db.query(User).filter(User.email == "test@cedia.com").first()
     assert user is not None
 
-    existing_analysis = Analysis(created_by=user.id, status="completed", correlation_id=str(uuid4()))
+    existing_analysis = Analysis(
+        created_by=user.id, status="completed", correlation_id=str(uuid4())
+    )
     new_analysis = Analysis(created_by=user.id, status="draft", correlation_id=str(uuid4()))
     db.add(existing_analysis)
     db.add(new_analysis)
@@ -252,7 +262,9 @@ def test_start_status_endpoint(client: TestClient, auth_token: str) -> None:
     db.close()
 
 
-def test_delete_error_analysis_hard_deletes_records(client: TestClient, auth_token: str, monkeypatch) -> None:
+def test_delete_error_analysis_hard_deletes_records(
+    client: TestClient, auth_token: str, monkeypatch
+) -> None:
     deleted_blobs: list[str] = []
     deleted_indexes: list[str] = []
 
@@ -261,7 +273,10 @@ def test_delete_error_analysis_hard_deletes_records(client: TestClient, auth_tok
             deleted_blobs.append(blob_name)
 
     monkeypatch.setattr("analysis.service._build_blob_storage", lambda: _FakeBlobStorage())
-    monkeypatch.setattr("analysis.service.delete_analysis_chunks", lambda analysis_id: deleted_indexes.append(analysis_id))
+    monkeypatch.setattr(
+        "analysis.service.delete_analysis_chunks",
+        lambda analysis_id: deleted_indexes.append(analysis_id),
+    )
 
     db = SessionLocal()
     user = db.query(User).filter(User.email == "test@cedia.com").first()
@@ -302,9 +317,14 @@ def test_delete_error_analysis_hard_deletes_records(client: TestClient, auth_tok
     db.close()
 
 
-def test_delete_completed_analysis_soft_deletes_records(client: TestClient, auth_token: str, monkeypatch) -> None:
+def test_delete_completed_analysis_soft_deletes_records(
+    client: TestClient, auth_token: str, monkeypatch
+) -> None:
     deleted_indexes: list[str] = []
-    monkeypatch.setattr("analysis.service.delete_analysis_chunks", lambda analysis_id: deleted_indexes.append(analysis_id))
+    monkeypatch.setattr(
+        "analysis.service.delete_analysis_chunks",
+        lambda analysis_id: deleted_indexes.append(analysis_id),
+    )
 
     db = SessionLocal()
     user = db.query(User).filter(User.email == "test@cedia.com").first()

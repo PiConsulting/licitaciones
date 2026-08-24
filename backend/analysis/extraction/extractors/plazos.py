@@ -4,9 +4,10 @@ from analysis.extraction.extractors.base import run_extractor
 from analysis.extraction.state import GraphState
 
 _QUERY = (
-    "Fechas y plazos clave: apertura de ofertas, presentación de ofertas, "
-    "mantenimiento de oferta, plazo de entrega o ejecución, consultas, "
-    "impugnaciones, adjudicación, firma de contrato."
+    "Plazos y vencimientos que el oferente o adjudicatario debe cumplir: "
+    "cuando presentar ofertas, cuando se abre, cuanto dura la oferta, "
+    "cuando entregar, cuando firmar contrato. Fechas limites y duraciones "
+    "de actos del procedimiento y la ejecucion del contrato."
 )
 
 

@@ -1,21 +1,21 @@
 """ING-06 e ING-07: por qué el 100% de los chunks salía con `bbox: []`.
 
-  - ING-06: `_page_unit_scales` decidía la escala con `str(page.unit) == "inch"`.
-    El SDK devuelve `LengthUnit.INCH`, un `class LengthUnit(str, Enum)`, y en un
-    enum de Python `Enum.__str__` le gana a `str.__str__`: `str(LengthUnit.INCH)`
-    es `"LengthUnit.INCH"`. La comparación fallaba en todas las páginas de todos
-    los documentos, el diccionario de escalas quedaba vacío, y
-    `_extract_bounding_boxes` descartaba cada bbox por su rama de "unidad
-    desconocida". Medido sobre el pliego de Servidores 2025: 161 párrafos con
-    polígono, 0 con bbox convertido.
+- ING-06: `_page_unit_scales` decidía la escala con `str(page.unit) == "inch"`.
+  El SDK devuelve `LengthUnit.INCH`, un `class LengthUnit(str, Enum)`, y en un
+  enum de Python `Enum.__str__` le gana a `str.__str__`: `str(LengthUnit.INCH)`
+  es `"LengthUnit.INCH"`. La comparación fallaba en todas las páginas de todos
+  los documentos, el diccionario de escalas quedaba vacío, y
+  `_extract_bounding_boxes` descartaba cada bbox por su rama de "unidad
+  desconocida". Medido sobre el pliego de Servidores 2025: 161 párrafos con
+  polígono, 0 con bbox convertido.
 
-  - ING-07: el índice bloque → bbox es POSICIONAL, `(página, orden)`. Sólo es
-    correcto si el parser de markdown produce exactamente un bloque por párrafo
-    de DI. En ese mismo pliego no lo hace: las 10 páginas tienen dos párrafos
-    más que bloques. Con el bbox vacío eso no se notaba; restaurarlo sin más
-    haría que cada bloque recibiera las coordenadas de OTRO texto -- y
-    `_starts_on_same_line` (CHK-12) fusionaría encabezados mirando la geometría
-    equivocada. Un mapeo corrido es peor que ninguno.
+- ING-07: el índice bloque → bbox es POSICIONAL, `(página, orden)`. Sólo es
+  correcto si el parser de markdown produce exactamente un bloque por párrafo
+  de DI. En ese mismo pliego no lo hace: las 10 páginas tienen dos párrafos
+  más que bloques. Con el bbox vacío eso no se notaba; restaurarlo sin más
+  haría que cada bloque recibiera las coordenadas de OTRO texto -- y
+  `_starts_on_same_line` (CHK-12) fusionaría encabezados mirando la geometría
+  equivocada. Un mapeo corrido es peor que ninguno.
 """
 
 from __future__ import annotations
@@ -39,14 +39,18 @@ class _Region:
 
 
 class _Para:
-    def __init__(self, page: int, content: str, offset: int, polygon: list[float] | None = None) -> None:
+    def __init__(
+        self, page: int, content: str, offset: int, polygon: list[float] | None = None
+    ) -> None:
         self.content = content
         self.bounding_regions = [_Region(page, polygon or [1.0, 2.0, 7.0, 2.0, 7.0, 2.2, 1.0, 2.2])]
         self.span = type("Span", (), {"offset": offset})()
 
 
 class _Page:
-    def __init__(self, page_number: int, unit: Any, width: float = 8.5, height: float = 11.0) -> None:
+    def __init__(
+        self, page_number: int, unit: Any, width: float = 8.5, height: float = 11.0
+    ) -> None:
         self.page_number = page_number
         self.unit = unit
         self.width = width
@@ -127,7 +131,12 @@ def test_un_bloque_recibe_el_bbox_de_su_propio_parrafo() -> None:
     """El camino feliz: parser y DI en fase."""
     parrafos = [
         _Para(1, "Artículo 1: OBJETO", 0, [1.0, 1.0, 7.0, 1.0, 7.0, 1.2, 1.0, 1.2]),
-        _Para(1, "La Municipalidad llama a Licitación Privada.", 100, [1.0, 2.0, 7.0, 2.0, 7.0, 2.2, 1.0, 2.2]),
+        _Para(
+            1,
+            "La Municipalidad llama a Licitación Privada.",
+            100,
+            [1.0, 2.0, 7.0, 2.0, 7.0, 2.2, 1.0, 2.2],
+        ),
     ]
     indice = _build_para_id_index(parrafos, {1: _POINTS_PER_INCH})
     bloques = [
@@ -152,7 +161,12 @@ def test_un_bloque_desfasado_encuentra_igual_su_parrafo() -> None:
     """
     parrafos = [
         # Este párrafo NO aparece como bloque del parser de markdown.
-        _Para(1, "Municipalidad de Rosario - LICITACIÓN PRIVADA", 0, [1.0, 0.5, 7.0, 0.5, 7.0, 0.7, 1.0, 0.7]),
+        _Para(
+            1,
+            "Municipalidad de Rosario - LICITACIÓN PRIVADA",
+            0,
+            [1.0, 0.5, 7.0, 0.5, 7.0, 0.7, 1.0, 0.7],
+        ),
         _Para(1, "Artículo 1: OBJETO", 100, [1.0, 1.0, 7.0, 1.0, 7.0, 1.2, 1.0, 1.2]),
     ]
     indice = _build_para_id_index(parrafos, {1: _POINTS_PER_INCH})

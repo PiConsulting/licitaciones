@@ -80,7 +80,12 @@ def test_el_documento_no_queda_indexado_a_medias_por_un_bug(
     # nunca llega a existir.
     with pytest.raises(NameError):
         create_chunks(
-            [_parrafo(f"Artículo {n}. Texto suficiente del pliego para producir un chunk.", n + 1, n) for n in range(4)],
+            [
+                _parrafo(
+                    f"Artículo {n}. Texto suficiente del pliego para producir un chunk.", n + 1, n
+                )
+                for n in range(4)
+            ],
             document_id="doc",
             correlation_id="corr",
         )
@@ -109,7 +114,10 @@ def test_un_bloque_con_datos_raros_sigue_sin_tumbar_el_pliego(
     monkeypatch.setattr(chunking, "classify_chunk_categories", falla_en_el_primero)
 
     chunks = create_chunks(
-        [_parrafo(f"Artículo {n}. Texto suficiente del pliego para producir un chunk.", n + 1, n) for n in range(4)],
+        [
+            _parrafo(f"Artículo {n}. Texto suficiente del pliego para producir un chunk.", n + 1, n)
+            for n in range(4)
+        ],
         document_id="doc",
         correlation_id="corr",
     )

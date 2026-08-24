@@ -143,7 +143,9 @@ def test_sin_vector_el_wildcard_sigue_siendo_la_unica_salida(
     assert cliente.calls[1]["search_text"] == "*"
 
 
-def test_una_busqueda_con_resultados_nunca_reintenta(cliente, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_una_busqueda_con_resultados_nunca_reintenta(
+    cliente, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Guarda de no-regresión: el fallback es para el caso vacío, no un
     segundo pase que amplíe el contexto."""
     monkeypatch.setattr(azure_search, "_embed_query_or_none", lambda _query: None)
@@ -212,7 +214,9 @@ def test_el_wildcard_se_loguea_como_error(cliente, monkeypatch: pytest.MonkeyPat
     assert "azure_search_wildcard_fallback" in eventos
 
 
-def test_analisis_sin_chunks_se_reporta_explicitamente(cliente, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_analisis_sin_chunks_se_reporta_explicitamente(
+    cliente, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Antes este caso quedaba enmascarado detrás del wildcard: el log decía
     "trying wildcard" y no que el análisis no estaba indexado."""
     monkeypatch.setattr(azure_search, "_embed_query_or_none", lambda _query: [0.1] * 3072)

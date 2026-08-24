@@ -15,8 +15,6 @@ from analysis.progress import build_stage_progress, update_stage_and_progress
 from shared.config import get_settings
 
 logger = structlog.get_logger(__name__)
-
-# gpt-4o-mini costo aproximado por 1K tokens (USD)
 _PROMPT_COST_PER_1K = 0.00015
 _COMPLETION_COST_PER_1K = 0.0006
 
@@ -24,10 +22,14 @@ _COMPLETION_COST_PER_1K = 0.0006
 def _compute_cost(metadata: dict) -> dict:
     usage_by_category = metadata.get("token_usage", {}) if metadata else {}
     prompt_tokens = sum(int(item.get("prompt_tokens", 0)) for item in usage_by_category.values())
-    completion_tokens = sum(int(item.get("completion_tokens", 0)) for item in usage_by_category.values())
+    completion_tokens = sum(
+        int(item.get("completion_tokens", 0)) for item in usage_by_category.values()
+    )
     total_tokens = sum(int(item.get("total_tokens", 0)) for item in usage_by_category.values())
 
-    total_cost = ((prompt_tokens / 1000) * _PROMPT_COST_PER_1K) + ((completion_tokens / 1000) * _COMPLETION_COST_PER_1K)
+    total_cost = ((prompt_tokens / 1000) * _PROMPT_COST_PER_1K) + (
+        (completion_tokens / 1000) * _COMPLETION_COST_PER_1K
+    )
     return {
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,

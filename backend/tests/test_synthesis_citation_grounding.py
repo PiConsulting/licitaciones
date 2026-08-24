@@ -1,5 +1,6 @@
 """Tests para deduplicacion de citations y resolucion deterministica de
 fuentes en sintesis."""
+
 from __future__ import annotations
 
 from analysis.extraction.schemas import RawCategoryNarrative
@@ -106,8 +107,16 @@ def test_resolve_item_refs_validos_producen_source_ids_y_sources_correctos() -> 
                 {
                     "type": "bullet_list",
                     "items": [
-                        {"text": "Presentar Anexo I.", "confidence_level": "alta", "item_refs": [0]},
-                        {"text": "Presentar constancia RUP.", "confidence_level": "alta", "item_refs": [1]},
+                        {
+                            "text": "Presentar Anexo I.",
+                            "confidence_level": "alta",
+                            "item_refs": [0],
+                        },
+                        {
+                            "text": "Presentar constancia RUP.",
+                            "confidence_level": "alta",
+                            "item_refs": [1],
+                        },
                     ],
                 }
             ]
@@ -180,8 +189,16 @@ def test_resolve_no_puede_mezclar_evidencia_de_otro_item() -> None:
                 {
                     "type": "bullet_list",
                     "items": [
-                        {"text": "Presentar Anexo I.", "confidence_level": "alta", "item_refs": [0]},
-                        {"text": "Presentar Anexo II.", "confidence_level": "alta", "item_refs": [1]},
+                        {
+                            "text": "Presentar Anexo I.",
+                            "confidence_level": "alta",
+                            "item_refs": [0],
+                        },
+                        {
+                            "text": "Presentar Anexo II.",
+                            "confidence_level": "alta",
+                            "item_refs": [1],
+                        },
                     ],
                 }
             ]
@@ -241,9 +258,17 @@ def test_resolve_ningun_source_queda_huerfano() -> None:
                 {
                     "type": "bullet_list",
                     "items": [
-                        {"text": "Con evidencia valida.", "confidence_level": "alta", "item_refs": [0]},
+                        {
+                            "text": "Con evidencia valida.",
+                            "confidence_level": "alta",
+                            "item_refs": [0],
+                        },
                         {"text": "Sin evidencia.", "confidence_level": "alta", "item_refs": []},
-                        {"text": "Con indice invalido.", "confidence_level": "alta", "item_refs": [42]},
+                        {
+                            "text": "Con indice invalido.",
+                            "confidence_level": "alta",
+                            "item_refs": [42],
+                        },
                     ],
                 }
             ]

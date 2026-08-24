@@ -208,7 +208,11 @@ def test_extract_and_index_cosmos_continues_when_one_document_fails(
     monkeypatch.setattr(
         cosmos_runtime.graph,
         "invoke",
-        lambda *_args, **_kwargs: {"extracted_data": {}, "conflicts": [], "extraction_metadata": {"token_usage": {}}},
+        lambda *_args, **_kwargs: {
+            "extracted_data": {},
+            "conflicts": [],
+            "extraction_metadata": {"token_usage": {}},
+        },
     )
 
     cosmos_runtime.extract_and_index_cosmos(analysis_id)
@@ -336,7 +340,11 @@ def test_delete_analysis_cosmos_hard_deletes_error_analysis(cosmos_only, monkeyp
             deleted_blobs.append(blob_name)
 
     monkeypatch.setattr(cosmos_runtime, "_build_blob_storage", lambda: _FakeBlobStorage())
-    monkeypatch.setattr(cosmos_runtime, "delete_analysis_chunks", lambda current_id: deleted_indexes.append(current_id))
+    monkeypatch.setattr(
+        cosmos_runtime,
+        "delete_analysis_chunks",
+        lambda current_id: deleted_indexes.append(current_id),
+    )
 
     mode = cosmos_runtime.delete_analysis_cosmos(analysis_id, user_id)
 

@@ -99,7 +99,9 @@ def _normalize_text(value: Any) -> str:
     return " ".join(str(value or "").strip().lower().split())
 
 
-def _build_tracking_item_id(*, version_id: str, category_key: str, item: dict, position: int) -> str:
+def _build_tracking_item_id(
+    *, version_id: str, category_key: str, item: dict, position: int
+) -> str:
     refs = item.get("source_references") if isinstance(item.get("source_references"), list) else []
     first_ref = refs[0] if refs and isinstance(refs[0], dict) else {}
     raw = "|".join(
@@ -117,7 +119,9 @@ def _build_tracking_item_id(*, version_id: str, category_key: str, item: dict, p
     return sha256(raw.encode("utf-8")).hexdigest()[:24]
 
 
-def _extract_tracking_items_from_version(*, version_id: str, category_key: str, extracted_data: dict) -> list[dict]:
+def _extract_tracking_items_from_version(
+    *, version_id: str, category_key: str, extracted_data: dict
+) -> list[dict]:
     raw_items = extracted_data.get(category_key)
     if not isinstance(raw_items, list):
         return []
@@ -125,7 +129,11 @@ def _extract_tracking_items_from_version(*, version_id: str, category_key: str, 
     for idx, raw_item in enumerate(raw_items):
         if not isinstance(raw_item, dict):
             continue
-        refs = raw_item.get("source_references") if isinstance(raw_item.get("source_references"), list) else []
+        refs = (
+            raw_item.get("source_references")
+            if isinstance(raw_item.get("source_references"), list)
+            else []
+        )
         first_ref = refs[0] if refs and isinstance(refs[0], dict) else {}
         citation_text = str(first_ref.get("citation") or "")
         items.append(
@@ -142,7 +150,9 @@ def _extract_tracking_items_from_version(*, version_id: str, category_key: str, 
                     "field_name": str(raw_item.get("tipo") or f"item_{idx + 1}"),
                     "document_id": first_ref.get("document_id"),
                     "page": int(first_ref.get("page_number") or 0) if first_ref else None,
-                    "citation_hash": sha256(citation_text.encode("utf-8")).hexdigest()[:16] if citation_text else None,
+                    "citation_hash": sha256(citation_text.encode("utf-8")).hexdigest()[:16]
+                    if citation_text
+                    else None,
                 },
                 "status": "not_evaluated",
                 "updated_by": None,
@@ -265,7 +275,9 @@ def _to_tracking_payload(tracking: dict) -> dict:
             comments_by_item[key] = comments_by_item.get(key, 0) + 1
 
     categories: list[dict] = []
-    raw_categories = tracking.get("categories") if isinstance(tracking.get("categories"), dict) else {}
+    raw_categories = (
+        tracking.get("categories") if isinstance(tracking.get("categories"), dict) else {}
+    )
     for key in TRACKING_CATEGORY_KEYS:
         raw = raw_categories.get(key) if isinstance(raw_categories.get(key), dict) else {}
         items: list[dict] = []
@@ -318,7 +330,9 @@ def _serialize_comment(row: dict, *, created_by_name: str | None = None) -> dict
         "tracking_item_id": None,
         "content": str(row.get("content") or ""),
         "created_by": str(row.get("created_by") or ""),
-        "created_by_name": created_by_name if created_by_name is not None else str(row.get("created_by_name") or ""),
+        "created_by_name": created_by_name
+        if created_by_name is not None
+        else str(row.get("created_by_name") or ""),
         "created_at": _parse_dt(row.get("created_at")),
         "edited_by": row.get("edited_by"),
         "edited_by_name": row.get("edited_by_name"),
@@ -372,7 +386,9 @@ def start_tracking(analysis_id: str, user_id: str) -> dict:
         "started_by": user_id,
         "started_at": now,
         "updated_at": now,
-        "categories": _build_default_categories(version_id=version_id, extracted_data=version.get("extracted_data") or {}),
+        "categories": _build_default_categories(
+            version_id=version_id, extracted_data=version.get("extracted_data") or {}
+        ),
     }
     _save_tracking_with_etag(tracking)
     return _to_tracking_payload(tracking)
@@ -389,7 +405,9 @@ def get_tracking(analysis_id: str, user_id: str) -> dict | None:
     return _to_tracking_payload(tracking)
 
 
-def update_category_status(analysis_id: str, user_id: str, category_key: str, target_status: str) -> dict:
+def update_category_status(
+    analysis_id: str, user_id: str, category_key: str, target_status: str
+) -> dict:
     if category_key not in TRACKING_CATEGORY_KEYS:
         raise ValueError("TRACKING_CATEGORY_NOT_FOUND")
     tracking = get_tracking(analysis_id, user_id)
@@ -402,7 +420,9 @@ def update_category_status(analysis_id: str, user_id: str, category_key: str, ta
     ensure_tracking_active_or_raise(raw)
 
     categories = raw.get("categories") if isinstance(raw.get("categories"), dict) else {}
-    category = categories.get(category_key) if isinstance(categories.get(category_key), dict) else None
+    category = (
+        categories.get(category_key) if isinstance(categories.get(category_key), dict) else None
+    )
     if category is None:
         raise ValueError("TRACKING_CATEGORY_NOT_FOUND")
 
@@ -424,7 +444,9 @@ def update_category_status(analysis_id: str, user_id: str, category_key: str, ta
     events.append(
         {
             "id": f"tracking_event::{uuid4()}",
-            "event": "category_reopened" if (current_status == "closed" and target_status == "in_review") else "category_status_changed",
+            "event": "category_reopened"
+            if (current_status == "closed" and target_status == "in_review")
+            else "category_status_changed",
             "from": current_status,
             "to": target_status,
             "at": now,
@@ -460,7 +482,9 @@ def ensure_tracking_active_or_raise(tracking: dict) -> None:
         raise RuntimeError("TRACKING_COMPLETED_READ_ONLY")
 
 
-def _get_comment_or_raise(analysis_id: str, comment_id: str, *, category_key: str | None = None) -> dict:
+def _get_comment_or_raise(
+    analysis_id: str, comment_id: str, *, category_key: str | None = None
+) -> dict:
     container = cosmos_runtime.get_cosmos_container()
     try:
         comment = container.read_item(item=comment_id, partition_key=analysis_id)
@@ -594,7 +618,9 @@ def create_comment(
     return _serialize_comment(item)
 
 
-def complete_tracking(analysis_id: str, user_id: str, *, completed_by_name: str | None = None) -> dict:
+def complete_tracking(
+    analysis_id: str, user_id: str, *, completed_by_name: str | None = None
+) -> dict:
     tracking = get_tracking(analysis_id, user_id)
     if tracking is None:
         raise ValueError("TRACKING_NOT_FOUND")
@@ -609,7 +635,9 @@ def complete_tracking(analysis_id: str, user_id: str, *, completed_by_name: str 
     now = _now_iso()
     raw["status"] = "completed"
     raw["completed_by"] = user_id
-    raw["completed_by_name"] = (completed_by_name or "").strip() or _resolve_user_display_name(user_id)
+    raw["completed_by_name"] = (completed_by_name or "").strip() or _resolve_user_display_name(
+        user_id
+    )
     raw["completed_at"] = now
     raw["updated_at"] = now
     events = raw.get("events") if isinstance(raw.get("events"), list) else []
@@ -653,7 +681,9 @@ def update_comment(
     now = _now_iso()
     comment["content"] = content.strip()
     comment["edited_by"] = user_id
-    comment["edited_by_name"] = (edited_by_name or "").strip() or _resolve_user_display_name(user_id)
+    comment["edited_by_name"] = (edited_by_name or "").strip() or _resolve_user_display_name(
+        user_id
+    )
     comment["edited_at"] = now
 
     cosmos_runtime.get_cosmos_container().upsert_item(comment)

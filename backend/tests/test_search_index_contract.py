@@ -12,6 +12,7 @@ que el código asume y el índice real. Dos veces falló en ese rol:
 
 En los dos casos el arranque pasó limpio y la degradación fue silenciosa.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -134,9 +135,17 @@ def test_el_script_declara_exactamente_los_campos_que_el_codigo_escribe() -> Non
 
     source = Path(__file__).resolve().parents[1] / "extraction" / "ai_search.py"
     text = source.read_text(encoding="utf-8")
-    block = text[text.index("documents.append(") : text.index("retries = settings.azure_search_retry_attempts")]
+    block = text[
+        text.index("documents.append(") : text.index(
+            "retries = settings.azure_search_retry_attempts"
+        )
+    ]
     written = set(re.findall(r'^\s*"(\w+)":', block, re.M))
     declared = {field.name for field in build_index("documents-index", 3072).fields}
 
-    assert written - declared == set(), f"el código escribe campos que el schema no declara: {sorted(written - declared)}"
-    assert declared - written == set(), f"el schema declara campos que el código nunca escribe: {sorted(declared - written)}"
+    assert written - declared == set(), (
+        f"el código escribe campos que el schema no declara: {sorted(written - declared)}"
+    )
+    assert declared - written == set(), (
+        f"el schema declara campos que el código nunca escribe: {sorted(declared - written)}"
+    )

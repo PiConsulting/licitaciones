@@ -80,7 +80,9 @@ def test_una_palabra_partida_se_une_sin_espacio() -> None:
 
 
 def test_el_pedazo_puede_quedar_de_cualquiera_de_los_dos_lados() -> None:
-    assert _join_split_heading("ARTÍCULO 12: PLAZ", "O DE ENTREGA") == "ARTÍCULO 12: PLAZO DE ENTREGA"
+    assert (
+        _join_split_heading("ARTÍCULO 12: PLAZ", "O DE ENTREGA") == "ARTÍCULO 12: PLAZO DE ENTREGA"
+    )
     assert _join_split_heading("Artículo Nº 10: GAR", "ANTÍA DE ADJUDICACIÓN") == (
         "Artículo Nº 10: GARANTÍA DE ADJUDICACIÓN"
     )
@@ -92,7 +94,7 @@ def test_el_pedazo_puede_quedar_de_cualquiera_de_los_dos_lados() -> None:
 
 
 def test_una_preposicion_al_borde_no_es_una_palabra_partida() -> None:
-    """"LAS" es corta y está en mayúsculas, pero es una palabra completa."""
+    """ "LAS" es corta y está en mayúsculas, pero es una palabra completa."""
     assert _join_split_heading("CAPÍTULO II — DE LAS", "OBLIGACIONES DEL ADJUDICATARIO") == (
         "CAPÍTULO II — DE LAS OBLIGACIONES DEL ADJUDICATARIO"
     )
@@ -100,7 +102,9 @@ def test_una_preposicion_al_borde_no_es_una_palabra_partida() -> None:
 
 def test_un_titulo_que_termina_en_dos_puntos_se_une_con_espacio() -> None:
     """El corte no es dentro de una palabra: hay puntuación en el borde."""
-    assert _join_split_heading("ARTÍCULO 12:", "PLAZO DE ENTREGA") == "ARTÍCULO 12: PLAZO DE ENTREGA"
+    assert (
+        _join_split_heading("ARTÍCULO 12:", "PLAZO DE ENTREGA") == "ARTÍCULO 12: PLAZO DE ENTREGA"
+    )
 
 
 def test_una_continuacion_en_minusculas_de_un_titulo_largo_lleva_espacio() -> None:
@@ -150,7 +154,7 @@ def test_una_mitad_vacia_devuelve_la_otra() -> None:
 
 
 def test_una_palabra_larga_partida_con_cambio_de_caja_se_une_sin_espacio() -> None:
-    """"DOCUMEN" + "tación": el pedazo de la izquierda puede ser largo. La
+    """ "DOCUMEN" + "tación": el pedazo de la izquierda puede ser largo. La
     primera versión del fix miraba sólo el largo del token izquierdo y trataba
     esto como un título en dos renglones, produciendo "DOCUMEN tación".
 

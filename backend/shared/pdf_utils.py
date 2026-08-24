@@ -17,7 +17,9 @@ def get_pdf_metadata(content: bytes) -> tuple[int, bool]:
     """Return (page_count, is_password_protected)."""
     doc = _open_document_from_bytes(content)
     try:
-        is_protected = bool(getattr(doc, "needs_pass", False) or getattr(doc, "is_encrypted", False))
+        is_protected = bool(
+            getattr(doc, "needs_pass", False) or getattr(doc, "is_encrypted", False)
+        )
         return doc.page_count, is_protected
     finally:
         doc.close()

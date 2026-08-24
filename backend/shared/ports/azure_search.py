@@ -121,12 +121,76 @@ def _token_overlap_score(query: str, content: str) -> float:
     return len(overlap) / len(query_terms)
 
 
-def _embed_query_or_none(query: str) -> list[float] | None:
+def _local_bm25_score(chunk_text: str, keyword_query: str, k1: float = 1.5, b: float = 0.75) -> float:
+    """Calcula BM25 score localmente sobre un chunk (Story 12.2).
+    
+    Implementación simplificada de BM25 para reranking local de chunks ya
+    recuperados por vector search. No requiere estadísticas del corpus completo
+    (usa heurísticas para IDF y avgdl).
+    
+    Args:
+        chunk_text: Texto del chunk a rankear
+        keyword_query: Keywords del glosario (espacio-separados)
+        k1: Parámetro de saturación de frecuencia de términos (default: 1.5)
+        b: Parámetro de normalización por largo del documento (default: 0.75)
+    
+    Returns:
+        Score BM25 (suma de contribuciones IDF de cada término que matchea)
+    """
+    import math
+    from collections import Counter
+    
+    if not keyword_query:
+        return 0.0
+    
+    # Tokenizar query y chunk (case-insensitive)
+    query_terms = keyword_query.lower().split()
+    chunk_terms = chunk_text.lower().split()
+    
+    # Frecuencia de términos en el chunk
+    term_freq = Counter(chunk_terms)
+    
+    # Largo del chunk (en términos)
+    chunk_len = len(chunk_terms)
+    
+    if chunk_len == 0:
+        return 0.0
+    
+    # Asumir corpus promedio de ~200 términos (heurística para chunks de párrafo)
+    avgdl = 200.0
+    
+    score = 0.0
+    for term in query_terms:
+        if term in term_freq:
+            # Frecuencia del término en este chunk
+            freq = term_freq[term]
+            
+            # IDF simplificado (asumir que el término aparece en ~10% del corpus)
+            # Para cálculo exacto necesitaríamos estadísticas del índice completo,
+            # pero esta heurística es suficiente para reranking local.
+            # IDF = log((N - df + 0.5) / (df + 0.5)) donde N=1000, df=100
+            idf = math.log((1000 - 100 + 0.5) / (100 + 0.5))  # ≈ 2.2
+            
+            # BM25 score component
+            numerator = freq * (k1 + 1)
+            denominator = freq + k1 * (1 - b + b * (chunk_len / avgdl))
+            
+            score += idf * (numerator / denominator)
+    
+    return score
+
+
+def _embed_query_or_none(
+    query: str,
+    *,
+    analysis_id: str | None = None,
+    category: str | None = None,
+) -> list[float] | None:
     """Vectoriza la consulta; si falla, degradamos a búsqueda sólo léxica."""
     try:
         from extraction.embeddings import embed_query
 
-        return embed_query(query)
+        return embed_query(query, analysis_id=analysis_id, category=category)
     except Exception as exc:  # noqa: BLE001
         logger.warning("query_embedding_failed", error=str(exc)[:200])
         return None
@@ -157,7 +221,9 @@ def _document_to_chunk(item: dict, hybrid_score: float | None = None) -> dict:
         "section_path": item.get("section_path") or "general",
         "block_type": item.get("block_type") or "paragraph",
         "table_ref": _deserialize_table_ref(item.get("table_ref")),
-        "blocks": _deserialize_blocks(item.get("blocks")),  # LEGACY V2: mantenido por compatibilidad
+        "blocks": _deserialize_blocks(
+            item.get("blocks")
+        ),  # LEGACY V2: mantenido por compatibilidad
         # FIX (auditoría 2026-08-12, hallazgo US-4.1): antes no se pedía
         # ni deserializaba -- ver comentario en SEARCH_CHUNK_SELECT_FIELDS.
         "source": _deserialize_source(item.get("source")),
@@ -364,6 +430,7 @@ def _search_azure(
     analysis_id: str,
     top_k: int,
     keyword_query: str | None = None,
+    category: str | None = None,  # Epic 11: para caché de embeddings
 ) -> list[dict]:
     settings = get_settings()
     from azure.core.credentials import AzureKeyCredential
@@ -385,18 +452,25 @@ def _search_azure(
     # El k del kNN vectorial SÍ conserva el margen de 3x: es cuántos vecinos
     # entran a la fusión RRF con BM25, no cuántos documentos se devuelven.
     # Recortarlo cambiaría el ranking; recortar `top` no.
+    #
+    # ÉPICA 10 (2026-08-21): Con análisis pequeños (< 50 chunks), fetch_top alto
+    # recupera TODOS los chunks sin filtrado vectorial efectivo. Mantenemos el
+    # comportamiento para NO perder información (requisito: "siempre recuperar
+    # los mismos datos"), pero agregamos filtrado por score abajo.
     fetch_top = max(top_k * 2, 30)
     # Azure AI Search limita k_nearest_neighbors a 1000 max para búsquedas vectoriales
     k_for_vector = min(max(top_k * 3, 30), 1000)
 
-    query_vector = _embed_query_or_none(query)
-    # BM25 usa keywords del glossary (discriminantes); vector usa la query
-    # descriptiva completa (semántica). Esto evita diluir BM25 con stopwords.
-    bm25_text = keyword_query if keyword_query else query
+    # ÉPICA 11 (2026-08-21): Caché de embeddings con query_id determinista
+    query_vector = _embed_query_or_none(query, analysis_id=analysis_id, category=category)
 
-    def _run_query(filters: list[str], search_text: str, top: int) -> list[dict]:
+    # STORY 12.2 (2026-08-21): Pipeline de 2 etapas — vector puro + BM25 reranking opcional
+    # Etapa 1: Vector search recupera top_k*2 candidatos
+    # Etapa 2: BM25 reranking local (solo si keyword_query existe) mejora ranking
+    def _run_vector_only_query(filters: list[str], top: int) -> list[dict]:
+        """Ejecuta búsqueda vectorial pura sin BM25 (Story 12.2)."""
         search_kwargs = {
-            "search_text": search_text,
+            "search_text": "",  # Sin BM25 — solo vector search
             "top": top,
             "filter": " and ".join(filters),
         }
@@ -404,57 +478,76 @@ def _search_azure(
         if select_fields:
             search_kwargs["select"] = select_fields
 
-        # Búsqueda híbrida real: BM25 + vectorial fusionados por Azure (RRF).
-        # BM25 recibe keywords del glossary; vector recibe la query semántica.
         if query_vector is not None:
             from azure.search.documents.models import VectorizedQuery
 
-            search_kwargs["vector_queries"] = [
-                VectorizedQuery(vector=query_vector, k_nearest_neighbors=k_for_vector, fields="embedding")
-            ]
+            vector_query_obj = VectorizedQuery(
+                vector=query_vector, k_nearest_neighbors=k_for_vector, fields="embedding"
+            )
+            search_kwargs["vector_queries"] = [vector_query_obj]
+            
+            logger.info(
+                "vector_only_search",
+                k_nearest_neighbors=k_for_vector,
+                vector_length=len(query_vector),
+            )
 
         return list(client.search(**search_kwargs))
 
     analysis_filter = [f"analysis_id eq '{analysis_id}'"]
 
-    raw_results = _run_query(analysis_filter, bm25_text, top=fetch_top)
+    # AUDITORÍA 10.1: logueamos info pre-búsqueda para diagnosticar embedding fallido
+    logger.info(
+        "search_azure_debug",
+        query=query[:80],
+        keyword_query=(keyword_query or "")[:80],
+        has_vector=query_vector is not None,
+        vector_preview=query_vector[:3] if query_vector else None,
+    )
 
-    # FIX (auditoría 2026-08-13, hallazgo RET-02): el fallback wildcard estaba
-    # gobernado por `not category_filter`, y `category_filter` era SIEMPRE None
-    # (ver el docstring de `search_hybrid`). O sea que la condición real era
-    # `if not raw_results` y el fallback se disparaba en todos los casos --
-    # exactamente el comportamiento que el comentario anterior declaraba
-    # peligroso ("chunks aleatorios que el LLM podría usar para extraer
-    # información incorrecta"). La protección descrita no existía en ningún
-    # camino real.
-    #
-    # Ahora la condición es la que corresponde de verdad. Con `vector_queries`
-    # activo, Azure devuelve los k vecinos más cercanos DENTRO del filtro sin
-    # umbral de similitud: si la mitad vectorial corrió, un resultado vacío
-    # significa que no hay ningún chunk con ese `analysis_id` en el índice, y
-    # entonces el wildcard tampoco va a encontrar nada. Reintentar con "*" sólo
-    # tiene sentido cuando la búsqueda fue puramente léxica porque el embedding
-    # de la query falló (`_embed_query_or_none` devolvió None): ahí sí hay
-    # documentos y lo único que falló fue el matcheo BM25.
+    # STORY 12.2: Ejecutar búsqueda vectorial pura (sin BM25)
+    # BM25 se aplicará como reranking local después si keyword_query existe
+    raw_results = _run_vector_only_query(analysis_filter, top=fetch_top)
+
+    # INVESTIGACIÓN 10.4: loguear primeros resultados para diagnosticar
+    if raw_results:
+        first_5_results = []
+        for item in list(raw_results)[:5]:
+            first_5_results.append({
+                "id": item.get("id", "N/A")[:40],
+                "score": float(item.get("@search.score") or 0.0),
+                "primary_category": item.get("primary_category", "N/A"),
+            })
+        logger.info(
+            "azure_search_raw_results_sample",
+            query=query[:60],
+            total_results=len(list(raw_results)),
+            first_5=first_5_results,
+        )
+
+    # STORY 10.3: Wildcard fallback eliminado — si la búsqueda no devuelve
+    # resultados, es un error crítico que debe detener la extracción, no
+    # degradarse silenciosamente a chunks arbitrarios.
     if not raw_results:
         if query_vector is None:
-            # Modo degradado: sin vector, el orden de "*" es arbitrario. Se
-            # loguea como error, no como warning: el contexto que llega al
-            # prompt no está ordenado por relevancia.
+            # El embedding de la query falló: la búsqueda fue puramente léxica
+            # y BM25 no matcheó nada. Esto significa que el servicio de embeddings
+            # no está funcionando.
             logger.error(
-                "azure_search_wildcard_fallback",
+                "azure_search_embedding_failed_critical",
                 analysis_id=analysis_id,
                 query=query[:120],
                 reason=(
-                    "el embedding de la query falló y BM25 no matcheó nada: "
-                    "se cae a wildcard, los chunks NO vienen ordenados por relevancia"
+                    "el embedding de la query falló (query_vector es None): "
+                    "retrieval no funcional, extracción debe abortar"
                 ),
             )
-            raw_results = _run_query(analysis_filter, "*", top=fetch_top)
+            raise RuntimeError(
+                f"Embedding de query falló para '{query[:60]}...' — retrieval no funcional"
+            )
         else:
             # La búsqueda híbrida corrió completa y no devolvió nada: no hay
-            # chunks indexados para este análisis. Es un problema de indexación,
-            # no de relevancia, y el wildcard devolvería vacío igual.
+            # chunks indexados para este análisis. Es un problema de indexación.
             logger.error(
                 "azure_search_analysis_sin_chunks",
                 analysis_id=analysis_id,
@@ -464,19 +557,85 @@ def _search_azure(
                     "documento con este analysis_id: el análisis no está indexado"
                 ),
             )
+            raise RuntimeError(
+                f"Análisis {analysis_id} no tiene chunks indexados — "
+                f"búsqueda híbrida devolvió 0 resultados para query '{query[:60]}...'"
+            )
 
-    # Se ordena por el score de relevancia hibrida que Azure ya calculo
-    # (BM25 + vectorial fusionados por RRF) -- nunca se descarta ese score para
-    # reordenar solo con heuristica propia. El overlap lexico es apenas un
-    # desempate para scores exactamente iguales, no un segundo criterio con
-    # peso propio: sumarlo mezclaria dos escalas que no son comparables.
+    # STORY 12.2: Aplicar BM25 reranking opcional sobre chunks recuperados por vector
+    # Si keyword_query existe, mejoramos el ranking con BM25 local
+    # Si no existe, usamos solo vector scores (retrieval sigue funcionando)
     scored: list[tuple[float, float, dict]] = []
     for item in raw_results:
         chunk = _document_to_chunk(item)
-        scored.append((chunk["search_score"], _token_overlap_score(query, chunk["content"]), chunk))
+        base_score = chunk["search_score"]
+        
+        # ETAPA 2: BM25 reranking local (solo si hay keywords del glosario)
+        if keyword_query:
+            bm25_score = _local_bm25_score(chunk["content"], keyword_query)
+            # Normalizar BM25 score a escala similar a vector (típicamente 0-1)
+            # BM25 puede dar scores ~5-10 para buenos matches
+            bm25_normalized = min(bm25_score / 10.0, 1.0)
+            # Combinar: 60% vector + 40% BM25 (similar a RRF de Azure)
+            combined_score = 0.6 * base_score + 0.4 * bm25_normalized
+            
+            if bm25_score > 0:  # Solo loguear si BM25 aportó algo
+                logger.debug(
+                    "bm25_reranking_applied",
+                    chunk_id=chunk["id"][:40],
+                    vector_score=round(base_score, 4),
+                    bm25_score=round(bm25_score, 4),
+                    combined_score=round(combined_score, 4),
+                )
+        else:
+            combined_score = base_score
+            logger.debug(
+                "vector_only_ranking",
+                chunk_id=chunk["id"][:40],
+                vector_score=round(base_score, 4),
+                reason="no_keyword_query",
+            )
+        
+        scored.append((combined_score, _token_overlap_score(query, chunk["content"]), chunk))
 
     scored.sort(key=lambda triple: (triple[0], triple[1]), reverse=True)
     ranked_chunks = [chunk for _score, _overlap, chunk in scored]
+
+    # ÉPICA 10 (2026-08-21): Con análisis pequeños (< 50 chunks totales), Azure
+    # retorna TODOS los chunks sin filtrado vectorial efectivo. Los scores quedan
+    # muy bajos (~0.031-0.033) porque la búsqueda híbrida no rankea bien con tan
+    # pocos vectores. Filtramos chunks de score muy bajo para mejorar precisión.
+    total_chunks_available = len(ranked_chunks)
+    if total_chunks_available < 50:
+        logger.warning(
+            "retrieval_small_analysis_detected",
+            analysis_id=analysis_id,
+            total_chunks=total_chunks_available,
+            query=query[:60],
+            impact=(
+                "con pocos chunks, búsqueda vectorial no rankea efectivamente; "
+                "aplicamos threshold de score para filtrar irrelevantes"
+            ),
+        )
+        
+        # Threshold de score mínimo: filtrar chunks con score muy bajo
+        # (típicamente < 0.032 son ruido cuando solo hay ~20 chunks)
+        MIN_SCORE_SMALL_ANALYSIS = 0.032
+        before_filter = len(ranked_chunks)
+        ranked_chunks = [
+            chunk for chunk in ranked_chunks 
+            if chunk.get("search_score", 0.0) >= MIN_SCORE_SMALL_ANALYSIS
+        ]
+        
+        if len(ranked_chunks) < before_filter:
+            logger.info(
+                "retrieval_low_score_chunks_filtered",
+                analysis_id=analysis_id,
+                before=before_filter,
+                after=len(ranked_chunks),
+                filtered=before_filter - len(ranked_chunks),
+                threshold=MIN_SCORE_SMALL_ANALYSIS,
+            )
 
     # PARENT/CHILD CHUNKING (US-3.1): expandir children a su parent completo
     # antes de truncar a top_k -- expandir sobre una ventana más amplia que
@@ -584,6 +743,7 @@ def search_hybrid(
     analysis_id: str,
     top_k: int = 10,
     keyword_query: str | None = None,
+    category: str | None = None,  # Epic 11: para caché de embeddings
 ) -> list[dict]:
     """Recupera chunks relevantes para una categoría, filtrados por analysis_id.
 
@@ -592,6 +752,7 @@ def search_hybrid(
         analysis_id: ID del análisis
         top_k: Cantidad de chunks a retornar
         keyword_query: Query de keywords para BM25 (discriminante)
+        category: Categoría de extracción (opcional, para caché de embeddings)
 
     No hay filtro por categoría. La categoría se aplica como SEÑAL de ranking
     (`category_boost` en `_retrieve_with_category_priority`), no como compuerta:
@@ -606,4 +767,5 @@ def search_hybrid(
         analysis_id=analysis_id,
         top_k=top_k,
         keyword_query=keyword_query,
+        category=category,
     )

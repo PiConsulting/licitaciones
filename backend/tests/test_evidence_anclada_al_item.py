@@ -247,7 +247,14 @@ def test_el_camino_evidence_ya_no_necesita_los_chunks() -> None:
 
     con_chunks = synthesis._resolve_from_evidence(
         raw,
-        {"chunk-b": {"chunk_id": "chunk-b", "document_id": DOC, "page_number": 4, "content": CITA_CUMPLIMIENTO}},
+        {
+            "chunk-b": {
+                "chunk_id": "chunk-b",
+                "document_id": DOC,
+                "page_number": 4,
+                "content": CITA_CUMPLIMIENTO,
+            }
+        },
         [item_sin_chunk_id],
         correlation_id="corr-1",
     )
@@ -273,8 +280,16 @@ def test_los_source_ids_del_bloque_coinciden_con_las_fuentes_construidas() -> No
                 {
                     "type": "bullet_list",
                     "items": [
-                        {"text": "Mantenimiento de oferta: 1%.", "confidence_level": "alta", "item_refs": [0]},
-                        {"text": "Cumplimiento de contrato: 10%.", "confidence_level": "alta", "item_refs": [1]},
+                        {
+                            "text": "Mantenimiento de oferta: 1%.",
+                            "confidence_level": "alta",
+                            "item_refs": [0],
+                        },
+                        {
+                            "text": "Cumplimiento de contrato: 10%.",
+                            "confidence_level": "alta",
+                            "item_refs": [1],
+                        },
                     ],
                 }
             ],

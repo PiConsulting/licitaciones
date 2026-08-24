@@ -2,7 +2,10 @@
 """Test normalization of riesgo subtipos."""
 
 import sys
-sys.path.insert(0, "C:\\Users\\AgostinaTorres\\Desktop\\Proyectos\\licitaciones\\licitaciones-pi\\backend")
+
+sys.path.insert(
+    0, "C:\\Users\\AgostinaTorres\\Desktop\\Proyectos\\licitaciones\\licitaciones-pi\\backend"
+)
 
 from analysis.extraction.graph import _canonical_riesgo_subtipo
 

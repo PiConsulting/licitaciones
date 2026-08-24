@@ -33,7 +33,9 @@ def test_create_chunks_with_overlap() -> None:
         }
     ]
 
-    chunks = create_chunks(pages, document_id="doc-1", correlation_id="corr-1", chunk_size=500, overlap=50)
+    chunks = create_chunks(
+        pages, document_id="doc-1", correlation_id="corr-1", chunk_size=500, overlap=50
+    )
 
     assert len(chunks) >= 3
     assert all(1 <= item["token_count"] <= 500 for item in chunks)
@@ -62,7 +64,9 @@ def test_create_chunks_adds_unified_contract_fields() -> None:
         },
     ]
 
-    chunks = create_chunks(blocks, document_id="doc-1", correlation_id="corr-1", chunk_size=30, overlap=5)
+    chunks = create_chunks(
+        blocks, document_id="doc-1", correlation_id="corr-1", chunk_size=30, overlap=5
+    )
 
     assert chunks
     chunk = chunks[0]
@@ -101,7 +105,9 @@ def test_create_chunks_keeps_table_rows_atomic() -> None:
         },
     ]
 
-    chunks = create_chunks(pages, document_id="doc-table", correlation_id="corr-table", chunk_size=5, overlap=1)
+    chunks = create_chunks(
+        pages, document_id="doc-table", correlation_id="corr-table", chunk_size=5, overlap=1
+    )
 
     table_chunks = [chunk for chunk in chunks if chunk["block_type"] == "table"]
     assert len(table_chunks) == 2
@@ -188,9 +194,11 @@ def test_upload_chunks_local_writes_metadata(monkeypatch, tmp_path: Path) -> Non
     assert chroma_dir.exists()
     assert any(chroma_dir.rglob("*"))
 
-@pytest.mark.skip(reason="Test requiere adaptadores locales (eliminados)")
 
-def test_upload_chunks_local_serializes_table_ref_as_json_string(monkeypatch, tmp_path: Path) -> None:
+@pytest.mark.skip(reason="Test requiere adaptadores locales (eliminados)")
+def test_upload_chunks_local_serializes_table_ref_as_json_string(
+    monkeypatch, tmp_path: Path
+) -> None:
     """table_ref debe llegar a Chroma como texto (Chroma no acepta dict ni None en
     metadata), y sin doble-serializar: upload_chunks() en extraction/ai_search.py
     ya lo convierte a JSON una sola vez antes de pasarlo al adaptador."""
@@ -234,13 +242,17 @@ def test_upload_chunks_local_serializes_table_ref_as_json_string(monkeypatch, tm
 
     table_metadata = metadata_by_id[f"{analysis_id}_doc-1_0"]
     assert table_metadata["block_type"] == "table"
-    assert json.loads(table_metadata["table_ref"]) == {"table_id": "T1", "row_index": 1, "headers": ["Cantidad"]}
+    assert json.loads(table_metadata["table_ref"]) == {
+        "table_id": "T1",
+        "row_index": 1,
+        "headers": ["Cantidad"],
+    }
 
     plain_metadata = metadata_by_id[f"{analysis_id}_doc-1_1"]
     assert plain_metadata["table_ref"] == "null"
 
-@pytest.mark.skip(reason="Test requiere adaptadores locales (eliminados)")
 
+@pytest.mark.skip(reason="Test requiere adaptadores locales (eliminados)")
 def test_extract_and_index_transitions_to_analyzing(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("USE_LOCAL_ADAPTERS", "true")
     monkeypatch.setenv("LOCAL_BLOB_STORAGE_PATH", str(tmp_path))
@@ -250,7 +262,9 @@ def test_extract_and_index_transitions_to_analyzing(monkeypatch, tmp_path: Path)
     user = db.query(User).filter(User.email == "test@cedia.com").first()
     assert user is not None
 
-    analysis = Analysis(created_by=user.id, status="queued", current_stage="queued", correlation_id=str(uuid4()))
+    analysis = Analysis(
+        created_by=user.id, status="queued", current_stage="queued", correlation_id=str(uuid4())
+    )
     db.add(analysis)
     db.flush()
 
@@ -313,9 +327,9 @@ def test_extract_and_index_transitions_to_analyzing(monkeypatch, tmp_path: Path)
     assert updated.status == "analyzed"
     assert updated.current_stage == "completed"
     db.close()
+
+
 @pytest.mark.skip(reason="Test requiere adaptadores locales (eliminados)")
-
-
 def test_extract_and_index_marks_error_on_unreadable_pdf(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("USE_LOCAL_ADAPTERS", "true")
     monkeypatch.setenv("LOCAL_BLOB_STORAGE_PATH", str(tmp_path))
@@ -325,7 +339,9 @@ def test_extract_and_index_marks_error_on_unreadable_pdf(monkeypatch, tmp_path: 
     user = db.query(User).filter(User.email == "test@cedia.com").first()
     assert user is not None
 
-    analysis = Analysis(created_by=user.id, status="queued", current_stage="queued", correlation_id=str(uuid4()))
+    analysis = Analysis(
+        created_by=user.id, status="queued", current_stage="queued", correlation_id=str(uuid4())
+    )
     db.add(analysis)
     db.flush()
 

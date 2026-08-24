@@ -36,9 +36,7 @@ print("✓ Test 3: Enum values are correct")
 
 # Test 4: RiesgoItem has subtipo field
 source_ref = SourceReference(
-    document_id="test-doc",
-    page_number=5,
-    citation="Riesgo de incumplimiento según cláusula 10"
+    document_id="test-doc", page_number=5, citation="Riesgo de incumplimiento según cláusula 10"
 )
 item = RiesgoItem(
     tipo=TipoRiesgo.DESCALIFICACION,

@@ -69,7 +69,9 @@ def test_cloud_config_rejects_localhost_database_url(monkeypatch: pytest.MonkeyP
     monkeypatch.setenv("PERSISTENCE_MODE", "sql")
     monkeypatch.setenv("AZURE_BLOB_CONNECTION_STRING", "blob")
     monkeypatch.setenv("AZURE_BLOB_CONTAINER_NAME", "pliegos")
-    monkeypatch.setenv("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT", "https://example.cognitiveservices.azure.com")
+    monkeypatch.setenv(
+        "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT", "https://example.cognitiveservices.azure.com"
+    )
     monkeypatch.setenv("AZURE_DOCUMENT_INTELLIGENCE_KEY", "fake")
     monkeypatch.setenv("AZURE_SEARCH_ENDPOINT", "https://example.search.windows.net")
     monkeypatch.setenv("AZURE_SEARCH_KEY", "fake")
@@ -92,7 +94,9 @@ def test_cosmos_temporal_allows_localhost_database_url(monkeypatch: pytest.Monke
     monkeypatch.setenv("PERSISTENCE_MODE", "cosmos_temporal")
     monkeypatch.setenv("AZURE_BLOB_CONNECTION_STRING", "blob")
     monkeypatch.setenv("AZURE_BLOB_CONTAINER_NAME", "pliegos")
-    monkeypatch.setenv("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT", "https://example.cognitiveservices.azure.com")
+    monkeypatch.setenv(
+        "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT", "https://example.cognitiveservices.azure.com"
+    )
     monkeypatch.setenv("AZURE_DOCUMENT_INTELLIGENCE_KEY", "fake")
     monkeypatch.setenv("AZURE_SEARCH_ENDPOINT", "https://example.search.windows.net")
     monkeypatch.setenv("AZURE_SEARCH_KEY", "fake")
@@ -152,7 +156,9 @@ def test_chat_client_requires_cloud_deployment(monkeypatch: pytest.MonkeyPatch) 
         get_azure_openai_client()
 
 
-def test_search_index_contract_validator_detects_invalid_dimensions(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_search_index_contract_validator_detects_invalid_dimensions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _set_production_env(monkeypatch)
     monkeypatch.setenv("AZURE_SEARCH_ENDPOINT", "https://search.example.windows.net")
     monkeypatch.setenv("AZURE_SEARCH_KEY", "fake")
@@ -161,7 +167,13 @@ def test_search_index_contract_validator_detects_invalid_dimensions(monkeypatch:
     get_settings.cache_clear()
 
     class _Field:
-        def __init__(self, name: str, *, filterable: bool = False, vector_search_dimensions: int | None = None) -> None:
+        def __init__(
+            self,
+            name: str,
+            *,
+            filterable: bool = False,
+            vector_search_dimensions: int | None = None,
+        ) -> None:
             self.name = name
             self.filterable = filterable
             self.vector_search_dimensions = vector_search_dimensions
@@ -210,7 +222,13 @@ def test_search_index_contract_validator_detects_missing_category_fields(
     get_settings.cache_clear()
 
     class _Field:
-        def __init__(self, name: str, *, filterable: bool = False, vector_search_dimensions: int | None = None) -> None:
+        def __init__(
+            self,
+            name: str,
+            *,
+            filterable: bool = False,
+            vector_search_dimensions: int | None = None,
+        ) -> None:
             self.name = name
             self.filterable = filterable
             self.vector_search_dimensions = vector_search_dimensions
@@ -245,7 +263,9 @@ def test_search_index_contract_validator_detects_missing_category_fields(
         ai_search.validate_index_contract()
 
 
-def test_to_index_document_logs_discarded_fields(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+def test_to_index_document_logs_discarded_fields(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     """FIX (US-4.2): antes _to_index_document descartaba en silencio campos
     que el indice real no declaraba. Si el schema de Azure queda desactualizado
     respecto al codigo, esto ahora debe quedar visible en los logs."""
@@ -274,7 +294,9 @@ def test_to_index_document_logs_discarded_fields(monkeypatch: pytest.MonkeyPatch
         structlog.reset_defaults()
 
     assert result == {"id": "1", "analysis_id": "a", "content": "texto"}
-    discard_events = [e for e in events if e.get("event") == "search_index_document_fields_discarded"]
+    discard_events = [
+        e for e in events if e.get("event") == "search_index_document_fields_discarded"
+    ]
     assert discard_events, "se esperaba un warning por los campos descartados"
     assert discard_events[0]["discarded_fields"] == ["primary_category"]
 
@@ -304,7 +326,9 @@ def test_to_index_document_no_warning_when_all_fields_known() -> None:
     finally:
         structlog.reset_defaults()
 
-    discard_events = [e for e in events if e.get("event") == "search_index_document_fields_discarded"]
+    discard_events = [
+        e for e in events if e.get("event") == "search_index_document_fields_discarded"
+    ]
     assert not discard_events
 
 
@@ -319,7 +343,9 @@ def test_startup_validates_index_contract_in_production(monkeypatch: pytest.Monk
     monkeypatch.setenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/licitaciones")
     monkeypatch.setenv("AZURE_BLOB_CONNECTION_STRING", "blob")
     monkeypatch.setenv("AZURE_BLOB_CONTAINER_NAME", "pliegos")
-    monkeypatch.setenv("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT", "https://example.cognitiveservices.azure.com")
+    monkeypatch.setenv(
+        "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT", "https://example.cognitiveservices.azure.com"
+    )
     monkeypatch.setenv("AZURE_DOCUMENT_INTELLIGENCE_KEY", "fake")
     monkeypatch.setenv("AZURE_SEARCH_ENDPOINT", "https://example.search.windows.net")
     monkeypatch.setenv("AZURE_SEARCH_KEY", "fake")
@@ -345,10 +371,14 @@ def test_startup_validates_index_contract_in_production(monkeypatch: pytest.Monk
     for handler in app.router.on_startup:
         handler()
 
-    assert calls == ["validated"], "validate_index_contract() debe llamarse desde el startup real de la app"
+    assert calls == ["validated"], (
+        "validate_index_contract() debe llamarse desde el startup real de la app"
+    )
 
 
-def test_startup_skips_index_contract_check_outside_production(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_startup_skips_index_contract_check_outside_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Fuera de produccion (dev local sin Azure real configurado) el chequeo
     de schema del indice no debe dispararse -- rompería el arranque local."""
     monkeypatch.setenv("APP_ENV", "development")
@@ -419,7 +449,9 @@ def test_run_health_checks_saltea_cosmos_en_modo_sql_puro(monkeypatch: pytest.Mo
     assert payload["checks"]["cosmos"]["status"] == "skipped"
 
 
-def test_run_health_checks_corre_cosmos_health_en_modo_cosmos_only(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_health_checks_corre_cosmos_health_en_modo_cosmos_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """En cualquier modo que use Cosmos (cosmos/dual_write/cosmos_temporal/
     cosmos_only), el chequeo real de Cosmos tiene que correr -- antes nunca
     corría, ni siquiera en cosmos_only donde Cosmos es la única fuente de
@@ -432,7 +464,11 @@ def test_run_health_checks_corre_cosmos_health_en_modo_cosmos_only(monkeypatch: 
     import main as main_module
 
     calls: list[str] = []
-    monkeypatch.setattr(main_module, "_cosmos_health", lambda: (calls.append("called"), ("error", "no disponible"))[1])
+    monkeypatch.setattr(
+        main_module,
+        "_cosmos_health",
+        lambda: (calls.append("called"), ("error", "no disponible"))[1],
+    )
 
     _status_code, payload = main_module._run_health_checks()
 

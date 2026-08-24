@@ -44,7 +44,9 @@ def _cola_larga(cantidad: int = 30) -> list[dict[str, Any]]:
     """Un top con evidencia real y una cola que el retrieval trajo por
     completar el `top_k`: los scores caen a menos de la mitad."""
     fuertes = [_chunk(i, 0.032 - i * 0.0005) for i in range(_RELEVANCE_MIN_CHUNKS)]
-    debiles = [_chunk(_RELEVANCE_MIN_CHUNKS + i, 0.005) for i in range(cantidad - _RELEVANCE_MIN_CHUNKS)]
+    debiles = [
+        _chunk(_RELEVANCE_MIN_CHUNKS + i, 0.005) for i in range(cantidad - _RELEVANCE_MIN_CHUNKS)
+    ]
     return fuertes + debiles
 
 

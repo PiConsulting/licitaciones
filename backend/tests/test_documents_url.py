@@ -66,7 +66,9 @@ def test_get_document_url_returns_sas_payload(client, auth_token, monkeypatch):
             return now.astimezone(tz)
 
     monkeypatch.setattr("documents.routes.datetime", _FrozenDateTime)
-    monkeypatch.setattr("documents.routes.generate_blob_sas", lambda **_: "sv=2021-06-08&sp=r&sig=test")
+    monkeypatch.setattr(
+        "documents.routes.generate_blob_sas", lambda **_: "sv=2021-06-08&sp=r&sig=test"
+    )
 
     class _FakeBlobClient:
         url = "https://account.blob.core.windows.net/documents/analyses/analysis-1/pliego.pdf"
@@ -79,10 +81,15 @@ def test_get_document_url_returns_sas_payload(client, auth_token, monkeypatch):
             assert blob == document.blob_name
             return _FakeBlobClient()
 
-    monkeypatch.setenv("AZURE_BLOB_CONNECTION_STRING", "DefaultEndpointsProtocol=https;AccountName=account;AccountKey=testkey;EndpointSuffix=core.windows.net")
+    monkeypatch.setenv(
+        "AZURE_BLOB_CONNECTION_STRING",
+        "DefaultEndpointsProtocol=https;AccountName=account;AccountKey=testkey;EndpointSuffix=core.windows.net",
+    )
     monkeypatch.setenv("AZURE_BLOB_CONTAINER_NAME", "documents")
     get_settings.cache_clear()
-    monkeypatch.setattr("documents.routes.BlobServiceClient.from_connection_string", lambda _: _FakeService())
+    monkeypatch.setattr(
+        "documents.routes.BlobServiceClient.from_connection_string", lambda _: _FakeService()
+    )
 
     response = client.get(
         f"/api/v1/documents/{document.id}/url",
@@ -127,7 +134,9 @@ def test_get_document_url_with_sas_only_connection_string(client, auth_token, mo
     )
     monkeypatch.setenv("AZURE_BLOB_CONTAINER_NAME", "documents")
     get_settings.cache_clear()
-    monkeypatch.setattr("documents.routes.BlobServiceClient.from_connection_string", lambda _: _FakeService())
+    monkeypatch.setattr(
+        "documents.routes.BlobServiceClient.from_connection_string", lambda _: _FakeService()
+    )
 
     response = client.get(
         f"/api/v1/documents/{document.id}/url",

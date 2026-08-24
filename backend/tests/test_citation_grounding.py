@@ -8,7 +8,6 @@ def _paragraph_chunk(**overrides: object) -> dict:
     base = {
         "document_id": "doc-1",
         "page_number": 3,
-
         "block_type": "paragraph",
         "table_ref": None,
         "content": "La garantía de mantenimiento de oferta es del 5% del monto cotizado.",
@@ -21,7 +20,6 @@ def _table_chunk(**overrides: object) -> dict:
     base = {
         "document_id": "doc-1",
         "page_number": 3,
-
         "block_type": "table",
         "content": "Tabla T1 | Fila 2 | Criterio: Experiencia | Ponderacion: 40%",
         "table_ref": {"table_id": "T1", "row_index": 2, "headers": ["Criterio", "Ponderacion"]},
@@ -35,7 +33,11 @@ def test_cita_de_parrafo_verificada() -> None:
     item = {
         "extraction_status": "success",
         "source_references": [
-            {"document_id": "doc-1", "page_number": 3, "citation": "garantía de mantenimiento de oferta es del 5%"}
+            {
+                "document_id": "doc-1",
+                "page_number": 3,
+                "citation": "garantía de mantenimiento de oferta es del 5%",
+            }
         ],
     }
 
@@ -67,11 +69,17 @@ def test_cita_de_parrafo_alucinada() -> None:
 def test_cita_de_parrafo_con_espaciado_distinto_legitimo() -> None:
     # El chunk tiene un salto de linea en medio de la frase; el LLM la cita con
     # un espacio simple. Esto NO debe considerarse una alucinacion.
-    chunk = _paragraph_chunk(content="La garantía de mantenimiento\nde oferta es del 5% del monto cotizado.")
+    chunk = _paragraph_chunk(
+        content="La garantía de mantenimiento\nde oferta es del 5% del monto cotizado."
+    )
     item = {
         "extraction_status": "success",
         "source_references": [
-            {"document_id": "doc-1", "page_number": 3, "citation": "garantía de mantenimiento de oferta es del 5%"}
+            {
+                "document_id": "doc-1",
+                "page_number": 3,
+                "citation": "garantía de mantenimiento de oferta es del 5%",
+            }
         ],
     }
 
@@ -86,11 +94,17 @@ def test_cita_de_tabla_verificada() -> None:
     item = {
         "extraction_status": "success",
         "source_references": [
-            {"document_id": "doc-1", "page_number": 3, "citation": "Encabezado: Ponderacion | Fila: 2 | Valor: 40%"}
+            {
+                "document_id": "doc-1",
+                "page_number": 3,
+                "citation": "Encabezado: Ponderacion | Fila: 2 | Valor: 40%",
+            }
         ],
     }
 
-    _verify_citation_grounding([item], [chunk], category="criterios_evaluacion", correlation_id="corr-1")
+    _verify_citation_grounding(
+        [item], [chunk], category="criterios_evaluacion", correlation_id="corr-1"
+    )
 
     assert item["extraction_status"] == "success"
     assert "_warning" not in item
@@ -101,11 +115,17 @@ def test_cita_de_tabla_alucinada() -> None:
     item = {
         "extraction_status": "success",
         "source_references": [
-            {"document_id": "doc-1", "page_number": 3, "citation": "Encabezado: Ponderacion | Fila: 2 | Valor: 90%"}
+            {
+                "document_id": "doc-1",
+                "page_number": 3,
+                "citation": "Encabezado: Ponderacion | Fila: 2 | Valor: 90%",
+            }
         ],
     }
 
-    _verify_citation_grounding([item], [chunk], category="criterios_evaluacion", correlation_id="corr-1")
+    _verify_citation_grounding(
+        [item], [chunk], category="criterios_evaluacion", correlation_id="corr-1"
+    )
 
     assert item["extraction_status"] == "partial"
     assert item["_warning"] == "cita_no_verificada"
@@ -131,7 +151,9 @@ def test_cita_textual_larga_en_chunk_tabla_tambien_valida() -> None:
         ],
     }
 
-    _verify_citation_grounding([item], [chunk], category="identificacion_procedimiento", correlation_id="corr-1")
+    _verify_citation_grounding(
+        [item], [chunk], category="identificacion_procedimiento", correlation_id="corr-1"
+    )
 
     assert item["extraction_status"] == "success"
     assert "_warning" not in item
@@ -142,8 +164,16 @@ def test_item_con_una_referencia_valida_y_otra_alucinada_no_se_penaliza() -> Non
     item = {
         "extraction_status": "success",
         "source_references": [
-            {"document_id": "doc-1", "page_number": 3, "citation": "garantía de mantenimiento de oferta es del 5%"},
-            {"document_id": "doc-1", "page_number": 3, "citation": "esto no aparece en ningun lado del pliego"},
+            {
+                "document_id": "doc-1",
+                "page_number": 3,
+                "citation": "garantía de mantenimiento de oferta es del 5%",
+            },
+            {
+                "document_id": "doc-1",
+                "page_number": 3,
+                "citation": "esto no aparece en ningun lado del pliego",
+            },
         ],
     }
 
@@ -156,7 +186,9 @@ def test_item_con_una_referencia_valida_y_otra_alucinada_no_se_penaliza() -> Non
 def test_no_penaliza_items_not_found_sin_referencias() -> None:
     item = {"extraction_status": "not_found", "source_references": []}
 
-    _verify_citation_grounding([item], [_paragraph_chunk()], category="garantias", correlation_id="corr-1")
+    _verify_citation_grounding(
+        [item], [_paragraph_chunk()], category="garantias", correlation_id="corr-1"
+    )
 
     assert item["extraction_status"] == "not_found"
     assert "_warning" not in item
@@ -166,16 +198,25 @@ def test_no_aplica_chequeo_de_tabla_a_cita_de_parrafo() -> None:
     # Cita de tabla legitima verificada solo contra chunks de tabla; no debe
     # aplicarse el chequeo de subcadena literal de parrafo a este formato.
     table_chunk = _table_chunk()
-    paragraph_chunk = _paragraph_chunk(content="Encabezado: Ponderacion | Fila: 2 | Valor: 40% no es texto real")
+    paragraph_chunk = _paragraph_chunk(
+        content="Encabezado: Ponderacion | Fila: 2 | Valor: 40% no es texto real"
+    )
     item = {
         "extraction_status": "success",
         "source_references": [
-            {"document_id": "doc-1", "page_number": 3, "citation": "Encabezado: Ponderacion | Fila: 2 | Valor: 40%"}
+            {
+                "document_id": "doc-1",
+                "page_number": 3,
+                "citation": "Encabezado: Ponderacion | Fila: 2 | Valor: 40%",
+            }
         ],
     }
 
     _verify_citation_grounding(
-        [item], [table_chunk, paragraph_chunk], category="criterios_evaluacion", correlation_id="corr-1"
+        [item],
+        [table_chunk, paragraph_chunk],
+        category="criterios_evaluacion",
+        correlation_id="corr-1",
     )
 
     assert item["extraction_status"] == "success"
@@ -243,7 +284,9 @@ def test_rescata_cita_desde_valor_literal_del_item_en_mismo_chunk() -> None:
         ],
     }
 
-    _verify_citation_grounding([item], [chunk], category="requisitos_admisibilidad", correlation_id="corr-1")
+    _verify_citation_grounding(
+        [item], [chunk], category="requisitos_admisibilidad", correlation_id="corr-1"
+    )
 
     assert item["extraction_status"] == "success"
     # La cita se rescata desde el `valor` literal del item, pero ahora se

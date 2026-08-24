@@ -289,18 +289,19 @@ function emptyCategoryData(): CategoryData {
 /**
  * El backend emite cada categoría como un array de ítems y el estado agregado en
  * una clave hermana, cuyo nombre no siempre coincide con el de la categoría.
- * 
+ *
  * FIX: Migrado a campos canónicos (#4 auditoría RAG)
  * - anexos_obligatorios_extraction_status (NO anexos_extraction_status)
  * - criterios_evaluacion_extraction_status (NO criterios_extraction_status)
- * 
+ * - causales_rechazo_extraction_status (NO causales_extraction_status)
+ *
  * Los campos legacy siguen funcionando hasta Q2 2027, pero se recomienda
  * usar los canónicos para evitar problemas futuros.
  */
 const BACKEND_STATUS_KEY: Record<CategoryId, string> = {
   plazos_clave: "plazos_clave_extraction_status",
   garantias: "garantias_extraction_status",
-  causales_rechazo: "causales_extraction_status",
+  causales_rechazo: "causales_rechazo_extraction_status",
   objeto_alcance: "objeto_alcance_extraction_status",
   requisitos_admisibilidad: "requisitos_admisibilidad_extraction_status",
   criterios_evaluacion: "criterios_evaluacion_extraction_status",
@@ -338,6 +339,21 @@ const FIELD_LABELS: Record<string, string> = {
   denominacion: "Denominación",
   otro: "Otro",
   otra: "Otra",
+  // TipoRiesgo
+  descalificacion: "Descalificación",
+  penalizacion: "Penalización",
+  legal: "Legal",
+  operativo: "Operativo",
+  financiero: "Financiero",
+  // SubtipoRiesgo
+  ejecucion: "Ejecución",
+  incumplimiento: "Incumplimiento",
+  plazos: "Plazos",
+  economico: "Económico",
+  tecnico: "Técnico",
+  legal_contractual: "Legal/Contractual",
+  comercial: "Comercial",
+  otro_explicito: "Otro",
 };
 
 function humanizeTipo(tipo: string): string {
@@ -425,8 +441,25 @@ function fromBackendItem(value: unknown): FieldItem | null {
   const shouldOverrideNotFound = (status === "not_found" || status === "failed") && (fieldValue != null || hasEvidence);
   const fieldState = shouldOverrideNotFound ? "extraido" : (STATE_BY_STATUS[status] ?? "extraido");
 
+  // FIX (2026-08-22): PlazoItem ya no tiene `tipo` (enum eliminado, ver
+  // schemas.py) -- ahora trae `referencia`, texto libre escrito por el LLM
+  // que ya es un título legible ("Plazo de entrega de bienes"), a diferencia
+  // de `tipo` que había que pasar por `humanizeTipo`/`FIELD_LABELS` para que
+  // se leyera bien. Se usa tal cual, sin ese mapeo. `value.tipo` se mantiene
+  // como fallback para análisis viejos guardados en Cosmos antes de este fix.
+  const referencia = value.referencia == null ? "" : String(value.referencia).trim();
+
+  // Para RiesgoItem, incluir subtipo en el field_name para permitir agrupamiento
+  const tipo = String(value.tipo ?? "");
+  const subtipo = value.subtipo ? String(value.subtipo) : null;
+  const fieldName = referencia
+    ? referencia
+    : subtipo
+      ? `${humanizeTipo(tipo)} (${humanizeTipo(subtipo)})`
+      : humanizeTipo(tipo);
+
   return {
-    field_name: humanizeTipo(String(value.tipo ?? "")),
+    field_name: fieldName,
     field_value: fieldValue,
     field_state: fieldState,
     confidence: Number(value.confidence ?? 0),
@@ -566,6 +599,26 @@ function normalizeCategories(extractedData: unknown): Record<CategoryId, Categor
     datos_procedimiento: ["cronograma_proceso", "estimacion_presupuesto"],
   };
 
+  // FIX legibilidad (2026-08-21): `causales_rechazo` siempre llegó como array
+  // bajo el nombre canónico (no pasa por `legacyToUiMap`), pero su clave de
+  // estado hermana se llamaba `causales_extraction_status`, rota respecto del
+  // patrón `<categoria>_extraction_status`. El backend ahora también escribe
+  // `causales_rechazo_extraction_status`, pero análisis viejos guardados en
+  // Cosmos antes de este fix solo tienen el nombre viejo -- este fallback
+  // evita perder el estado de esos análisis. Retiro junto con el resto de los
+  // campos legacy (Q2 2027).
+  const legacyStatusKey: Partial<Record<CategoryId, string>> = {
+    causales_rechazo: "causales_extraction_status",
+  };
+  const getStatusValue = (categoryId: CategoryId): unknown => {
+    const primary = extractedData[BACKEND_STATUS_KEY[categoryId]];
+    if (primary !== undefined) {
+      return primary;
+    }
+    const legacyKey = legacyStatusKey[categoryId];
+    return legacyKey ? extractedData[legacyKey] : undefined;
+  };
+
   const calidadPorCategoria = isRecord(extractedData.calidad_por_categoria)
     ? (extractedData.calidad_por_categoria as Record<string, unknown>)
     : {};
@@ -579,7 +632,7 @@ function normalizeCategories(extractedData: unknown): Record<CategoryId, Categor
     if (Array.isArray(rawCategory)) {
       result[categoryId] = fromBackendArray(
         rawCategory,
-        extractedData[BACKEND_STATUS_KEY[categoryId]],
+        getStatusValue(categoryId),
         extractedData[`${categoryId}_narrative`],
         extractedData[`${categoryId}_confidence`],
       );
@@ -595,7 +648,7 @@ function normalizeCategories(extractedData: unknown): Record<CategoryId, Categor
       if (arrayCandidates.length > 0) {
         result[categoryId] = fromBackendArray(
           arrayCandidates.flat(),
-          extractedData[BACKEND_STATUS_KEY[categoryId]],
+          getStatusValue(categoryId),
           extractedData[`${categoryId}_narrative`],
           extractedData[`${categoryId}_confidence`],
         );

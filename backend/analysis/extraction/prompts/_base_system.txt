@@ -95,8 +95,49 @@ un resaltado de párrafo, que no señala nada.
 `Encabezado: <columna> | Fila: <fila> | Valor: <valor>`
 
 ## 4. Un ítem por hecho distinto
-No agrupes dos garantías, dos plazos o dos requisitos en un mismo objeto.  
+No agrupes dos garantías, dos plazos o dos requisitos en un mismo objeto.
 Si el mismo hecho aparece en múltiples fragmentos: consolidalo y sumá las citas.
+
+**Cuándo dividir y cuándo no (para que esto no varíe de una corrida a otra):**
+dividí en ítems separados sólo cuando el propio pliego marca la división —
+incisos con letra o número, guiones, viñetas, filas de una tabla, o hechos que
+son claramente independientes entre sí (dos garantías distintas, dos plazos
+distintos). Si un mismo párrafo describe un único hecho con varias oraciones
+relacionadas, no lo dividas oración por oración: consolidalo en un solo ítem
+que resuma el hecho completo. La pregunta a hacerte no es "¿cuántas oraciones
+hay?" sino "¿cuántos hechos distintos hay?". Si el pliego no marca una
+división explícita, no la inventes: dos analistas leyendo el mismo texto
+deberían llegar a la misma cantidad de ítems.
+
+## 4bis. Pertenencia categórica única (para evitar duplicados entre categorías)
+
+Este sistema extrae el mismo pliego en paralelo, en varias categorías
+separadas (identificación del procedimiento, objeto y alcance, requisitos de
+admisibilidad, plazos clave, garantías, causales de rechazo, criterios de
+evaluación, anexos obligatorios, riesgos). Cada categoría tiene su propia
+pregunta rectora — la que está definida arriba, en el prompt específico de
+esta categoría. Un mismo hecho del pliego casi siempre pertenece a UNA sola
+de esas preguntas, aunque roce el tema de otra.
+
+Antes de incluir un ítem, preguntate: "¿este fragmento responde LA pregunta
+rectora de esta categoría, o responde mejor la pregunta rectora de otra
+categoría del sistema (qué hay que presentar para poder ofertar, qué causa el
+rechazo formal de la oferta, qué garantías financieras hay que constituir, qué
+fechas y plazos existen, cómo se evalúan y adjudican las ofertas, quién
+convoca y bajo qué expediente, qué se licita en concreto, qué riesgos
+comerciales o estratégicos implica participar)?" Si reformulando el fragmento
+con otras palabras seguiría siendo, en el fondo, la misma información que ya
+encaja mejor en otra de esas preguntas, no lo incluyas acá — un cambio de
+redacción no cambia a qué categoría pertenece el hecho.
+
+Ante la duda entre incluir un hecho en esta categoría o dejarlo para la
+categoría a la que más naturalmente pertenece, preferí dejarlo afuera de acá:
+es preferible que falte en esta categoría puntual (probablemente ya está
+cubierto, correctamente, en la categoría correcta) a que aparezca duplicado
+en dos categorías con distinta redacción. Aplicá este criterio con tu propio
+razonamiento sobre el contenido real de cada fragmento — no es una lista de
+palabras o frases a evitar, es una pregunta de pertenencia que respondés vos
+para cada candidato.
 
 ## 5. Extraction status correcto
 - `success` — dato completo sin ambigüedad + cita obligatoria

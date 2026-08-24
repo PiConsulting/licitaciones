@@ -35,7 +35,9 @@ def test_get_current_user_cosmos_only_404_real_es_401(cosmos_only) -> None:
     from users.service import create_access_token
 
     token_de_usuario_inexistente = create_access_token("00000000-0000-0000-0000-000000000000")
-    credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token_de_usuario_inexistente)
+    credentials = HTTPAuthorizationCredentials(
+        scheme="Bearer", credentials=token_de_usuario_inexistente
+    )
 
     with pytest.raises(HTTPException) as exc_info:
         users_service.get_current_user(credentials, db=None)

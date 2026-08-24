@@ -107,7 +107,9 @@ def test_una_cita_que_ya_es_legible_no_se_toca() -> None:
 def test_sin_chunk_donde_ubicarla_se_devuelve_la_cita_original() -> None:
     corta = "del 5% del presupuesto"
 
-    assert _widen_citation_with_chunk_context(corta, [_chunk("Un texto que no la contiene.")]) == corta
+    assert (
+        _widen_citation_with_chunk_context(corta, [_chunk("Un texto que no la contiene.")]) == corta
+    )
 
 
 def test_las_tablas_no_ensanchan() -> None:

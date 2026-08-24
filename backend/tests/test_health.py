@@ -16,7 +16,9 @@ def test_health_ready_returns_checks(client):
 
 
 def test_health_degraded_when_database_unavailable(client, monkeypatch):
-    monkeypatch.setattr("main._database_health", lambda: ("error", "No se pudo conectar a la base de datos"))
+    monkeypatch.setattr(
+        "main._database_health", lambda: ("error", "No se pudo conectar a la base de datos")
+    )
 
     response = client.get("/health")
 
