@@ -41,7 +41,6 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
   const [selectedCitations, setSelectedCitations] = useState<Citation[]>([]);
   const [selectedSources, setSelectedSources] = useState<NarrativeSource[]>([]);
-  const [loadingItemId, setLoadingItemId] = useState<string | null>(null);
   const [showStartTrackingModal, setShowStartTrackingModal] = useState(false);
   const [showCompleteTrackingModal, setShowCompleteTrackingModal] = useState(false);
   const [showPdfViewer, setShowPdfViewer] = useState(true);
@@ -132,7 +131,6 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
               setShowPdfViewer(true);
             }}
             trackingActionLoading={updateCategoryMutation.isPending || createCommentMutation.isPending}
-            trackingItemLoadingId={loadingItemId}
             onChangeTrackingStatus={(categoryKey, status) => {
               void updateCategoryMutation
                 .mutateAsync({ analysisId, categoryKey, status })
@@ -140,12 +138,7 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
                 .catch(() => addToast("error", "No se pudo actualizar el estado de la categoría."));
             }}
             onChangeTrackingItemStatus={(categoryKey, trackingItemId, status) => {
-              setLoadingItemId(trackingItemId);
-              void updateItemMutation
-                .mutateAsync({ analysisId, categoryKey, trackingItemId, status })
-                .then(() => addToast("success", "Estado del ítem actualizado."))
-                .catch(() => addToast("error", "No se pudo actualizar el ítem de seguimiento."))
-                .finally(() => setLoadingItemId(null));
+              void updateItemMutation.mutateAsync({ analysisId, categoryKey, trackingItemId, status });
             }}
             onCreateTrackingComment={async ({ categoryKey, content }) => {
               await createCommentMutation.mutateAsync({ analysisId, categoryKey, content });

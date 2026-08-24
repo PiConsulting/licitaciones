@@ -69,3 +69,56 @@ def get_category_top_k(category_key: str, default: int = 25) -> int:
         return default
     top_k = entry.get("top_k", default)
     return int(top_k) if isinstance(top_k, (int, float, str)) and str(top_k).isdigit() else default
+
+
+# FASE 4 del plan RAG v2 (2026-08-24, sección 4.4): query expansion con
+# definición semántica. `category_definitions.json` ya existe desde la Fase 2
+# (4.3, clasificación semántica de chunks) -- acá se reutiliza la misma
+# definición versionada, no se inventa una segunda fuente de verdad.
+@lru_cache(maxsize=1)
+def _load_category_definitions() -> dict[str, dict]:
+    """Carga category_definitions.json (mismo archivo que usa
+    extraction/chunking.py para el fallback semántico de clasificación).
+    Degrada a `{}` si el archivo no existe o es inválido -- la expansión de
+    query es un enriquecimiento opcional, nunca debe tumbar el retrieval."""
+    definitions_path = Path(__file__).resolve().parent / "category_definitions.json"
+    if not definitions_path.exists():
+        return {}
+    try:
+        with definitions_path.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(v, dict) and k != "_comment"}
+
+
+def build_semantic_expanded_query(category_key: str, base_query: str) -> str:
+    """Enriquece la query que se vectoriza para el vector search (`query` en
+    `_retrieve_with_category_priority`) con la definición semántica completa
+    de la categoría, en vez de dejarla solo con la frase corta que arma cada
+    rama del extractor.
+
+    No reemplaza `base_query`: lo antepone como contexto conceptual y agrega
+    la frase original a continuación, para no perder matices específicos que
+    algún extractor ya haya afinado a mano. Si no hay definición para la
+    categoría (archivo ausente, entrada faltante), devuelve `base_query` sin
+    cambios -- este enriquecimiento es aditivo y nunca debe dejar la query
+    vacía ni distinta de la original cuando no hay nada que agregar."""
+    definitions = _load_category_definitions()
+    entry = definitions.get(category_key)
+    if not entry:
+        return base_query
+    definition = entry.get("definition")
+    if not isinstance(definition, str) or not definition.strip():
+        return base_query
+    definition = definition.strip()
+    base_query = (base_query or "").strip()
+    if not base_query:
+        return definition
+    if definition in base_query:
+        # Ya está incluida (p.ej. si en el futuro algún extractor arma su
+        # `_QUERY` copiando la definición) -- no duplicar.
+        return base_query
+    return f"{definition}\n\n{base_query}"

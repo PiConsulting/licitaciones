@@ -207,6 +207,14 @@ def _document_to_chunk(item: dict, hybrid_score: float | None = None) -> dict:
     explícito: al expandir un child a su parent, el parent hereda el score
     del child que matcheó, en vez de recalcular uno artificial para un
     documento que nunca pasó por el ranking de búsqueda.
+
+    FASE 1 (plan RAG v2, 2026-08-24; revisado el mismo día -- el servicio de
+    Azure AI Search de este proyecto NO tiene el add-on de Semantic Ranker
+    habilitado): `@search.score` es el único score que Azure devuelve acá,
+    sea el path legacy (kNN puro) o el nativo (`AZURE_SEARCH_USE_NATIVE_HYBRID
+    =true`, que fusiona BM25 real + vector vía RRF). No hay `@search.
+    rerankerScore` en ningún path -- si en el futuro se contrata el add-on de
+    Semantic Ranker, ese es el lugar para priorizarlo sobre `@search.score`.
     """
     if hybrid_score is None:
         hybrid_score = float(item.get("@search.score") or 0.0)
@@ -467,6 +475,13 @@ def _search_azure(
     # STORY 12.2 (2026-08-21): Pipeline de 2 etapas — vector puro + BM25 reranking opcional
     # Etapa 1: Vector search recupera top_k*2 candidatos
     # Etapa 2: BM25 reranking local (solo si keyword_query existe) mejora ranking
+    #
+    # FASE 1 del plan RAG v2 (2026-08-24): esta función queda como el path
+    # DEFAULT (`AZURE_SEARCH_USE_NATIVE_HYBRID=false`). El path nuevo,
+    # `_run_native_hybrid_query` más abajo, reemplaza la fusión manual por
+    # Hybrid Search nativo de Azure (BM25 real sobre el corpus completo,
+    # fusionado con el vector vía RRF -- sin reranking semántico, que
+    # requiere el add-on de Semantic Ranker, no disponible en este proyecto).
     def _run_vector_only_query(filters: list[str], top: int) -> list[dict]:
         """Ejecuta búsqueda vectorial pura sin BM25 (Story 12.2)."""
         search_kwargs = {
@@ -485,12 +500,64 @@ def _search_azure(
                 vector=query_vector, k_nearest_neighbors=k_for_vector, fields="embedding"
             )
             search_kwargs["vector_queries"] = [vector_query_obj]
-            
+
             logger.info(
                 "vector_only_search",
                 k_nearest_neighbors=k_for_vector,
                 vector_length=len(query_vector),
             )
+
+        return list(client.search(**search_kwargs))
+
+    def _run_native_hybrid_query(filters: list[str], top: int) -> list[dict]:
+        """Hybrid Search nativo de Azure (Fase 1, plan RAG v2 2026-08-24;
+        revisado el mismo día: el servicio de Azure AI Search de este
+        proyecto NO tiene el add-on de Semantic Ranker habilitado, así que
+        este path usa Hybrid Search "clásico" -- BM25 + vector fusionados por
+        Azure vía RRF -- sin el paso de reranking semántico, que requiere ese
+        add-on pago). Reemplaza `_run_vector_only_query` + `_local_bm25_score`
+        cuando `AZURE_SEARCH_USE_NATIVE_HYBRID=true`.
+
+        La diferencia real contra el path legacy no es el reranking (que acá
+        no existe) sino QUÉ corpus ve el BM25: pasando `search_text` junto
+        con `vector_queries` en la misma llamada, Azure corre BM25 real sobre
+        el corpus COMPLETO del análisis y lo fusiona con el kNN vía RRF antes
+        de truncar a `top` -- en vez de `_local_bm25_score`, que sólo
+        reordena los ~30-90 candidatos que el kNN ya trajo, así que un chunk
+        con match léxico exacto (un monto, un artículo, un código) pero mal
+        rankeado por el vector nunca llega a competir. Azure no necesita un
+        `query_type` especial para esto: alcanza con mandar ambos parámetros
+        juntos.
+        """
+        from azure.search.documents.models import VectorizedQuery
+
+        # `keyword_query` (términos del glosario) es más discriminante que la
+        # query semántica larga para el BM25 nativo (montos, artículos,
+        # códigos puntuales). Si la categoría no tiene términos de glosario
+        # configurados, se cae a la query semántica original -- sigue siendo
+        # mejor que search_text="" (el path legacy), porque agrega la mitad
+        # léxica real a la fusión en vez de prescindir de ella.
+        search_text = keyword_query or query
+        search_kwargs: dict = {
+            "search_text": search_text,
+            "top": top,
+            "filter": " and ".join(filters),
+        }
+        select_fields = _search_chunk_select_fields()
+        if select_fields:
+            search_kwargs["select"] = select_fields
+
+        if query_vector is not None:
+            vector_query_obj = VectorizedQuery(
+                vector=query_vector, k_nearest_neighbors=k_for_vector, fields="embedding"
+            )
+            search_kwargs["vector_queries"] = [vector_query_obj]
+
+        logger.info(
+            "native_hybrid_search",
+            search_text=search_text[:80],
+            has_vector=query_vector is not None,
+        )
 
         return list(client.search(**search_kwargs))
 
@@ -505,9 +572,17 @@ def _search_azure(
         vector_preview=query_vector[:3] if query_vector else None,
     )
 
-    # STORY 12.2: Ejecutar búsqueda vectorial pura (sin BM25)
-    # BM25 se aplicará como reranking local después si keyword_query existe
-    raw_results = _run_vector_only_query(analysis_filter, top=fetch_top)
+    # FASE 1 (plan RAG v2, 2026-08-24): con el flag activo, Azure hace la
+    # fusión BM25 real + vector (RRF) en una sola llamada nativa. Sin el
+    # flag, se mantiene el pipeline de 2 etapas de Story 12.2 (vector puro +
+    # BM25 local aproximado sobre el pool ya recuperado), por retrocompatibilidad
+    # mientras se valida el path nuevo con el dataset de evaluación.
+    use_native_hybrid = settings.azure_search_use_native_hybrid
+    raw_results = (
+        _run_native_hybrid_query(analysis_filter, top=fetch_top)
+        if use_native_hybrid
+        else _run_vector_only_query(analysis_filter, top=fetch_top)
+    )
 
     # INVESTIGACIÓN 10.4: loguear primeros resultados para diagnosticar
     if raw_results:
@@ -562,23 +637,38 @@ def _search_azure(
                 f"búsqueda híbrida devolvió 0 resultados para query '{query[:60]}...'"
             )
 
-    # STORY 12.2: Aplicar BM25 reranking opcional sobre chunks recuperados por vector
-    # Si keyword_query existe, mejoramos el ranking con BM25 local
-    # Si no existe, usamos solo vector scores (retrieval sigue funcionando)
+    # STORY 12.2 / FASE 1: cómo se computa `combined_score` depende del path.
+    #
+    # - Nativo (use_native_hybrid=true): Azure ya fusionó BM25 real + vector
+    #   (RRF) antes de devolver los resultados -- sin reranking semántico
+    #   (add-on no disponible en este proyecto). El score ya viene combinado
+    #   en `chunk["search_score"]` (`@search.score`, ver `_document_to_chunk`).
+    #   No hay nada más que combinar acá.
+    # - Legacy (use_native_hybrid=false): sin BM25 real disponible sobre el
+    #   pool ya recortado por kNN, se aproxima con `_local_bm25_score` y se
+    #   combina manualmente con el score vectorial (comportamiento sin cambios
+    #   respecto de antes de la Fase 1).
     scored: list[tuple[float, float, dict]] = []
     for item in raw_results:
         chunk = _document_to_chunk(item)
         base_score = chunk["search_score"]
-        
-        # ETAPA 2: BM25 reranking local (solo si hay keywords del glosario)
-        if keyword_query:
+
+        if use_native_hybrid:
+            combined_score = base_score
+            logger.debug(
+                "native_hybrid_ranking",
+                chunk_id=chunk["id"][:40],
+                score=round(base_score, 4),
+            )
+        elif keyword_query:
+            # ETAPA 2 (legacy): BM25 reranking local aproximado
             bm25_score = _local_bm25_score(chunk["content"], keyword_query)
             # Normalizar BM25 score a escala similar a vector (típicamente 0-1)
             # BM25 puede dar scores ~5-10 para buenos matches
             bm25_normalized = min(bm25_score / 10.0, 1.0)
             # Combinar: 60% vector + 40% BM25 (similar a RRF de Azure)
             combined_score = 0.6 * base_score + 0.4 * bm25_normalized
-            
+
             if bm25_score > 0:  # Solo loguear si BM25 aportó algo
                 logger.debug(
                     "bm25_reranking_applied",
@@ -595,7 +685,7 @@ def _search_azure(
                 vector_score=round(base_score, 4),
                 reason="no_keyword_query",
             )
-        
+
         scored.append((combined_score, _token_overlap_score(query, chunk["content"]), chunk))
 
     scored.sort(key=lambda triple: (triple[0], triple[1]), reverse=True)
@@ -605,8 +695,16 @@ def _search_azure(
     # retorna TODOS los chunks sin filtrado vectorial efectivo. Los scores quedan
     # muy bajos (~0.031-0.033) porque la búsqueda híbrida no rankea bien con tan
     # pocos vectores. Filtramos chunks de score muy bajo para mejorar precisión.
+    #
+    # FASE 1 (2026-08-24): este threshold se calibró para el score vectorial
+    # coseno (escala 0-1) del path legacy. El `@search.score` del Hybrid
+    # Search nativo es un score de fusión RRF, en otra escala -- aplicar el
+    # mismo threshold ahí no filtraría nada (falso negativo) o filtraría de
+    # más si algún día se combina distinto -- se salta este filtro bajo
+    # `use_native_hybrid` hasta calibrar un threshold propio con
+    # el dataset de evaluación (sección 6 del plan RAG v2).
     total_chunks_available = len(ranked_chunks)
-    if total_chunks_available < 50:
+    if total_chunks_available < 50 and not use_native_hybrid:
         logger.warning(
             "retrieval_small_analysis_detected",
             analysis_id=analysis_id,

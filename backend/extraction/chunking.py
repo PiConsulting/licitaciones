@@ -59,6 +59,16 @@ _DENSITY_SATURATION_PER_100_WORDS = 1.0
 _DEFAULT_PRIMARY_THRESHOLD = 0.25
 _DEFAULT_SECONDARY_THRESHOLD = 0.12
 
+# FASE 2 (plan RAG v2, 2026-08-24): thresholds de clasificación semántica por
+# similitud coseno (ver `_classify_by_semantic_similarity` más abajo). Están
+# en otra escala que los de arriba (densidad de keywords, 0-1 saturado) --
+# similitud coseno entre embeddings de texto real suele vivir en un rango más
+# angosto y alto. Son un punto de partida razonable, NO calibrados contra
+# datos reales todavía -- calibrar con el dataset de evaluación (plan,
+# sección 6) antes de confiar en ellos para decisiones de producción.
+_DEFAULT_SEMANTIC_PRIMARY_THRESHOLD = 0.60
+_DEFAULT_SEMANTIC_SECONDARY_THRESHOLD = 0.48
+
 CATEGORY_HEADING_PATTERNS = {
     "objeto_alcance": [
         "objeto",
@@ -120,6 +130,20 @@ CATEGORY_HEADING_PATTERNS = {
         "organismo",
         "procedimiento",
         "licitacion",
+    ],
+    # FASE 2 (plan RAG v2, 2026-08-24): faltaba por completo -- "riesgos" es
+    # una categoría de extracción real (ver analysis/extraction/prompts/
+    # riesgos.txt) pero nunca podía ganar por heading match, porque no había
+    # ninguna entrada acá. Un chunk bajo un encabezado literal "Riesgos" caía
+    # directo a clasificación por keywords (más débil) o quedaba sin
+    # categoría. Términos genéricos de encabezado, no vocabulario de un
+    # pliego puntual -- mismo criterio que las demás categorías de esta
+    # tabla.
+    "riesgos": [
+        "riesgo",
+        "riesgos para el oferente",
+        "consideraciones comerciales",
+        "aspectos a considerar",
     ],
 }
 
@@ -1376,6 +1400,125 @@ def _load_glossary() -> dict[str, dict]:
     return data if isinstance(data, dict) else {}
 
 
+def _semantic_classification_enabled() -> bool:
+    """Flag de activación de la Fase 2 (plan RAG v2, 4.3). Default False --
+    sin esto activado, `classify_chunk_categories` se comporta exactamente
+    igual que antes de esta fase. Import perezoso para no acoplar
+    `chunking.py` (hoy sin dependencias externas) a `shared.config` salvo
+    cuando efectivamente hace falta consultarlo."""
+    try:
+        from shared.config import get_settings
+
+        return bool(get_settings().chunking_use_semantic_classification)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("semantic_classification_flag_unavailable", error=str(exc)[:200])
+        return False
+
+
+@lru_cache(maxsize=1)
+def _load_category_definitions() -> dict[str, dict]:
+    """Carga category_definitions.json para clasificación semántica (Fase 2,
+    4.3). Config versionada, no en código -- ver el archivo para el
+    razonamiento completo."""
+    from pathlib import Path
+    import json
+
+    definitions_path = (
+        Path(__file__).resolve().parents[1]
+        / "analysis"
+        / "extraction"
+        / "category_definitions.json"
+    )
+    if not definitions_path.exists():
+        return {}
+
+    with definitions_path.open("r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    return data if isinstance(data, dict) else {}
+
+
+@lru_cache(maxsize=1)
+def _category_definition_embeddings() -> dict[str, tuple[float, ...]]:
+    """Embeddings de la definición semántica de cada categoría, cacheados una
+    sola vez por proceso -- son ~9 textos cortos que no cambian salvo que se
+    edite `category_definitions.json` (y el proceso se reinicia si eso pasa,
+    como con cualquier `lru_cache` a nivel módulo).
+
+    Si el servicio de embeddings no está disponible (sin credenciales, red
+    caída, etc.) se degrada a `{}` en vez de propagar la excepción -- la
+    clasificación semántica es un fallback opcional sobre heading+keywords,
+    nunca debe tumbar el chunking completo de un análisis.
+    """
+    definitions = _load_category_definitions()
+    if not definitions:
+        return {}
+    try:
+        from extraction.embeddings import embed_query
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("category_definitions_embedding_unavailable", error=str(exc)[:200])
+        return {}
+
+    embeddings: dict[str, tuple[float, ...]] = {}
+    for category, entry in definitions.items():
+        if not isinstance(entry, dict):
+            continue
+        definition_text = entry.get("definition")
+        if not definition_text:
+            continue
+        try:
+            embeddings[category] = tuple(embed_query(definition_text))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "category_definition_embedding_failed",
+                category=category,
+                error=str(exc)[:200],
+            )
+    return embeddings
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = sum(x * x for x in a) ** 0.5
+    norm_b = sum(x * x for x in b) ** 0.5
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def _classify_by_semantic_similarity(content: str) -> dict[str, float]:
+    """Fase 2 (plan RAG v2, 4.3): similitud coseno entre un embedding del
+    contenido del chunk y el embedding de la definición semántica de cada
+    categoría.
+
+    Se usa SOLO como fallback -- ver el llamador en `classify_chunk_
+    categories` -- cuando ni el heading ni las keywords del glosario
+    encontraron una categoría primaria con confianza suficiente. Es la señal
+    más cara de las tres (una llamada real a Azure OpenAI Embeddings, aunque
+    cacheada por texto normalizado vía `embed_query`), así que se reserva
+    para el caso que realmente la necesita: contenido con vocabulario que el
+    glosario no contempla, que es exactamente el problema que esta fase
+    ataca (ver plan, sección 4.3).
+    """
+    category_embeddings = _category_definition_embeddings()
+    if not category_embeddings or not content.strip():
+        return {}
+
+    try:
+        from extraction.embeddings import embed_query
+
+        content_embedding = embed_query(content)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("chunk_semantic_classification_failed", error=str(exc)[:200])
+        return {}
+
+    return {
+        category: _cosine_similarity(content_embedding, list(definition_embedding))
+        for category, definition_embedding in category_embeddings.items()
+    }
+
+
 def _term_appears_in(normalized_term: str, content_tokens: set[str], padded_content: str) -> bool:
     """¿El término del glosario aparece en el chunk?"""
     if not normalized_term:
@@ -1493,6 +1636,41 @@ def classify_chunk_categories(chunk: dict) -> dict:
                         heading_path=" > ".join(heading_path) if heading_path else None,
                     )
 
+    # FASE 2 (plan RAG v2, 2026-08-24, sección 4.3): si ni el heading ni las
+    # keywords del glosario encontraron una categoría primaria, el chunk
+    # probablemente usa vocabulario que el glosario no contempla -- que es
+    # justo la debilidad que motivó esta fase. Se intenta un fallback
+    # semántico (similitud coseno contra la definición de cada categoría)
+    # ANTES de resolver secondary_categories, para que el resultado semántico
+    # también pueda participar como primary. Detrás de un flag (default
+    # False): sin activarlo, este bloque nunca corre y el comportamiento es
+    # idéntico al de antes de esta fase.
+    semantic_scores: dict[str, float] = {}
+    if not primary_category and _semantic_classification_enabled():
+        semantic_scores = _classify_by_semantic_similarity(content)
+        if semantic_scores:
+            definitions = _load_category_definitions()
+            semantic_candidates = []
+            for cat, score in semantic_scores.items():
+                entry = definitions.get(cat, {})
+                thresholds = entry.get("thresholds", {}) if isinstance(entry, dict) else {}
+                primary_threshold = thresholds.get(
+                    "primary", _DEFAULT_SEMANTIC_PRIMARY_THRESHOLD
+                )
+                if score >= primary_threshold:
+                    semantic_candidates.append((cat, score))
+
+            if semantic_candidates:
+                primary_category = max(semantic_candidates, key=lambda x: x[1])[0]
+                logger.info(
+                    "chunk_classification_semantic_fallback_used",
+                    chunk_id=chunk_id,
+                    primary_chosen=primary_category,
+                    score=round(max(score for _cat, score in semantic_candidates), 3),
+                    heading_path=" > ".join(heading_path) if heading_path else None,
+                    reason="sin match de heading ni de keywords del glosario",
+                )
+
     secondary_categories = []
     for cat, score in keyword_scores.items():
         if cat == primary_category:
@@ -1505,10 +1683,25 @@ def classify_chunk_categories(chunk: dict) -> dict:
         if score >= secondary_threshold:
             secondary_categories.append(cat)
 
+    if semantic_scores:
+        definitions = _load_category_definitions()
+        for cat, score in semantic_scores.items():
+            if cat == primary_category or cat in secondary_categories:
+                continue  # No duplicar la primary ni lo que keywords ya agregó
+
+            entry = definitions.get(cat, {})
+            thresholds = entry.get("thresholds", {}) if isinstance(entry, dict) else {}
+            secondary_threshold = thresholds.get(
+                "secondary", _DEFAULT_SEMANTIC_SECONDARY_THRESHOLD
+            )
+            if score >= secondary_threshold:
+                secondary_categories.append(cat)
+
     return {
         "primary_category": primary_category,
         "secondary_categories": secondary_categories,
         "category_scores": keyword_scores,
+        "semantic_scores": semantic_scores or None,
     }
 
 

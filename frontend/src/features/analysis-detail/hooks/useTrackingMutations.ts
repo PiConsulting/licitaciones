@@ -85,9 +85,77 @@ export function useUpdateTrackingItemStatus() {
       trackingItemId: string;
       status: TrackingItemStatus;
     }) => updateTrackingItemStatus(analysisId, categoryKey, trackingItemId, status),
+
+    // OPTIMISTIC UPDATE: actualizar cache inmediatamente
+    onMutate: async (variables) => {
+      // Cancelar queries en vuelo para evitar race conditions
+      await queryClient.cancelQueries({ 
+        queryKey: ["analysis", variables.analysisId, "detail"] 
+      });
+
+      // Guardar snapshot del estado anterior para rollback
+      const previousData = queryClient.getQueryData<AnalysisDetail>([
+        "analysis",
+        variables.analysisId,
+        "detail",
+      ]);
+
+      // Actualizar cache optimistically
+      queryClient.setQueryData<AnalysisDetail>(
+        ["analysis", variables.analysisId, "detail"],
+        (current) => {
+          if (!current?.tracking) return current;
+
+          return {
+            ...current,
+            tracking: {
+              ...current.tracking,
+              categories: current.tracking.categories.map((cat) => {
+                if (cat.category_key !== variables.categoryKey) return cat;
+
+                return {
+                  ...cat,
+                  items: cat.items.map((item) => {
+                    if (item.tracking_item_id !== variables.trackingItemId) return item;
+
+                    // ACTUALIZAR el estado del item optimistically
+                    return {
+                      ...item,
+                      status: variables.status,
+                      updated_at: new Date().toISOString(),
+                    };
+                  }),
+                };
+              }),
+            },
+          };
+        },
+      );
+
+      // Retornar contexto para rollback
+      return { previousData };
+    },
+
+    // ROLLBACK en caso de error
+    onError: (error, variables, context) => {
+      // Restaurar estado anterior
+      if (context?.previousData) {
+        queryClient.setQueryData(
+          ["analysis", variables.analysisId, "detail"],
+          context.previousData,
+        );
+      }
+    },
+
+    // SUCCESS: invalidar después de un delay para permitir que múltiples mutations completen
+    // sin pisarse entre sí. React Query hará batch de las invalidaciones.
     onSuccess: (tracking, variables) => {
-      updateAnalysisTrackingCache(queryClient, variables.analysisId, tracking);
-      void queryClient.invalidateQueries({ queryKey: ["analysis", variables.analysisId, "detail"] });
+      // Usar setTimeout para diferir la invalidación y permitir batching
+      setTimeout(() => {
+        void queryClient.invalidateQueries({ 
+          queryKey: ["analysis", variables.analysisId, "detail"] 
+        });
+      }, 100); // 100ms delay permite que mutations rápidas se agrupen
     },
   });
 }

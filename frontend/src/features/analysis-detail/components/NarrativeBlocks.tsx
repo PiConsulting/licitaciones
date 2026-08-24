@@ -9,7 +9,6 @@ interface NarrativeBlocksProps {
   onViewSource?: (payload: { citation: Citation; citations: Citation[]; sources: NarrativeSource[] }) => void;
   trackingItems?: TrackingItem[];
   isTrackingClosed?: boolean;
-  loadingTrackingItemId?: string | null;
   onChangeTrackingItemStatus?: (trackingItemId: string, status: TrackingItemStatus) => void;
 }
 
@@ -104,11 +103,10 @@ function collectReferencedSourceIds(blocks: NarrativeBlockData[]): Set<number> {
 interface TrackingItemControlsProps {
   item: TrackingItem;
   isClosed: boolean;
-  isLoading: boolean;
   onChangeStatus?: (trackingItemId: string, status: TrackingItemStatus) => void;
 }
 
-function TrackingItemControls({ item, isClosed, isLoading, onChangeStatus }: TrackingItemControlsProps) {
+function TrackingItemControls({ item, isClosed, onChangeStatus }: TrackingItemControlsProps) {
   if (isClosed) {
     const selected = TRACKING_ITEM_STATUS_OPTIONS.find((option) => option.value === item.status);
     if (!selected) {
@@ -140,7 +138,7 @@ function TrackingItemControls({ item, isClosed, isLoading, onChangeStatus }: Tra
             className={`inline-flex h-7 w-7 items-center justify-center rounded border text-xs transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ${
               isSelected ? option.selectedClassName : option.idleClassName
             }`}
-            disabled={isClosed || isLoading || !onChangeStatus}
+            disabled={isClosed || !onChangeStatus}
             onClick={() => onChangeStatus?.(item.tracking_item_id, option.value)}
             aria-label={`${option.label}: ${item.source_item_ref.field_name}`}
             title={option.label}
@@ -176,7 +174,6 @@ export function NarrativeBlocks({
   onViewSource,
   trackingItems = [],
   isTrackingClosed = false,
-  loadingTrackingItemId = null,
   onChangeTrackingItemStatus,
 }: NarrativeBlocksProps) {
   const referencedSourceIds = collectReferencedSourceIds(narrative.blocks);
@@ -246,7 +243,6 @@ export function NarrativeBlocks({
       <TrackingItemControls
         item={item}
         isClosed={isTrackingClosed}
-        isLoading={loadingTrackingItemId === item.tracking_item_id}
         onChangeStatus={onChangeTrackingItemStatus}
       />
     );

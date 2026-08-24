@@ -1,0 +1,39 @@
+{
+  "_comment": "Fase 2 del plan RAG v2 (2026-08-24, ver docs/docu/PLAN-RAG-v2-hybrid-search.md, seccion 4.3). Definicion semantica de cada categoria, usada SOLO como fallback de clasificacion cuando un chunk no matchea por heading ni por keywords del glosario (extraction/chunking.py::_classify_by_semantic_similarity). Cada 'definition' se embebe una vez por proceso y se compara por similitud coseno contra el embedding del contenido del chunk. No son frases a buscar literalmente -- son la definicion conceptual de la categoria, la misma idea que abre cada prompt de extraccion en analysis/extraction/prompts/. Los thresholds son un punto de partida razonable, NO estan calibrados contra datos reales todavia -- calibrarlos con el dataset de evaluacion (plan, seccion 6) antes de confiar en ellos para producción.",
+  "objeto_alcance": {
+    "definition": "Que se licita exactamente: el objeto y alcance de la contratacion. Que bienes, servicios u obras se contratan, en que cantidad, para que organismo o area, y bajo que modalidad de adjudicacion (por item, por lote, global).",
+    "thresholds": { "primary": 0.60, "secondary": 0.48 }
+  },
+  "requisitos_admisibilidad": {
+    "definition": "Que documentos, certificaciones, habilitaciones o condiciones tiene que presentar o acreditar el oferente para que su oferta sea considerada valida y admitida a evaluacion. Documentacion habilitante, no consecuencias de no presentarla.",
+    "thresholds": { "primary": 0.60, "secondary": 0.48 }
+  },
+  "plazos_clave": {
+    "definition": "Fechas y plazos criticos que un oferente debe tener en su calendario: presentacion de ofertas, apertura, mantenimiento de oferta, plazos de consulta o impugnacion, plazos de ejecucion o entrega, y cualquier otro vencimiento que lo afecte.",
+    "thresholds": { "primary": 0.60, "secondary": 0.48 }
+  },
+  "garantias": {
+    "definition": "Garantias financieras que el oferente debe constituir: dinero, poliza de seguro de caucion o aval bancario, para respaldar el mantenimiento de la oferta o el cumplimiento del contrato. No son garantias tecnicas de productos ni requisitos documentales.",
+    "thresholds": { "primary": 0.60, "secondary": 0.48 }
+  },
+  "causales_rechazo": {
+    "definition": "Motivos formales, tecnicos, economicos, legales o eticos por los cuales una oferta se descalifica sin llegar a evaluarse, incluso si es la mas conveniente en precio o tecnica. La consecuencia de un incumplimiento, no el requisito en si.",
+    "thresholds": { "primary": 0.60, "secondary": 0.48 }
+  },
+  "anexos_obligatorios": {
+    "definition": "Anexos, formularios y planillas que el pliego exige presentar como parte de la documentacion de la oferta, junto con el formato o contenido esperado de cada uno.",
+    "thresholds": { "primary": 0.60, "secondary": 0.48 }
+  },
+  "criterios_evaluacion": {
+    "definition": "Como se pondera precio versus calidad tecnica para adjudicar: el metodo de adjudicacion (menor precio, puntaje ponderado, mejor relacion precio-calidad), los factores evaluados y su ponderacion o puntaje, y el puntaje tecnico minimo si existe.",
+    "thresholds": { "primary": 0.60, "secondary": 0.48 }
+  },
+  "identificacion_procedimiento": {
+    "definition": "Los datos administrativos que identifican univocamente el llamado: organismo convocante, numero de expediente, numero de procedimiento, tipo de procedimiento, jurisdiccion y presupuesto oficial.",
+    "thresholds": { "primary": 0.60, "secondary": 0.48 }
+  },
+  "riesgos": {
+    "definition": "Riesgos comerciales y estrategicos que un oferente deberia considerar antes de decidir participar y al preparar su oferta: condiciones de pago, riesgo cambiario, plazos de entrega exigentes, competencia esperada, direccionamiento hacia un proveedor, mantenimiento de oferta, apertura, capacidades tecnicas exigidas. No son requisitos a presentar ni causales de rechazo formal.",
+    "thresholds": { "primary": 0.60, "secondary": 0.48 }
+  }
+}

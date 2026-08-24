@@ -804,6 +804,69 @@ def _drop_items_without_sources(
     return filtered, normalized_status
 
 
+def _build_shared_candidate_pool(analysis_id: str, correlation_id: str) -> list[dict]:
+    """Fase 3 del plan RAG v2 (2026-08-24, sección 4.2): UNA query de alto
+    recall, sin boost de categoría, para poblar `state["global_candidates"]`.
+    Cada rama de extracción (`_retrieve_with_category_priority` en
+    `extractors/base.py`) la reusa antes de decidir si hace falta su propia
+    query específica -- ver esa función para el resto del mecanismo.
+
+    La query es deliberadamente genérica (los conceptos de las 9 categorías,
+    no vocabulario de un pliego puntual) porque el objetivo acá no es
+    precisión para una categoría, es cobertura amplia del análisis completo.
+    Si la query falla (embeddings caídos, análisis no indexado, etc.) se
+    degrada a `[]` -- cada rama, al recibir un pool vacío, hace exactamente
+    su query específica de siempre, así que una falla acá nunca bloquea la
+    extracción.
+    """
+    from shared.config import get_settings
+
+    settings = get_settings()
+    if not settings.use_shared_candidate_pool:
+        return []
+
+    try:
+        from shared.ports.azure_search import search_hybrid
+
+        candidates = search_hybrid(
+            query=_GLOBAL_CANDIDATE_POOL_QUERY,
+            analysis_id=analysis_id,
+            top_k=settings.shared_candidate_pool_top_k,
+            keyword_query=None,
+            category=None,
+        )
+        logger.info(
+            "shared_candidate_pool_built",
+            correlation_id=correlation_id,
+            analysis_id=analysis_id,
+            pool_size=len(candidates),
+            requested_top_k=settings.shared_candidate_pool_top_k,
+        )
+        return candidates
+    except Exception as exc:  # noqa: BLE001
+        # No debe tumbar setup_node -- el pool compartido es una optimización,
+        # no un requisito. Cada rama hace su query específica igual si esto
+        # queda vacío.
+        logger.warning(
+            "shared_candidate_pool_build_failed",
+            correlation_id=correlation_id,
+            analysis_id=analysis_id,
+            error=str(exc)[:300],
+        )
+        return []
+
+
+# Genérica a propósito -- ver docstring de `_build_shared_candidate_pool`.
+_GLOBAL_CANDIDATE_POOL_QUERY = (
+    "Información relevante de un pliego de licitación pública: objeto y "
+    "alcance de la contratación, requisitos de admisibilidad, plazos y "
+    "fechas clave, garantías financieras, causales de rechazo de la oferta, "
+    "anexos y formularios obligatorios, criterios de evaluación y "
+    "adjudicación, identificación del procedimiento y del organismo "
+    "convocante, y riesgos comerciales para el oferente."
+)
+
+
 def setup_node(state: GraphState) -> GraphState:
     logger.info(
         "setup_node_started",
@@ -812,6 +875,7 @@ def setup_node(state: GraphState) -> GraphState:
     )
     document_mapping = _build_document_mapping(state["analysis_id"], state.get("db_session"))
     document_labels = _build_document_labels(state["analysis_id"], state.get("db_session"))
+    global_candidates = _build_shared_candidate_pool(state["analysis_id"], state["correlation_id"])
 
     state.update(
         {
@@ -834,6 +898,7 @@ def setup_node(state: GraphState) -> GraphState:
             "conflicts": [],
             "document_id_to_blob_path": document_mapping,
             "document_labels": document_labels,
+            "global_candidates": global_candidates,
         }
     )
     logger.info("setup_node_completed", correlation_id=state["correlation_id"])
