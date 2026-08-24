@@ -147,9 +147,16 @@ export function useUpdateTrackingItemStatus() {
       }
     },
 
-    // SUCCESS: no hacemos nada aquí - el optimistic update ya tiene el estado correcto
-    // Si llamáramos a updateAnalysisTrackingCache, sobrescribiríamos los updates optimistas
-    // de otras mutations que todavía están en vuelo (causando el "parpadeo")
+    // SUCCESS: invalidar después de un delay para permitir que múltiples mutations completen
+    // sin pisarse entre sí. React Query hará batch de las invalidaciones.
+    onSuccess: (tracking, variables) => {
+      // Usar setTimeout para diferir la invalidación y permitir batching
+      setTimeout(() => {
+        void queryClient.invalidateQueries({ 
+          queryKey: ["analysis", variables.analysisId, "detail"] 
+        });
+      }, 100); // 100ms delay permite que mutations rápidas se agrupen
+    },
   });
 }
 

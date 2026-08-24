@@ -97,9 +97,26 @@ export function CategorySection({
       (trackingReadOnly || trackingCategory.status === "closed"),
   );
 
+  // DIAGNÓSTICO: contar elementos renderizables vs tracking items
+  const renderableItemsCount = narrative.blocks.reduce((count, block) => {
+    if (block.type === "bullet_list") {
+      return count + block.items.length;
+    } else if (block.type === "table") {
+      return count + block.rows.length;
+    }
+    return count; // paragraphs no tienen tracking items individuales
+  }, 0);
+
   const complianceStats = trackingCategory
     ? trackingCategory.items.reduce(
-        (acc, item) => {
+        (acc, item, index) => {
+          // SOLO CONTAR items que tienen representación visual
+          if (index >= renderableItemsCount) {
+            // Item "fantasma" del backend que no se renderiza - ignorar
+            console.warn(`[${categoryId}] Tracking item ${index} (${item.tracking_item_id}) no tiene representación visual. Total renderable: ${renderableItemsCount}, Total tracking items: ${trackingCategory.items.length}`);
+            return acc;
+          }
+
           if (item.status === "compliant") {
             acc.compliant += 1;
           } else if (item.status === "non_compliant") {
