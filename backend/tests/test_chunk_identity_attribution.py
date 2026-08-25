@@ -56,7 +56,14 @@ def test_la_referencia_verificada_registra_el_chunk_que_la_respalda() -> None:
     assert ref["chunk_id"] == "an-1--doc-1--7"
 
 
-def test_la_referencia_verificada_arrastra_metadata_de_documento() -> None:
+def test_la_referencia_verificada_arrastra_el_chunk_id() -> None:
+    """`_verify_citation_grounding`/`_attach_chunk_identity` sólo anotan de qué
+    chunk salió la evidencia (`chunk_id`/`block_id`). `filename`/`is_primary`
+    NO se agregan acá -- eso lo hace `_stampar_nombre_de_documento` en
+    `synthesize_node` (graph.py), a partir de metadata de documento de la
+    base de datos, no del `chunk["source"]` local. Mezclar ambas capas en
+    este test hacía parecer un bug lo que en realidad es una etapa distinta
+    del pipeline."""
     citation = "La garantía de mantenimiento de oferta será del 1% del presupuesto"
     chunk = _chunk("an-1--doc-1--7", f"Artículo 12. {citation}.")
     chunk["source"] = {
@@ -71,8 +78,9 @@ def test_la_referencia_verificada_arrastra_metadata_de_documento() -> None:
     _verify_citation_grounding(items, [chunk], category="garantias", correlation_id="atr01")
 
     ref = items[0]["source_references"][0]
-    assert ref["filename"] == "pliego.pdf"
-    assert ref["is_primary"] is True
+    assert ref["chunk_id"] == "an-1--doc-1--7"
+    assert "filename" not in ref
+    assert "is_primary" not in ref
 
 
 def test_elige_el_chunk_correcto_cuando_la_frase_se_repite_en_la_pagina() -> None:

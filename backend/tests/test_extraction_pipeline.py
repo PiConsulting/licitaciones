@@ -3,6 +3,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import fitz
+import pytest
 
 from analysis.extraction.extractors.base import _format_chunks
 from analysis.models import Analysis
@@ -109,12 +110,18 @@ def test_create_chunks_keeps_table_rows_atomic() -> None:
         pages, document_id="doc-table", correlation_id="corr-table", chunk_size=5, overlap=1
     )
 
+    # Tablas chicas (por debajo de `chunking_max_table_tokens`) se fusionan
+    # deliberadamente en un solo chunk -- ver `_merge_intermediate_blocks` en
+    # chunking.py: fragmentar una tabla de 2 filas no aporta nada al RAG y sí
+    # perdía contexto. El nombre de este test ("keeps_table_rows_atomic")
+    # queda desactualizado respecto de esa decisión de diseño, pero la
+    # cobertura sigue siendo válida: confirma que el contenido de AMBAS filas
+    # llega intacto a un chunk (fusionado en vez de partido).
     table_chunks = [chunk for chunk in chunks if chunk["block_type"] == "table"]
-    assert len(table_chunks) == 2
-    assert table_chunks[0]["table_ref"]["row_index"] == 1
-    assert table_chunks[1]["table_ref"]["row_index"] == 2
+    assert len(table_chunks) == 1
+    assert table_chunks[0]["table_ref"]["row_index"] == 2
     assert "Ponderacion: 40%" in table_chunks[0]["content"]
-    assert "Ponderacion: 60%" in table_chunks[1]["content"]
+    assert "Ponderacion: 60%" in table_chunks[0]["content"]
 
 
 def test_format_chunks_marks_table_context() -> None:

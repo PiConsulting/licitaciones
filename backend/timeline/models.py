@@ -181,6 +181,8 @@ class Deadline(BaseModel):
         - Si deadline_date es None, calculation_status debe ser 'pending' o 'error'
         - Si calculation_status es 'calculated', debe existir deadline_date
         - Si calculation_status es 'error', debe existir calculation_error
+        - Si calculation_status NO es 'error', calculation_error debe ser None
+        - partition_key debe ser igual a analysis_id
         """
         if self.deadline_date is None and self.calculation_status == "calculated":
             raise ValueError("No puede estar 'calculated' sin deadline_date")
@@ -192,6 +194,14 @@ class Deadline(BaseModel):
 
         if self.calculation_status == "error" and not self.calculation_error:
             raise ValueError("calculation_status='error' requiere calculation_error")
+        
+        if self.calculation_status != "error" and self.calculation_error:
+            raise ValueError(
+                "calculation_error solo puede tener valor si calculation_status='error'"
+            )
+        
+        if self.partition_key != self.analysis_id:
+            raise ValueError("partition_key debe ser igual a analysis_id")
 
         return self
 

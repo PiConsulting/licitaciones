@@ -173,10 +173,14 @@ def test_search_index_contract_validator_detects_invalid_dimensions(
             *,
             filterable: bool = False,
             vector_search_dimensions: int | None = None,
+            searchable: bool = True,
+            analyzer_name: str = "es.microsoft",
         ) -> None:
             self.name = name
             self.filterable = filterable
             self.vector_search_dimensions = vector_search_dimensions
+            self.searchable = searchable
+            self.analyzer_name = analyzer_name
 
     class _Index:
         def __init__(self) -> None:
@@ -189,6 +193,9 @@ def test_search_index_contract_validator_detects_invalid_dimensions(
                 _Field("chunk_index"),
                 _Field("primary_category"),
                 _Field("secondary_categories"),
+                _Field("chunk_type"),
+                _Field("parent_chunk_id"),
+                _Field("child_chunk_ids"),
                 _Field("embedding", vector_search_dimensions=1536),
             ]
 

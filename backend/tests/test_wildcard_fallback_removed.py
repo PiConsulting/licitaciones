@@ -10,7 +10,7 @@ class TestWildcardFallbackRemoved:
     """Story 10.3: Wildcard fallback debe elevar RuntimeError, no degradarse."""
 
     @patch("shared.ports.azure_search._embed_query_or_none")
-    @patch("shared.ports.azure_search.SearchClient")
+    @patch("azure.search.documents.SearchClient")
     def test_embedding_failure_raises_runtime_error(self, mock_search_client, mock_embed):
         """
         Given: _embed_query_or_none devuelve None (embedding falló)
@@ -38,7 +38,7 @@ class TestWildcardFallbackRemoved:
         assert "retrieval no funcional" in str(exc_info.value)
 
     @patch("shared.ports.azure_search._embed_query_or_none")
-    @patch("shared.ports.azure_search.SearchClient")
+    @patch("azure.search.documents.SearchClient")
     def test_no_chunks_indexed_raises_runtime_error(self, mock_search_client, mock_embed):
         """
         Given: embedding funciona pero búsqueda híbrida devuelve vacío
@@ -66,7 +66,7 @@ class TestWildcardFallbackRemoved:
         assert "búsqueda híbrida devolvió 0 resultados" in str(exc_info.value)
 
     @patch("shared.ports.azure_search._embed_query_or_none")
-    @patch("shared.ports.azure_search.SearchClient")
+    @patch("azure.search.documents.SearchClient")
     def test_no_wildcard_fallback_executed(self, mock_search_client, mock_embed):
         """
         Given: embedding falla (None)

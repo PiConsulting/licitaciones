@@ -154,6 +154,7 @@ class TestEmbeddingGeneration:
         mock_settings.return_value.azure_search_embedding_dimensions = 3072
         mock_settings.return_value.is_development = False
 
+        mock_adapter_instance = Mock()
         mock_adapter.return_value = mock_adapter_instance
         mock_adapter_instance.generate_embeddings.return_value = [[0.1] * 3072]
 

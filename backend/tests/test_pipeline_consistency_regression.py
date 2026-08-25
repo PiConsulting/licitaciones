@@ -786,9 +786,13 @@ def test_la_categoria_prioriza_pero_no_recorta_el_presupuesto(monkeypatch) -> No
     La categoría prioriza (boost sobre el score de Azure) y después se completa
     el MISMO presupuesto top_k con el resto de los candidatos.
 
-    Este test también fija el contrato de RET-02: `_retrieve_with_category_priority`
-    NO le pasa ningún argumento de categoría a `search_hybrid`. Si alguien
-    reintroduce un filtro duro, `fake_search` revienta con TypeError.
+    Este test también fija el contrato de RET-02: la categoría no filtra
+    duro en Azure (no hay pasada filtrada + backfill, una sola búsqueda
+    trae todos los candidatos y el boost se aplica en memoria). ÉPICA 11
+    reintrodujo `category` como argumento de `search_hybrid`, pero solo para
+    key de caché determinista de embeddings -- no como filtro OData (eso se
+    verifica aparte en test_wildcard_fallback_conditions.py). Por eso acá
+    solo importa CAPTURAR qué category llega, no rechazarlo.
     """
     from analysis.extraction.extractors import base
 
@@ -808,8 +812,10 @@ def test_la_categoria_prioriza_pero_no_recorta_el_presupuesto(monkeypatch) -> No
 
     llamadas: list[dict[str, Any]] = []
 
-    def fake_search(*, query, analysis_id, top_k, keyword_query):
-        llamadas.append({"query": query, "top_k": top_k, "keyword_query": keyword_query})
+    def fake_search(*, query, analysis_id, top_k, keyword_query, category=None):
+        llamadas.append(
+            {"query": query, "top_k": top_k, "keyword_query": keyword_query, "category": category}
+        )
         return list(candidatos)
 
     monkeypatch.setattr(base, "search_hybrid", fake_search)

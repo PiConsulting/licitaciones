@@ -104,7 +104,7 @@ def test_cloud_search_uses_wildcard_fallback_when_query_returns_empty(
     # el entorno de tests no hay Azure OpenAI y `_embed_query_or_none` devolvía
     # None por excepción; se explicita la precondición para que el test siga
     # verificando lo que dice verificar aunque eso cambie.
-    monkeypatch.setattr(azure_search, "_embed_query_or_none", lambda _query: None)
+    monkeypatch.setattr(azure_search, "_embed_query_or_none", lambda *_args, **_kwargs: None)
 
     import azure.search.documents as search_documents
 
@@ -681,7 +681,7 @@ def _patch_search_client(monkeypatch: pytest.MonkeyPatch, client) -> None:
             "child_chunk_ids",
         ],
     )
-    monkeypatch.setattr("shared.ports.azure_search._embed_query_or_none", lambda query: None)
+    monkeypatch.setattr("shared.ports.azure_search._embed_query_or_none", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         "azure.search.documents.SearchClient",
         lambda **kwargs: client,

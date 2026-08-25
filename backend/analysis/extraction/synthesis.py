@@ -359,7 +359,15 @@ def _count_narrative_elements(narrative: CategoryNarrative) -> int:
 def _dedupe_narrative_sources(
     sources: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], dict[int, int]]:
-    """Deduplica sources en narrative usando normalización de texto."""
+    """Deduplica sources en narrative usando normalización de texto.
+
+    Cuando la source trae `block_id` (mismo párrafo/bloque de origen), se
+    agrupan por `(document_id, page_number, block_id)`: las citations de
+    ese mismo párrafo se combinan en una sola, separadas por "[...]", en
+    vez de quedar como sources repetidas. Sin `block_id` se conserva el
+    comportamiento legacy: dedupe por texto normalizado de la citation,
+    sin combinar.
+    """
     seen: dict[tuple[str, int, str], int] = {}
     deduped: list[dict[str, Any]] = []
     id_mapping: dict[int, int] = {}
@@ -368,14 +376,31 @@ def _dedupe_narrative_sources(
         doc_id = str(source.get("document_id", ""))
         page = int(source.get("page_number", 0) or 0)
         citation = str(source.get("citation", ""))
-        normalized_citation = _normalize_text_for_comparison(citation)
-        key = (doc_id, page, normalized_citation)
+        block_id = str(source.get("block_id")) if source.get("block_id") else None
+
+        if block_id:
+            key = (doc_id, page, f"block::{block_id}")
+        else:
+            normalized_citation = _normalize_text_for_comparison(citation)
+            key = (doc_id, page, normalized_citation)
 
         original_id = int(source.get("id", 0))
 
         if key in seen:
             canonical_id = seen[key]
             id_mapping[original_id] = canonical_id
+
+            if block_id:
+                canonical_source = deduped[canonical_id]
+                existing_citation = canonical_source.get("citation", "")
+                if citation and citation not in existing_citation:
+                    canonical_source["citation"] = (
+                        f"{existing_citation} [...] {citation}"
+                        if existing_citation
+                        else citation
+                    )
+                if source.get("unverified"):
+                    canonical_source["unverified"] = True
         else:
             new_id = len(deduped)
             seen[key] = new_id
@@ -387,8 +412,8 @@ def _dedupe_narrative_sources(
                 "citation": citation,
             }
 
-            if source.get("block_id"):
-                deduped_source["block_id"] = str(source.get("block_id"))
+            if block_id:
+                deduped_source["block_id"] = block_id
 
             if source.get("chunk_id"):
                 deduped_source["chunk_id"] = str(source.get("chunk_id"))

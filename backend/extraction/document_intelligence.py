@@ -662,6 +662,7 @@ def _parse_markdown_blocks(
         if _MD_COMMENT_RE.match(stripped):
             continue
         if _MD_FIGURE_START_RE.match(stripped):
+            flush_paragraph()
             in_figure = True
             continue
         if _MD_FIGURE_END_RE.match(stripped):

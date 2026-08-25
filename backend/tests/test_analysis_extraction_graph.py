@@ -273,7 +273,18 @@ def test_document_mapping_fluye_de_setup_a_synthesize_para_highlights(
 
 
 def test_graph_execution_all_success(mock_state: dict, mock_search: None, mock_llm: None) -> None:
-    result = graph.invoke(mock_state)
+    # `conftest.py` fija APP_ENV=production para toda la suite, y
+    # `_fetch_analysis_documents` (graph.py) exige `db_session` en producción
+    # salvo modo cosmos -- guardrail nuevo e intencional (antes degradaba en
+    # silencio a "sin documentos" en cualquier entorno). `mock_state` no trae
+    # sesión de BD real, así que se simula una vacía: mismo comportamiento
+    # que "el análisis no tiene documentos", sin tocar el guardrail.
+    mock_db_session = Mock()
+    mock_db_session.query.return_value.filter.return_value.all.return_value = []
+    state = dict(mock_state)
+    state["db_session"] = mock_db_session
+
+    result = graph.invoke(state)
     assert "extracted_data" in result
     assert len(result["extracted_data"]["plazos"]) > 0
     assert len(result["extracted_data"]["garantias"]) > 0
@@ -327,6 +338,7 @@ def test_merge_node_detects_conflicts() -> None:
             {
                 "referencia": "Presentación de ofertas",
                 "fecha": "2024-05-15",
+                "texto_original": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
                 "source_references": [
                     {
                         "document_id": "doc-1",
@@ -340,6 +352,7 @@ def test_merge_node_detects_conflicts() -> None:
             {
                 "referencia": "Presentación de ofertas",
                 "fecha": "2024-05-20",
+                "texto_original": "Las ofertas deben presentarse hasta el 20 de mayo de 2024.",
                 "source_references": [
                     {
                         "document_id": "doc-2",
@@ -786,6 +799,7 @@ def test_extractor_usa_una_query_semantica_rica_sin_glosario(
         analysis_id: str,
         top_k: int,
         keyword_query: str | None = None,
+        category: str | None = None,
     ):
         captured_query["value"] = query
         captured_keyword["value"] = keyword_query or ""
@@ -888,6 +902,16 @@ def test_esquema_de_cada_prompt_usa_result_key_como_raiz() -> None:
 
     for category_key, prompt_file_name in CANONICAL_CATEGORY_PROMPT_MAP.items():
         contenido = (base / prompt_file_name).read_text(encoding="utf-8")
+
+        # Algunos prompts (ej. riesgos.txt) no hardcodean la clave raiz:
+        # usan el placeholder `{root_key}`, que `base.py` reemplaza en
+        # runtime por `result_key` (ver `.replace("{root_key}", root_key)`).
+        # Con ese patron la clave raiz NUNCA puede desacoplarse de
+        # `result_key` por construccion -- no hace falta (ni se puede)
+        # comparar un valor literal.
+        if re.search(r'^\s*"\{root_key\}":\s*\[', contenido, re.MULTILINE):
+            continue
+
         clave_declarada = re.search(r'^\s*"([a-z_]+)":\s*\[', contenido, re.MULTILINE)
         assert clave_declarada is not None, (
             f"{prompt_file_name} no declara una clave raiz de ESQUEMA reconocible"

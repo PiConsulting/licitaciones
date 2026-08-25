@@ -657,7 +657,7 @@ def _search_azure(
             combined_score = base_score
             logger.debug(
                 "native_hybrid_ranking",
-                chunk_id=chunk["id"][:40],
+                chunk_id=chunk.get("id", "N/A")[:40],
                 score=round(base_score, 4),
             )
         elif keyword_query:
@@ -672,7 +672,7 @@ def _search_azure(
             if bm25_score > 0:  # Solo loguear si BM25 aportó algo
                 logger.debug(
                     "bm25_reranking_applied",
-                    chunk_id=chunk["id"][:40],
+                    chunk_id=chunk.get("id", "N/A")[:40],
                     vector_score=round(base_score, 4),
                     bm25_score=round(bm25_score, 4),
                     combined_score=round(combined_score, 4),
@@ -681,7 +681,7 @@ def _search_azure(
             combined_score = base_score
             logger.debug(
                 "vector_only_ranking",
-                chunk_id=chunk["id"][:40],
+                chunk_id=chunk.get("id", "N/A")[:40],
                 vector_score=round(base_score, 4),
                 reason="no_keyword_query",
             )

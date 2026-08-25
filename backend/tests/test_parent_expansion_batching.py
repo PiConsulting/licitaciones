@@ -102,7 +102,7 @@ def entorno(monkeypatch: pytest.MonkeyPatch) -> None:
         "_search_chunk_select_fields",
         lambda: ["id", "analysis_id", "document_id", "content", "chunk_type", "parent_chunk_id"],
     )
-    monkeypatch.setattr(azure_search, "_embed_query_or_none", lambda _query: None)
+    monkeypatch.setattr(azure_search, "_embed_query_or_none", lambda *_args, **_kwargs: None)
 
 
 def _instalar(client, monkeypatch: pytest.MonkeyPatch) -> None:

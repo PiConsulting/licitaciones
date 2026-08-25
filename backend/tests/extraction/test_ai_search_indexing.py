@@ -16,21 +16,62 @@ from extraction.ai_search import (
 from extraction.errors import TransientExtractionError
 
 
+class _Field:
+    """Reemplazo liviano de un `SearchField` real de Azure. `Mock(name=...)`
+    NO funciona para esto: `name` es el parámetro reservado por `Mock` para
+    su propio repr, así que `field.name` nunca queda en el string pasado --
+    ver auditoría de bugs de tests, patrón repetido en varios archivos."""
+
+    def __init__(
+        self,
+        name: str,
+        *,
+        filterable: bool = False,
+        vector_search_dimensions: int | None = None,
+        searchable: bool = True,
+        analyzer_name: str = "es.microsoft",
+    ) -> None:
+        self.name = name
+        self.filterable = filterable
+        self.vector_search_dimensions = vector_search_dimensions
+        self.searchable = searchable
+        self.analyzer_name = analyzer_name
+
+
+def _valid_index_fields(**overrides: dict) -> list[_Field]:
+    """Todos los campos que `_assert_index_contract` requiere hoy, con
+    valores válidos por defecto. `overrides` permite romper un campo puntual
+    pasando `{"nombre_del_campo": {"kwarg": valor}}`."""
+    base = {
+        "id": {},
+        "analysis_id": {"filterable": True},
+        "content": {},
+        "title": {},
+        "section_path": {},
+        "heading_path": {},
+        "document_id": {},
+        "page_number": {},
+        "chunk_index": {},
+        "primary_category": {},
+        "secondary_categories": {},
+        "chunk_type": {},
+        "parent_chunk_id": {},
+        "child_chunk_ids": {},
+        "embedding": {"vector_search_dimensions": 3072},
+    }
+    for field_name, extra_kwargs in overrides.items():
+        base[field_name] = {**base.get(field_name, {}), **extra_kwargs}
+    return [_Field(name, **kwargs) for name, kwargs in base.items()]
+
+
 class TestIndexContractValidation:
     """Tests para validación de schema del índice."""
 
     def test_assert_index_contract_with_valid_index(self):
         """Índice válido pasa todas las validaciones."""
         mock_index = Mock()
-        mock_index.fields = [
-            Mock(name="analysis_id", filterable=True),
-            Mock(name="content"),
-            Mock(name="document_id"),
-            Mock(name="page_number"),
-            Mock(name="chunk_index"),
-            Mock(name="embedding", vector_search_dimensions=3072),
-        ]
-        
+        mock_index.fields = _valid_index_fields()
+
         # No debe elevar excepción
         _assert_index_contract(mock_index, expected_dimensions=3072)
 
@@ -38,41 +79,29 @@ class TestIndexContractValidation:
         """Falla si falta campo requerido."""
         mock_index = Mock()
         mock_index.fields = [
-            Mock(name="analysis_id", filterable=True),
-            Mock(name="content"),
-            # Falta document_id, page_number, chunk_index, embedding
+            _Field("analysis_id", filterable=True),
+            _Field("content"),
+            # Falta document_id, page_number, chunk_index, embedding, etc.
         ]
-        
+
         with pytest.raises(RuntimeError, match="Campos faltantes"):
             _assert_index_contract(mock_index, expected_dimensions=3072)
 
     def test_assert_index_contract_analysis_id_not_filterable(self):
         """Falla si analysis_id no es filterable."""
         mock_index = Mock()
-        mock_index.fields = [
-            Mock(name="analysis_id", filterable=False),  # ❌ Not filterable
-            Mock(name="content"),
-            Mock(name="document_id"),
-            Mock(name="page_number"),
-            Mock(name="chunk_index"),
-            Mock(name="embedding", vector_search_dimensions=3072),
-        ]
-        
+        mock_index.fields = _valid_index_fields(analysis_id={"filterable": False})
+
         with pytest.raises(RuntimeError, match="analysis_id debe ser filterable"):
             _assert_index_contract(mock_index, expected_dimensions=3072)
 
     def test_assert_index_contract_wrong_embedding_dimensions(self):
         """Falla si embedding tiene dimensiones incorrectas."""
         mock_index = Mock()
-        mock_index.fields = [
-            Mock(name="analysis_id", filterable=True),
-            Mock(name="content"),
-            Mock(name="document_id"),
-            Mock(name="page_number"),
-            Mock(name="chunk_index"),
-            Mock(name="embedding", vector_search_dimensions=1536),  # ❌ Wrong dims
-        ]
-        
+        mock_index.fields = _valid_index_fields(
+            embedding={"vector_search_dimensions": 1536}  # ❌ Wrong dims
+        )
+
         with pytest.raises(RuntimeError, match="embedding incompatible"):
             _assert_index_contract(mock_index, expected_dimensions=3072)
 
@@ -106,7 +135,7 @@ class TestAzureSearchAdapter:
         assert "extra_field" not in filtered
         assert "another_extra" not in filtered
 
-    @patch("extraction.ai_search.SearchClient")
+    @patch("azure.search.documents.SearchClient")
     def test_upload_chunks_sends_filtered_documents(self, mock_search_client_class):
         """upload_chunks envía solo campos permitidos por el índice."""
         adapter = AzureSearchAdapter(
@@ -134,7 +163,7 @@ class TestAzureSearchAdapter:
         assert "extra" not in sent_docs[0]
         assert "extra" not in sent_docs[1]
 
-    @patch("extraction.ai_search.SearchClient")
+    @patch("azure.search.documents.SearchClient")
     def test_upload_chunks_raises_on_failure(self, mock_search_client_class):
         """upload_chunks eleva TransientExtractionError si fallan documentos."""
         adapter = AzureSearchAdapter(
@@ -157,7 +186,7 @@ class TestAzureSearchAdapter:
         with pytest.raises(TransientExtractionError, match="Fallaron 1 documentos"):
             adapter.upload_chunks(documents)
 
-    @patch("extraction.ai_search.SearchClient")
+    @patch("azure.search.documents.SearchClient")
     @patch("extraction.ai_search.sleep")
     def test_delete_analysis_chunks_with_rate_limiting(self, mock_sleep, mock_search_client_class):
         """delete_analysis_chunks espera 100ms entre batches."""
@@ -185,7 +214,7 @@ class TestAzureSearchAdapter:
         # Verificar que se esperó 100ms después del delete
         mock_sleep.assert_called_once_with(0.1)
 
-    @patch("extraction.ai_search.SearchClient")
+    @patch("azure.search.documents.SearchClient")
     def test_delete_analysis_chunks_escapes_sql_injection(self, mock_search_client_class):
         """delete_analysis_chunks escapa comillas simples en analysis_id."""
         adapter = AzureSearchAdapter(
@@ -237,7 +266,8 @@ class TestUploadChunks:
         mock_settings.return_value.is_production = True
         mock_settings.return_value.is_development = False
         mock_settings.return_value.azure_search_upload_batch_size = 100
-        
+        mock_settings.return_value.azure_search_retry_attempts = 3
+
         mock_adapter_instance = Mock()
         mock_adapter.return_value = mock_adapter_instance
         mock_adapter_instance.upload_chunks.return_value = None
@@ -271,7 +301,8 @@ class TestUploadChunks:
         mock_settings.return_value.is_production = True
         mock_settings.return_value.is_development = False
         mock_settings.return_value.azure_search_upload_batch_size = 100
-        
+        mock_settings.return_value.azure_search_retry_attempts = 3
+
         mock_adapter_instance = Mock()
         mock_adapter.return_value = mock_adapter_instance
         mock_adapter_instance.upload_chunks.return_value = None
@@ -305,7 +336,6 @@ class TestUploadChunks:
         mock_settings.return_value.is_production = True
         mock_settings.return_value.is_development = False
         mock_settings.return_value.azure_search_retry_attempts = 3
-        mock_settings.return_value.
         mock_adapter_instance = Mock()
         mock_adapter.return_value = mock_adapter_instance
         # Primera llamada falla, segunda tiene éxito

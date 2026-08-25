@@ -93,7 +93,12 @@ def test_el_contrato_de_retorno_admite_none() -> None:
     contradecía."""
     resultado = classify_chunk_categories(_chunk("Texto neutro sin señal."))
 
-    assert set(resultado) == {"primary_category", "secondary_categories", "category_scores"}
+    assert set(resultado) == {
+        "primary_category",
+        "secondary_categories",
+        "category_scores",
+        "semantic_scores",
+    }
     assert resultado["primary_category"] is None
     assert resultado["secondary_categories"] == []
 
@@ -135,7 +140,7 @@ def test_el_ruido_sin_categoria_no_le_gana_a_la_caratula_real(
     monkeypatch.setattr(
         base,
         "search_hybrid",
-        lambda *, query, analysis_id, top_k, keyword_query: list(candidatos),
+        lambda *, query, analysis_id, top_k, keyword_query, category=None: list(candidatos),
     )
 
     resultado = base._retrieve_with_category_priority(
@@ -161,7 +166,7 @@ def test_un_chunk_sin_categoria_sigue_siendo_recuperable(monkeypatch: pytest.Mon
     monkeypatch.setattr(
         base,
         "search_hybrid",
-        lambda *, query, analysis_id, top_k, keyword_query: list(candidatos),
+        lambda *, query, analysis_id, top_k, keyword_query, category=None: list(candidatos),
     )
 
     resultado = base._retrieve_with_category_priority(
@@ -202,7 +207,7 @@ def test_la_telemetria_reporta_sin_categoria_y_no_none(monkeypatch: pytest.Monke
     monkeypatch.setattr(
         base,
         "search_hybrid",
-        lambda *, query, analysis_id, top_k, keyword_query: [_candidato(0, None, 1.0)],
+        lambda *, query, analysis_id, top_k, keyword_query, category=None: [_candidato(0, None, 1.0)],
     )
 
     base._retrieve_with_category_priority(

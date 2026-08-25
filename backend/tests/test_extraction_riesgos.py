@@ -6,8 +6,18 @@ de extracción siguiendo el mismo patrón que las categorías existentes.
 """
 
 import pytest
-from analysis.extraction.schemas import ExtractedData, RiesgoItem, TipoRiesgo
+from analysis.extraction.schemas import ExtractedData, RiesgoItem, SourceReference, TipoRiesgo
 from analysis.extraction.extractors import extractor_riesgos
+
+
+def _source_refs() -> list[SourceReference]:
+    return [
+        SourceReference(
+            document_id="doc-1",
+            page_number=1,
+            citation="Cita literal del pliego que respalda el riesgo identificado.",
+        )
+    ]
 
 
 class TestRiesgosIntegration:
@@ -36,7 +46,8 @@ class TestRiesgoItem:
             tipo=TipoRiesgo.DESCALIFICACION,
             valor="Riesgo de descalificación por documentación incompleta",
             extraction_status="success",
-            source_references=[],
+            confidence=0.9,
+            source_references=_source_refs(),
         )
         assert item.tipo == TipoRiesgo.DESCALIFICACION
         assert "descalificación" in item.valor
@@ -58,6 +69,7 @@ class TestRiesgoItem:
                 tipo=tipo,
                 valor=f"Riesgo de tipo {tipo.value}",
                 extraction_status="success",
-                source_references=[],
+                confidence=0.9,
+                source_references=_source_refs(),
             )
             assert item.tipo == tipo

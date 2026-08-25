@@ -124,7 +124,9 @@ class TimelineService:
         self,
         analysis_id: str,
         user_id: str,
-        include_deleted: bool = False
+        include_deleted: bool = False,
+        limit: Optional[int] = None,
+        skip: int = 0
     ) -> list[Event]:
         """
         Lista todos los eventos de un análisis.
@@ -133,6 +135,8 @@ class TimelineService:
             analysis_id: ID del análisis
             user_id: ID del usuario actual (para validación de ownership)
             include_deleted: Si True, incluye eventos marcados como deleted
+            limit: Máximo número de resultados (None = sin límite)
+            skip: Número de resultados a saltear (para paginación)
             
         Returns:
             Lista de eventos
@@ -144,6 +148,15 @@ class TimelineService:
         query = "SELECT * FROM c WHERE c.type = 'event' AND c.partition_key = @analysis_id"
         if not include_deleted:
             query += " AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+        
+        # Agregar ordenamiento por created_at para paginación consistente
+        query += " ORDER BY c.created_at DESC"
+        
+        # Agregar paginación si se especificó
+        if skip > 0:
+            query += f" OFFSET {skip}"
+        if limit is not None:
+            query += f" LIMIT {limit}"
         
         parameters = [{"name": "@analysis_id", "value": analysis_id}]
         
@@ -249,7 +262,9 @@ class TimelineService:
         self,
         analysis_id: str,
         user_id: str,
-        include_deleted: bool = False
+        include_deleted: bool = False,
+        limit: Optional[int] = None,
+        skip: int = 0
     ) -> list[Deadline]:
         """
         Lista todos los deadlines de un análisis.
@@ -258,6 +273,8 @@ class TimelineService:
             analysis_id: ID del análisis
             user_id: ID del usuario actual (para validación de ownership)
             include_deleted: Si True, incluye deadlines marcados como deleted
+            limit: Máximo número de resultados (None = sin límite)
+            skip: Número de resultados a saltear (para paginación)
             
         Returns:
             Lista de deadlines
@@ -269,6 +286,15 @@ class TimelineService:
         query = "SELECT * FROM c WHERE c.type = 'deadline' AND c.partition_key = @analysis_id"
         if not include_deleted:
             query += " AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+        
+        # Agregar ordenamiento por created_at para paginación consistente
+        query += " ORDER BY c.created_at DESC"
+        
+        # Agregar paginación si se especificó
+        if skip > 0:
+            query += f" OFFSET {skip}"
+        if limit is not None:
+            query += f" LIMIT {limit}"
         
         parameters = [{"name": "@analysis_id", "value": analysis_id}]
         

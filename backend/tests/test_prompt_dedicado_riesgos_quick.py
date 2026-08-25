@@ -184,8 +184,11 @@ def test_diferenciacion_categorias():
 
     prompt = _load_prompt("riesgos.txt")
 
-    # Debe mencionar qué NO incluir para evitar confusión
-    differentiation_terms = ["No confundir", "Causales de rechazo", "Requisitos", "Garantías"]
+    # Debe mencionar qué NO incluir para evitar confusión. La sección real se
+    # titula "NO INCLUIR" y remite a cada categoría por su result_key, no con
+    # los rótulos genéricos que este test buscaba antes ("No confundir",
+    # "Causales de rechazo", etc. no aparecen literalmente en el prompt).
+    differentiation_terms = ["NO INCLUIR", "causales_rechazo", "garantias", "requisitos_admisibilidad"]
 
     found = 0
     for term in differentiation_terms:

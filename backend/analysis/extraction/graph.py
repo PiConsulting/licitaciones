@@ -441,6 +441,8 @@ def _canonical_causal_tipo(value: str) -> str:
     if any(term in text for term in ["legal", "inhabilit", "registro", "juridic"]):
         return "legal"
 
+    return "otra"
+
 
 def _canonical_riesgo_subtipo(value: str) -> str:
     """Normaliza el subtipo de riesgo al enum canónico.
@@ -708,6 +710,23 @@ def _enforce_citation_contract(items: list[dict]) -> list[dict]:
         normalized_items.append(normalized_item)
 
     return normalized_items
+
+
+def _sort_items_by_primary_document(items: list[dict]) -> list[dict]:
+    """Ordena items para que los que provienen del documento primario (pliego
+    principal, `is_primary=True`) queden primero, y el resto se ordene
+    alfabéticamente por `filename` de su primera source_reference. Un item
+    sin source_references o sin esos campos queda al final, en orden
+    estable respecto a otros items en la misma situación."""
+
+    def _sort_key(item: dict) -> tuple[bool, str]:
+        refs = item.get("source_references") or []
+        first_ref = refs[0] if refs else {}
+        is_primary = bool(first_ref.get("is_primary"))
+        filename = str(first_ref.get("filename") or "")
+        return (not is_primary, filename)
+
+    return sorted(items, key=_sort_key)
 
 
 def _keep_schema_valid_items(
@@ -1063,6 +1082,7 @@ def merge_node(state: GraphState) -> GraphState:
         correlation_id=correlation_id,
         quality=calidad,
     )
+    requisitos_admisibilidad = _sort_items_by_primary_document(requisitos_admisibilidad)
     plazos, plazos_status = _keep_schema_valid_items(
         plazos,
         PlazoItem,
@@ -1356,6 +1376,16 @@ def synthesize_node(state: GraphState) -> GraphState:
         synthesized += 1
 
     _stampar_nombre_de_documento(extracted_data, state.get("document_labels") or {})
+
+    # `_sort_items_by_primary_document` ya corre en `merge_node`, pero ahí
+    # `filename`/`is_primary` todavía no existen en source_references --
+    # `_stampar_nombre_de_documento` recién los escribe acá arriba. Se
+    # reordena de nuevo con los datos ya completos para que el orden
+    # realmente refleje documento primario primero en el pipeline completo.
+    if extracted_data.get("requisitos_admisibilidad"):
+        extracted_data["requisitos_admisibilidad"] = _sort_items_by_primary_document(
+            extracted_data["requisitos_admisibilidad"]
+        )
 
     metadata["token_usage"] = token_usage_by_category
     state["extracted_data"] = extracted_data

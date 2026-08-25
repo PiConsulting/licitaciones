@@ -248,6 +248,11 @@ def generate_embeddings(chunks: list[dict], correlation_id: str | UUID) -> list[
                         f"API error after {retries} attempts: {exc}"
                     ) from exc
                 sleep(backoff_seconds[min(attempt - 1, len(backoff_seconds) - 1)])
+            except RuntimeError:
+                # Mismatch de dimensiones u otro error de validacion: no es
+                # transitorio, reintentar no cambia el resultado. Propagar
+                # directo en vez de envolver en TransientExtractionError.
+                raise
             except Exception as exc:
                 logger.error(
                     "embedding_unexpected_error",

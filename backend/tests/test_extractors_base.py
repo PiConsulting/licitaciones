@@ -46,7 +46,7 @@ class TestCategoryBoostUsesRealScore:
             _chunk(chunk_index=1, primary_category="garantias", search_score=0.01),
         ]
 
-        def fake_search(*, query, analysis_id, top_k, keyword_query):
+        def fake_search(*, query, analysis_id, top_k, keyword_query, category=None):
             return list(candidates)
 
         monkeypatch.setattr(base, "search_hybrid", fake_search)
@@ -73,7 +73,7 @@ class TestCategoryBoostUsesRealScore:
             _chunk(chunk_index=1, primary_category="garantias", search_score=0.95),
         ]
 
-        def fake_search(*, query, analysis_id, top_k, keyword_query):
+        def fake_search(*, query, analysis_id, top_k, keyword_query, category=None):
             return list(candidates)
 
         monkeypatch.setattr(base, "search_hybrid", fake_search)
@@ -100,7 +100,7 @@ class TestCategoryBoostUsesRealScore:
             _chunk(chunk_index=1, primary_category="garantias"),  # sin search_score
         ]
 
-        def fake_search(*, query, analysis_id, top_k, keyword_query):
+        def fake_search(*, query, analysis_id, top_k, keyword_query, category=None):
             return list(candidates)
 
         monkeypatch.setattr(base, "search_hybrid", fake_search)

@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from shared.ports.azure_search import _local_bm25_score
+from shared.ports.azure_search import _local_bm25_score, search_hybrid
 
 
 # Marcar todo el módulo para NO usar fixtures de BD
@@ -94,7 +94,7 @@ class TestBM25LocalScoring:
 class TestSearchHybridSinGlosario:
     """Tests para validar que retrieval funciona sin keyword_query."""
     
-    @patch('shared.ports.azure_search.SearchClient')
+    @patch('azure.search.documents.SearchClient')
     @patch('shared.ports.azure_search._embed_query_or_none')
     def test_search_hybrid_sin_keyword_query_no_falla(self, mock_embed, mock_search_client):
         """Retrieval debe funcionar sin keyword_query (glosario vacío)."""
@@ -150,7 +150,7 @@ class TestSearchHybridSinGlosario:
         assert all(c["id"] for c in chunks), "Chunks deben tener IDs válidos"
         assert chunks[0]["id"] == "chunk-1", "Orden debe mantenerse (solo vector score)"
     
-    @patch('shared.ports.azure_search.SearchClient')
+    @patch('azure.search.documents.SearchClient')
     @patch('shared.ports.azure_search._embed_query_or_none')
     def test_search_hybrid_con_keyword_query_mejora_ranking(self, mock_embed, mock_search_client):
         """BM25 reranking debe mejorar posición de chunks con keywords."""
@@ -228,7 +228,7 @@ class TestSearchHybridSinGlosario:
 class TestBM25RerankingIntegration:
     """Tests de integración para validar pipeline completo."""
     
-    @patch('shared.ports.azure_search.SearchClient')
+    @patch('azure.search.documents.SearchClient')
     @patch('shared.ports.azure_search._embed_query_or_none')
     def test_pipeline_completo_con_y_sin_glosario(self, mock_embed, mock_search_client):
         """Validar que pipeline funciona correctamente con y sin glosario."""

@@ -2016,6 +2016,19 @@ def run_extractor(
                     group_payload.setdefault("_source_document_id", document_id)
                     all_items.append(group_payload)
 
+            # Si el LLM falló en TODOS los grupos, esto no es "no se encontró
+            # nada" (not_found) -- es una falla real del sistema. Antes
+            # `all_items` quedaba vacío y caía en el mismo camino que un
+            # payload legítimamente vacío, perdiendo la señal de que hubo un
+            # error real (ver auditoría: reportaba status="not_found" en vez
+            # de "failed"). Se eleva para que lo capture el `except` de abajo,
+            # que sí marca "failed" correctamente.
+            if groups and groups_failed == len(groups):
+                raise RuntimeError(
+                    f"Todos los grupos ({groups_failed}/{len(groups)}) fallaron al "
+                    f"llamar al LLM para la categoría {result_key}"
+                )
+
             delta[token_usage_key] = accumulated_usage
             logger.info(
                 "extractor_map_reduce_completed",
