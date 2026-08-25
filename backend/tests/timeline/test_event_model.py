@@ -22,7 +22,7 @@ class TestEventModel:
         )
         
         assert event.event_date is None
-        assert event.event_date_source == "pending"
+        assert event.date_source == "pending"
         assert event.status == "pending"
         assert event.deleted is False
 
@@ -51,7 +51,7 @@ class TestEventModel:
                 date_source="detected",  # Debe fallar
             )
         
-        assert "Si date es null, date_source debe ser 'pending'" in str(exc_info.value)
+        assert "Si event_date es null, date_source debe ser 'pending'" in str(exc_info.value)
 
     def test_event_with_detected_source_and_document_id(self):
         """Evento con fecha detectada debe incluir source_document_id."""
@@ -67,7 +67,7 @@ class TestEventModel:
         )
         
         assert event.event_date == date(2026, 9, 10)
-        assert event.event_date_source == "detected"
+        assert event.date_source == "detected"
         assert event.source_document_id == "doc-456"
         assert event.source_page == 5
         assert event.source_fragment is not None
@@ -84,7 +84,7 @@ class TestEventModel:
         )
         
         assert event.event_date == date(2026, 12, 15)
-        assert event.event_date_source == "user_input"
+        assert event.date_source == "user_input"
         assert event.status == "confirmed"
 
     def test_event_with_calculated_source(self):
@@ -98,7 +98,7 @@ class TestEventModel:
         )
         
         assert event.event_date == date(2026, 9, 20)
-        assert event.event_date_source == "calculated"
+        assert event.date_source == "calculated"
 
     def test_event_auto_generates_ids(self):
         """Event debe auto-generar IDs si no se proveen."""
