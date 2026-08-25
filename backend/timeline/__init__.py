@@ -8,6 +8,7 @@ from timeline.models import (
     EventStatus,
     PeriodType,
 )
+from timeline.service import TimelineService
 
 __all__ = [
     "Event",
@@ -16,4 +17,5 @@ __all__ = [
     "EventStatus",
     "DeadlineStatus",
     "PeriodType",
+    "TimelineService",
 ]
