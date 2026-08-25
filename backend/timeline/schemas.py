@@ -10,7 +10,14 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from timeline.models import DateSource, EventStatus, DeadlineStatus, PeriodType
+from timeline.models import (
+    DateSource,
+    EventStatus,
+    DurationUnit,
+    DayType,
+    DireccionTemporal,
+    CalculationStatus,
+)
 
 
 # ==================== EVENT SCHEMAS ====================
@@ -54,6 +61,7 @@ class EventResponse(BaseModel):
     source_document_id: Optional[str]
     source_page: Optional[int]
     source_fragment: Optional[str]
+    source_reference: Optional[dict] = None
     deleted: bool
     created_at: datetime
     updated_at: datetime
@@ -70,14 +78,18 @@ class EventListResponse(BaseModel):
 
 class DeadlineCreateRequest(BaseModel):
     """Request para crear un deadline."""
-    
+
     name: str = Field(min_length=3, max_length=120)
+    trigger_event_id: Optional[str] = None
+    target_event_id: Optional[str] = None
+    duration: int = Field(ge=0)
+    unit: DurationUnit = "días"
+    day_type: DayType = "no_especificado"
+    direccion: Optional[DireccionTemporal] = None
+    es_plazo_maximo: bool = False
     deadline_date: Optional[date] = None
-    date_source: DateSource = "pending"
-    status: DeadlineStatus = "pending"
-    period_value: Optional[int] = Field(None, ge=1)
-    period_type: Optional[PeriodType] = None
-    reference_event_id: Optional[str] = None
+    calculation_status: CalculationStatus = "pending"
+    calculation_error: Optional[str] = None
     source_document_id: Optional[str] = None
     source_page: Optional[int] = Field(None, ge=1)
     source_fragment: Optional[str] = Field(None, max_length=500)
@@ -86,14 +98,18 @@ class DeadlineCreateRequest(BaseModel):
 
 class DeadlineUpdateRequest(BaseModel):
     """Request para actualizar un deadline."""
-    
+
     name: Optional[str] = Field(None, min_length=3, max_length=120)
+    trigger_event_id: Optional[str] = None
+    target_event_id: Optional[str] = None
+    duration: Optional[int] = Field(None, ge=0)
+    unit: Optional[DurationUnit] = None
+    day_type: Optional[DayType] = None
+    direccion: Optional[DireccionTemporal] = None
+    es_plazo_maximo: Optional[bool] = None
     deadline_date: Optional[date] = None
-    date_source: Optional[DateSource] = None
-    status: Optional[DeadlineStatus] = None
-    period_value: Optional[int] = Field(None, ge=1)
-    period_type: Optional[PeriodType] = None
-    reference_event_id: Optional[str] = None
+    calculation_status: Optional[CalculationStatus] = None
+    calculation_error: Optional[str] = None
     source_document_id: Optional[str] = None
     source_page: Optional[int] = Field(None, ge=1)
     source_fragment: Optional[str] = Field(None, max_length=500)
@@ -102,20 +118,25 @@ class DeadlineUpdateRequest(BaseModel):
 
 class DeadlineResponse(BaseModel):
     """Response de un deadline."""
-    
+
     id: str
     deadline_id: str
     analysis_id: str
     name: str
+    trigger_event_id: Optional[str]
+    target_event_id: Optional[str]
+    duration: int
+    unit: DurationUnit
+    day_type: DayType
+    direccion: Optional[DireccionTemporal]
+    es_plazo_maximo: bool
     deadline_date: Optional[date]
-    date_source: DateSource
-    status: DeadlineStatus
-    period_value: Optional[int]
-    period_type: Optional[PeriodType]
-    reference_event_id: Optional[str]
+    calculation_status: CalculationStatus
+    calculation_error: Optional[str]
     source_document_id: Optional[str]
     source_page: Optional[int]
     source_fragment: Optional[str]
+    source_reference: Optional[dict] = None
     deleted: bool
     created_at: datetime
     updated_at: datetime

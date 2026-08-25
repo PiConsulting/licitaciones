@@ -85,10 +85,42 @@ def test_event_auto_generates_ids():
     print("✓ test_event_auto_generates_ids passed")
 
 
+def test_event_validation_date_with_pending():
+    """Test que event_date != None no puede tener date_source='pending'."""
+    try:
+        Event(
+            partition_key="test-123",
+            analysis_id="test-123",
+            name="Test",
+            event_date=date(2026, 9, 15),
+            date_source="pending",  # Debe fallar
+        )
+        assert False, "Debería haber lanzado ValidationError"
+    except ValueError as e:
+        assert "date_source no puede ser 'pending'" in str(e)
+        print("✓ test_event_validation_date_with_pending passed")
+
+
+def test_event_validation_partition_key():
+    """Test que partition_key debe ser igual a analysis_id."""
+    try:
+        Event(
+            partition_key="different-key",
+            analysis_id="test-123",
+            name="Test",
+        )
+        assert False, "Debería haber lanzado ValidationError"
+    except ValueError as e:
+        assert "partition_key debe ser igual a analysis_id" in str(e)
+        print("✓ test_event_validation_partition_key passed")
+
+
 if __name__ == "__main__":
     test_basic_event()
     test_event_with_detected_date()
     test_event_validation_null_date_requires_pending()
     test_event_validation_detected_requires_source()
     test_event_auto_generates_ids()
+    test_event_validation_date_with_pending()
+    test_event_validation_partition_key()
     print("\n🎉 ¡Todos los tests manuales pasaron!")

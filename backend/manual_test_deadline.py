@@ -5,11 +5,12 @@ from timeline.models import Deadline
 
 
 def test_basic_deadline():
-    """Test básico de creación de deadline sin fecha."""
+    """Test básico de creación de deadline sin fecha calculada."""
     deadline = Deadline(
         partition_key="test-123",
         analysis_id="test-123",
-        name="Presentación de Ofertas"
+        name="Presentación de Ofertas",
+        duration=10  # Campo requerido
     )
     
     assert deadline.name == "Presentación de Ofertas"
@@ -17,120 +18,129 @@ def test_basic_deadline():
     assert deadline.type == "deadline"
     assert deadline.deleted is False
     assert deadline.deadline_date is None
-    assert deadline.date_source == "pending"
-    assert deadline.status == "pending"
-    print("[PASS] test_basic_deadline")
+    assert deadline.calculation_status == "pending"
+    assert deadline.duration == 10
+    assert deadline.unit == "días"
+    print("✓ test_basic_deadline passed")
 
 
-def test_deadline_with_detected_date():
-    """Test de deadline con fecha detectada."""
+def test_deadline_with_calculated_date():
+    """Test de deadline con fecha ya calculada."""
     deadline = Deadline(
         partition_key="test-123",
         analysis_id="test-123",
         name="Cierre de Ofertas",
+        duration=15,
+        unit="días",
+        day_type="hábiles",
+        trigger_event_id="event-abc",
+        target_event_id="event-xyz",
         deadline_date=date(2026, 9, 20),
-        date_source="detected",
+        calculation_status="calculated",
         source_document_id="doc-456",
         source_page=3,
     )
     
     assert deadline.deadline_date == date(2026, 9, 20)
-    assert deadline.date_source == "detected"
+    assert deadline.calculation_status == "calculated"
     assert deadline.source_document_id == "doc-456"
-    print("[PASS] test_deadline_with_detected_date")
+    assert deadline.duration == 15
+    assert deadline.unit == "días"
+    assert deadline.day_type == "hábiles"
+    print("✓ test_deadline_with_calculated_date passed")
 
 
-def test_deadline_calculated_requires_period_info():
-    """Test que calculated requiere period_value, period_type y reference_event_id."""
+def test_deadline_validation_calculated_requires_date():
+    """Test que calculated requiere deadline_date."""
     try:
         Deadline(
             partition_key="test-123",
             analysis_id="test-123",
             name="Adjudicación",
-            deadline_date=date(2026, 10, 1),  # Con fecha para pasar primera validación
-            date_source="calculated",
-            # Faltan period_value, period_type, reference_event_id
+            duration=5,
+            calculation_status="calculated",
+            # Falta deadline_date
         )
         assert False, "Debería haber lanzado ValidationError"
     except ValueError as e:
-        assert "date_source='calculated' requiere" in str(e)
-        print("[PASS] test_deadline_calculated_requires_period_info")
+        assert "calculated" in str(e).lower()
+        print("✓ test_deadline_validation_calculated_requires_date passed")
 
 
-def test_deadline_with_calculated_date():
-    """Test de deadline calculado con plazo relativo."""
+def test_deadline_validation_pending_with_date():
+    """Test que pending no puede tener deadline_date."""
+    try:
+        Deadline(
+            partition_key="test-123",
+            analysis_id="test-123",
+            name="Presentación Ofertas",
+            duration=10,
+            deadline_date=date(2026, 9, 25),
+            calculation_status="pending",
+        )
+        assert False, "Debería haber lanzado ValidationError"
+    except ValueError as e:
+        assert "pending" in str(e).lower()
+        print("✓ test_deadline_validation_pending_with_date passed")
+
+
+def test_deadline_validation_error_requires_message():
+    """Test que error requiere calculation_error."""
+    try:
+        Deadline(
+            partition_key="test-123",
+            analysis_id="test-123",
+            name="Test",
+            duration=5,
+            calculation_status="error",
+            # Falta calculation_error
+        )
+        assert False, "Debería haber lanzado ValidationError"
+    except ValueError as e:
+        assert "error" in str(e).lower()
+        print("✓ test_deadline_validation_error_requires_message passed")
+
+
+def test_deadline_with_error_status():
+    """Test deadline con error de cálculo."""
     deadline = Deadline(
         partition_key="test-123",
         analysis_id="test-123",
-        name="Presentación Ofertas",
-        deadline_date=date(2026, 9, 25),
-        date_source="calculated",
-        period_value=5,
-        period_type="business_days",
-        reference_event_id="event::abc-123",
+        name="Test Error",
+        duration=10,
+        calculation_status="error",
+        calculation_error="Evento disparador sin fecha"
     )
     
-    assert deadline.deadline_date == date(2026, 9, 25)
-    assert deadline.date_source == "calculated"
-    assert deadline.period_value == 5
-    assert deadline.period_type == "business_days"
-    assert deadline.reference_event_id == "event::abc-123"
-    print("[PASS] test_deadline_with_calculated_date")
-
-
-def test_deadline_validation_null_date_requires_pending():
-    """Test que deadline_date=None requiere date_source='pending'."""
-    try:
-        Deadline(
-            partition_key="test-123",
-            analysis_id="test-123",
-            name="Test",
-            deadline_date=None,
-            date_source="detected",  # Debe fallar
-        )
-        assert False, "Debería haber lanzado ValidationError"
-    except ValueError as e:
-        assert "Si deadline_date es null, date_source debe ser 'pending'" in str(e)
-        print("[PASS] test_deadline_validation_null_date_requires_pending")
-
-
-def test_deadline_validation_detected_requires_source():
-    """Test que detected requiere source_document_id."""
-    try:
-        Deadline(
-            partition_key="test-123",
-            analysis_id="test-123",
-            name="Test",
-            deadline_date=date(2026, 1, 1),
-            date_source="detected",
-            source_document_id=None,  # Debe fallar
-        )
-        assert False, "Debería haber lanzado ValidationError"
-    except ValueError as e:
-        assert "date_source='detected' requiere source_document_id" in str(e)
-        print("[PASS] test_deadline_validation_detected_requires_source")
+    assert deadline.calculation_status == "error"
+    assert deadline.calculation_error == "Evento disparador sin fecha"
+    assert deadline.deadline_date is None
+    print("✓ test_deadline_with_error_status passed")
 
 
 def test_deadline_auto_generates_ids():
-    """Test que IDs se generan automáticamente."""
+    """Test que se generan IDs automáticamente."""
     deadline = Deadline(
         partition_key="test-123",
         analysis_id="test-123",
-        name="Test"
+        name="Test IDs",
+        duration=5
     )
     
     assert deadline.id.startswith("deadline::")
-    assert len(deadline.deadline_id) == 36  # UUID format
-    print("[PASS] test_deadline_auto_generates_ids")
+    assert deadline.deadline_id  # UUID generado
+    assert deadline.created_at is not None
+    assert deadline.updated_at is not None
+    print("✓ test_deadline_auto_generates_ids passed")
 
 
 if __name__ == "__main__":
     print("=== Manual Deadline Model Tests ===\n")
     test_basic_deadline()
-    test_deadline_with_detected_date()
-    test_deadline_calculated_requires_period_info()
     test_deadline_with_calculated_date()
-    test_deadline_validation_null_date_requires_pending()
-    test_deadline_validation_detected_requires_source()
+    test_deadline_validation_calculated_requires_date()
+    test_deadline_validation_pending_with_date()
+    test_deadline_validation_error_requires_message()
+    test_deadline_with_error_status()
     test_deadline_auto_generates_ids()
-    print("\n🎉 ¡Todos los tests de Deadline pasaron!")
+    print("\n🎉 ¡Todos los tests manuales de Deadline pasaron!")

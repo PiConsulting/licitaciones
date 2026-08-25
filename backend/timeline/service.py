@@ -27,7 +27,7 @@ class TimelineService:
     
     # ==================== EVENTS ====================
     
-    async def create_event(self, event: Event) -> Event:
+    def create_event(self, event: Event) -> Event:
         """
         Crea un nuevo evento en Cosmos DB.
         
@@ -44,7 +44,7 @@ class TimelineService:
         self.container.create_item(body=event_dict)
         return event
     
-    async def get_event(self, event_id: str, analysis_id: str) -> Optional[Event]:
+    def get_event(self, event_id: str, analysis_id: str) -> Optional[Event]:
         """
         Obtiene un evento por ID.
         
@@ -64,7 +64,7 @@ class TimelineService:
         except cosmos_exceptions.CosmosResourceNotFoundError:
             return None
     
-    async def update_event(self, event: Event) -> Event:
+    def update_event(self, event: Event) -> Event:
         """
         Actualiza un evento existente.
         
@@ -82,7 +82,7 @@ class TimelineService:
         self.container.replace_item(item=event.id, body=event_dict)
         return event
     
-    async def delete_event(self, event_id: str, analysis_id: str) -> bool:
+    def delete_event(self, event_id: str, analysis_id: str) -> bool:
         """
         Soft delete de un evento (marca deleted=True).
         
@@ -93,16 +93,16 @@ class TimelineService:
         Returns:
             True si se eliminó, False si no se encontró
         """
-        event = await self.get_event(event_id, analysis_id)
+        event = self.get_event(event_id, analysis_id)
         if not event:
             return False
         
         event.deleted = True
         event.updated_at = datetime.now(UTC)
-        await self.update_event(event)
+        self.update_event(event)
         return True
     
-    async def list_events(
+    def list_events(
         self,
         analysis_id: str,
         include_deleted: bool = False
@@ -133,7 +133,7 @@ class TimelineService:
     
     # ==================== DEADLINES ====================
     
-    async def create_deadline(self, deadline: Deadline) -> Deadline:
+    def create_deadline(self, deadline: Deadline) -> Deadline:
         """
         Crea un nuevo deadline en Cosmos DB.
         
@@ -147,7 +147,7 @@ class TimelineService:
         self.container.create_item(body=deadline_dict)
         return deadline
     
-    async def get_deadline(self, deadline_id: str, analysis_id: str) -> Optional[Deadline]:
+    def get_deadline(self, deadline_id: str, analysis_id: str) -> Optional[Deadline]:
         """
         Obtiene un deadline por ID.
         
@@ -167,7 +167,7 @@ class TimelineService:
         except cosmos_exceptions.CosmosResourceNotFoundError:
             return None
     
-    async def update_deadline(self, deadline: Deadline) -> Deadline:
+    def update_deadline(self, deadline: Deadline) -> Deadline:
         """
         Actualiza un deadline existente.
         
@@ -182,7 +182,7 @@ class TimelineService:
         self.container.replace_item(item=deadline.id, body=deadline_dict)
         return deadline
     
-    async def delete_deadline(self, deadline_id: str, analysis_id: str) -> bool:
+    def delete_deadline(self, deadline_id: str, analysis_id: str) -> bool:
         """
         Soft delete de un deadline.
         
@@ -193,16 +193,16 @@ class TimelineService:
         Returns:
             True si se eliminó, False si no se encontró
         """
-        deadline = await self.get_deadline(deadline_id, analysis_id)
+        deadline = self.get_deadline(deadline_id, analysis_id)
         if not deadline:
             return False
         
         deadline.deleted = True
         deadline.updated_at = datetime.now(UTC)
-        await self.update_deadline(deadline)
+        self.update_deadline(deadline)
         return True
     
-    async def list_deadlines(
+    def list_deadlines(
         self,
         analysis_id: str,
         include_deleted: bool = False

@@ -2,11 +2,13 @@
 
 from timeline.models import (
     Deadline,
-    DeadlineStatus,
     Event,
     DateSource,
     EventStatus,
-    PeriodType,
+    DurationUnit,
+    DayType,
+    DireccionTemporal,
+    CalculationStatus,
 )
 from timeline.schemas import (
     EventCreateRequest,
@@ -26,8 +28,10 @@ __all__ = [
     "Deadline",
     "DateSource",
     "EventStatus",
-    "DeadlineStatus",
-    "PeriodType",
+    "DurationUnit",
+    "DayType",
+    "DireccionTemporal",
+    "CalculationStatus",
     # Schemas
     "EventCreateRequest",
     "EventUpdateRequest",
