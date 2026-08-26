@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import structlog
 
-from analysis.extraction.extractors.base import validate_prompt_inventory
+from analysis.extraction.engine.prompts import validate_prompt_inventory
 from analysis.extraction.graph import graph
 from analysis.models import CurrentStage
 from analysis.progress import TERMINAL_STATUSES, build_stage_progress, calculate_timeout_minutes
@@ -23,14 +23,14 @@ from analysis.service import (
 from analysis.utils import calculate_confidence_avg
 from documents.schemas import DocumentWarning
 from documents.service import calculate_content_hash
-from extraction.ai_search import delete_analysis_chunks
-from extraction.ai_search import upload_chunks
-from extraction.chunking import create_chunks
-from extraction.document_intelligence import extract_text
-from extraction.embeddings import generate_embeddings
-from extraction.errors import DocumentTextExtractionError
-from shared.config import get_settings
-from shared.cosmos_container import get_cosmos_container
+from indexing.ai_search import delete_analysis_chunks
+from indexing.ai_search import upload_chunks
+from indexing.chunking import create_chunks
+from indexing.document_intelligence import extract_text
+from indexing.embeddings import generate_embeddings
+from indexing.errors import DocumentTextExtractionError
+from infra.config import get_settings
+from infra.cosmos_container import get_cosmos_container
 
 logger = structlog.get_logger(__name__)
 

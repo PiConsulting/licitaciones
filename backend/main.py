@@ -11,10 +11,10 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from analysis.routes import analysis_router
 from documents.routes import router as documents_router
-from extraction.ai_search import validate_index_contract
-from shared.config import get_settings
-from shared.database import engine
-from shared.logging import configure_logging
+from indexing.ai_search import validate_index_contract
+from infra.config import get_settings
+from infra.database import engine
+from infra.logging import configure_logging
 from tracking.routes import tracking_router
 from users.routes import auth_router, protected_router
 
@@ -47,7 +47,7 @@ def _cosmos_health() -> tuple[str, str]:
     única fuente de verdad. `.read()` sobre el container es una llamada
     liviana de metadata (no toca documentos), igual de barata que el
     `SELECT 1` que ya se usa para el chequeo de SQL."""
-    from shared.cosmos_container import get_cosmos_container
+    from infra.cosmos_container import get_cosmos_container
 
     try:
         container = get_cosmos_container()

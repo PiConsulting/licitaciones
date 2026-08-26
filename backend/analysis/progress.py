@@ -17,7 +17,7 @@ STAGE_PROGRESS_MAP: dict[CurrentStage, int] = {
 
 TERMINAL_STATUSES = {"analyzed", "error", "cancelled"}
 
-
+# Timeouts se calculan en base a la cantidad de páginas del documento.
 def calculate_timeout_minutes(total_pages: int) -> int:
     if total_pages <= 50:
         return 8

@@ -51,9 +51,9 @@ from analysis.service import (
     validate_analysis_ownership,
 )
 from documents.models import Document
-from extraction.ai_search import validate_index_contract
-from shared.config import get_settings
-from shared.database import SessionLocal
+from indexing.ai_search import validate_index_contract
+from infra.config import get_settings
+from infra.database import SessionLocal
 from tracking.service import get_tracking
 from users.service import get_current_user, http_bearer
 

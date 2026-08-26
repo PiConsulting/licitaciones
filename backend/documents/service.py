@@ -4,8 +4,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from documents.models import Document
-from shared.cosmos_container import get_cosmos_container
-from shared.pdf_utils import calculate_content_hash_from_pdf
+from infra.cosmos_container import get_cosmos_container
+from infra.pdf_utils import calculate_content_hash_from_pdf
 
 
 def calculate_content_hash(file_data: bytes) -> str:

@@ -1,4 +1,4 @@
-from shared.config import get_settings
+from infra.config import get_settings
 
 
 def test_health_ready_returns_checks(client):

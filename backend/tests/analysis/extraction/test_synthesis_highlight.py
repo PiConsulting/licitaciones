@@ -6,11 +6,9 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 from pathlib import Path
 
-from analysis.extraction.synthesis import (
-    _empty_category_narrative,
-    _resolve_narrative_sources,
-    enrich_narrative_with_highlights,
-)
+from analysis.extraction.synthesis import enrich_narrative_with_highlights
+from analysis.extraction.synthesis.prompt_and_serialization import _empty_category_narrative
+from analysis.extraction.synthesis.source_resolution import _resolve_narrative_sources
 from analysis.extraction.highlight import (
     _normalize_for_search,
     compute_highlight_regions,
@@ -315,7 +313,7 @@ class TestHighlightConfigurableThreshold:
 class TestEnrichNarrativeWithHighlights:
     """Tests de integración para enriquecimiento con highlights."""
 
-    @patch("analysis.extraction.synthesis.compute_highlights_for_sources")
+    @patch("analysis.extraction.synthesis.synthesis.compute_highlights_for_sources")
     def test_enriches_sources_with_highlights(self, mock_compute):
         """enrich_narrative_with_highlights agrega highlight_regions a sources."""
         narrative = CategoryNarrative.model_validate(
@@ -371,7 +369,7 @@ class TestEnrichNarrativeWithHighlights:
         assert enriched.sources[0].highlight_regions[0]["x"] == 72.0
         assert enriched.sources[0].highlight_regions[0]["y"] == 314.0
 
-    @patch("analysis.extraction.synthesis.HIGHLIGHT_AVAILABLE", False)
+    @patch("analysis.extraction.synthesis.synthesis.HIGHLIGHT_AVAILABLE", False)
     def test_returns_unchanged_if_highlight_not_available(self):
         """Si PyMuPDF no disponible, retorna narrative sin modificar."""
         narrative = CategoryNarrative.model_validate(

@@ -4,7 +4,7 @@ from uuid import uuid4
 from sqlalchemy import DateTime, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from shared.database import Base
+from infra.database import Base
 
 
 class User(Base):

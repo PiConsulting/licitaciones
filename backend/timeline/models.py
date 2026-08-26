@@ -16,12 +16,6 @@ from pydantic import BaseModel, Field, model_validator
 DateSource = Literal["detected", "user_input", "calculated", "pending"]
 EventStatus = Literal["pending", "confirmed"]
 
-# Vocabulario compartido con el extractor de la Story 15.2
-# (backend/analysis/extraction/prompts/plazos_relativos.txt y
-# PlazoRelativoExtracted en analysis/extraction/schemas.py). Se usa el mismo
-# literal a propósito: un mapeo directo extracción -> Deadline no debe tener
-# que traducir vocabulario, que es justo la clase de bug que ya rompió los
-# prompts de la Épica 15 dos veces (clave raíz de JSON desalineada).
 DurationUnit = Literal["días", "meses", "años", "horas"]
 DayType = Literal["corridos", "hábiles", "no_especificado"]
 DireccionTemporal = Literal["desde", "hasta", "antes_de", "después_de"]

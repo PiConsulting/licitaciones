@@ -307,6 +307,7 @@ const BACKEND_STATUS_KEY: Record<CategoryId, string> = {
   criterios_evaluacion: "criterios_evaluacion_extraction_status",
   anexos_obligatorios: "anexos_obligatorios_extraction_status",
   datos_procedimiento: "datos_procedimiento_extraction_status",
+  riesgos: "riesgos_extraction_status",
 };
 
 const FIELD_LABELS: Record<string, string> = {

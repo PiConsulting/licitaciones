@@ -10,8 +10,8 @@ import structlog
 
 from analysis.models import Analysis, AnalysisVersion
 from documents.models import Document
-from shared.config import Settings, get_settings
-from shared.security import sanitize_error_message
+from infra.config import Settings, get_settings
+from infra.security import sanitize_error_message
 
 logger = structlog.get_logger(__name__)
 
@@ -25,6 +25,13 @@ def _build_cosmos_container_client(endpoint: str, key: str, database: str, conta
 
 
 class AnalysisMetadataSink(Protocol):
+    """Puerto de persistencia de metadata de análisis.
+
+    Punto de corte para la migración Cosmos DB -> Postgres: reemplazar
+    `CosmosMetadataSink` (y ajustar `build_metadata_sink`) sin tocar
+    `persist_analysis_metadata` ni sus llamadores.
+    """
+
     def persist(
         self,
         *,

@@ -11,9 +11,9 @@ from sqlalchemy import Select, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from shared.config import get_settings
-from shared.cosmos_container import get_cosmos_container
-from shared.database import SessionLocal
+from infra.config import get_settings
+from infra.cosmos_container import get_cosmos_container
+from infra.database import SessionLocal
 from users.models import User
 
 logger = structlog.get_logger(__name__)

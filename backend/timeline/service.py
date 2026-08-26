@@ -12,7 +12,7 @@ from typing import Optional
 
 from azure.cosmos import ContainerProxy, exceptions as cosmos_exceptions
 
-from shared.cosmos_container import get_cosmos_container
+from infra.cosmos_container import get_cosmos_container
 from timeline.auth import validate_analysis_access
 from timeline.models import Event, Deadline
 
