@@ -15,8 +15,8 @@ os.environ["PERSISTENCE_MODE"] = "sql"
 import users.service as users_service
 from analysis import cosmos_runtime
 from main import app
-from shared.config import get_settings
-from shared.database import Base, SessionLocal, engine
+from infra.config import get_settings
+from infra.database import Base, SessionLocal, engine
 from users.models import User
 from users.service import create_access_token, get_password_hash
 

@@ -7,12 +7,12 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from analysis.extraction.graph import graph
-from analysis.extraction.extractors.base import validate_prompt_inventory
+from analysis.extraction.engine.prompts import validate_prompt_inventory
 from analysis.extraction.state import GraphState
 from analysis.metadata_persistence import persist_analysis_metadata
 from analysis.models import Analysis, AnalysisVersion, CurrentStage
 from analysis.progress import build_stage_progress, update_stage_and_progress
-from shared.config import get_settings
+from infra.config import get_settings
 
 logger = structlog.get_logger(__name__)
 _PROMPT_COST_PER_1K = 0.00015

@@ -179,7 +179,7 @@ export interface AnalysisDetail {
   id: string;
   analysis_name?: string | null;
   created_at: string;
-  status: "queued" | "processing" | "analyzed" | "validated" | "error" | "cancelled";
+  status: "draft" | "queued" | "processing" | "analyzed" | "validated" | "error" | "cancelled";
   current_stage: string;
   current_version: AnalysisVersion;
   documents: Array<{

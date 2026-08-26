@@ -4,7 +4,7 @@ from uuid import uuid4
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from shared.database import Base
+from infra.database import Base
 
 
 class Document(Base):

@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from shared.config import get_settings  # noqa: E402
+from infra.config import get_settings  # noqa: E402
 
 NEW_FIELDS = ("section_path", "section_level", "block_type", "table_ref")
 

@@ -46,6 +46,12 @@ class GraphState(TypedDict, total=False):
     riesgos: list[dict[str, Any]]
     riesgos_status: str
 
+    eventos_temporales: list[dict[str, Any]]
+    eventos_temporales_status: str
+
+    plazos_relativos: list[dict[str, Any]]
+    plazos_relativos_status: str
+
     presupuesto: dict[str, Any]
     presupuesto_status: str
 
@@ -77,5 +83,7 @@ class GraphState(TypedDict, total=False):
     identificacion_token_usage: dict[str, int]
     cronograma_token_usage: dict[str, int]
     presupuesto_token_usage: dict[str, int]
+    eventos_temporales_token_usage: dict[str, int]
+    plazos_relativos_token_usage: dict[str, int]
     created_by: str | None
     db_session: Any

@@ -1,6 +1,6 @@
 """Tests para validar agrupación de sources por párrafo."""
 
-from analysis.extraction.synthesis import _dedupe_narrative_sources
+from analysis.extraction.synthesis.source_resolution import _dedupe_narrative_sources
 
 
 def test_dedupe_same_paragraph_groups_citations():

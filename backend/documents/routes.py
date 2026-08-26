@@ -7,8 +7,8 @@ from fastapi.security import HTTPAuthorizationCredentials
 
 from documents.schemas import DocumentSASUrlResponse
 from documents.service import StoredDocument, get_document_by_id, get_document_by_id_cosmos
-from shared.config import get_settings
-from shared.database import SessionLocal
+from infra.config import get_settings
+from infra.database import SessionLocal
 from users.service import get_current_user, http_bearer
 
 router = APIRouter(prefix="/documents", tags=["documents"])

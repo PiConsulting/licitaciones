@@ -5,8 +5,8 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 from analysis.models import Analysis  # noqa: F401
 from documents.models import Document  # noqa: F401
-from shared.config import get_settings
-from shared.database import Base
+from infra.config import get_settings
+from infra.database import Base
 from users.models import User  # noqa: F401
 
 config = context.config

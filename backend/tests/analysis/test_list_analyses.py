@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from analysis.models import Analysis, AnalysisVersion
 from documents.models import Document
-from shared.database import SessionLocal
+from infra.database import SessionLocal
 from users.models import User
 
 
