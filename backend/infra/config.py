@@ -1,6 +1,5 @@
 from functools import lru_cache
 from pathlib import Path
-from urllib.parse import urlparse
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -49,16 +48,7 @@ class Settings(BaseSettings):
     document_intelligence_retry_attempts: int = Field(
         default=3, alias="DOCUMENT_INTELLIGENCE_RETRY_ATTEMPTS"
     )
-    azure_search_endpoint: str = Field(default="", alias="AZURE_SEARCH_ENDPOINT")
-    azure_search_key: str = Field(default="", alias="AZURE_SEARCH_KEY")
-    azure_search_index_name: str = Field(default="", alias="AZURE_SEARCH_INDEX_NAME")
-    azure_search_embedding_dimensions: int = Field(
-        default=3072, alias="AZURE_SEARCH_EMBEDDING_DIMENSIONS"
-    )
-    azure_search_upload_batch_size: int = Field(
-        default=1000, alias="AZURE_SEARCH_UPLOAD_BATCH_SIZE"
-    )
-    azure_search_retry_attempts: int = Field(default=3, alias="AZURE_SEARCH_RETRY_ATTEMPTS")
+    embedding_dimensions: int = Field(default=3072, alias="EMBEDDING_DIMENSIONS")
     azure_openai_endpoint: str = Field(default="", alias="AZURE_OPENAI_ENDPOINT")
     azure_openai_api_key: str = Field(default="", alias="AZURE_OPENAI_API_KEY")
     azure_openai_chat_deployment: str = Field(default="", alias="AZURE_OPENAI_DEPLOYMENT")
@@ -167,25 +157,23 @@ class Settings(BaseSettings):
         description="Longitud mínima de citation para calcular highlights (caracteres)",
     )
 
-    # Story 12.1: Análisis de impacto BM25 vs Vector
-    enable_bm25_impact_analysis: bool = Field(
-        default=False,
-        alias="ENABLE_BM25_IMPACT_ANALYSIS",
-        description="Activa logs detallados para medir contribución de BM25 vs Vector al hybrid search",
-    )
-
-    
-    azure_search_use_native_hybrid: bool = Field(
-        default=False,
-        alias="AZURE_SEARCH_USE_NATIVE_HYBRID",
+    # Historia 22.5 (retoma el diseño nunca implementado de la Story 2.18):
+    # reranking semántico local con cross-encoder, entre la fusión RRF
+    # (Historia 22.4) y el boost por categoría de chunk_retrieval.py.
+    rag_reranking_enabled: bool = Field(default=False, alias="RAG_RERANKING_ENABLED")
+    rag_reranking_model: str = Field(
+        default="cross-encoder/mmarco-mMiniLMv2-L12-H384-v1",
+        alias="RAG_RERANKING_MODEL",
         description=(
-            "Si es true, _search_azure() usa Hybrid Search nativo de Azure "
-            "(search_text real + vector_queries en la misma llamada, "
-            "fusionados por Azure vía RRF) en vez del BM25 local aproximado "
-            "sobre el pool ya recuperado por kNN. No incluye reranking "
-            "semántico (add-on Semantic Ranker no disponible en este "
-            "proyecto)."
+            "Modelo cross-encoder de sentence-transformers, corre 100% local "
+            "(CPU). Multilingüe (incluye español), liviano (~118M params) "
+            "para latencia aceptable sobre pools de ~30-90 candidatos."
         ),
+    )
+    rag_reranking_timeout_seconds: float = Field(
+        default=5.0,
+        alias="RAG_RERANKING_TIMEOUT_SECONDS",
+        description="Si el reranking no termina en este tiempo, se descarta y se usa el orden RRF (AC3).",
     )
 
     # FIX: Dead code eliminado (#1, #2, #3) - campos legacy de adaptadores locales:
@@ -193,11 +181,6 @@ class Settings(BaseSettings):
     # - sentence_transformers_model, chroma_persist_directory (solo para Chroma local)
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     azure_sdk_log_level: str = Field(default="WARNING", alias="AZURE_SDK_LOG_LEVEL")
-    persistence_mode: str = Field(default="sql", alias="PERSISTENCE_MODE")
-    cosmos_endpoint: str = Field(default="", alias="COSMOS_ENDPOINT")
-    cosmos_key: str = Field(default="", alias="COSMOS_KEY")
-    cosmos_database: str = Field(default="", alias="COSMOS_DATABASE")
-    cosmos_container: str = Field(default="", alias="COSMOS_CONTAINER")
 
     @property
     def is_development(self) -> bool:
@@ -209,67 +192,24 @@ class Settings(BaseSettings):
         """Production mode: cloud resources only."""
         return self.app_env.strip().lower() == "production"
 
-    def persistence_mode_normalized(self) -> str:
-        """Returns normalized persistence mode value."""
-        return self.persistence_mode.strip().lower()
-
-    def is_cosmos_temporal_mode(self) -> bool:
-        """Check if running in cosmos_temporal mode."""
-        return self.persistence_mode_normalized() == "cosmos_temporal"
-
-    def is_cosmos_only_mode(self) -> bool:
-        """Check if running in cosmos_only mode."""
-        return self.persistence_mode_normalized() == "cosmos_only"
-
     def cloud_required_variables(self) -> dict[str, str]:
-        required = {
+        return {
             "AZURE_BLOB_CONNECTION_STRING": self.azure_blob_connection_string,
             "AZURE_BLOB_CONTAINER_NAME": self.azure_blob_container_name,
             "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT": self.azure_document_intelligence_endpoint,
             "AZURE_DOCUMENT_INTELLIGENCE_KEY": self.azure_document_intelligence_key,
-            "AZURE_SEARCH_ENDPOINT": self.azure_search_endpoint,
-            "AZURE_SEARCH_KEY": self.azure_search_key,
-            "AZURE_SEARCH_INDEX_NAME": self.azure_search_index_name,
             "AZURE_OPENAI_ENDPOINT": self.azure_openai_endpoint,
             "AZURE_OPENAI_API_KEY": self.azure_openai_api_key,
             "AZURE_OPENAI_DEPLOYMENT": self.azure_openai_chat_deployment,
             "AZURE_OPENAI_EMBEDDING_DEPLOYMENT": self.azure_openai_embedding_deployment,
             "AZURE_OPENAI_API_VERSION": self.azure_openai_api_version,
-            "PERSISTENCE_MODE": self.persistence_mode,
         }
-
-        mode = self.persistence_mode_normalized()
-        if mode in {"cosmos", "dual_write", "cosmos_temporal", "cosmos_only"}:
-            required.update(
-                {
-                    "COSMOS_ENDPOINT": self.cosmos_endpoint,
-                    "COSMOS_KEY": self.cosmos_key,
-                    "COSMOS_DATABASE": self.cosmos_database,
-                    "COSMOS_CONTAINER": self.cosmos_container,
-                }
-            )
-        return required
 
     def missing_cloud_required_variables(self) -> list[str]:
         required = self.cloud_required_variables()
         return [name for name, value in required.items() if not str(value).strip()]
 
     def validate_cloud_configuration(self) -> None:
-        mode = self.persistence_mode_normalized()
-        if mode not in {"sql", "cosmos", "dual_write", "cosmos_temporal", "cosmos_only"}:
-            raise RuntimeError(
-                "PERSISTENCE_MODE debe ser uno de: sql, cosmos, dual_write, cosmos_temporal, cosmos_only"
-            )
-
-        if mode not in {"cosmos_temporal", "cosmos_only", "cosmos"}:
-            parsed = urlparse(self.database_url)
-            host = (parsed.hostname or "").strip().lower()
-            if host in {"localhost", "127.0.0.1", "::1"}:
-                raise RuntimeError(
-                    "DATABASE_URL no puede apuntar a localhost en production. "
-                    "Configura una base de datos remota."
-                )
-
         missing = self.missing_cloud_required_variables()
         if missing:
             raise RuntimeError(

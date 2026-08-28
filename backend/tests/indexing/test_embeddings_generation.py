@@ -81,7 +81,7 @@ class TestEmbeddingGeneration:
         # Setup
         mock_settings.return_value.azure_openai_retry_attempts = 3
         mock_settings.return_value.azure_openai_embeddings_batch_size = 16
-        mock_settings.return_value.azure_search_embedding_dimensions = 3072
+        mock_settings.return_value.embedding_dimensions = 3072
 
         mock_adapter_instance = Mock()
         mock_adapter.return_value = mock_adapter_instance
@@ -108,7 +108,7 @@ class TestEmbeddingGeneration:
         """Valida dimensiones de embeddings generados."""
         mock_settings.return_value.azure_openai_retry_attempts = 3
         mock_settings.return_value.azure_openai_embeddings_batch_size = 16
-        mock_settings.return_value.azure_search_embedding_dimensions = 3072
+        mock_settings.return_value.embedding_dimensions = 3072
         mock_settings.return_value.is_development = False
         mock_adapter_instance = Mock()
         mock_adapter.return_value = mock_adapter_instance
@@ -127,7 +127,7 @@ class TestEmbeddingGeneration:
         """Procesa chunks en batches del tamaño correcto."""
         mock_settings.return_value.azure_openai_retry_attempts = 3
         mock_settings.return_value.azure_openai_embeddings_batch_size = 2  # Batch pequeño para test
-        mock_settings.return_value.azure_search_embedding_dimensions = 3072
+        mock_settings.return_value.embedding_dimensions = 3072
         mock_settings.return_value.is_development = False
         mock_adapter_instance = Mock()
         mock_adapter.return_value = mock_adapter_instance
@@ -151,7 +151,7 @@ class TestEmbeddingGeneration:
         """Preserva todos los campos del chunk original."""
         mock_settings.return_value.azure_openai_retry_attempts = 3
         mock_settings.return_value.azure_openai_embeddings_batch_size = 16
-        mock_settings.return_value.azure_search_embedding_dimensions = 3072
+        mock_settings.return_value.embedding_dimensions = 3072
         mock_settings.return_value.is_development = False
 
         mock_adapter_instance = Mock()

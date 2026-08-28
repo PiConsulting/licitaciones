@@ -1,7 +1,6 @@
 """Servicio de analisis: alta, duplicados, ciclo de vida y listado.
 
-Reexporta toda la API publica que usan `analysis/routes.py` y
-`analysis/cosmos_runtime.py`."""
+Reexporta toda la API publica que usa `analysis/routes.py`."""
 from analysis.service.duplicates import check_duplicates, find_duplicates_for_analysis
 from analysis.service.lifecycle import (
     delete_analysis,

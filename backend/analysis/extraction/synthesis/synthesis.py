@@ -176,9 +176,9 @@ def run_synthesis(
 def _build_chunks_index_from_search(
     analysis_id: str, correlation_id: str
 ) -> dict[tuple[str, int], list[dict]]:
-    """Construye índice de chunks por (document_id, page_number) desde Azure Search."""
+    """Construye índice de chunks por (document_id, page_number) desde pgvector."""
     try:
-        from infra.ports.azure_search import fetch_all_analysis_chunks
+        from infra.ports.pgvector_search import fetch_all_analysis_chunks
 
         all_chunks, truncated = fetch_all_analysis_chunks(analysis_id)
         chunks_by_doc_page: dict[tuple[str, int], list[dict]] = {}

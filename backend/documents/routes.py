@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials
 
 from documents.schemas import DocumentSASUrlResponse
-from documents.service import StoredDocument, get_document_by_id, get_document_by_id_cosmos
+from documents.service import StoredDocument, get_document_by_id
 from infra.config import get_settings
 from infra.database import SessionLocal
 from users.service import get_current_user, http_bearer
@@ -35,17 +35,6 @@ def _parse_sas_expiry(sas_token: str) -> datetime | None:
 
 
 def _load_document_for_user(document_id: str, user_id: str) -> StoredDocument | None:
-    settings = get_settings()
-
-    if settings.is_cosmos_only_mode():
-        document = get_document_by_id_cosmos(document_id)
-        if document is None or document.created_by != user_id:
-            return None
-        return document
-
-    if SessionLocal is None:
-        return None
-
     db = SessionLocal()
     try:
         document_sql = get_document_by_id(db, document_id)

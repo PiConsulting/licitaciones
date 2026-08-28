@@ -8,12 +8,11 @@ from datetime import UTC, datetime
 from fastapi import BackgroundTasks, HTTPException, status
 from sqlalchemy.orm import Session
 
-from analysis.metadata_persistence import persist_analysis_metadata
 from analysis.models import Analysis, CurrentStage
 from analysis.service.upload import _build_blob_storage
 from documents.models import Document
-from indexing.ai_search import delete_analysis_chunks
 from indexing.runner import extract_and_index
+from infra.adapters.pgvector_search import delete_analysis_chunks
 from infra.database import SessionLocal
 
 logger = logging.getLogger(__name__)
@@ -71,14 +70,6 @@ def request_cancellation(db: Session, analysis_id: str, user_id: str) -> Analysi
 
     db.commit()
     db.refresh(analysis)
-
-    docs = db.query(Document).filter(Document.analysis_id == analysis.id).all()
-    persist_analysis_metadata(
-        analysis=analysis,
-        documents=docs,
-        versions=[],
-        event="analysis_cancelled",
-    )
     return analysis
 
 

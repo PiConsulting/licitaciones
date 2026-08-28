@@ -5,23 +5,29 @@ Valida que el usuario tenga permiso para acceder a eventos/deadlines
 de un análisis específico.
 """
 from fastapi import HTTPException, status
+from sqlalchemy.orm import Session
 
-from analysis.cosmos_runtime import _load_analysis_or_none
+from analysis.models import Analysis
 
 
-def validate_analysis_access(analysis_id: str, user_id: str) -> None:
+def validate_analysis_access(db: Session, analysis_id: str, user_id: str) -> None:
     """
     Valida que el usuario tenga acceso al análisis especificado.
-    
+
     Args:
+        db: Sesión de SQLAlchemy
         analysis_id: ID del análisis
         user_id: ID del usuario actual
-        
+
     Raises:
         HTTPException: 404 si el análisis no existe, 403 si no es el owner
     """
-    analysis = _load_analysis_or_none(analysis_id)
-    
+    analysis = (
+        db.query(Analysis)
+        .filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None))
+        .first()
+    )
+
     if analysis is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -32,8 +38,8 @@ def validate_analysis_access(analysis_id: str, user_id: str) -> None:
                 }
             },
         )
-    
-    if analysis.get("created_by") != user_id:
+
+    if analysis.created_by != user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={

@@ -6,10 +6,9 @@ import structlog
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from analysis.extraction.graph import graph
 from analysis.extraction.engine.prompts import validate_prompt_inventory
+from analysis.extraction.graph import graph
 from analysis.extraction.state import GraphState
-from analysis.metadata_persistence import persist_analysis_metadata
 from analysis.models import Analysis, AnalysisVersion, CurrentStage
 from analysis.progress import build_stage_progress, update_stage_and_progress
 from infra.config import get_settings
@@ -49,6 +48,7 @@ def extract_categories(db: Session, analysis: Analysis) -> GraphState:
         "created_by": analysis.created_by,
         "max_concurrency": max_concurrency,
         "extraction_metadata": {},
+        "db_session": db,
     }
 
     logger.info(
@@ -109,14 +109,7 @@ def extract_categories(db: Session, analysis: Analysis) -> GraphState:
     }
     analysis.updated_at = datetime.now(UTC)
     db.commit()
-
     db.refresh(analysis)
-    persist_analysis_metadata(
-        analysis=analysis,
-        documents=list(analysis.documents),
-        versions=[new_version],
-        event="analysis_version_created",
-    )
 
     logger.info(
         "category_extraction_completed",

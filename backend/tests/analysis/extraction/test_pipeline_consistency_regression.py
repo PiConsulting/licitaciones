@@ -32,7 +32,7 @@ from analysis.extraction.schemas import (
 from analysis.extraction.synthesis import run_synthesis
 from indexing.chunking import create_chunks
 from indexing.chunking.classification import classify_chunk_categories
-from infra.ports.azure_search import SEARCH_CHUNK_SELECT_FIELDS
+from infra.ports.pgvector_search import SEARCH_CHUNK_COLUMNS
 
 # Texto real del pliego_04 (analisis A). La cita que el LLM devolvio para
 # objeto_alcance mide 343 caracteres y era descartada solo por eso.
@@ -321,7 +321,7 @@ def test_chunks_llevan_categoria_al_indice() -> None:
     """`create_chunks` clasificaba los chunks pero `upload_chunks` no subia esos
     campos: quedaban en null para el 100% de los chunks y el filtro por
     categoria del retrieval no matcheaba nunca."""
-    from indexing import ai_search
+    from infra.adapters.pgvector_search import upload_chunks
 
     blocks = [
         {
@@ -358,16 +358,8 @@ def test_chunks_llevan_categoria_al_indice() -> None:
             self.deleted_analysis_ids.append(analysis_id)
             return 0
 
-    original_build = ai_search._build_adapter
-    original_validate = ai_search.validate_index_contract
-    ai_search._build_adapter = lambda: _Adapter()  # type: ignore[assignment]
-    ai_search.validate_index_contract = lambda: None  # type: ignore[assignment]
-    try:
-        with_embeddings = [{**chunk, "embedding": [0.0, 0.1]} for chunk in chunks]
-        ai_search.upload_chunks(with_embeddings, "analysis-1", "corr-1")
-    finally:
-        ai_search._build_adapter = original_build  # type: ignore[assignment]
-        ai_search.validate_index_contract = original_validate  # type: ignore[assignment]
+    with_embeddings = [{**chunk, "embedding": [0.0, 0.1]} for chunk in chunks]
+    upload_chunks(with_embeddings, "analysis-1", "corr-1", adapter=_Adapter())
 
     assert uploaded, "se tienen que haber subido documentos"
     assert uploaded[0]["primary_category"] == "garantias"
@@ -377,8 +369,8 @@ def test_chunks_llevan_categoria_al_indice() -> None:
 def test_retrieval_selecciona_los_campos_de_categoria() -> None:
     """Sin esto, purity_rate en `retrieval_metrics` daba 0.0 siempre y la
     telemetria que detectaria este problema quedaba ciega."""
-    assert "primary_category" in SEARCH_CHUNK_SELECT_FIELDS
-    assert "secondary_categories" in SEARCH_CHUNK_SELECT_FIELDS
+    assert "primary_category" in SEARCH_CHUNK_COLUMNS
+    assert "secondary_categories" in SEARCH_CHUNK_COLUMNS
 
 
 # ---------------------------------------------------------------------------
@@ -408,9 +400,9 @@ def test_upload_chunks_traduce_indices_de_parent_child_a_ids_completos() -> None
     para parent_chunk_index/child_chunk_indices -- recién `upload_chunks`
     conoce el `analysis_id` necesario para armar los mismos ids compuestos
     (`{analysis_id}--{document_id}--{chunk_index}`) que se usan como `id` de
-    documento en Azure Search. Si esto se rompe, la expansión children→parent
-    del retrieval (`_expand_children_to_parents`) no encuentra el parent."""
-    from indexing import ai_search
+    fila en `chunks`. Si esto se rompe, la expansión children→parent del
+    retrieval (`_expand_children_to_parents`) no encuentra el parent."""
+    from infra.adapters.pgvector_search import upload_chunks
 
     blocks = [
         {
@@ -441,16 +433,8 @@ def test_upload_chunks_traduce_indices_de_parent_child_a_ids_completos() -> None
             self.deleted_analysis_ids.append(analysis_id)
             return 0
 
-    original_build = ai_search._build_adapter
-    original_validate = ai_search.validate_index_contract
-    ai_search._build_adapter = lambda: _Adapter()  # type: ignore[assignment]
-    ai_search.validate_index_contract = lambda: None  # type: ignore[assignment]
-    try:
-        with_embeddings = [{**chunk, "embedding": [0.0, 0.1]} for chunk in chunks]
-        ai_search.upload_chunks(with_embeddings, "analysis-1", "corr-1")
-    finally:
-        ai_search._build_adapter = original_build  # type: ignore[assignment]
-        ai_search.validate_index_contract = original_validate  # type: ignore[assignment]
+    with_embeddings = [{**chunk, "embedding": [0.0, 0.1]} for chunk in chunks]
+    upload_chunks(with_embeddings, "analysis-1", "corr-1", adapter=_Adapter())
 
     by_chunk_index = {doc["chunk_index"]: doc for doc in uploaded}
 
@@ -471,7 +455,7 @@ def test_upload_chunks_marca_normal_los_chunks_sin_subdividir() -> None:
     """Los chunks que no se subdividieron (la mayoría) tienen que seguir
     subiendo con chunk_type='normal' y sin parent/child ids -- comportamiento
     idéntico al de antes de US-3.1."""
-    from indexing import ai_search
+    from infra.adapters.pgvector_search import upload_chunks
 
     blocks = [
         {
@@ -507,16 +491,8 @@ def test_upload_chunks_marca_normal_los_chunks_sin_subdividir() -> None:
             self.deleted_analysis_ids.append(analysis_id)
             return 0
 
-    original_build = ai_search._build_adapter
-    original_validate = ai_search.validate_index_contract
-    ai_search._build_adapter = lambda: _Adapter()  # type: ignore[assignment]
-    ai_search.validate_index_contract = lambda: None  # type: ignore[assignment]
-    try:
-        with_embeddings = [{**chunk, "embedding": [0.0, 0.1]} for chunk in chunks]
-        ai_search.upload_chunks(with_embeddings, "analysis-1", "corr-1")
-    finally:
-        ai_search._build_adapter = original_build  # type: ignore[assignment]
-        ai_search.validate_index_contract = original_validate  # type: ignore[assignment]
+    with_embeddings = [{**chunk, "embedding": [0.0, 0.1]} for chunk in chunks]
+    upload_chunks(with_embeddings, "analysis-1", "corr-1", adapter=_Adapter())
 
     assert uploaded
     assert uploaded[0]["chunk_type"] == "normal"
@@ -528,10 +504,10 @@ def test_retrieval_selecciona_los_campos_de_parent_child() -> None:
     """US-3.1: sin estos campos en el SELECT, `_expand_children_to_parents`
     nunca detecta un chunk 'child' en los resultados y la expansión a parent
     queda muerta en la práctica (nunca se activa)."""
-    assert "chunk_type" in SEARCH_CHUNK_SELECT_FIELDS
-    assert "parent_chunk_id" in SEARCH_CHUNK_SELECT_FIELDS
-    assert "child_chunk_ids" in SEARCH_CHUNK_SELECT_FIELDS
-    assert "id" in SEARCH_CHUNK_SELECT_FIELDS
+    assert "chunk_type" in SEARCH_CHUNK_COLUMNS
+    assert "parent_chunk_id" in SEARCH_CHUNK_COLUMNS
+    assert "child_chunk_ids" in SEARCH_CHUNK_COLUMNS
+    assert "id" in SEARCH_CHUNK_COLUMNS
 
 
 def test_titulo_en_singular_clasifica_igual_que_en_plural() -> None:

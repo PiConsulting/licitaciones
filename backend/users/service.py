@@ -1,6 +1,5 @@
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from typing import NoReturn
 
 import jwt
 import structlog
@@ -8,11 +7,10 @@ from fastapi import HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from passlib.hash import bcrypt
 from sqlalchemy import Select, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from infra.config import get_settings
-from infra.cosmos_container import get_cosmos_container
 from infra.database import SessionLocal
 from users.models import User
 
@@ -21,90 +19,23 @@ logger = structlog.get_logger(__name__)
 http_bearer = HTTPBearer(auto_error=False)
 
 
-@dataclass
-class AuthUser:
-    id: str
-    email: str
-    password_hash: str
-    name: str
-    deleted_at: datetime | None = None
-
-
-def _is_cosmos_only_mode() -> bool:
-    settings = get_settings()
-    return settings.persistence_mode_normalized() == "cosmos_only"
-
-
-def _build_auth_user_from_item(item: dict) -> AuthUser:
-    return AuthUser(
-        id=str(item["user_id"]),
-        email=str(item["email"]),
-        password_hash=str(item["password_hash"]),
-        name=str(item.get("name") or ""),
-        deleted_at=None,
-    )
-
-
-def _find_user_by_email_cosmos(email: str) -> AuthUser | None:
-    container = get_cosmos_container()
-    normalized_email = email.strip().lower()
-    query = (
-        "SELECT TOP 1 * FROM c "
-        "WHERE c.type = 'user' AND c.email = @email "
-        "AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
-    )
-    rows = list(
-        container.query_items(
-            query=query,
-            parameters=[{"name": "@email", "value": normalized_email}],
-            enable_cross_partition_query=True,
-        )
-    )
-    if not rows:
-        return None
-    return _build_auth_user_from_item(rows[0])
-
-
-def _find_user_by_id_cosmos(user_id: str) -> AuthUser | None:
-    # FIX (auditoría 2026-08-12, flujo Cosmos): antes se atrapaba
-    # `CosmosHttpResponseError` en general -- esa es la clase base de TODOS
-    # los errores HTTP de Cosmos (429 throttling, 5xx, timeouts, fallos de
-    # red), no solo "no encontrado". Con eso, un outage o rate-limit
-    # transitorio de Cosmos hacía que `get_current_user` tratara a CUALQUIER
-    # usuario autenticado como si su token fuera inválido (401 "No
-    # autorizado"), sin loguear nada -- indistinguible de una sesión vencida
-    # para quien mira los logs, y deslogueando en masa a usuarios reales
-    # durante un problema de infraestructura que no tiene nada que ver con
-    # sus tokens. Ahora solo "no encontrado" (404 real) se trata como
-    # "no hay usuario"; cualquier otro error de Cosmos se loguea y se
-    # propaga como 503, para que quede claro que el problema es de
-    # disponibilidad del backend, no de la sesión del usuario.
-    from azure.cosmos.exceptions import CosmosHttpResponseError, CosmosResourceNotFoundError
-
-    container = get_cosmos_container()
-    try:
-        item = container.read_item(item=f"user::{user_id}", partition_key=f"user::{user_id}")
-    except CosmosResourceNotFoundError:
-        return None
-    except CosmosHttpResponseError as exc:
-        logger.warning(
-            "cosmos_find_user_by_id_failed",
-            user_id=user_id,
-            status_code=getattr(exc, "status_code", None),
-            error=str(exc)[:200],
-        )
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "error": {
-                    "code": "AUTH_BACKEND_UNAVAILABLE",
-                    "message": "Servicio de autenticación no disponible",
-                }
-            },
-        ) from exc
-    if item.get("deleted") is True:
-        return None
-    return _build_auth_user_from_item(item)
+def _raise_auth_backend_unavailable(exc: Exception) -> NoReturn:
+    # Mismo criterio que tenía el camino Cosmos (auditoría 2026-08-12):
+    # un fallo de conexión al backend de auth no es lo mismo que "no hay
+    # usuario" -- acá sería tratar cualquier sesión válida como inválida
+    # (401 falso) durante un outage de Postgres. Se distingue y se propaga
+    # como 503 para que quede claro que el problema es de disponibilidad,
+    # no de la sesión del usuario.
+    logger.warning("auth_backend_connection_failed", error=str(exc)[:200])
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail={
+            "error": {
+                "code": "AUTH_BACKEND_UNAVAILABLE",
+                "message": "Servicio de autenticación no disponible",
+            }
+        },
+    ) from exc
 
 
 def get_password_hash(password: str) -> str:
@@ -125,19 +56,19 @@ def create_access_token(user_id: str) -> str:
     return jwt.encode(payload, settings.secret_key, algorithm=settings.jwt_algorithm)
 
 
-def authenticate_user(db: Session | None, email: str, password: str) -> User | AuthUser | None:
-    if _is_cosmos_only_mode():
-        user = _find_user_by_email_cosmos(email)
-    else:
-        managed_db = db or SessionLocal()
+def authenticate_user(db: Session | None, email: str, password: str) -> User | None:
+    managed_db = db or SessionLocal()
+    try:
+        stmt: Select[tuple[User]] = select(User).where(
+            User.email == email, User.deleted_at.is_(None)
+        )
         try:
-            stmt: Select[tuple[User]] = select(User).where(
-                User.email == email, User.deleted_at.is_(None)
-            )
             user = managed_db.execute(stmt).scalar_one_or_none()
-        finally:
-            if db is None:
-                managed_db.close()
+        except OperationalError as exc:
+            _raise_auth_backend_unavailable(exc)
+    finally:
+        if db is None:
+            managed_db.close()
 
     if user is None:
         return None
@@ -159,7 +90,7 @@ def decode_and_validate_token(token: str) -> dict:
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials | None, db: Session | None
-) -> User | AuthUser:
+) -> User:
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -174,15 +105,15 @@ def get_current_user(
             detail={"error": {"code": "INVALID_TOKEN", "message": "No autorizado"}},
         )
 
-    if _is_cosmos_only_mode():
-        user = _find_user_by_id_cosmos(str(user_id))
-    else:
-        managed_db = db or SessionLocal()
+    managed_db = db or SessionLocal()
+    try:
         try:
             user = managed_db.get(User, user_id)
-        finally:
-            if db is None:
-                managed_db.close()
+        except OperationalError as exc:
+            _raise_auth_backend_unavailable(exc)
+    finally:
+        if db is None:
+            managed_db.close()
 
     if user is None or user.deleted_at is not None:
         raise HTTPException(
@@ -193,39 +124,9 @@ def get_current_user(
     return user
 
 
-def register_user(db: Session | None, name: str, email: str, password: str) -> User | AuthUser:
+def register_user(db: Session | None, name: str, email: str, password: str) -> User:
     normalized_name = name.strip()
     normalized_email = email.strip().lower()
-
-    if _is_cosmos_only_mode():
-        existing = _find_user_by_email_cosmos(normalized_email)
-        if existing is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "error": {
-                        "code": "EMAIL_ALREADY_EXISTS",
-                        "message": "Este email ya está registrado",
-                    }
-                },
-            )
-
-        user_id = str(uuid4())
-        now = datetime.now(UTC).isoformat()
-        item = {
-            "id": f"user::{user_id}",
-            "type": "user",
-            "partition_key": f"user::{user_id}",
-            "user_id": user_id,
-            "name": normalized_name,
-            "email": normalized_email,
-            "password_hash": get_password_hash(password),
-            "created_at": now,
-            "updated_at": now,
-            "deleted": False,
-        }
-        get_cosmos_container().upsert_item(item)
-        return _build_auth_user_from_item(item)
 
     user = User(
         name=normalized_name,
@@ -250,6 +151,9 @@ def register_user(db: Session | None, name: str, email: str, password: str) -> U
                 }
             },
         ) from exc
+    except OperationalError as exc:
+        managed_db.rollback()
+        _raise_auth_backend_unavailable(exc)
     finally:
         if db is None:
             managed_db.close()

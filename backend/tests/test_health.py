@@ -34,8 +34,6 @@ def test_azure_config_reports_missing_variables(monkeypatch):
     monkeypatch.setenv("AZURE_BLOB_CONNECTION_STRING", "")
     monkeypatch.setenv("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT", "")
     monkeypatch.setenv("AZURE_DOCUMENT_INTELLIGENCE_KEY", "")
-    monkeypatch.setenv("AZURE_SEARCH_ENDPOINT", "")
-    monkeypatch.setenv("AZURE_SEARCH_KEY", "")
     monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "")
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "")
 

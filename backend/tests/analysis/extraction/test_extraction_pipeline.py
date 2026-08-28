@@ -8,7 +8,6 @@ import pytest
 from analysis.extraction.engine.prompts import _format_chunks
 from analysis.models import Analysis
 from documents.models import Document
-from indexing.ai_search import upload_chunks
 from indexing.chunking import create_chunks
 from indexing.document_intelligence.tables import _serialize_table_rows
 from indexing.runner import extract_and_index
