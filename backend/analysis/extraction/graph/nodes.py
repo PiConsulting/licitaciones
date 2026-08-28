@@ -28,7 +28,11 @@ from analysis.extraction.graph.canonicalization import (
     _normalized_referencia_key,
     _plazo_dedup_value,
 )
-from analysis.extraction.graph.confidence import _category_confidence, _normalize_confidence, _penalize_unverifiable
+from analysis.extraction.graph.confidence import (
+    _category_confidence,
+    _normalize_confidence,
+    _penalize_unverifiable,
+)
 from analysis.extraction.graph.dedup_merge import (
     _merge_duplicate_items_by_key,
     _merge_duplicate_typed_items,
@@ -99,7 +103,7 @@ def _build_shared_candidate_pool(analysis_id: str, correlation_id: str) -> list[
         return []
 
     try:
-        from infra.ports.azure_search import search_hybrid
+        from infra.ports.pgvector_search import search_hybrid
 
         candidates = search_hybrid(
             query=_GLOBAL_CANDIDATE_POOL_QUERY,
@@ -509,7 +513,7 @@ def _build_chunk_indexes(
     necesita la síntesis.
     """
     try:
-        from infra.ports.azure_search import fetch_all_analysis_chunks
+        from infra.ports.pgvector_search import fetch_all_analysis_chunks
 
         all_chunks, truncated = fetch_all_analysis_chunks(analysis_id)
 

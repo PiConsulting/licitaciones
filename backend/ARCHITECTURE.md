@@ -1,11 +1,15 @@
 /# Arquitectura: puertos y adapters
 
-Este backend usa Cosmos DB (metadata/runtime) y Azure AI Search (vectores) hoy,
-con la migración a Postgres/pgvector planeada como trabajo futuro. Para que esa
-migración sea acotada (cambiar adapters, no perseguir imports de Azure por todo
-el pipeline), las piezas que hablan con un proveedor externo se acceden detrás
-de un **puerto**: una interfaz chica (`typing.Protocol` o `ABC`) que describe
-el contrato, implementada por un **adapter** concreto para ese proveedor.
+Este backend usa PostgreSQL (con la extensión `pgvector` para búsqueda
+vectorial/híbrida) como único backend de persistencia. Hasta la Épica 22
+(migración completada 2026-08-28) usaba Cosmos DB (metadata/runtime) y Azure
+AI Search (vectores) — ver `docs/docu/PLAN-migracion-cosmos-postgres-pgvector.md`
+y `docs/docu/pgvector-retrieval-runbook.md` para el detalle de esa migración y
+cómo funciona el retrieval actual. Las piezas que hablan con un proveedor
+externo se siguen accediendo detrás de un **puerto**: una interfaz chica
+(`typing.Protocol` o `ABC`) que describe el contrato, implementada por un
+**adapter** concreto para ese proveedor — el patrón sobrevivió la migración
+sin cambios, sólo cambiaron los adapters concretos detrás de cada puerto.
 
 ## El patrón, con el ejemplo ya resuelto
 
@@ -43,15 +47,18 @@ def extract_and_index(analysis_id: str) -> None:
 El día que se migre el storage de blobs a otro proveedor, alcanza con escribir
 un `OtroProveedorAdapter(BlobStoragePort)` nuevo y cambiar `_build_blob_storage`
 — nada del resto del pipeline sabe qué adapter está corriendo detrás del puerto.
+Exactamente este razonamiento es el que permitió que la Épica 22 reemplazara
+Cosmos DB/Azure AI Search por Postgres/pgvector escribiendo adapters nuevos sin
+tocar el código de negocio que los consume.
 
-## Los 4 puntos de corte para la migración a Postgres/pgvector
+## Los puntos de corte
 
 | Punto de corte | Puerto | Adapter actual | Se inyecta en |
 |---|---|---|---|
 | Document Intelligence (OCR/layout) | `indexing/ports/document_intelligence_port.py::DocumentIntelligencePort` | `indexing/document_intelligence/adapter.py::AzureDocumentIntelligenceAdapter` | `indexing/runner.py::_build_document_intelligence` |
 | Embeddings | `indexing/ports/embeddings_port.py::EmbeddingsPort` | `indexing/embeddings.py::AzureEmbeddingsAdapter` | `indexing/runner.py::_build_embeddings` |
-| Búsqueda vectorial/híbrida | `indexing/ports/search_client_port.py::SearchClientPort` | `indexing/ai_search.py::AzureSearchAdapter` | `indexing/runner.py::_build_search_client` |
-| Persistencia de metadata de análisis | `analysis/metadata_persistence.py::AnalysisMetadataSink` | `SqlMetadataSink` / `CosmosMetadataSink` / `DualWriteMetadataSink` | `analysis/metadata_persistence.py::build_metadata_sink` |
+| Búsqueda vectorial/híbrida (escritura: subir/borrar chunks) | `indexing/ports/search_client_port.py::SearchClientPort` | `infra/adapters/pgvector_search.py::PgVectorSearchAdapter` | `indexing/runner.py::_build_search_client` |
+| Búsqueda vectorial/híbrida (lectura: retrieval) | sin puerto formal — `infra/ports/pgvector_search.py::search_hybrid`/`fetch_all_analysis_chunks`, funciones de módulo | — (reemplaza `infra/ports/azure_search.py`, ver "Qué NO pasa por un puerto") | `analysis/extraction/engine/chunk_retrieval.py` |
 
 Los tres primeros siguen exactamente el patrón de `BlobStoragePort`: cada
 módulo de `indexing/` expone también una función pública (`extract_text`,
@@ -61,19 +68,29 @@ se pasa uno, lo construye internamente (`_build_adapter()`). Eso mantiene
 compatibilidad con los callers que no necesitan inyectar nada (scripts,
 tests unitarios de cada módulo) sin duplicar la lógica de orquestación.
 
-`AnalysisMetadataSink` sigue el mismo espíritu con una variante: como el
-proyecto ya soporta *dual write* (escribir a SQL y Cosmos a la vez durante la
-transición), el "adapter" que se inyecta puede ser un compuesto
-(`DualWriteMetadataSink`) que delega en dos sinks reales. `build_metadata_sink`
-decide cuál construir según `PERSISTENCE_MODE`.
+Document Intelligence, embeddings y blob storage siguen sobre Azure — la
+migración de la Épica 22 fue específicamente de metadata/runtime (Cosmos) y
+búsqueda vectorial (Azure AI Search) a Postgres/pgvector, no de todo el
+sistema. Ver la sección 1.2 del plan de migración para el detalle de qué
+quedó explícitamente fuera de alcance.
+
+No existe más una capa de persistencia de metadata de análisis separada del
+resto (`AnalysisMetadataSink`/dual-write se eliminaron con la Épica 22): las
+tablas `analyses`/`documents`/`analysis_versions`/`events`/`deadlines`/
+`tracking*` son SQLAlchemy contra Postgres directo, sin puerto intermedio —
+son el modelo de datos propio del backend, no un proveedor externo
+intercambiable, así que no aplica el mismo patrón.
 
 ## Qué NO pasa por un puerto (a propósito)
 
-`infra/ports/azure_search.py` (búsqueda legacy, camino de lectura) y
-`analysis/cosmos_runtime.py` (runtime de Cosmos) se reemplazan enteros el día
-de la migración — no vale la pena introducir una abstracción para código que
-se va a borrar. Quedan, eso sí, tratados como código detrás de los puertos de
-arriba desde el punto de vista de sus *callers*.
+`infra/ports/pgvector_search.py` (búsqueda de lectura: `search_hybrid`,
+`fetch_all_analysis_chunks`, expansión parent/child) es un módulo de
+funciones, no una clase detrás de un `Protocol`/`ABC` — no hay un segundo
+proveedor de búsqueda al que migrar, así que no vale la pena la abstracción
+extra. Es el reemplazo directo de `infra/ports/azure_search.py` (borrado en
+la Épica 22): mismo contrato de salida (lista de dicts de chunk), para que
+`chunk_retrieval.py` y el resto del pipeline de extracción no tuvieran que
+cambiar.
 
 ## Convención para archivos grandes: carpeta por responsabilidad
 

@@ -62,22 +62,8 @@ def _cleanup_temp_highlights(analysis_id: str) -> None:
         )
 
 
-class _DocumentoDelAnalisis:
-    """Los datos de un documento que necesitan las dos capas: highlighting y prompt."""
-
-    def __init__(self, doc_id: str, blob_name: str, filename: str = "", is_primary: bool = False):
-        self.id = doc_id
-        self.blob_name = blob_name
-        self.filename = filename
-        self.is_primary = bool(is_primary)
-
-
 def _fetch_analysis_documents(analysis_id: str, db_session: Any) -> list[Any]:
-    """Los documentos de un análisis, venga el estado de PostgreSQL o de Cosmos."""
-    from infra.config import get_settings
-
-    settings = get_settings()
-
+    """Los documentos de un análisis, desde PostgreSQL."""
     if db_session is not None:
         from documents.models import Document
 
@@ -87,50 +73,14 @@ def _fetch_analysis_documents(analysis_id: str, db_session: Any) -> list[Any]:
             .all()
         )
 
-    if settings.is_cosmos_only_mode():
-        try:
-            from analysis.cosmos_runtime import get_cosmos_container
+    from infra.config import get_settings
 
-            container = get_cosmos_container()
-            query = (
-                "SELECT c.document_id, c.blob_name, c.filename, c.is_primary FROM c "
-                "WHERE c.type = 'document' AND c.analysis_id = @analysis_id AND c.deleted = false"
-            )
-            items = container.query_items(
-                query=query,
-                parameters=[{"name": "@analysis_id", "value": analysis_id}],
-                partition_key=analysis_id,
-            )
-
-            documents = [
-                _DocumentoDelAnalisis(
-                    item["document_id"],
-                    item["blob_name"],
-                    item.get("filename") or "",
-                    item.get("is_primary") or False,
-                )
-                for item in items
-            ]
-
-            logger.info(
-                "build_document_mapping_cosmos_source",
-                analysis_id=analysis_id,
-                documents_found=len(documents),
-            )
-            return documents
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "build_document_mapping_cosmos_query_failed",
-                analysis_id=analysis_id,
-                error=str(exc),
-            )
-            return []
-
+    settings = get_settings()
     if settings.is_production:
         logger.error(
             "build_document_mapping_failed_no_session",
             analysis_id=analysis_id,
-            reason="db_session is None in production context without cosmos_only_mode",
+            reason="db_session is None in production context",
         )
         raise RuntimeError(
             f"Cannot build document mapping for analysis {analysis_id}: "

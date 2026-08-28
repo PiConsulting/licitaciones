@@ -13,20 +13,6 @@ from fastapi import (
     status,
 )
 
-from analysis.cosmos_runtime import (
-    cancel_analysis_cosmos,
-    create_analysis_with_documents_cosmos,
-    delete_analysis_cosmos,
-    extract_and_index_cosmos,
-    get_analysis_detail_cosmos,
-    get_analysis_status_cosmos,
-    list_analyses_cosmos,
-    start_analysis_with_duplicates_cosmos,
-)
-from analysis.metadata_persistence import (
-    persist_analysis_metadata,
-    read_runtime_analysis_from_cosmos,
-)
 from analysis.models import CurrentStage
 from analysis.schemas import (
     AnalysisCreateResponse,
@@ -34,7 +20,6 @@ from analysis.schemas import (
     AnalysisListResponse,
     AnalysisStatusResponse,
     AnalysisVersionResponse,
-    DocumentResponse,
     DuplicateWarning,
     StartAnalysisRequest,
     StartAnalysisResponse,
@@ -51,7 +36,6 @@ from analysis.service import (
     validate_analysis_ownership,
 )
 from documents.models import Document
-from indexing.ai_search import validate_index_contract
 from infra.config import get_settings
 from infra.database import SessionLocal
 from tracking.service import get_tracking
@@ -79,31 +63,9 @@ async def get_analyses(
     sort_order: str = Query(default="desc"),
     credentials=Depends(http_bearer),
 ) -> AnalysisListResponse:
-    settings = get_settings()
     current_user = get_current_user(credentials, None)
 
     normalized_sort_order = "asc" if sort_order == "asc" else "desc"
-
-    if settings.persistence_mode_normalized() == "cosmos_only":
-        items, total = list_analyses_cosmos(
-            user_id=current_user.id,
-            search=search,
-            status_filter=analysis_status,
-            date_from=date_from,
-            date_to=date_to,
-            page=page,
-            per_page=per_page,
-            sort_by=sort_by,
-            sort_order=normalized_sort_order,
-        )
-        total_pages = max(1, (total + per_page - 1) // per_page)
-        return AnalysisListResponse(
-            items=items,
-            page=page,
-            per_page=per_page,
-            total=total,
-            total_pages=total_pages,
-        )
 
     db = SessionLocal()
     try:
@@ -137,31 +99,7 @@ async def get_analysis_detail(
     analysis_id: str,
     credentials=Depends(http_bearer),
 ) -> AnalysisDetailResponse:
-    settings = get_settings()
     current_user = get_current_user(credentials, None)
-
-    if settings.persistence_mode_normalized() == "cosmos_only":
-        try:
-            payload = get_analysis_detail_cosmos(analysis_id, current_user.id)
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={
-                    "error": {"code": "ANALYSIS_NOT_FOUND", "message": "Análisis no encontrado"}
-                },
-            ) from exc
-        except PermissionError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "error": {
-                        "code": "FORBIDDEN",
-                        "message": "No tenés permisos para este análisis",
-                    }
-                },
-            ) from exc
-        payload["tracking"] = get_tracking(analysis_id, current_user.id)
-        return AnalysisDetailResponse(**payload)
 
     db = SessionLocal()
     try:
@@ -200,7 +138,7 @@ async def get_analysis_detail(
                 created_by=current_version.created_by,
             ),
             documents=[to_document_response(document) for document in documents],
-            tracking=None,
+            tracking=get_tracking(analysis_id, current_user.id),
         )
     finally:
         db.close()
@@ -214,7 +152,6 @@ async def create_analysis(
     primary_file_index: Annotated[int, Form()] = 0,
     credentials=Depends(http_bearer),
 ) -> AnalysisCreateResponse:
-    settings = get_settings()
     current_user = get_current_user(credentials, None)
 
     incoming_files: list[IncomingUploadFile] = []
@@ -224,61 +161,6 @@ async def create_analysis(
                 filename=file.filename or "documento.pdf",
                 content=await file.read(),
             )
-        )
-
-    if settings.persistence_mode_normalized() == "cosmos_only":
-        try:
-            result = create_analysis_with_documents_cosmos(
-                user_id=current_user.id,
-                user_name=current_user.name,
-                files=incoming_files,
-                primary_file_index=primary_file_index,
-            )
-        except ValueError as exc:
-            error_code = str(exc)
-            if error_code == "NO_FILES":
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail={
-                        "error": {"code": "NO_FILES", "message": "Debés subir al menos un archivo"}
-                    },
-                ) from exc
-            if error_code == "TOO_MANY_FILES":
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail={
-                        "error": {
-                            "code": "TOO_MANY_FILES",
-                            "message": f"Podés subir hasta 10 archivos por análisis y seleccionaste {len(incoming_files)}",
-                        }
-                    },
-                ) from exc
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "error": {
-                        "code": "MISSING_PRIMARY",
-                        "message": "Seleccioná cuál es el pliego principal",
-                    }
-                },
-            ) from exc
-
-        return AnalysisCreateResponse(
-            id=result.analysis["analysis_id"],
-            status=str(result.analysis["status"]),
-            documents=[
-                DocumentResponse(
-                    id=str(document["document_id"]),
-                    filename=str(document["filename"]),
-                    page_count=int(document["page_count"]),
-                    file_size_bytes=int(document["file_size_bytes"]),
-                    is_primary=bool(document["is_primary"]),
-                )
-                for document in result.documents
-            ],
-            warnings=result.warnings,
-            requires_resolution=bool(result.duplicates),
-            duplicates=[DuplicateWarning(**item) for item in result.duplicates],
         )
 
     db = SessionLocal()
@@ -312,60 +194,8 @@ async def start_analysis(
     settings = get_settings()
     if settings.is_production:
         settings.validate_cloud_configuration()
-        validate_index_contract()
 
     current_user = get_current_user(credentials, None)
-
-    if settings.persistence_mode_normalized() == "cosmos_only":
-        decisions = [decision.model_dump() for decision in (payload.decisions if payload else [])]
-        analysis_name = _normalize_analysis_name(payload.analysis_name if payload else None)
-        try:
-            result = start_analysis_with_duplicates_cosmos(
-                analysis_id,
-                current_user.id,
-                created_by_label=current_user.name or current_user.email,
-                decisions=decisions,
-                analysis_name=analysis_name,
-            )
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={
-                    "error": {"code": "ANALYSIS_NOT_FOUND", "message": "Análisis no encontrado"}
-                },
-            ) from exc
-        except PermissionError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "error": {
-                        "code": "FORBIDDEN",
-                        "message": "No tenés permisos para este análisis",
-                    }
-                },
-            ) from exc
-        except RuntimeError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "error": {
-                        "code": "ANALYSIS_ALREADY_STARTED",
-                        "message": "El análisis ya fue iniciado",
-                    }
-                },
-            ) from exc
-
-        if result["status"] == "queued":
-            background_tasks.add_task(extract_and_index_cosmos, analysis_id)
-
-        return StartAnalysisResponse(
-            id=str(result["id"]),
-            status=str(result["status"]),
-            message=str(result["message"]),
-            requires_resolution=bool(result.get("requires_resolution", False)),
-            duplicates=[DuplicateWarning(**item) for item in result.get("duplicates", [])],
-            redirect_analysis_id=result.get("redirect_analysis_id"),
-        )
 
     db = SessionLocal()
     try:
@@ -459,15 +289,6 @@ async def start_analysis(
         analysis.updated_at = datetime.now(UTC)
         db.commit()
 
-        db.refresh(analysis)
-        docs = db.query(Document).filter(Document.analysis_id == analysis.id).all()
-        persist_analysis_metadata(
-            analysis=analysis,
-            documents=docs,
-            versions=[],
-            event="analysis_queued",
-        )
-
         enqueue_analysis(background_tasks, analysis_id)
 
         return StartAnalysisResponse(
@@ -484,51 +305,11 @@ async def get_analysis_status(
     analysis_id: str,
     credentials=Depends(http_bearer),
 ) -> AnalysisStatusResponse:
-    settings = get_settings()
     current_user = get_current_user(credentials, None)
-
-    if settings.persistence_mode_normalized() == "cosmos_only":
-        try:
-            payload = get_analysis_status_cosmos(analysis_id, current_user.id)
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={
-                    "error": {"code": "ANALYSIS_NOT_FOUND", "message": "Análisis no encontrado"}
-                },
-            ) from exc
-        except PermissionError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "error": {
-                        "code": "FORBIDDEN",
-                        "message": "No tenés permisos para este análisis",
-                    }
-                },
-            ) from exc
-        return AnalysisStatusResponse(**payload)
 
     db = SessionLocal()
     try:
         analysis = validate_analysis_ownership(db, analysis_id, current_user.id)
-
-        if settings.is_production and settings.is_cosmos_temporal_mode():
-            runtime_snapshot = read_runtime_analysis_from_cosmos(analysis_id)
-            if runtime_snapshot is not None:
-                return AnalysisStatusResponse(
-                    id=runtime_snapshot["id"],
-                    status=runtime_snapshot["status"],
-                    current_stage=runtime_snapshot["current_stage"],
-                    stage_progress=runtime_snapshot.get("stage_progress"),
-                    progress_percentage=runtime_snapshot.get("progress_percentage", 0),
-                    started_at=runtime_snapshot.get("started_at"),
-                    timeout_at=runtime_snapshot.get("timeout_at"),
-                    timeout_warning_at=runtime_snapshot.get("timeout_warning_at"),
-                    error_message=runtime_snapshot.get("error_message"),
-                    extracted_data=runtime_snapshot.get("extracted_data"),
-                    conflicts=runtime_snapshot.get("conflicts"),
-                )
 
         extracted_data = None
         conflicts = None
@@ -561,17 +342,7 @@ async def cancel_analysis(
     analysis_id: str,
     credentials=Depends(http_bearer),
 ) -> AnalysisStatusResponse:
-    settings = get_settings()
     current_user = get_current_user(credentials, None)
-
-    if settings.persistence_mode_normalized() == "cosmos_only":
-        try:
-            payload = cancel_analysis_cosmos(analysis_id, current_user.id)
-        except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-        except PermissionError as exc:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-        return AnalysisStatusResponse(**payload)
 
     db = SessionLocal()
     try:
@@ -603,40 +374,7 @@ async def remove_analysis(
     analysis_id: str,
     credentials=Depends(http_bearer),
 ) -> None:
-    settings = get_settings()
     current_user = get_current_user(credentials, None)
-
-    if settings.persistence_mode_normalized() == "cosmos_only":
-        try:
-            delete_analysis_cosmos(analysis_id, current_user.id)
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={
-                    "error": {"code": "ANALYSIS_NOT_FOUND", "message": "Análisis no encontrado"}
-                },
-            ) from exc
-        except PermissionError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "error": {
-                        "code": "FORBIDDEN",
-                        "message": "No tenés permisos para este análisis",
-                    }
-                },
-            ) from exc
-        except RuntimeError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "error": {
-                        "code": "ANALYSIS_DELETE_NOT_ALLOWED",
-                        "message": "No podés eliminar un análisis en curso",
-                    }
-                },
-            ) from exc
-        return None
 
     db = SessionLocal()
     try:

@@ -199,7 +199,7 @@ def generate_embeddings(
         for attempt in range(1, retries + 1):
             try:
                 embeddings = adapter.generate_embeddings(texts)
-                expected_dims = settings.azure_search_embedding_dimensions
+                expected_dims = settings.embedding_dimensions
                 for i, embedding in enumerate(embeddings):
                     if len(embedding) != expected_dims:
                         raise RuntimeError(

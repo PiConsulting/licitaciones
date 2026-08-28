@@ -9,7 +9,7 @@ from analysis.extraction.engine.citation_grounding import (
     _normalize_for_grounding,
 )
 from infra.config import get_settings
-from infra.ports.azure_search import search_hybrid
+from infra.ports.pgvector_search import search_hybrid
 
 logger = structlog.get_logger(__name__)
 

@@ -15,10 +15,10 @@
 | Capa           | Tecnología                                                                 |
 |----------------|----------------------------------------------------------------------------|
 | Frontend       | React 18 + TypeScript, Vite, TailwindCSS, React Query, Zustand, Axios     |
-| Backend        | FastAPI + Python 3.11+, Pydantic Settings, PyJWT, SQLAlchemy/Alembic solo compatibilidad |
-| Base de datos  | Azure Cosmos DB en `PERSISTENCE_MODE=cosmos_only`                          |
+| Backend        | FastAPI + Python 3.11+, Pydantic Settings, PyJWT, SQLAlchemy/Alembic       |
+| Base de datos  | PostgreSQL local (nativo, con `pgvector`) — Azure Database for PostgreSQL es el destino final cuando existan credenciales, sin cambio de código (solo `DATABASE_URL`) |
 | Blob storage   | Azure Blob Storage                                                         |
-| IA / RAG        | Azure Document Intelligence, Azure OpenAI, Azure AI Search                 |
+| IA / RAG        | Azure Document Intelligence, Azure OpenAI, PostgreSQL + `pgvector` (búsqueda híbrida RRF + reranking cross-encoder local) |
 | Deploy         | Docker (Dockerfile en cada servicio), `docker-compose.cloud.yml`           |
 | Dev local      | `scripts/dev-start.ps1` arranca backend + frontend + migraciones           |
 
@@ -32,13 +32,12 @@ backend/
   users/                # Auth JWT, registro, login
   analysis/             # Ciclo de vida de análisis (create → start → status)
   documents/            # Modelo Document, hashing de contenido
-  shared/
+  infra/
     config.py           # Settings via pydantic-settings (lee .env)
-    database.py         # SQLAlchemy solo fuera de cosmos_only; en cosmos_only engine/SessionLocal son None
-    cosmos_container.py # Cliente Cosmos DB compartido
+    database.py         # SQLAlchemy — engine/SessionLocal siempre activos (Postgres)
     logging.py          # structlog JSON
-    ports/              # Contratos para servicios externos cuando aplican
-    adapters/           # Implementaciones cloud vigentes
+    ports/               # Contratos para servicios externos (puertos, ver ARCHITECTURE.md)
+    adapters/            # Implementaciones concretas (Azure Blob/OpenAI/Document Intelligence, PgVectorSearchAdapter)
   alembic/              # Migraciones de BD
 frontend/
   src/
@@ -54,47 +53,51 @@ frontend/
 
 ## Modelo de datos central
 
-El modelo operativo actual vive en Cosmos DB. Los items relacionados con un análisis comparten `partition_key=<analysis_id>` y usan `type` como discriminador.
+El modelo operativo vive en PostgreSQL como modelos SQLAlchemy (`Base` de
+`infra.database`), con Alembic para migraciones. Tablas principales:
+`analyses`, `documents`, `analysis_versions`, `chunks` (pgvector — ver
+`docs/docu/pgvector-retrieval-runbook.md`), `events`/`deadlines` (timeline),
+`tracking`/`tracking_categories`/`tracking_items`/`tracking_comments`, `users`.
 
 ```python
-# Cosmos item: analysis
-{
-    "id": "analysis::<analysis_id>",
-    "type": "analysis",
-    "partition_key": "<analysis_id>",
-    "analysis_id": "<analysis_id>",
-    "created_by": "<user_id>",
-    "status": "draft|queued|processing|analyzed|error|cancelled",
-    "current_stage": "queued|...|completed",
-    "current_version_id": "<version_id|null>",
-    "correlation_id": "<uuid>",
-    "deleted": False,
-}
+# analysis/models.py::Analysis
+class Analysis(Base):
+    __tablename__ = "analyses"
+    id: str                          # UUID string(36)
+    created_by: str                  # FK -> users.id
+    current_version_id: str | None   # FK -> analysis_versions.id
+    analysis_name: str | None
+    status: str                      # draft|queued|processing|analyzed|error|cancelled
+    current_stage: str               # queued|extracting_text|indexing|analyzing|consolidating|completed
+    progress_percentage: int
+    extraction_metadata: dict | None
+    correlation_id: str
+    created_at, updated_at, deleted_at: datetime | None   # soft delete
 
-# Cosmos item: document
-{
-    "id": "document::<document_id>",
-    "type": "document",
-    "partition_key": "<analysis_id>",
-    "analysis_id": "<analysis_id>",
-    "document_id": "<document_id>",
-    "filename": "pliego.pdf",
-    "blob_name": "<analysis_id>/<uuid>-pliego.pdf",
-    "sha256_hash": "...",
-    "content_hash": "...",
-    "deleted": False,
-}
+    documents: list[Document]        # relationship, cascade delete-orphan
+    versions: list[AnalysisVersion]  # relationship, cascade delete-orphan
 
-# Cosmos item: analysis_version
-{
-    "id": "version::<version_id>",
-    "type": "analysis_version",
-    "partition_key": "<analysis_id>",
-    "analysis_id": "<analysis_id>",
-    "version_number": 1,
-    "extracted_data": {},
-    "conflicts": [],
-}
+# documents/models.py::Document
+class Document(Base):
+    __tablename__ = "documents"
+    id: str
+    analysis_id: str                 # FK -> analyses.id, ondelete CASCADE
+    filename: str
+    blob_name: str
+    sha256_hash: str                 # dedup exacta (binario)
+    content_hash: str | None         # dedup semántica (texto normalizado)
+    extraction_status: str           # pending|...
+    extraction_error: str | None
+    deleted_at: datetime | None
+
+# analysis/models.py::AnalysisVersion
+class AnalysisVersion(Base):
+    __tablename__ = "analysis_versions"
+    id: str
+    analysis_id: str                 # FK -> analyses.id, ondelete CASCADE
+    version_number: int
+    extracted_data: dict
+    conflicts: list[dict] | None
 ```
 
 ```typescript
@@ -116,11 +119,11 @@ interface DocumentSummary {
 
 ## Decisiones de arquitectura
 
-1. **Cloud-first con Azure**: El runtime vigente usa Cosmos DB, Azure Blob Storage, Azure Document Intelligence, Azure OpenAI y Azure AI Search. No hay runtime local soportado para reemplazar el pipeline IA/RAG.
+1. **PostgreSQL + pgvector como única persistencia**: el runtime usa PostgreSQL (local nativo hoy, Azure Database for PostgreSQL como destino final), Azure Blob Storage, Azure Document Intelligence y Azure OpenAI. La búsqueda vectorial/híbrida corre sobre la extensión `pgvector` de Postgres (RRF + reranking cross-encoder local), no sobre Azure AI Search. Migración completada en la Épica 22 (2026-08-28) — ver `docs/docu/PLAN-migracion-cosmos-postgres-pgvector.md` y `docs/docu/pgvector-retrieval-runbook.md`.
 
-2. **Cosmos DB como fuente de verdad actual**: En `PERSISTENCE_MODE=cosmos_only`, `shared.database.engine` y `SessionLocal` son `None`; rutas y servicios deben usar los caminos Cosmos nativos.
+2. **`infra.database.engine`/`SessionLocal` siempre activos**: no existe más un modo condicional (`PERSISTENCE_MODE` se eliminó junto con Cosmos); toda ruta y servicio usa SQLAlchemy contra Postgres.
 
-3. **Soft delete obligatorio**: En Cosmos usar `deleted: true`/`deleted_at`; en modelos SQL legacy usar `deleted_at`. Nunca borrar físicamente registros salvo hard-delete deliberado de análisis en error o cleanup operativo definido.
+3. **Soft delete obligatorio**: todos los modelos SQL usan `deleted_at: datetime | None`. Nunca borrar físicamente registros salvo hard-delete deliberado de análisis en error o cleanup operativo definido.
 
 4. **Doble hash en documentos**: `sha256_hash` = hash binario del archivo (dedup exacta). `content_hash` = hash del texto normalizado extraído (dedup semántica). Ambos se verifican en duplicados.
 
@@ -141,7 +144,7 @@ interface DocumentSummary {
 ### Agregar un nuevo módulo backend
 
 1. Crear `backend/{módulo}/` con `__init__.py`, `models.py`, `schemas.py`, `service.py`, `routes.py`.
-2. El modelo extiende `Base` de `shared.database`; incluir `deleted_at`, `created_at`, `updated_at`, id UUID string(36).
+2. El modelo extiende `Base` de `infra.database`; incluir `deleted_at`, `created_at`, `updated_at`, id UUID string(36).
 3. Crear migración: `alembic revision --autogenerate -m "add {módulo}"`.
 4. Registrar en `main.py`: `app.include_router({módulo}_router, prefix="/api/v1")`.
 5. Agregar tipos en `frontend/src/types/{módulo}.ts` y funciones en `frontend/src/api/{módulo}.ts`.
@@ -155,11 +158,11 @@ interface DocumentSummary {
 
 ### Extender el modelo de datos
 
-1. Actualizar el contrato Cosmos correspondiente en el servicio/runtime dueño.
+1. Actualizar el modelo SQLAlchemy correspondiente en `{módulo}/models.py`.
 2. Actualizar el schema Pydantic en `schemas.py`.
-3. Agregar o ajustar tests Cosmos del flujo afectado.
-4. Sincronizar la interfaz TS correspondiente en `frontend/src/types/`.
-5. Solo crear migración Alembic si la historia declara explícitamente trabajo sobre el camino SQL legacy o una migración futura.
+3. Crear migración: `alembic revision --autogenerate -m "add {campo}"` (desde `backend/`, con la base local corriendo) y revisarla a mano antes de aplicarla.
+4. Agregar o ajustar tests del flujo afectado (preferir Postgres real vía la fixture `pg_session_factory` sobre mocks cuando el cambio toca `chunks`/búsqueda híbrida).
+5. Sincronizar la interfaz TS correspondiente en `frontend/src/types/`.
 
 ---
 

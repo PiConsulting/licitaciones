@@ -17,8 +17,6 @@ def configure_logging() -> None:
     azure_level = _parse_log_level(settings.azure_sdk_log_level, logging.WARNING)
     for logger_name in (
         "azure",
-        "azure.cosmos",
-        "azure.cosmos._cosmos_http_logging_policy",
         "azure.core.pipeline.policies.http_logging_policy",
     ):
         logging.getLogger(logger_name).setLevel(azure_level)

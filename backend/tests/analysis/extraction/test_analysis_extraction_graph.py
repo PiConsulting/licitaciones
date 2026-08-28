@@ -6,7 +6,6 @@ from unittest.mock import Mock
 
 import pytest
 
-from analysis.extraction.extractors.anexos_obligatorios import extractor_anexos_obligatorios
 from analysis.extraction.engine.citation_grounding import _verify_citation_grounding
 from analysis.extraction.engine.llm_client import _parse_json_response
 from analysis.extraction.engine.normalization import _normalize_item
@@ -16,6 +15,7 @@ from analysis.extraction.engine.prompts import (
     validate_category_prompt_mapping,
     validate_prompt_inventory,
 )
+from analysis.extraction.extractors.anexos_obligatorios import extractor_anexos_obligatorios
 from analysis.extraction.extractors.causales import extractor_causales
 from analysis.extraction.extractors.criterios_evaluacion import extractor_criterios_evaluacion
 from analysis.extraction.extractors.garantias import extractor_garantias
@@ -271,10 +271,10 @@ def test_document_mapping_fluye_de_setup_a_synthesize_para_highlights(
 def test_graph_execution_all_success(mock_state: dict, mock_search: None, mock_llm: None) -> None:
     # `conftest.py` fija APP_ENV=production para toda la suite, y
     # `_fetch_analysis_documents` (graph.py) exige `db_session` en producción
-    # salvo modo cosmos -- guardrail nuevo e intencional (antes degradaba en
-    # silencio a "sin documentos" en cualquier entorno). `mock_state` no trae
-    # sesión de BD real, así que se simula una vacía: mismo comportamiento
-    # que "el análisis no tiene documentos", sin tocar el guardrail.
+    # -- guardrail intencional (antes degradaba en silencio a "sin
+    # documentos" en cualquier entorno). `mock_state` no trae sesión de BD
+    # real, así que se simula una vacía: mismo comportamiento que "el
+    # análisis no tiene documentos", sin tocar el guardrail.
     mock_db_session = Mock()
     mock_db_session.query.return_value.filter.return_value.all.return_value = []
     state = dict(mock_state)
@@ -1246,7 +1246,7 @@ def test_synthesize_node_enumera_el_indice_una_sola_vez(monkeypatch) -> None:
             False,
         )
 
-    monkeypatch.setattr("infra.ports.azure_search.fetch_all_analysis_chunks", _fake_fetch_all)
+    monkeypatch.setattr("infra.ports.pgvector_search.fetch_all_analysis_chunks", _fake_fetch_all)
 
     narrative = CategoryNarrative(blocks=[], sources=[])
     monkeypatch.setattr(
@@ -1291,7 +1291,7 @@ def test_build_chunk_indexes_deriva_los_dos_indices_de_una_enumeracion(monkeypat
     from analysis.extraction.graph.nodes import _build_chunk_indexes
 
     monkeypatch.setattr(
-        "infra.ports.azure_search.fetch_all_analysis_chunks",
+        "infra.ports.pgvector_search.fetch_all_analysis_chunks",
         lambda analysis_id: (
             [
                 {

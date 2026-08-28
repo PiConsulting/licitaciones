@@ -1,82 +1,75 @@
-"""Lectura/escritura del tracking y del analisis en Cosmos DB, con control de concurrencia optimista via ETag."""
+"""Lectura/escritura de tracking contra PostgreSQL, con control de
+concurrencia optimista real (antes ETag de Cosmos): un `UPDATE ... WHERE
+updated_at = :expected` que afecta 0 filas es el equivalente exacto del
+`CosmosAccessConditionFailedError` de antes -- mismo criterio (AC2/AC3).
+"""
 from __future__ import annotations
 
-from azure.core import MatchConditions
-from azure.cosmos.exceptions import CosmosResourceNotFoundError
+from datetime import UTC, datetime
 
-from analysis import cosmos_runtime
+from sqlalchemy import update
+from sqlalchemy.orm import Session
+
+from analysis.models import Analysis, AnalysisVersion
+from tracking.models import Tracking
 
 
-def _load_analysis_or_raise(analysis_id: str, user_id: str) -> dict:
-    container = cosmos_runtime.get_cosmos_container()
-    item_id = f"analysis::{analysis_id}"
-    analysis = None
-    for pk in [analysis_id, item_id]:
-        try:
-            analysis = container.read_item(item=item_id, partition_key=pk)
-            break
-        except Exception:  # noqa: BLE001
-            continue
-    if analysis is None or analysis.get("deleted"):
-        rows = list(
-            container.query_items(
-                query="SELECT TOP 1 * FROM c WHERE c.type = 'analysis' AND c.analysis_id = @analysis_id",
-                parameters=[{"name": "@analysis_id", "value": analysis_id}],
-                enable_cross_partition_query=True,
-            )
-        )
-        if rows:
-            analysis = rows[0]
-    if analysis is None or analysis.get("deleted"):
+def _load_analysis_or_raise(db: Session, analysis_id: str, user_id: str) -> Analysis:
+    analysis = (
+        db.query(Analysis)
+        .filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None))
+        .first()
+    )
+    if analysis is None:
         raise ValueError("ANALYSIS_NOT_FOUND")
-    if analysis.get("created_by") != user_id:
+    if analysis.created_by != user_id:
         raise PermissionError("FORBIDDEN")
     return analysis
 
 
-def _load_latest_version(analysis_id: str) -> dict:
-    container = cosmos_runtime.get_cosmos_container()
-    rows = list(
-        container.query_items(
-            query=(
-                "SELECT TOP 1 * FROM c WHERE c.type = 'analysis_version' "
-                "AND c.analysis_id = @analysis_id ORDER BY c.version_number DESC"
-            ),
-            parameters=[{"name": "@analysis_id", "value": analysis_id}],
-            partition_key=analysis_id,
-        )
+def _load_latest_version(db: Session, analysis_id: str) -> AnalysisVersion:
+    version = (
+        db.query(AnalysisVersion)
+        .filter(AnalysisVersion.analysis_id == analysis_id)
+        .order_by(AnalysisVersion.version_number.desc())
+        .first()
     )
-    if not rows:
+    if version is None:
         raise ValueError("NO_VERSION_YET")
-    return rows[0]
+    return version
 
 
-def _read_tracking_or_none(analysis_id: str, version_id: str) -> dict | None:
-    container = cosmos_runtime.get_cosmos_container()
-    item_id = _tracking_id(analysis_id, version_id)
-    try:
-        return container.read_item(item=item_id, partition_key=analysis_id)
-    except CosmosResourceNotFoundError:
-        return None
-    except Exception:
-        return None
+def _read_tracking_or_none(db: Session, analysis_id: str, version_id: str) -> Tracking | None:
+    return (
+        db.query(Tracking)
+        .filter(Tracking.analysis_id == analysis_id, Tracking.version_id == version_id)
+        .first()
+    )
 
 
-def _save_tracking_with_etag(tracking: dict) -> None:
-    container = cosmos_runtime.get_cosmos_container()
-    etag = tracking.get("_etag")
-    if etag:
-        result = container.replace_item(
-            item=tracking["id"],
-            body=tracking,
-            etag=etag,
-            match_condition=MatchConditions.IfNotModified,
-        )
-    else:
-        result = container.upsert_item(tracking)
-    if isinstance(result, dict) and result.get("_etag"):
-        tracking["_etag"] = result["_etag"]
+def _apply_tracking_cas_update(
+    db: Session, tracking_id: str, expected_updated_at: datetime, new_updated_at: datetime | None = None
+) -> datetime:
+    """Confirma la transacción sólo si `tracking.updated_at` sigue siendo
+    `expected_updated_at` -- cualquier otra escritura concurrente (de
+    cualquier parte del árbol: la categoría, un item, o el tracking mismo)
+    ya la habrá cambiado, y esta llamada afecta 0 filas -> TRACKING_CONFLICT.
 
-
-def _tracking_id(analysis_id: str, version_id: str) -> str:
-    return f"tracking::{analysis_id}::{version_id}"
+    Se llama DESPUÉS de mutar los objetos ORM relevantes (categoría/item) en
+    la misma sesión -- `db.flush()` empuja esos cambios a la transacción
+    (sin confirmarla), y este UPDATE + commit los hace definitivos junto con
+    el nuevo `updated_at`. Si la condición no matchea, se hace rollback:
+    todo lo flusheado en esta transacción se descarta también.
+    """
+    new_updated_at = new_updated_at or datetime.now(UTC)
+    db.flush()
+    result = db.execute(
+        update(Tracking)
+        .where(Tracking.id == tracking_id, Tracking.updated_at == expected_updated_at)
+        .values(updated_at=new_updated_at)
+    )
+    if result.rowcount == 0:
+        db.rollback()
+        raise RuntimeError("TRACKING_CONFLICT")
+    db.commit()
+    return new_updated_at

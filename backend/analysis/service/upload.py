@@ -9,7 +9,6 @@ from uuid import uuid4
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from analysis.metadata_persistence import persist_analysis_metadata
 from analysis.models import Analysis
 from analysis.service.duplicates import find_duplicates_for_analysis
 from documents.models import Document
@@ -174,13 +173,6 @@ def create_analysis_with_documents(
         db.refresh(analysis)
         for document in documents:
             db.refresh(document)
-
-        persist_analysis_metadata(
-            analysis=analysis,
-            documents=documents,
-            versions=[],
-            event="analysis_created",
-        )
 
         duplicates = find_duplicates_for_analysis(db, analysis.id, user_id)
 
