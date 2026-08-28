@@ -133,11 +133,11 @@ describe("AnalysisDetailPage PDF integration", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByTestId("categories-panel")).toBeInTheDocument();
+      expect(screen.getByTestId("analysis-content-panel")).toBeInTheDocument();
     });
 
     expect(screen.getByTestId("detail-summary-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("categories-panel")).toHaveClass("xl:w-[60%]");
+    expect(screen.getByTestId("analysis-content-panel")).toHaveClass("xl:w-[60%]");
     expect(screen.getByTestId("pdf-viewer-panel")).toHaveClass("xl:w-[40%]");
   });
 
@@ -152,12 +152,12 @@ describe("AnalysisDetailPage PDF integration", () => {
     await user.click(screen.getByRole("button", { name: "Ocultar visor PDF" }));
 
     expect(screen.queryByTestId("pdf-viewer-panel")).not.toBeInTheDocument();
-    expect(screen.getByTestId("categories-panel")).toHaveClass("xl:w-full");
+    expect(screen.getByTestId("analysis-content-panel")).toHaveClass("xl:w-full");
 
     await user.click(screen.getByRole("button", { name: "Mostrar PDF" }));
 
     expect(screen.getByTestId("pdf-viewer-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("categories-panel")).toHaveClass("xl:w-[60%]");
+    expect(screen.getByTestId("analysis-content-panel")).toHaveClass("xl:w-[60%]");
   });
 
   test("click en fuente de categoría (documento + página) abre visor en la cita elegida", async () => {
@@ -218,7 +218,7 @@ describe("AnalysisDetailPage PDF integration", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByTestId("categories-panel")).toBeInTheDocument();
+      expect(screen.getByTestId("analysis-content-panel")).toBeInTheDocument();
     });
 
     expect(screen.queryByRole("button", { name: "Terminar seguimiento" })).not.toBeInTheDocument();

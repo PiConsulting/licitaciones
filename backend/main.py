@@ -14,6 +14,7 @@ from documents.routes import router as documents_router
 from infra.config import get_settings
 from infra.database import engine
 from infra.logging import configure_logging
+from timeline.routes import timeline_router
 from tracking.routes import tracking_router
 from users.routes import auth_router, protected_router
 
@@ -172,6 +173,7 @@ def create_app() -> FastAPI:
     app.include_router(protected_router, prefix="/api/v1")
     app.include_router(analysis_router, prefix="/api/v1")
     app.include_router(tracking_router, prefix="/api/v1")
+    app.include_router(timeline_router, prefix="/api/v1")
     app.include_router(documents_router, prefix="/api/v1")
 
     # 🔧 DEBUG - quitar antes de commitear
