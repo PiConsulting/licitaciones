@@ -21,10 +21,28 @@ _RUN_IN_HEADING_RE = re.compile(
     r"|\d{1,2}(?:\.\d{1,2})*"  # "10", "5.2", "3.1.2"
     r")"
     r"\s*[:.\-–)]?\s+"  # Separador después del label (opcional: ":", ".", "-", ")")
-    r"(?P<title>[A-ZÁÉÍÓÚÑ][^\n]{2,90}?)"  # Título: empieza con mayúscula, min 3 chars
-    r"(?:\s*[:.])?",  # Separador después del título (OPCIONAL)
+    r"(?:"
+    # Caso con ":" propio del título (ej. "Artículo 10: GARANTÍA DE
+    # ADJUDICACIÓN: En caso de corresponder..."): el título es TODO lo que
+    # hay hasta ese ":", sin importar cuánto mida -- antes esta rama no
+    # existía y la única alternativa (title_bare, no-greedy) se conformaba
+    # con las primeras 2-3 letras ("GAR") porque nada la obligaba a seguir.
+    r"(?P<title_colon>[A-ZÁÉÍÓÚÑ][^\n:]{1,89}):\s*(?=\S)"
+    r"|"
+    # Caso sin ":" propio (ej. "Artículo 5. Objeto de la contratación..."):
+    # no hay delimitador que marque dónde termina el título, así que se
+    # mantiene el comportamiento original (no-greedy, mínimo 3 chars) --
+    # `_looks_like_section_title` filtra lo que quede demasiado corto o en
+    # minúsculas.
+    r"(?P<title_bare>[A-ZÁÉÍÓÚÑ][^\n]{2,90}?)(?:\s*[:.])?"
+    r")",
     re.IGNORECASE,
 )
+
+
+def _run_in_title(match: re.Match) -> str:
+    """Título capturado por `_RUN_IN_HEADING_RE`, sea cual sea la rama que matcheó."""
+    return match.group("title_colon") or match.group("title_bare") or ""
 _MIN_RUN_IN_TITLE_LETTERS = 3
 _BOILERPLATE_EDGE_CHARS = " -–—:|.,"
 _SPLIT_WORD_MAX_CHARS = 5
@@ -144,7 +162,7 @@ def _promote_run_in_headings(blocks: list[dict]) -> list[dict]:
                 continue
 
             match = _RUN_IN_HEADING_RE.match(stripped)
-            title = match.group("title").strip() if match else ""
+            title = _run_in_title(match).strip() if match else ""
             if not match or not _looks_like_section_title(title):
                 pending.append(stripped)
                 continue

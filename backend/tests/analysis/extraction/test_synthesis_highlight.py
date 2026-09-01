@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, MagicMock, patch
 from pathlib import Path
 
 from analysis.extraction.synthesis import enrich_narrative_with_highlights
@@ -194,49 +196,61 @@ class TestHighlightNormalization:
 
 
 class TestHighlightCoordinateConversion:
-    """Tests para conversión de coordenadas PyMuPDF a top-left origin."""
+    """Tests para las coordenadas que devuelve PyMuPDF.
 
-    @patch("analysis.extraction.highlight.fitz")
-    def test_compute_highlight_converts_to_top_left(self, mock_fitz):
-        """compute_highlight_regions convierte coordenadas a top-left origin."""
-        # Mock PyMuPDF
+    NOTA (fix post-refactor de `analysis/extraction/highlight/`): `fitz` y
+    `get_settings` se importan de forma LOCAL dentro de
+    `compute_highlight_regions` (`highlight.py`), no como atributos de
+    módulo -- por eso estos tests mockean `sys.modules["fitz"]` (para que el
+    `import fitz` local resuelva al mock) e `infra.config.get_settings` (de
+    donde `highlight.py` lo importa), en vez de
+    `analysis.extraction.highlight.fitz`/`.get_settings`, que nunca
+    existieron como atributos de ese paquete.
+
+    Además, PyMuPDF ya devuelve las coordenadas de `Page.search_for` en un
+    sistema con origen top-left (y crece hacia abajo) -- no hay que invertir
+    contra la altura de la página. `_rects_to_regions` (`highlight.py`) usa
+    `rect.y0` tal cual; estos tests verifican eso, no una conversión.
+    """
+
+    def test_compute_highlight_uses_pymupdf_coordinates_as_is(self):
+        """compute_highlight_regions usa las coordenadas de PyMuPDF sin invertirlas."""
         mock_doc = Mock()
         mock_page = Mock()
         mock_rect = Mock()
         mock_rect.x0 = 72.0
-        mock_rect.y0 = 450.0  # Bottom-left y
-        mock_rect.y1 = 486.0  # Bottom-left y + height
+        mock_rect.y0 = 450.0
+        mock_rect.y1 = 486.0
         mock_rect.width = 420.0
         mock_rect.height = 36.0
 
-        mock_page.rect.height = 800.0  # Page height
+        mock_page.rect.height = 800.0
         mock_page.search_for.return_value = [mock_rect]
         mock_doc.__getitem__.return_value = mock_page
         mock_doc.__len__.return_value = 20
+
+        mock_fitz = MagicMock()
         mock_fitz.open.return_value = mock_doc
 
-        regions = compute_highlight_regions(
-            pdf_path="/tmp/test.pdf",
-            page_number=1,
-            citation="Test citation",
-            correlation_id="test-123",
-        )
+        with patch.dict(sys.modules, {"fitz": mock_fitz}):
+            regions = compute_highlight_regions(
+                pdf_path="/tmp/test.pdf",
+                page_number=1,
+                citation="Test citation",
+                correlation_id="test-123",
+            )
 
         assert len(regions) == 1
-        # Verificar conversión: y_topleft = page_height - y_bottomleft - height
-        # y_topleft = 800 - 486 = 314
         assert regions[0]["x"] == 72.0
-        assert regions[0]["y"] == 314.0  # Convertido a top-left
+        assert regions[0]["y"] == 450.0  # rect.y0 tal cual, PyMuPDF ya es top-left
         assert regions[0]["width"] == 420.0
         assert regions[0]["height"] == 36.0
 
-    @patch("analysis.extraction.highlight.fitz")
-    def test_compute_highlight_multiple_regions(self, mock_fitz):
-        """Múltiples matches producen múltiples regiones convertidas."""
+    def test_compute_highlight_multiple_regions(self):
+        """Múltiples matches producen múltiples regiones, cada una con su y original."""
         mock_doc = Mock()
         mock_page = Mock()
 
-        # Dos rects encontrados
         mock_rect1 = Mock(x0=72.0, y0=450.0, y1=486.0, width=420.0, height=36.0)
         mock_rect2 = Mock(x0=72.0, y0=600.0, y1=636.0, width=420.0, height=36.0)
 
@@ -244,47 +258,51 @@ class TestHighlightCoordinateConversion:
         mock_page.search_for.return_value = [mock_rect1, mock_rect2]
         mock_doc.__getitem__.return_value = mock_page
         mock_doc.__len__.return_value = 20
+
+        mock_fitz = MagicMock()
         mock_fitz.open.return_value = mock_doc
 
-        regions = compute_highlight_regions(
-            pdf_path="/tmp/test.pdf",
-            page_number=1,
-            citation="Test citation",
-            correlation_id="test-123",
-        )
+        with patch.dict(sys.modules, {"fitz": mock_fitz}):
+            regions = compute_highlight_regions(
+                pdf_path="/tmp/test.pdf",
+                page_number=1,
+                citation="Test citation",
+                correlation_id="test-123",
+            )
 
         assert len(regions) == 2
-        # Primera región: y = 800 - 486 = 314
-        assert regions[0]["y"] == 314.0
-        # Segunda región: y = 800 - 636 = 164
-        assert regions[1]["y"] == 164.0
+        assert regions[0]["y"] == 450.0
+        assert regions[1]["y"] == 600.0
 
 
 class TestHighlightConfigurableThreshold:
     """Tests para threshold configurable de citation."""
 
-    @patch("analysis.extraction.highlight.fitz")
-    @patch("analysis.extraction.highlight.get_settings")
-    def test_uses_configurable_min_length(self, mock_settings, mock_fitz):
+    @patch("infra.config.get_settings")
+    def test_uses_configurable_min_length(self, mock_settings):
         """compute_highlight_regions usa highlight_citation_min_length de config."""
         mock_settings_instance = Mock()
         mock_settings_instance.highlight_citation_min_length = 10  # Custom threshold
         mock_settings.return_value = mock_settings_instance
 
+        mock_fitz = MagicMock()
+
         # Citation de 5 caracteres (menos que threshold)
-        regions = compute_highlight_regions(
-            pdf_path="/tmp/test.pdf",
-            page_number=1,
-            citation="short",  # 5 chars < 10
-            correlation_id="test-123",
-        )
+        with patch.dict(sys.modules, {"fitz": mock_fitz}):
+            regions = compute_highlight_regions(
+                pdf_path="/tmp/test.pdf",
+                page_number=1,
+                citation="short",  # 5 chars < 10
+                correlation_id="test-123",
+            )
 
         # Debe retornar vacío por citation too short
         assert regions == []
+        # Y ni siquiera debe haber llegado a abrir el PDF.
+        mock_fitz.open.assert_not_called()
 
-    @patch("analysis.extraction.highlight.fitz")
-    @patch("analysis.extraction.highlight.get_settings")
-    def test_default_min_length_is_3(self, mock_settings, mock_fitz):
+    @patch("infra.config.get_settings")
+    def test_default_min_length_is_3(self, mock_settings):
         """Si config no tiene highlight_citation_min_length, usa default 3."""
         mock_settings_instance = Mock(spec=[])  # Sin el atributo
         mock_settings.return_value = mock_settings_instance
@@ -295,15 +313,18 @@ class TestHighlightConfigurableThreshold:
         mock_page.search_for.return_value = []
         mock_doc.__getitem__.return_value = mock_page
         mock_doc.__len__.return_value = 20
+
+        mock_fitz = MagicMock()
         mock_fitz.open.return_value = mock_doc
 
         # Citation de 4 caracteres (>= default 3)
-        regions = compute_highlight_regions(
-            pdf_path="/tmp/test.pdf",
-            page_number=1,
-            citation="test",  # 4 chars >= 3 (default)
-            correlation_id="test-123",
-        )
+        with patch.dict(sys.modules, {"fitz": mock_fitz}):
+            regions = compute_highlight_regions(
+                pdf_path="/tmp/test.pdf",
+                page_number=1,
+                citation="test",  # 4 chars >= 3 (default)
+                correlation_id="test-123",
+            )
 
         # No debe fallar por citation too short (>= default threshold)
         # Retorna [] porque no hay matches, no por threshold

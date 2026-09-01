@@ -12,6 +12,7 @@ from analysis.extraction.state import GraphState
 from analysis.models import Analysis, AnalysisVersion, CurrentStage
 from analysis.progress import build_stage_progress, update_stage_and_progress
 from infra.config import get_settings
+from timeline.materializer import materialize_timeline_from_extraction
 
 logger = structlog.get_logger(__name__)
 _PROMPT_COST_PER_1K = 0.00015
@@ -87,6 +88,32 @@ def extract_categories(db: Session, analysis: Analysis) -> GraphState:
     )
     db.add(new_version)
     db.flush()
+
+    try:
+        materialize_result = materialize_timeline_from_extraction(
+            db,
+            analysis_id=analysis.id,
+            created_by=analysis.created_by,
+            eventos_temporales=result.get("eventos_temporales", []),
+            plazos_relativos=result.get("plazos_relativos", []),
+        )
+        logger.info(
+            "timeline_materialized",
+            correlation_id=analysis.correlation_id,
+            analysis_id=analysis.id,
+            events_created=materialize_result.events_created,
+            deadlines_created=materialize_result.deadlines_created,
+            skipped_count=len(materialize_result.skipped),
+        )
+    except Exception:
+        # No debe bloquear que el análisis se marque como analizado -- el
+        # Timeline queda vacío para este análisis (como hoy), pero el resto
+        # de los resultados de la extracción se guardan igual.
+        logger.exception(
+            "timeline_materialization_failed",
+            correlation_id=analysis.correlation_id,
+            analysis_id=analysis.id,
+        )
 
     update_stage_and_progress(
         db,

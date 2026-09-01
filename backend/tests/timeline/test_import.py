@@ -1,8 +1,6 @@
 """Test simple de import del módulo timeline."""
-import pytest
 
 
-@pytest.mark.usefixtures()  # No usar autouse fixtures
 def test_import_timeline_models():
     """El módulo timeline.models debe poderse importar."""
     from timeline.models import Event, DateSource, EventStatus
@@ -11,7 +9,6 @@ def test_import_timeline_models():
     assert EventStatus is not None
 
 
-@pytest.mark.usefixtures()  # No usar autouse fixtures
 def test_create_simple_event():
     """Se debe poder crear un Event básico."""
     from timeline.models import Event

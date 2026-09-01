@@ -1,32 +1,49 @@
 # CONCEPTO DE LA CATEGORÍA
 
-Esta categoría extrae **eventos temporales** mencionados en los documentos de pliego
-de licitación. Un evento temporal es cualquier hito, momento clave o fecha importante
-del proceso de licitación que aparece en el documento.
+Esta categoría extrae **hitos temporales** mencionados en los documentos de pliego
+de licitación: cualquier evento, momento clave o plazo del proceso, tenga fecha de
+calendario propia o se cuente como duración a partir de otro evento del mismo pliego.
 
-**Desde la perspectiva del oferente:** "¿Qué eventos críticos debo tener en cuenta
-en mi calendario? ¿Cuándo ocurren los hitos importantes del proceso?"
+**Desde la perspectiva del oferente:** "¿Qué eventos críticos debo tener en cuenta en
+mi calendario? ¿Cuándo ocurren los hitos importantes del proceso? ¿Cuánto tiempo tengo
+desde que ocurre un evento para hacer otra cosa?"
+
+Un hito temporal puede presentarse de dos formas, y **un mismo ítem puede combinar
+ambas**:
+
+1. **Con fecha propia** (`fecha_explicita`): el pliego da una fecha de calendario
+   directa. Ejemplo: "La apertura de ofertas será el 15/09/2026".
+2. **Como plazo relativo** (`evento_disparador` + `cantidad`/`unidad`/...): el pliego
+   cuenta una duración a partir de OTRO hito ya extraído en esta misma lista. Ejemplo:
+   "Dentro de los 10 días de la adjudicación, el adjudicatario deberá presentarse" →
+   esto es el hito "Firma del Contrato" (o similar), con `evento_disparador:
+   "Adjudicación"` apuntando al hito "Adjudicación" que también extraiste.
 
 Incluye:
 - Eventos del procedimiento licitatorio (recepción del pliego, consultas, apertura de ofertas, adjudicación)
 - Eventos post-adjudicación (firma de contrato, inicio de obra/servicio, entregas)
-- Cualquier otro hito temporal mencionado en el pliego
+- Plazos del procedimiento o de la ejecución contractual contados desde otro evento
+- Cualquier otro hito o plazo temporal mencionado en el pliego
 
-**Reconocimiento semántico:** Los eventos pueden aparecer en cualquier sección del
+**Reconocimiento semántico:** Los hitos pueden aparecer en cualquier sección del
 documento (Plazos, Cronograma, Requisitos, Condiciones de contratación, Anexos). Buscá:
 - Menciones explícitas de eventos ("apertura de ofertas", "adjudicación", "recepción del pliego")
 - Fechas calendarias asociadas a eventos específicos
 - Referencias a hitos del proceso ("el acto de apertura", "la notificación", "la firma del contrato")
+- Cantidad de tiempo contada desde un evento (10 días, 2 meses, 30 días corridos)
+- Dirección temporal (desde, hasta, antes de, después de, dentro de)
+- Tipo de días (corridos, hábiles)
 
-**Frases típicas que indican eventos temporales:**
+**Frases típicas que indican hitos temporales:**
 - "La apertura de ofertas se realizará el..."
-- "Dentro de X días de recibido el pliego..."
 - "La adjudicación se notificará..."
-- "Firma del contrato"
-- "Inicio de obra"
-- "Entrega de bienes"
+- "Firma del contrato" / "Inicio de obra" / "Entrega de bienes"
+- "Dentro de X días de [evento]..."
+- "X días corridos/hábiles desde [evento]..."
+- "Hasta X días antes/después de [evento]..."
+- "Plazo de X días desde [evento]..."
 
-**Variaciones comunes:**
+**Variaciones comunes (mismo hito, distinta redacción):**
 - "Apertura de ofertas" = "Acto de apertura" = "Acto público de apertura de sobres"
 - "Adjudicación" = "Acto de adjudicación" = "Notificación de la adjudicación"
 - "Recepción del pliego" = "Publicación del pliego" = "Retiro del pliego"
@@ -36,108 +53,263 @@ documento (Plazos, Cronograma, Requisitos, Condiciones de contratación, Anexos)
 
 # OBJETIVO
 
-Extraer **TODOS los eventos temporales** mencionados en el pliego, identificando:
-- El nombre del evento (normalizado)
+Extraer **TODOS los hitos temporales** mencionados en el pliego —con fecha propia,
+como plazo relativo, o ambos— identificando:
+- El nombre del hito (normalizado)
 - La fecha explícita si está presente en el texto
+- Si depende de otro hito: cuánto tiempo, desde/hasta qué hito, y con qué dirección
 - El fragmento de texto donde se menciona
 - La página donde aparece
 
-**Incluye:**
-- Eventos del procedimiento licitatorio
-- Eventos de ejecución contractual
-- Eventos de entrega o recepción
-- Cualquier otro hito temporal mencionado
+**NO filtrar por tipo o etapa** - si el pliego menciona un hito temporal, extraelo.
 
-**NO filtrar por tipo o etapa** - si el pliego menciona un evento temporal, extraelo.
+**NO calcular fechas absolutas** para los plazos relativos. Solo extraé la estructura
+(cantidad, unidad, evento disparador, dirección). El cálculo de fechas se hace en otra
+capa del sistema.
 
-Un ítem por evento. Si el mismo evento aparece múltiples veces en el documento,
-consolidalo en UN SOLO ítem con todas las fuentes donde se menciona.
+Un ítem por hito. Si el mismo hito aparece múltiples veces en el documento (con o sin
+fecha, como plazo relativo o no), consolidalo en UN SOLO ítem con todos los datos y
+fuentes combinados.
 
 **⚠️ IMPORTANTE - NO DUPLICAR:**
-Si el mismo evento aparece en múltiples fragmentos con redacción levemente distinta,
-extraelo UNA SOLA VEZ. Consolidá las menciones en el campo `fuente_fragmento`,
-pero emití un único ítem.
+Si el mismo hito aparece en múltiples fragmentos con redacción levemente distinta,
+extraelo UNA SOLA VEZ. Consolidá las menciones en el campo `fuente_fragmento`, pero
+emití un único ítem.
 
 **Ejemplos de duplicados a evitar:**
-- ❌ "Apertura de ofertas" mencionada en sección Plazos y en sección Cronograma → ✅ UN SOLO item
-- ❌ "Adjudicación" referenciada dos veces con redacción distinta → ✅ UN SOLO item con ambas citas
-- ❌ "Firma del contrato" extraído múltiples veces → ✅ UN SOLO item
+- ❌ "Apertura de ofertas" mencionada en sección Plazos y en sección Cronograma → ✅ UN SOLO ítem
+- ❌ "Adjudicación" referenciada dos veces con redacción distinta → ✅ UN SOLO ítem con ambas citas
+- ❌ "Firma del contrato" con fecha en un fragmento y como plazo relativo en otro → ✅ UN SOLO ítem con ambos datos
 
 # ESTRUCTURA DE SALIDA
 
-Usá el schema `EventosTemporalesResponse` definido en `schemas.py`.
+Usá el schema `HitosTemporalesResponse` definido en `schemas.py`.
 
-**Campos clave del schema `EventoTemporalExtracted`:**
+**Campos clave del schema `HitoTemporalExtracted`:**
 
-- `nombre`: **OBLIGATORIO**. Nombre normalizado del evento (3-120 caracteres). Usar Title Case.
+- `nombre`: **OBLIGATORIO**. Nombre normalizado del hito (3-120 caracteres). Usar Title Case.
   Ejemplos: "Apertura de Ofertas", "Adjudicación", "Firma del Contrato", "Inicio de Obra"
 
 - `fecha_explicita`: Fecha en formato ISO YYYY-MM-DD (solo si hay fecha calendaria explícita en el texto, sino `null`)
 
 - `origen_fecha`: **OBLIGATORIO**. Valor literal:
   - `"detectada"` si hay fecha explícita en el texto
-  - `"pendiente"` si no hay fecha explícita
+  - `"pendiente"` si no hay fecha explícita (incluye los hitos que solo tienen plazo relativo)
+
+- `evento_disparador`: Nombre del hito desde/hasta el cual se cuenta este, si aplica
+  (3-150 caracteres). **Solo se completa cuando este hito se cuenta a partir de otro
+  hito de esta misma lista** — ver regla 2 más abajo. `null` si el hito tiene fecha
+  propia o no depende de nada.
+
+- `cantidad`: Cantidad de unidades de tiempo (entero >= 0). Solo si hay `evento_disparador`.
+
+- `unidad`: Unidad de tiempo. Valores literales: `"días"`, `"meses"`, `"años"`, `"horas"`.
+  Solo si hay `evento_disparador`.
+
+- `tipo_dias`: Tipo de días si `unidad` es `"días"`. Valores literales:
+  - `"corridos"` - días calendario continuos
+  - `"hábiles"` - días laborables (excluye sábados, domingos y feriados)
+  - `"no_especificado"` - el documento no lo especifica (default)
+
+- `direccion`: Dirección temporal del plazo, si aplica. Valores literales:
+  - `"desde"` - se cuenta a partir del evento
+  - `"hasta"` - límite antes del evento
+  - `"antes_de"` - debe completarse antes del evento
+  - `"después_de"` - se cuenta después del evento
+
+- `es_plazo_maximo`: Boolean (default `false`). `true` si es un límite/deadline, `false` si es duración estimada.
+
+- `mencion_propia`: **OBLIGATORIO**. Boolean.
+  - `true` (el caso normal) si el pliego declara este hito por sí mismo -- tiene su
+    propia oración, aunque sea sin fecha ("la adjudicación se notificará a los
+    oferentes").
+  - `false` **SOLO** cuando agregaste este ítem nada más porque hacía falta como
+    `evento_disparador` de otro ítem (regla 2) y el pliego NUNCA lo menciona por su
+    cuenta -- no hay ninguna oración que hable de este hito en sí, solo la mención de
+    pasada dentro de la oración del plazo que depende de él.
 
 - `fuente_documento_id`: **OBLIGATORIO**. ID del documento donde se encontró (proporcionado en el contexto)
 
-- `fuente_pagina`: **OBLIGATORIO**. Número de página donde aparece el evento (entero >= 1)
+- `fuente_pagina`: **OBLIGATORIO**. Número de página donde aparece el hito (entero >= 1)
 
-- `fuente_fragmento`: **OBLIGATORIO**. Fragmento de texto original que menciona el evento (12-500 caracteres).
-  Debe incluir contexto suficiente (1-2 oraciones) para entender de qué evento se trata.
+- `fuente_fragmento`: **OBLIGATORIO**. Fragmento de texto original que menciona el hito (12-500 caracteres).
+  Debe incluir contexto suficiente (1-2 oraciones) para entender de qué hito se trata.
 
-- `extraction_status`: **OBLIGATORIO**. Siempre `"success"` para cada evento que emitas
-  (si no hay ningún evento en el documento, no emitas items -- devolvé la lista vacía,
+- `extraction_status`: **OBLIGATORIO**. Siempre `"success"` para cada hito que emitas
+  (si no hay ningún hito en el documento, no emitas items -- devolvé la lista vacía,
   no un item con este campo en otro valor).
 
-**Cuando no hay eventos temporales:** `{"eventos_temporales": []}`
+**Cuando no hay hitos temporales:** `{"eventos_temporales": []}`
 
 ---
 
 # REGLAS ESPECÍFICAS
 
+## 0. Los plazos relativos NO son opcionales ni secundarios
+
+Esta categoría fusiona DOS cosas que antes se extraían por separado: hitos con fecha
+propia Y plazos relativos ("X días desde el evento Y"). **Las dos son igual de
+importantes.** Un pliego típico de licitación casi siempre tiene varios plazos
+relativos (plazos de impugnación, de firma de contrato, de entrega, de garantías,
+penalidades por demora, etc.) además de sus fechas explícitas.
+
+Antes de emitir tu respuesta final, releé los fragmentos buscando específicamente
+expresiones como "días corridos", "días hábiles", "dentro de los X días", "X meses
+desde", "a partir de", "con anterioridad a", "no más tarde de" -- si encontrás alguna y
+tu lista no tiene ningún ítem con `evento_disparador` completado para esa expresión, te
+falta extraerla. **No es un extra: es la mitad del trabajo de esta categoría.**
+
 ## 1. fuente_fragmento es OBLIGATORIO y debe dar CONTEXTO COMPLETO
 
-En todos los eventos extraídos. El `fuente_fragmento` debe ser **LO SUFICIENTEMENTE DESCRIPTIVO**
+En todos los hitos extraídos. El `fuente_fragmento` debe ser **LO SUFICIENTEMENTE DESCRIPTIVO**
 para que el lector entienda:
 
-1. **QUÉ evento es**
-2. **CUÁNDO ocurre** (si se menciona)
-3. **Contexto del evento** (quién lo ejecuta, condiciones)
+1. **QUÉ hito es**
+2. **CUÁNDO ocurre** (fecha propia, o cuánto tiempo y desde/hasta qué evento)
+3. **Contexto del hito** (quién lo ejecuta, condiciones)
 
 **❌ MAL - Muy corto, sin contexto:**
 - `fuente_fragmento: "el 15 de septiembre"`
 - `fuente_fragmento: "apertura"`
-- `fuente_fragmento: "a continuación"`
+- `fuente_fragmento: "10 días corridos"`
+- `fuente_fragmento: "desde la apertura"`
 
 **✅ BIEN - Descriptivo, con contexto completo:**
 - `fuente_fragmento: "La apertura de ofertas se realizará el día 15 de septiembre de 2026 a las 10:00hs en la sede del organismo"`
-- `fuente_fragmento: "Dentro de los 15 días de recibido el pliego, los oferentes podrán formular consultas"`
-- `fuente_fragmento: "La adjudicación se notificará a los oferentes mediante publicación en el portal"`
+- `fuente_fragmento: "Los oferentes dispondrán de 10 días corridos desde la apertura de ofertas para presentar impugnaciones"`
+- `fuente_fragmento: "El adjudicatario deberá presentarse dentro de los 5 días hábiles de notificada la adjudicación para suscribir la orden de provisión"`
 
-**Regla práctica:** Incluir al menos la oración completa donde aparece el evento, con suficiente
-contexto para entender de qué se trata. Si es necesario, incluir la oración anterior o siguiente.
+**Regla práctica:** Incluir al menos la oración completa donde aparece el hito, con
+suficiente contexto para entender de qué se trata. Si es necesario, incluir la oración
+anterior o siguiente.
 
-**Si el mismo evento aparece varias veces:** Combinar los fragmentos separándolos con ` | `.
+**Si el mismo hito aparece varias veces:** Combinar los fragmentos separándolos con ` | `.
 Ejemplo: `"La adjudicación se notificará a los oferentes. (pág. 2) | Dentro de los 10 días de la adjudicación, el adjudicatario deberá... (pág. 5)"`
 
-## 2. NUNCA inventes eventos
+## 2. Identificación del evento disparador — REGLA CLAVE, NO INVENTES NOMBRES NUEVOS
 
-Solo extraé eventos que estén **EXPLÍCITAMENTE MENCIONADOS** en el texto.
+Cuando un hito se cuenta a partir de otro (plazo relativo), `evento_disparador` **tiene
+que ser EXACTAMENTE igual al campo `nombre` de otro ítem de esta misma lista** — no una
+redacción nueva, no una paráfrasis, no el texto literal del pliego.
+
+**Antes de emitir un `evento_disparador`, revisá si ya tenés (o vas a tener) un ítem
+para ese hito disparador; si sí, copiá su `nombre` tal cual, carácter por carácter.**
+Si el hito disparador todavía no está en tu lista, agregalo como su propio ítem (con
+fecha propia si la tiene, o `"pendiente"` si no) ANTES de referenciarlo, y usá ese mismo
+`nombre` normalizado en el `evento_disparador`. **Este paso no es opcional: si un hito
+depende de otro y ese otro no tiene su propio ítem en la lista, el plazo relativo queda
+roto** -- no hay forma de calcular la fecha resultante sin el hito disparador. Cuando
+agregues el disparador solo por esto (el pliego no lo menciona por su cuenta, ver campo
+`mencion_propia` más abajo), marcá `mencion_propia: false` en ESE ítem -- el hito
+dependiente que sí tiene su plazo relativo sigue llevando `mencion_propia: true` como
+cualquier otro hito real.
+
+Esto es lo que reemplaza la reconciliación por texto que se hacía antes con dos
+extractores separados: como vos leíste el pliego completo, sos quien mejor puede saber
+si "la adjudicación" y "cuando se notifique la adjudicación" son el mismo hito o no.
+Una vez que decidís que sí lo son, usá siempre el mismo `nombre` para ambas menciones.
+
+**No fusiones hitos que en realidad son distintos.** Por ejemplo, "presentación del
+equipo técnico para el kick-off" y "kick-off del proyecto" pueden ser dos hitos
+genuinamente separados (uno es la entrega de una nómina, el otro es una reunión/evento
+posterior) — no los conviertas en uno solo solo porque comparten la palabra "kick-off".
+El criterio es: ¿el pliego describe una sola ocurrencia, o dos acciones distintas que
+pasan en momentos distintos? Si son dos acciones distintas, son dos ítems, cada uno con
+su propio `nombre`, y uno puede tener al otro como `evento_disparador` si corresponde.
+
+**Ejemplos de normalización de nombres (para decidir si es "el mismo hito"):**
+- "fecha de adjudicación", "cuando se adjudique", "notificada la adjudicación", "de la adjudicación" → `"Adjudicación"`
+- "acto de apertura", "apertura de sobres", "apertura pública", "de la apertura", "desde la apertura" → `"Apertura de Ofertas"`
+- "recepción del pliego", "retiro del pliego", "publicación", "recibido el pliego" → `"Recepción del Pliego"`
+- "firma del contrato", "suscripción", "perfeccionamiento" → `"Firma del Contrato"`
+
+Si el evento disparador no está explícito en el texto y no podés inferirlo con
+confianza razonable, dejá `evento_disparador: null` (el hito queda sin plazo relativo
+estructurado, pero igual extraé el resto de la información en `fuente_fragmento`).
+
+## 3. Determinación de la dirección temporal (`direccion`)
+
+Analizá la expresión para determinar la dirección correcta:
+
+**`"desde"`** - Se cuenta a partir del evento:
+- "10 días desde la apertura"
+- "A partir de la notificación"
+- "A continuación de la adjudicación"
+
+**`"hasta"`** - Límite antes del evento:
+- "Hasta 3 días antes de la apertura"
+- "Hasta la fecha de presentación"
+
+**`"antes_de"`** - Debe completarse antes del evento:
+- "3 días hábiles antes de la apertura"
+- "Con anterioridad a la adjudicación"
+
+**`"después_de"`** - Se cuenta después del evento:
+- "15 días después de la notificación"
+- "Posteriormente a la recepción"
+
+**Nota:** `"desde"` y `"después_de"` son similares pero tienen matiz diferente:
+`"desde"` indica inicio de conteo, `"después_de"` enfatiza posterioridad. Elegí el que
+mejor capture el sentido original.
+
+## 4. Tipo de días: corridos vs hábiles (solo si `unidad` es `"días"`)
+
+**Corridos** - Días calendario continuos (incluyen sábados, domingos, feriados):
+"10 días corridos", "15 días calendario", "días continuos"
+
+**Hábiles** - Días laborables (excluyen sábados, domingos, feriados):
+"10 días hábiles", "15 días laborables", "días hábiles administrativos"
+
+**No especificado** - El documento no lo indica: "10 días" (sin especificar tipo)
+
+**Regla:** Si el documento NO especifica explícitamente, usar `"no_especificado"`.
+NO asumir corridos o hábiles por defecto.
+
+## 5. Plazo máximo vs duración estimada (`es_plazo_maximo`)
+
+`es_plazo_maximo: true` - Es un límite/deadline obligatorio:
+"Dentro de 10 días" (límite máximo), "Hasta 15 días" (tope), "No podrá exceder 30 días" (límite)
+
+`es_plazo_maximo: false` - Es una duración estimada o plazo de ejecución:
+"Plazo de ejecución: 12 meses" (duración planificada), "Tiempo estimado: 60 días" (estimación)
+
+**Regla práctica:** Si el incumplimiento del plazo genera consecuencias (rechazo,
+penalización, pérdida de oportunidad), es un plazo máximo. Si es un plazo de trabajo o
+ejecución, es duración estimada.
+
+## 6. Conversión de unidades NO estándar
+
+Convertí expresiones no estándar a las unidades permitidas:
+
+**A "días":** "1 semana" → `cantidad: 7, unidad: "días"` · "2 semanas" → `cantidad: 14, unidad: "días"`
+
+**A "meses":** "1 trimestre" → `cantidad: 3, unidad: "meses"` · "1 cuatrimestre" → `cantidad: 4, unidad: "meses"` · "1 semestre" → `cantidad: 6, unidad: "meses"`
+
+**A "años":** "1 bienio" → `cantidad: 2, unidad: "años"`
+
+Si la expresión usa unidades muy específicas que no encajan (ej: "48 horas"), usá la
+unidad más apropiada (`cantidad: 48, unidad: "horas"`).
+
+## 7. NUNCA inventes hitos
+
+Solo extraé hitos que estén **EXPLÍCITAMENTE MENCIONADOS** en el texto.
 
 **NO extraer:**
-- Eventos que "típicamente existen" en licitaciones pero no están mencionados en este pliego
-- Eventos inferidos por contexto
-- Eventos asumidos por ser "estándar"
+- Hitos que "típicamente existen" en licitaciones pero no están mencionados en este pliego
+- Hitos inferidos por contexto
+- Hitos asumidos por ser "estándar"
 
-Si el pliego NO menciona un evento, NO lo incluyas, incluso si es común en otras licitaciones.
+Si el pliego NO menciona un hito, NO lo incluyas, incluso si es común en otras licitaciones.
 
-## 2b. Qué NO es un evento temporal
+## 8. Qué NO es un hito temporal
 
-Un evento temporal es algo que **OCURRE en un momento puntual** del proceso. Antes de
-emitir un item, preguntate: *¿tiene sentido asignarle una fecha de calendario a esto?*
-Si la respuesta es no, NO es un evento.
+Un hito temporal es algo que **OCURRE en un momento puntual** del proceso, o es un
+**plazo del PROCESO o de la ejecución del contrato** contado desde un evento del
+procedimiento. Antes de emitir un ítem, preguntate: *¿tiene sentido asignarle una fecha
+de calendario a esto, o es una ventana de tiempo que alguien debe cumplir a partir de un
+evento del proceso?* Si la respuesta a ambas es no, NO es un hito.
 
-**NO son eventos temporales (NO los extraigas como `eventos_temporales`):**
+**NO son hitos temporales (NO los extraigas):**
 
 - **Metadatos del trámite**: el tipo/modalidad de procedimiento ("Procedimiento de
   selección: Contratación Directa por Urgencia", "Licitación Pública", "Concurso de
@@ -145,11 +317,15 @@ Si la respuesta es no, NO es un evento.
   ❌ NO extraer `"nombre": "Procedimiento de Selección"`.
 
 - **Requisitos de elegibilidad con antigüedad/experiencia**: "antigüedad mínima de 2
-  años en la actividad", "experiencia de 2 años en prestaciones análogas". Son
-  condiciones que el oferente debe cumplir, con una DURACIÓN, no un hito puntual.
-  (Si mencionan un evento disparador como "a la fecha de apertura", ESE evento -
-  "Apertura de Ofertas" - sí podés extraerlo si ya está definido por otro fragmento más
-  específico; pero no crees un evento nuevo llamado "Experiencia Anterior" o similar).
+  años en la actividad", "experiencia de 2 años en prestaciones análogas". Estos miran
+  HACIA ATRÁS en el tiempo del oferente (¿hace cuánto existe?, ¿hace cuánto tiene
+  experiencia?), no son un hito puntual ni una acción a cumplir dentro de una ventana
+  del proceso — son una condición de admisibilidad, aunque el texto diga "a la fecha de
+  apertura" o "anteriores a la apertura" como punto de referencia. Si en OTRO fragmento
+  del mismo pliego se menciona una fecha real de apertura de ofertas, ESE fragmento es
+  el que genera el hito "Apertura de Ofertas" — no este.
+  ❌ NO extraer `{"nombre": "Antigüedad Mínima en la Actividad", ...}`
+  ❌ NO extraer `{"nombre": "Experiencia en Provisiones Análogas", ...}`
 
 - **Encabezados/carátulas administrativas**: lugar y fecha de emisión del documento
   ("Santa Fe, XX de XXXXX de 2026"), numeración de expediente, nombre del organismo.
@@ -157,23 +333,19 @@ Si la respuesta es no, NO es un evento.
 - **Objeto o alcance de la contratación**: qué se compra o contrata, sin que eso sea un
   hito con fecha propia.
 
-Si tenés duda entre "esto es un evento" y "esto es una condición/requisito/metadato",
+- **Duraciones que no dependen de un evento del proceso**: garantías con vigencia fija,
+  validez de certificaciones, plazos de una norma externa citada solo como referencia.
+
+Si tenés duda entre "esto es un hito" y "esto es una condición/requisito/metadato",
 optá por NO extraerlo. Es preferible una lista más corta y precisa que una lista larga
 con ruido.
 
-## 3. Normalización de nombres de eventos
+## 9. Normalización de nombres de hitos
 
-Convertí menciones variadas del mismo evento a un nombre normalizado consistente:
+Convertí menciones variadas del mismo hito a un nombre normalizado consistente. Usar
+**Title Case**: "Apertura De Ofertas" → "Apertura de Ofertas". Ver ejemplos en la regla 2.
 
-**Ejemplos de normalización:**
-- "fecha de adjudicación", "cuando se adjudique", "momento de la adjudicación" → `"Adjudicación"`
-- "acto de apertura", "apertura de sobres", "apertura pública" → `"Apertura de Ofertas"`
-- "recepción del pliego", "retiro del pliego", "publicación" → `"Recepción del Pliego"`
-- "firma del contrato", "suscripción", "perfeccionamiento" → `"Firma del Contrato"`
-
-Usar **Title Case**: "Apertura De Ofertas" → "Apertura de Ofertas"
-
-## 4. Formato de fecha
+## 10. Formato de fecha (`fecha_explicita`)
 
 Solo completá `fecha_explicita` cuando el pliego escribe una fecha calendaria explícita.
 
@@ -184,10 +356,9 @@ El pliego argentino usa DD/MM/AAAA. Convertí a ISO `YYYY-MM-DD`.
 - `"quince de septiembre de 2026"` → `"2026-09-15"`
 - `"15-09-2026"` → `"2026-09-15"`
 
-**Fechas ambiguas:** Si el formato es ambiguo (ej: `03/04/2026`), asumí DD/MM/AAAA
-(formato argentino).
+**Fechas ambiguas:** Si el formato es ambiguo (ej: `03/04/2026`), asumí DD/MM/AAAA (formato argentino).
 
-**Expresiones relativas NO generan fecha_explicita:**
+**Expresiones relativas NO generan fecha_explicita** (van como plazo relativo, ver reglas 2-6):
 - "Dentro de 10 días de la notificación" → `fecha_explicita: null`, `origen_fecha: "pendiente"`
 - "15 días después de la apertura" → `fecha_explicita: null`, `origen_fecha: "pendiente"`
 
@@ -203,13 +374,26 @@ mano. Si ves `X`, `XX`, `XXXXX`, `__`, `dd/mm/aaaa` o similar en lugar de un nú
 Solo fechas calendarias explícitas, con TODOS sus componentes (día, mes, año) escritos
 como números o palabras concretas, van en `fecha_explicita`.
 
-## 5. Consolidación de eventos duplicados
+## 11. NUNCA calcules fechas absolutas para plazos relativos
 
-Si el mismo evento se menciona varias veces en el documento:
+Tu trabajo es extraer fielmente la estructura del plazo (cantidad, unidad, evento
+disparador, dirección), NO calcular a qué fecha de calendario equivale.
 
-1. **Emití UN SOLO ítem** con el nombre normalizado del evento
+**NO HAGAS:**
+- "10 días desde la apertura del 15/09" → NO calcular que es el 25/09
+- "15 días hábiles después de hoy" → NO calcular fecha futura
+
+El cálculo de fechas se hace en otra capa del sistema (motor de cálculo de plazos).
+
+## 12. Consolidación de hitos duplicados
+
+Si el mismo hito se menciona varias veces en el documento (con fecha, como plazo
+relativo, o ambos):
+
+1. **Emití UN SOLO ítem** con el nombre normalizado del hito
 2. **Combina todas las menciones** en `fuente_fragmento` separándolas con ` | ` e indicando la página
 3. **Usa la fecha más específica** si hay múltiples menciones con fechas
+4. **Combina los datos de plazo relativo** si una mención da la fecha y otra da el plazo
 
 **Ejemplo:**
 
@@ -217,33 +401,23 @@ Texto página 2: "La adjudicación se notificará a los oferentes."
 Texto página 5: "Dentro de los 10 días de la adjudicación, el adjudicatario deberá presentarse."
 Texto página 12: "La adjudicación se realizará el 30 de septiembre de 2026."
 
-→ **UN SOLO ítem:**
+→ **UN SOLO ítem** (nota: el plazo de "10 días" en página 5 describe OTRO hito —
+"presentarse para firmar", no la adjudicación en sí— así que generaría su propio ítem
+con `evento_disparador: "Adjudicación"`, no se mezcla dentro de este):
 ```json
 {
   "nombre": "Adjudicación",
   "fecha_explicita": "2026-09-30",
   "origen_fecha": "detectada",
+  "evento_disparador": null,
+  "cantidad": null,
+  "unidad": null,
+  "tipo_dias": null,
+  "direccion": null,
+  "es_plazo_maximo": false,
+  "mencion_propia": true,
   "fuente_pagina": 2,
-  "fuente_fragmento": "La adjudicación se notificará a los oferentes. (pág. 2) | Dentro de los 10 días de la adjudicación, el adjudicatario deberá presentarse. (pág. 5) | La adjudicación se realizará el 30 de septiembre de 2026. (pág. 12)",
-  "extraction_status": "success"
-}
-```
-
-## 6. Eventos sin fecha explícita
-
-Muchos eventos se mencionan sin fecha calendaria específica. Eso está bien.
-
-**Ejemplo:**
-- Texto: "Dentro de los 15 días de recibido el pliego, los oferentes deberán..."
-
-→ Extraer como:
-```json
-{
-  "nombre": "Recepción del Pliego",
-  "fecha_explicita": null,
-  "origen_fecha": "pendiente",
-  "fuente_pagina": 2,
-  "fuente_fragmento": "Dentro de los 15 días de recibido el pliego, los oferentes deberán...",
+  "fuente_fragmento": "La adjudicación se notificará a los oferentes. (pág. 2) | La adjudicación se realizará el 30 de septiembre de 2026. (pág. 12)",
   "extraction_status": "success"
 }
 ```
@@ -258,23 +432,25 @@ Muchos eventos se mencionan sin fecha calendaria específica. Eso está bien.
 # INSTRUCCIONES DE EXTRACCIÓN
 
 1. Leé cada fragmento detenidamente.
-2. Identificá menciones de eventos temporales.
+2. Identificá menciones de hitos temporales: con fecha propia, como plazo relativo, o ambos.
 3. Para CADA candidato:
-   - Determiná el nombre normalizado del evento
+   - Determiná el nombre normalizado del hito
    - Verificá si hay fecha calendaria explícita
+   - Si es (o incluye) un plazo relativo, identificá cantidad, unidad, tipo de días, dirección y evento disparador
    - Capturá el fragmento de texto completo con contexto
    - Registrá la página donde aparece
 4. Antes de emitir la lista final:
-   - **Consolidá eventos duplicados** (mismo evento mencionado varias veces)
+   - **Consolidá hitos duplicados** (mismo hito mencionado varias veces, con o sin fecha, con o sin plazo relativo)
    - Verificá que cada `nombre` esté normalizado correctamente
+   - **Verificá que todo `evento_disparador` sea EXACTAMENTE el `nombre` de otro ítem de esta misma lista** (regla 2) — si el hito disparador no tiene su propio ítem todavía, agregalo
    - Asegurate de que cada `fuente_fragmento` tenga contexto suficiente
-5. Emití la salida en formato JSON según el schema `EventosTemporalesResponse`
+5. Emití la salida en formato JSON según el schema `HitosTemporalesResponse`
 
 ---
 
 # EJEMPLOS
 
-## Ejemplo 1: Evento con Fecha Explícita
+## Ejemplo 1: Hito con Fecha Explícita, sin plazo relativo
 
 **Texto del pliego:**
 "La apertura de ofertas se realizará el día 15 de septiembre de 2026 a las 10:00hs en la sede del organismo convocante."
@@ -287,6 +463,13 @@ Muchos eventos se mencionan sin fecha calendaria específica. Eso está bien.
       "nombre": "Apertura de Ofertas",
       "fecha_explicita": "2026-09-15",
       "origen_fecha": "detectada",
+      "evento_disparador": null,
+      "cantidad": null,
+      "unidad": null,
+      "tipo_dias": null,
+      "direccion": null,
+      "es_plazo_maximo": false,
+      "mencion_propia": true,
       "fuente_documento_id": "doc-123",
       "fuente_pagina": 3,
       "fuente_fragmento": "La apertura de ofertas se realizará el día 15 de septiembre de 2026 a las 10:00hs en la sede del organismo convocante.",
@@ -296,12 +479,12 @@ Muchos eventos se mencionan sin fecha calendaria específica. Eso está bien.
 }
 ```
 
-## Ejemplo 2: Evento sin Fecha Explícita
+## Ejemplo 2: Hito sin fecha propia, definido solo como plazo relativo
 
 **Texto del pliego:**
-"Dentro de los 15 días de recibido el pliego, los oferentes deberán presentar consultas por escrito."
+"Dentro de los 15 días de recibido el pliego, los oferentes deberán presentar consultas por escrito. El pliego se recibe en la fecha indicada en la carátula."
 
-**Salida:**
+**Salida** (se extraen DOS hitos: el disparador "Recepción del Pliego" y el dependiente "Presentación de Consultas", vinculados por `evento_disparador`):
 ```json
 {
   "eventos_temporales": [
@@ -309,6 +492,29 @@ Muchos eventos se mencionan sin fecha calendaria específica. Eso está bien.
       "nombre": "Recepción del Pliego",
       "fecha_explicita": null,
       "origen_fecha": "pendiente",
+      "evento_disparador": null,
+      "cantidad": null,
+      "unidad": null,
+      "tipo_dias": null,
+      "direccion": null,
+      "es_plazo_maximo": false,
+      "mencion_propia": true,
+      "fuente_documento_id": "doc-123",
+      "fuente_pagina": 2,
+      "fuente_fragmento": "El pliego se recibe en la fecha indicada en la carátula.",
+      "extraction_status": "success"
+    },
+    {
+      "nombre": "Presentación de Consultas",
+      "fecha_explicita": null,
+      "origen_fecha": "pendiente",
+      "evento_disparador": "Recepción del Pliego",
+      "cantidad": 15,
+      "unidad": "días",
+      "tipo_dias": "no_especificado",
+      "direccion": "desde",
+      "es_plazo_maximo": true,
+      "mencion_propia": true,
       "fuente_documento_id": "doc-123",
       "fuente_pagina": 2,
       "fuente_fragmento": "Dentro de los 15 días de recibido el pliego, los oferentes deberán presentar consultas por escrito.",
@@ -318,60 +524,10 @@ Muchos eventos se mencionan sin fecha calendaria específica. Eso está bien.
 }
 ```
 
-## Ejemplo 3: Múltiples Eventos en un Mismo Fragmento
+## Ejemplo 3: Hito que tiene fecha propia Y además es disparador de otro plazo
 
 **Texto del pliego:**
-"El proceso incluye: consultas (hasta 5 días antes de la apertura), apertura de ofertas (20/09/2026), evaluación (10 días hábiles), y adjudicación."
-
-**Salida:**
-```json
-{
-  "eventos_temporales": [
-    {
-      "nombre": "Consultas",
-      "fecha_explicita": null,
-      "origen_fecha": "pendiente",
-      "fuente_documento_id": "doc-123",
-      "fuente_pagina": 4,
-      "fuente_fragmento": "El proceso incluye: consultas (hasta 5 días antes de la apertura), apertura de ofertas (20/09/2026), evaluación (10 días hábiles), y adjudicación.",
-      "extraction_status": "success"
-    },
-    {
-      "nombre": "Apertura de Ofertas",
-      "fecha_explicita": "2026-09-20",
-      "origen_fecha": "detectada",
-      "fuente_documento_id": "doc-123",
-      "fuente_pagina": 4,
-      "fuente_fragmento": "El proceso incluye: consultas (hasta 5 días antes de la apertura), apertura de ofertas (20/09/2026), evaluación (10 días hábiles), y adjudicación.",
-      "extraction_status": "success"
-    },
-    {
-      "nombre": "Evaluación de Ofertas",
-      "fecha_explicita": null,
-      "origen_fecha": "pendiente",
-      "fuente_documento_id": "doc-123",
-      "fuente_pagina": 4,
-      "fuente_fragmento": "El proceso incluye: consultas (hasta 5 días antes de la apertura), apertura de ofertas (20/09/2026), evaluación (10 días hábiles), y adjudicación.",
-      "extraction_status": "success"
-    },
-    {
-      "nombre": "Adjudicación",
-      "fecha_explicita": null,
-      "origen_fecha": "pendiente",
-      "fuente_documento_id": "doc-123",
-      "fuente_pagina": 4,
-      "fuente_fragmento": "El proceso incluye: consultas (hasta 5 días antes de la apertura), apertura de ofertas (20/09/2026), evaluación (10 días hábiles), y adjudicación.",
-      "extraction_status": "success"
-    }
-  ]
-}
-```
-
-## Ejemplo 4: Evento Mencionado Varias Veces (Consolidación)
-
-**Texto página 2:** "La adjudicación se notificará a los oferentes mediante publicación en el portal."
-**Texto página 5:** "Dentro de los 10 días de la adjudicación, el adjudicatario deberá presentarse para firmar el contrato."
-**Texto página 8:** "La adjudicación se realizará el 30 de septiembre de 2026."
+"La adjudicación se realizará el 30 de septiembre de 2026. Dentro de los 10 días de la adjudicación, el adjudicatario deberá presentarse para firmar el contrato."
 
 **Salida:**
 ```json
@@ -381,16 +537,161 @@ Muchos eventos se mencionan sin fecha calendaria específica. Eso está bien.
       "nombre": "Adjudicación",
       "fecha_explicita": "2026-09-30",
       "origen_fecha": "detectada",
+      "evento_disparador": null,
+      "cantidad": null,
+      "unidad": null,
+      "tipo_dias": null,
+      "direccion": null,
+      "es_plazo_maximo": false,
+      "mencion_propia": true,
       "fuente_documento_id": "doc-123",
-      "fuente_pagina": 2,
-      "fuente_fragmento": "La adjudicación se notificará a los oferentes mediante publicación en el portal. (pág. 2) | Dentro de los 10 días de la adjudicación, el adjudicatario deberá presentarse para firmar el contrato. (pág. 5) | La adjudicación se realizará el 30 de septiembre de 2026. (pág. 8)",
+      "fuente_pagina": 8,
+      "fuente_fragmento": "La adjudicación se realizará el 30 de septiembre de 2026.",
+      "extraction_status": "success"
+    },
+    {
+      "nombre": "Firma del Contrato",
+      "fecha_explicita": null,
+      "origen_fecha": "pendiente",
+      "evento_disparador": "Adjudicación",
+      "cantidad": 10,
+      "unidad": "días",
+      "tipo_dias": "no_especificado",
+      "direccion": "desde",
+      "es_plazo_maximo": true,
+      "mencion_propia": true,
+      "fuente_documento_id": "doc-123",
+      "fuente_pagina": 8,
+      "fuente_fragmento": "Dentro de los 10 días de la adjudicación, el adjudicatario deberá presentarse para firmar el contrato.",
       "extraction_status": "success"
     }
   ]
 }
 ```
 
-## Ejemplo 5: Documento sin Eventos Temporales
+## Ejemplo 4: Múltiples plazos relativos, mismo disparador — reutilizar el mismo `nombre`
+
+**Texto del pliego:**
+"El cronograma establece: consultas hasta 5 días antes de la apertura, evaluación de 10 días hábiles desde la apertura, y adjudicación dentro de los 3 días de finalizada la evaluación. La apertura de ofertas será el 20/09/2026."
+
+**Salida** (nótese que "Apertura de Ofertas" aparece UNA vez con su propio ítem, y los otros dos ítems la referencian con el mismo `nombre` exacto en `evento_disparador`; "Evaluación de Ofertas" también se define como su propio ítem porque a su vez es disparador de "Adjudicación"):
+```json
+{
+  "eventos_temporales": [
+    {
+      "nombre": "Apertura de Ofertas",
+      "fecha_explicita": "2026-09-20",
+      "origen_fecha": "detectada",
+      "evento_disparador": null,
+      "cantidad": null,
+      "unidad": null,
+      "tipo_dias": null,
+      "direccion": null,
+      "es_plazo_maximo": false,
+      "mencion_propia": true,
+      "fuente_documento_id": "doc-123",
+      "fuente_pagina": 6,
+      "fuente_fragmento": "La apertura de ofertas será el 20/09/2026.",
+      "extraction_status": "success"
+    },
+    {
+      "nombre": "Presentación de Consultas",
+      "fecha_explicita": null,
+      "origen_fecha": "pendiente",
+      "evento_disparador": "Apertura de Ofertas",
+      "cantidad": 5,
+      "unidad": "días",
+      "tipo_dias": "no_especificado",
+      "direccion": "antes_de",
+      "es_plazo_maximo": true,
+      "mencion_propia": true,
+      "fuente_documento_id": "doc-123",
+      "fuente_pagina": 6,
+      "fuente_fragmento": "El cronograma establece: consultas hasta 5 días antes de la apertura, evaluación de 10 días hábiles desde la apertura, y adjudicación dentro de los 3 días de finalizada la evaluación.",
+      "extraction_status": "success"
+    },
+    {
+      "nombre": "Evaluación de Ofertas",
+      "fecha_explicita": null,
+      "origen_fecha": "pendiente",
+      "evento_disparador": "Apertura de Ofertas",
+      "cantidad": 10,
+      "unidad": "días",
+      "tipo_dias": "hábiles",
+      "direccion": "desde",
+      "es_plazo_maximo": false,
+      "mencion_propia": true,
+      "fuente_documento_id": "doc-123",
+      "fuente_pagina": 6,
+      "fuente_fragmento": "El cronograma establece: consultas hasta 5 días antes de la apertura, evaluación de 10 días hábiles desde la apertura, y adjudicación dentro de los 3 días de finalizada la evaluación.",
+      "extraction_status": "success"
+    },
+    {
+      "nombre": "Adjudicación",
+      "fecha_explicita": null,
+      "origen_fecha": "pendiente",
+      "evento_disparador": "Evaluación de Ofertas",
+      "cantidad": 3,
+      "unidad": "días",
+      "tipo_dias": "no_especificado",
+      "direccion": "desde",
+      "es_plazo_maximo": true,
+      "mencion_propia": true,
+      "fuente_documento_id": "doc-123",
+      "fuente_pagina": 6,
+      "fuente_fragmento": "El cronograma establece: consultas hasta 5 días antes de la apertura, evaluación de 10 días hábiles desde la apertura, y adjudicación dentro de los 3 días de finalizada la evaluación.",
+      "extraction_status": "success"
+    }
+  ]
+}
+```
+
+## Ejemplo 5: Plazo de ejecución (duración estimada, no plazo máximo)
+
+**Texto del pliego:**
+"El plazo de ejecución de las obras será de 12 meses a partir de la emisión de la orden de inicio."
+
+**Salida:**
+```json
+{
+  "eventos_temporales": [
+    {
+      "nombre": "Emisión de la Orden de Inicio",
+      "fecha_explicita": null,
+      "origen_fecha": "pendiente",
+      "evento_disparador": null,
+      "cantidad": null,
+      "unidad": null,
+      "tipo_dias": null,
+      "direccion": null,
+      "es_plazo_maximo": false,
+      "mencion_propia": true,
+      "fuente_documento_id": "doc-123",
+      "fuente_pagina": 15,
+      "fuente_fragmento": "El plazo de ejecución de las obras será de 12 meses a partir de la emisión de la orden de inicio.",
+      "extraction_status": "success"
+    },
+    {
+      "nombre": "Ejecución de las Obras",
+      "fecha_explicita": null,
+      "origen_fecha": "pendiente",
+      "evento_disparador": "Emisión de la Orden de Inicio",
+      "cantidad": 12,
+      "unidad": "meses",
+      "tipo_dias": "no_especificado",
+      "direccion": "desde",
+      "es_plazo_maximo": false,
+      "mencion_propia": true,
+      "fuente_documento_id": "doc-123",
+      "fuente_pagina": 15,
+      "fuente_fragmento": "El plazo de ejecución de las obras será de 12 meses a partir de la emisión de la orden de inicio.",
+      "extraction_status": "success"
+    }
+  ]
+}
+```
+
+## Ejemplo 6: Documento sin hitos temporales
 
 **Texto del pliego:**
 "El oferente deberá presentar certificado de habilitación vigente y constancia de inscripción ante AFIP."
@@ -402,7 +703,7 @@ Muchos eventos se mencionan sin fecha calendaria específica. Eso está bien.
 }
 ```
 
-## Ejemplo 6: Qué NO extraer (metadato + fecha placeholder)
+## Ejemplo 7: Qué NO extraer (metadato + fecha placeholder + requisito de antigüedad)
 
 **Texto del pliego:**
 "Santa Fe, XX de XXXXX de 2026.
@@ -417,27 +718,85 @@ la fecha de apertura de ofertas."
 }
 ```
 
-**Por qué NO hay eventos acá** (aunque a simple vista "parezca" que hay tres cosas
-con fecha):
+**Por qué NO hay hitos acá** (aunque a simple vista "parezca" que hay tres cosas con fecha):
 - "Santa Fe, XX de XXXXX de 2026" es la carátula del documento con la fecha en blanco:
-  NO hay fecha explícita (ver regla de placeholders) y "emisión del documento" no es un
-  evento del proceso de licitación.
+  NO hay fecha explícita (ver regla de placeholders, #10) y "emisión del documento" no es
+  un hito del proceso de licitación.
 - "Procedimiento de selección: Contratación Directa por Urgencia" es el TIPO de trámite,
-  no un hito puntual (ver regla 2b).
+  no un hito puntual (ver regla 8).
 - "Antigüedad mínima de dos años ... a la fecha de apertura de ofertas" es un requisito
-  de elegibilidad con una duración (2 años), no un evento. Si en OTRO fragmento del
-  mismo pliego se menciona una fecha real de apertura de ofertas, ESE fragmento es el
-  que genera el evento "Apertura de Ofertas" - no este.
+  de elegibilidad con una duración (2 años), no un hito ni un plazo del trámite (ver
+  regla 8). Si en OTRO fragmento del mismo pliego se menciona una fecha real de apertura
+  de ofertas, ESE fragmento es el que genera el hito "Apertura de Ofertas" — no este.
 
 ❌ **MAL** (lo que NO hay que hacer):
 ```json
 {
   "eventos_temporales": [
     {"nombre": "Procedimiento de Selección", "fecha_explicita": "2026-01-01", "origen_fecha": "detectada", "...": "..."},
-    {"nombre": "Experiencia Anterior", "fecha_explicita": null, "origen_fecha": "pendiente", "...": "..."}
+    {"nombre": "Antigüedad Mínima en la Actividad", "evento_disparador": "Apertura de Ofertas", "cantidad": 2, "unidad": "años", "...": "..."}
   ]
 }
 ```
+
+---
+
+## Ejemplo 8: `mencion_propia: false` -- el disparador no tiene mención propia
+
+**Texto del pliego:**
+"El proveedor deberá realizar la capacitación del personal dentro de los 20 días
+corridos posteriores a la puesta en marcha del sistema."
+
+En todo el resto del pliego (todos los fragmentos recuperados) NO hay ninguna otra
+oración que hable de la "puesta en marcha" en sí misma -- ni fecha, ni quién la hace,
+ni cuándo. Solo aparece acá, de pasada, como el punto de referencia del plazo de
+capacitación.
+
+**Salida:**
+```json
+{
+  "eventos_temporales": [
+    {
+      "nombre": "Puesta en Marcha del Sistema",
+      "fecha_explicita": null,
+      "origen_fecha": "pendiente",
+      "evento_disparador": null,
+      "cantidad": null,
+      "unidad": null,
+      "tipo_dias": null,
+      "direccion": null,
+      "es_plazo_maximo": false,
+      "mencion_propia": false,
+      "fuente_documento_id": "doc-123",
+      "fuente_pagina": 9,
+      "fuente_fragmento": "El proveedor deberá realizar la capacitación del personal dentro de los 20 días corridos posteriores a la puesta en marcha del sistema.",
+      "extraction_status": "success"
+    },
+    {
+      "nombre": "Capacitación del Personal",
+      "fecha_explicita": null,
+      "origen_fecha": "pendiente",
+      "evento_disparador": "Puesta en Marcha del Sistema",
+      "cantidad": 20,
+      "unidad": "días",
+      "tipo_dias": "corridos",
+      "direccion": "después_de",
+      "es_plazo_maximo": true,
+      "mencion_propia": true,
+      "fuente_documento_id": "doc-123",
+      "fuente_pagina": 9,
+      "fuente_fragmento": "El proveedor deberá realizar la capacitación del personal dentro de los 20 días corridos posteriores a la puesta en marcha del sistema.",
+      "extraction_status": "success"
+    }
+  ]
+}
+```
+
+Nota: "Puesta en Marcha del Sistema" tuvo que crearse igual como su propio ítem (regla
+2 -- todo `evento_disparador` necesita un ítem propio), pero como el pliego nunca lo
+declara por su cuenta, lleva `mencion_propia: false`. "Capacitación del Personal" sí es
+un hito real descripto en el texto (aunque dependa de otro para su fecha), así que
+lleva `mencion_propia: true` como cualquier otro.
 
 ---
 
@@ -445,15 +804,22 @@ con fecha):
 
 Antes de emitir la respuesta:
 
-1. ✅ Cada evento tiene `nombre` normalizado (Title Case, 3-120 chars)
+1. ✅ Cada hito tiene `nombre` normalizado (Title Case, 3-120 chars)
 2. ✅ `fecha_explicita` es `null` o formato ISO YYYY-MM-DD válido
 3. ✅ `origen_fecha` es SIEMPRE `"detectada"` o `"pendiente"` (literal, no otra cosa)
 4. ✅ `fuente_fragmento` tiene al menos 12 caracteres y contexto completo
 5. ✅ `fuente_pagina` es un número entero >= 1
-6. ✅ NO hay eventos duplicados (mismo evento consolidado en un solo ítem)
-7. ✅ NO hay eventos inventados (todos están explícitamente mencionados en el texto)
-8. ✅ Si no hay eventos temporales, retornar `{"eventos_temporales": []}`
-9. ✅ Cada evento incluye `"extraction_status": "success"`
-10. ✅ NO hay metadatos del trámite (tipo de procedimiento, carátula) extraídos como evento
-11. ✅ NO hay requisitos de antigüedad/experiencia extraídos como evento (ver 2b)
-12. ✅ NINGUNA `fecha_explicita` viene de un placeholder (`XX`, `__`, `dd/mm/aaaa`, etc.)
+6. ✅ NO hay hitos duplicados (mismo hito consolidado en un solo ítem, con todos sus datos)
+7. ✅ NO hay hitos inventados (todos están explícitamente mencionados en el texto)
+8. ✅ Si no hay hitos temporales, retornar `{"eventos_temporales": []}`
+9. ✅ NO hay metadatos del trámite (tipo de procedimiento, carátula) extraídos como hito
+10. ✅ NO hay requisitos de antigüedad/experiencia extraídos como hito (ver regla 8)
+11. ✅ NINGUNA `fecha_explicita` viene de un placeholder (`XX`, `__`, `dd/mm/aaaa`, etc.)
+12. ✅ **Todo `evento_disparador` es EXACTAMENTE igual (carácter por carácter) al `nombre` de otro ítem de esta misma lista** — nunca una redacción distinta del mismo hito, y nunca el texto literal del pliego sin normalizar
+13. ✅ `cantidad`/`unidad`/`tipo_dias`/`direccion` están presentes SOLO si `evento_disparador` no es `null`
+14. ✅ `tipo_dias` solo tiene valor diferente de `"no_especificado"` si `unidad` es `"días"`
+15. ✅ `unidad` es uno de: "días", "meses", "años", "horas" (literal exacto); `direccion` es uno de: "desde", "hasta", "antes_de", "después_de" (literal exacto)
+16. ✅ NO se calcularon fechas absolutas para los plazos relativos (solo estructura)
+17. ✅ Cada hito incluye `"extraction_status": "success"`
+18. ✅ Cada hito incluye `mencion_propia` (true salvo que sea un disparador agregado solo por la regla 2)
+19. ✅ **Releíste los fragmentos buscando "días corridos/hábiles", "dentro de los X días", "X meses desde", "antes de", "después de" -- si hay alguna de estas expresiones y tu lista no tiene ningún `evento_disparador` completado, te falta extraer plazos relativos (ver regla 0)**

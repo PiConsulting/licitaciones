@@ -25,7 +25,6 @@ CANONICAL_PROMPT_FILES = {
     "identificacion_procedimiento.txt",
     "riesgos.txt",
     "eventos_temporales.txt",
-    "plazos_relativos.txt",
 }
 CANONICAL_CATEGORY_PROMPT_MAP = {
     "objeto_alcance": "objeto_alcance.txt",
@@ -38,7 +37,6 @@ CANONICAL_CATEGORY_PROMPT_MAP = {
     "identificacion_procedimiento": "identificacion_procedimiento.txt",
     "riesgos": "riesgos.txt",
     "eventos_temporales": "eventos_temporales.txt",
-    "plazos_relativos": "plazos_relativos.txt",
 }
 
 

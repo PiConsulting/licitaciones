@@ -1,4 +1,6 @@
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -94,15 +96,17 @@ def _run_health_checks() -> tuple[int, dict[str, Any]]:
     return status_code, payload
 
 
+@asynccontextmanager
+async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
+    settings = get_settings()
+    if settings.is_production:
+        settings.validate_cloud_configuration()
+    yield
+
+
 def create_app() -> FastAPI:
     configure_logging()
-    app = FastAPI(title="licitaciones-pi API", version="0.1.0")
-
-    @app.on_event("startup")
-    def validate_cloud_startup_configuration() -> None:
-        settings = get_settings()
-        if settings.is_production:
-            settings.validate_cloud_configuration()
+    app = FastAPI(title="licitaciones-pi API", version="0.1.0", lifespan=_lifespan)
 
     app.add_middleware(
         CORSMiddleware,

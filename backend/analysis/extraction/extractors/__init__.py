@@ -7,7 +7,6 @@ from analysis.extraction.extractors.identificacion_procedimiento import (
 )
 from analysis.extraction.extractors.objeto_alcance import extractor_objeto_alcance
 from analysis.extraction.extractors.plazos import extractor_plazos
-from analysis.extraction.extractors.plazos_relativos import extractor_plazos_relativos
 from analysis.extraction.extractors.requisitos_admisibilidad import (
     extractor_requisitos_admisibilidad,
 )
@@ -25,5 +24,4 @@ __all__ = [
     "extractor_identificacion_procedimiento",
     "extractor_riesgos",
     "extractor_eventos_temporales",
-    "extractor_plazos_relativos",
 ]

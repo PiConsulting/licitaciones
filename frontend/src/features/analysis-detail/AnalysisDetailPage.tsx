@@ -123,7 +123,26 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
     {
       id: "timeline",
       label: "Timeline",
-      content: <TimelineTab analysisId={analysisId} />,
+      content: (
+        <TimelineTab
+          analysisId={analysisId}
+          onViewSource={(documentId, page, fragment) => {
+            setSelectedDocumentId(documentId);
+            setSelectedCitation({
+              // `fragment` es el `source_fragment` del evento/plazo (el texto
+              // del pliego del que salió) -- sin esto el PDFViewer navega a
+              // la página pero no tiene qué texto buscar para resaltar.
+              text: fragment ?? "",
+              page,
+              document_id: documentId,
+              document_name: documentsById.get(documentId)?.filename ?? "Documento",
+            });
+            setSelectedCitations([]);
+            setSelectedSources([]);
+            setShowPdfViewer(true);
+          }}
+        />
+      ),
     },
   ];
 

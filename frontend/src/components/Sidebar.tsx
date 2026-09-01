@@ -13,7 +13,7 @@ import { useUIStore } from "../store/useUIStore";
 import { cn } from "../utils/cn";
 
 export function Sidebar() {
-  const { sidebarCollapsed, toggleSidebar, theme, toggleTheme } = useUIStore();
+  const { sidebarCollapsed, toggleSidebar, setSidebarCollapsed, theme, toggleTheme } = useUIStore();
   const navigate = useNavigate();
 
   const isPi = theme === "pi";
@@ -108,6 +108,10 @@ export function Sidebar() {
             <NavLink
               key={to}
               to={to}
+              // 2026-09-01: al elegir una sección, el sidebar se vuelve a
+              // colapsar solo -- se abre a mano con la flecha, se usa para
+              // navegar, y se esconde para no ocupar espacio.
+              onClick={() => setSidebarCollapsed(true)}
               className={({ isActive }) =>
                 cn(
                   "flex min-h-[44px] items-center gap-3 px-4 py-3 text-xs font-medium transition-colors",

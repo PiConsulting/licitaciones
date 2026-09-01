@@ -4,10 +4,11 @@ from analysis.extraction.engine.base import run_extractor
 from analysis.extraction.state import GraphState
 
 _QUERY = (
-    "Eventos temporales y hitos del proceso de licitación: "
-    "fechas de recepción del pliego, apertura de ofertas, adjudicación, "
-    "firma de contrato, inicio de obra, entregas. Cualquier evento o momento "
-    "clave mencionado en el documento, con o sin fecha específica."
+    "Eventos, hitos y plazos temporales del proceso de licitación: fechas "
+    "explícitas (recepción del pliego, apertura, adjudicación, firma de "
+    "contrato, entregas) y plazos contados desde esos eventos ('X días "
+    "corridos/hábiles desde...', 'dentro de los X días de...'). Tanto "
+    "hitos con fecha propia como plazos que dependen de otro evento."
 )
 
 

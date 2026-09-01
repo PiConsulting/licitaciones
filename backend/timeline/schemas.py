@@ -8,7 +8,7 @@ diferentes representaciones en API vs persistencia.
 from datetime import date, datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from timeline.models import (
     DateSource,
@@ -34,6 +34,15 @@ class EventCreateRequest(BaseModel):
     source_fragment: Optional[str] = Field(None, max_length=500)
     source_reference: Optional[dict] = None
 
+    @model_validator(mode='after')
+    def validate_date_source_consistency(self) -> 'EventCreateRequest':
+        """F3 fix: Validar consistencia entre date_source y event_date."""
+        if self.date_source == 'user_input' and not self.event_date:
+            raise ValueError("date_source='user_input' requiere event_date")
+        if self.date_source == 'pending' and self.event_date:
+            raise ValueError("date_source='pending' es incompatible con event_date")
+        return self
+
 
 class EventUpdateRequest(BaseModel):
     """Request para actualizar un evento."""
@@ -46,6 +55,23 @@ class EventUpdateRequest(BaseModel):
     source_page: Optional[int] = Field(None, ge=1)
     source_fragment: Optional[str] = Field(None, max_length=500)
     source_reference: Optional[dict] = None
+
+    @model_validator(mode='after')
+    def check_at_least_one_field(self) -> 'EventUpdateRequest':
+        """F10 fix: Rechazar PATCH vacío - al menos un campo debe estar presente."""
+        if all(v is None for v in self.model_dump().values()):
+            raise ValueError("Al menos un campo debe ser proporcionado para actualizar")
+        return self
+
+    @model_validator(mode='after')
+    def validate_date_source_consistency(self) -> 'EventUpdateRequest':
+        """F3 fix: Validar consistencia entre date_source y event_date."""
+        if self.date_source is not None and self.event_date is not None:
+            if self.date_source == 'user_input' and not self.event_date:
+                raise ValueError("date_source='user_input' requiere event_date")
+            if self.date_source == 'pending' and self.event_date:
+                raise ValueError("date_source='pending' es incompatible con event_date")
+        return self
 
 
 class EventResponse(BaseModel):
@@ -63,15 +89,27 @@ class EventResponse(BaseModel):
     source_fragment: Optional[str]
     source_reference: Optional[dict] = None
     deleted: bool
+    hidden: bool = False
     created_at: datetime
     updated_at: datetime
 
 
 class EventListResponse(BaseModel):
     """Response para lista de eventos."""
-    
+
     events: list[EventResponse]
     total: int
+
+
+class EventHideRequest(BaseModel):
+    """Request para ocultar/mostrar un evento (2026-09-01) sin borrarlo.
+
+    Endpoint dedicado (como el soft-delete) en vez de agregarlo a
+    `EventUpdateRequest`, para que "ocultar" quede como una acción explícita
+    y no se pise por accidente con una edición de otro campo.
+    """
+
+    hidden: bool
 
 
 # ==================== DEADLINE SCHEMAS ====================

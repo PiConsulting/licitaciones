@@ -2,10 +2,15 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import { Sidebar } from "./Sidebar";
+import { useUIStore } from "../store/useUIStore";
 
 describe("Sidebar", () => {
   beforeEach(() => {
     localStorage.clear();
+    // El store de zustand es un singleton a nivel módulo -- sin este
+    // reset, un test que togglea sidebarCollapsed deja el estado
+    // "filtrado" al siguiente test (2026-09-01).
+    useUIStore.setState({ sidebarCollapsed: true });
   });
 
   test("renderiza items de navegación", () => {
@@ -36,6 +41,18 @@ describe("Sidebar", () => {
     expect(screen.queryByRole("link", { name: /^dashboard$/i })).not.toBeInTheDocument();
   });
 
+  test("está colapsado por default", () => {
+    render(
+      <MemoryRouter>
+        <Sidebar />
+      </MemoryRouter>,
+    );
+
+    const aside = screen.getByLabelText("Barra lateral");
+    expect(aside).toHaveClass("w-16");
+    expect(screen.getByRole("button", { name: /expandir menú/i })).toBeInTheDocument();
+  });
+
   test("toggle collapse/expand", () => {
     render(
       <MemoryRouter>
@@ -44,10 +61,29 @@ describe("Sidebar", () => {
     );
 
     const aside = screen.getByLabelText("Barra lateral");
-    const toggle = screen.getByRole("button", { name: /colapsar menú/i });
+    const toggle = screen.getByRole("button", { name: /expandir menú/i });
 
-    expect(aside).toHaveClass("w-52");
+    expect(aside).toHaveClass("w-16");
     fireEvent.click(toggle);
+    expect(aside).toHaveClass("w-52");
+  });
+
+  test("se vuelve a colapsar solo al elegir una sección (2026-09-01)", () => {
+    render(
+      <MemoryRouter>
+        <Sidebar />
+      </MemoryRouter>,
+    );
+
+    const aside = screen.getByLabelText("Barra lateral");
+    const expandToggle = screen.getByRole("button", { name: /expandir menú/i });
+
+    fireEvent.click(expandToggle);
+    expect(aside).toHaveClass("w-52");
+
+    const historialLink = screen.getByRole("link", { name: /historial/i });
+    fireEvent.click(historialLink);
+
     expect(aside).toHaveClass("w-16");
   });
 });

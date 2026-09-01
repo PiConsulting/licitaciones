@@ -45,10 +45,20 @@ class Event(BaseModel):
         source_fragment: Fragmento de texto que evidencia el evento
         source_reference: Metadatos adicionales de la fuente
         deleted: Flag de soft delete
+        hidden: Flag de "ocultar sin borrar" (2026-09-01): distinto de
+            `deleted` -- un evento oculto sigue existiendo y se sigue
+            usando con normalidad para calcular fechas de otros eventos
+            que dependan de él (ver `timeline/calculation_engine.py`, que
+            no filtra por `hidden`), pero no cuenta en las estadísticas
+            del timeline ni en el panel de "fechas por cargar" salvo que
+            el usuario pida verlos explícitamente. Para eventos que el
+            pliego menciona pero no son relevantes en el momento actual
+            del proceso (ej. "Notificación de fuerza mayor"), sin perder
+            trazabilidad.
         created_at: Timestamp de creación
         updated_at: Timestamp de última actualización
     """
-    
+
     id: str = Field(default_factory=lambda: f"event::{uuid4()}")
     type: Literal["event"] = "event"
     partition_key: str
@@ -63,6 +73,7 @@ class Event(BaseModel):
     source_fragment: Optional[str] = None
     source_reference: Optional[dict[str, Any]] = None
     deleted: bool = False
+    hidden: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     
