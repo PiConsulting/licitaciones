@@ -1,4 +1,6 @@
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -14,6 +16,7 @@ from documents.routes import router as documents_router
 from infra.config import get_settings
 from infra.database import engine
 from infra.logging import configure_logging
+from timeline.routes import timeline_router
 from tracking.routes import tracking_router
 from users.routes import auth_router, protected_router
 
@@ -93,15 +96,17 @@ def _run_health_checks() -> tuple[int, dict[str, Any]]:
     return status_code, payload
 
 
+@asynccontextmanager
+async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
+    settings = get_settings()
+    if settings.is_production:
+        settings.validate_cloud_configuration()
+    yield
+
+
 def create_app() -> FastAPI:
     configure_logging()
-    app = FastAPI(title="licitaciones-pi API", version="0.1.0")
-
-    @app.on_event("startup")
-    def validate_cloud_startup_configuration() -> None:
-        settings = get_settings()
-        if settings.is_production:
-            settings.validate_cloud_configuration()
+    app = FastAPI(title="licitaciones-pi API", version="0.1.0", lifespan=_lifespan)
 
     app.add_middleware(
         CORSMiddleware,
@@ -172,6 +177,7 @@ def create_app() -> FastAPI:
     app.include_router(protected_router, prefix="/api/v1")
     app.include_router(analysis_router, prefix="/api/v1")
     app.include_router(tracking_router, prefix="/api/v1")
+    app.include_router(timeline_router, prefix="/api/v1")
     app.include_router(documents_router, prefix="/api/v1")
 
     # 🔧 DEBUG - quitar antes de commitear

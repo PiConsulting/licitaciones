@@ -89,6 +89,63 @@ class TestEventCRUD:
         page = service.list_events(analysis_id, TEST_USER_ID, limit=2, skip=1)
         assert len(page) == 2
 
+    def test_set_event_hidden(self, db_session, analysis_id):
+        """2026-09-01: ocultar/mostrar un evento sin borrarlo (distinto del
+        soft-delete). El evento sigue existiendo y `get_event` lo sigue
+        devolviendo normalmente -- solo cambia el flag `hidden`."""
+        service = TimelineService(db_session)
+        created = service.create_event(_make_event(analysis_id), TEST_USER_ID)
+        assert created.hidden is False
+
+        hidden = service.set_event_hidden(created.event_id, analysis_id, TEST_USER_ID, hidden=True)
+        assert hidden is not None
+        assert hidden.hidden is True
+
+        fetched = service.get_event(created.event_id, analysis_id, TEST_USER_ID)
+        assert fetched.hidden is True
+        assert fetched.deleted is False
+
+        shown = service.set_event_hidden(created.event_id, analysis_id, TEST_USER_ID, hidden=False)
+        assert shown.hidden is False
+
+    def test_set_event_hidden_nonexistent_returns_none(self, db_session, analysis_id):
+        service = TimelineService(db_session)
+        result = service.set_event_hidden("does-not-exist", analysis_id, TEST_USER_ID, hidden=True)
+        assert result is None
+
+    def test_list_events_excludes_hidden_by_default(self, db_session, analysis_id):
+        service = TimelineService(db_session)
+        kept = service.create_event(_make_event(analysis_id, name="Vigente"), TEST_USER_ID)
+        hidden_ev = service.create_event(_make_event(analysis_id, name="Fuerza mayor"), TEST_USER_ID)
+        service.set_event_hidden(hidden_ev.event_id, analysis_id, TEST_USER_ID, hidden=True)
+
+        active = service.list_events(analysis_id, TEST_USER_ID)
+        assert [e.event_id for e in active] == [kept.event_id]
+
+        everything = service.list_events(analysis_id, TEST_USER_ID, include_hidden=True)
+        assert len(everything) == 2
+
+    def test_hidden_event_still_usable_as_trigger(self, db_session, analysis_id):
+        """El punto central del flag `hidden`: un evento oculto no deja de
+        ser un evento real -- sigue pudiendo actuar como disparador de un
+        deadline de otro evento, sin ningún tratamiento especial."""
+        service = TimelineService(db_session)
+        trigger = service.create_event(_make_event(analysis_id, name="Adjudicación"), TEST_USER_ID)
+        service.set_event_hidden(trigger.event_id, analysis_id, TEST_USER_ID, hidden=True)
+
+        target = service.create_event(_make_event(analysis_id, name="Entrega"), TEST_USER_ID)
+        deadline = service.create_deadline(
+            _make_deadline(
+                analysis_id,
+                trigger_event_id=trigger.event_id,
+                target_event_id=target.event_id,
+            ),
+            TEST_USER_ID,
+        )
+
+        fetched = service.get_deadline(deadline.deadline_id, analysis_id, TEST_USER_ID)
+        assert fetched.trigger_event_id == trigger.event_id
+
 
 class TestDeadlineCRUD:
     def test_create_and_get_deadline(self, db_session, analysis_id):

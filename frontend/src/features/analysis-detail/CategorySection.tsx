@@ -7,7 +7,7 @@ import { NarrativeBlocks } from "./components/NarrativeBlocks";
 import { PlazosTimeline } from "./components/PlazosTimeline";
 import { FieldBadge } from "./FieldBadge";
 import { FieldStateBadge } from "./FieldStateBadge";
-import type { CategoryData, CategoryId, Citation } from "./types";
+import type { CategoryData, CategoryId, Citation, NarrativeSource } from "./types";
 import { QualityNotice } from "./components/QualityNotice";
 import { getCategoryCounts } from "./utils/categoryStats";
 import { dedupeCitations } from "./utils/dedupeCitations";

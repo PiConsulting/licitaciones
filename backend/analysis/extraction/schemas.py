@@ -512,16 +512,26 @@ class RiesgoItem(ExtractedItem):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class EventoTemporalExtracted(BaseModel):
+class HitoTemporalExtracted(BaseModel):
     """
-    Evento temporal extraído del documento de pliego.
-    
-    Representa un hito o momento clave del proceso de licitación
-    identificado en el documento, con o sin fecha explícita.
+    Hito temporal extraído del documento de pliego (fusión de lo que antes
+    eran dos extractores separados: "eventos temporales" y "plazos
+    relativos" -- ver `analysis/extraction/prompts/eventos_temporales.txt`).
+
+    Representa un hito o momento clave del proceso de licitación. Puede
+    tener fecha propia (explícita o pendiente) y, si el pliego lo cuenta a
+    partir de otro hito ("15 días corridos desde la adjudicación"), lleva
+    además los campos de plazo relativo en el MISMO ítem -- no hace falta
+    (ni se permite) crear un segundo ítem solo para la duración.
+
+    Al fusionar ambos conceptos en una sola pasada del LLM, `evento_disparador`
+    queda garantizado (por instrucción del prompt) como el `nombre` exacto
+    de OTRO ítem de esta misma lista -- ya no hay que reconciliar nombres
+    entre dos extracciones independientes que nunca se vieron entre sí.
     """
 
     nombre: str = Field(
-        description="Nombre normalizado del evento (ej: 'Adjudicación', 'Apertura de Ofertas')",
+        description="Nombre normalizado del hito (ej: 'Adjudicación', 'Apertura de Ofertas')",
         min_length=3,
         max_length=120,
     )
@@ -532,12 +542,68 @@ class EventoTemporalExtracted(BaseModel):
     origen_fecha: Literal["detectada", "pendiente"] = Field(
         description="'detectada' si hay fecha explícita, 'pendiente' si no"
     )
+
+    # Presentes solo si este hito se cuenta a partir de otro (plazo relativo).
+    evento_disparador: str | None = Field(
+        default=None,
+        description=(
+            "Nombre del hito desde/hasta el cual se cuenta este plazo -- debe "
+            "ser EXACTAMENTE el 'nombre' de otro ítem de esta misma lista, "
+            "no una redacción nueva"
+        ),
+        max_length=150,
+    )
+    cantidad: int | None = Field(
+        default=None,
+        description="Cantidad de unidades de tiempo (ej: 10, 15, 30)",
+        ge=0,
+    )
+    unidad: Literal["días", "meses", "años", "horas"] | None = Field(
+        default=None, description="Unidad de tiempo"
+    )
+    tipo_dias: Literal["corridos", "hábiles", "no_especificado"] | None = Field(
+        default=None,
+        description="Si la unidad es 'días', especificar si son corridos o hábiles",
+    )
+    direccion: Literal["desde", "hasta", "antes_de", "después_de"] | None = Field(
+        default=None, description="Dirección temporal del plazo respecto al evento disparador"
+    )
+    es_plazo_maximo: bool = Field(
+        default=False,
+        description="True si es un plazo máximo (límite), False si es duración estimada",
+    )
+
+    mencion_propia: bool = Field(
+        default=True,
+        description=(
+            "True si el pliego declara este hito por sí mismo (tiene su propia "
+            "oración/fecha, más allá de ser el disparador de otro plazo). False "
+            "SOLO cuando este ítem se creó nada más porque otro ítem lo nombra "
+            "en `evento_disparador` y el pliego nunca lo menciona por su cuenta "
+            "-- ver regla 2. Sirve para que el usuario final pueda distinguir "
+            "'esto está en el pliego' de 'esto lo inferimos para poder calcular "
+            "otra fecha'."
+        ),
+    )
+
     fuente_documento_id: str = Field(description="ID del documento donde se encontró")
     fuente_pagina: int = Field(description="Número de página donde aparece", ge=1)
     fuente_fragmento: str = Field(
-        description="Fragmento de texto original que menciona el evento",
+        description="Fragmento de texto original que menciona el hito",
         min_length=CITATION_MIN_CHARS,
         max_length=500,
+    )
+    extraction_status: Literal["success"] = Field(
+        default="success",
+        description=(
+            "Siempre 'success' para cada hito emitido -- este campo NO se "
+            "valida contra este schema en runtime (la llamada al LLM usa "
+            "JSON mode libre, sin structured outputs atados a este modelo), "
+            "pero `_normalize_item` (engine/normalization.py) sí lo lee del "
+            "dict crudo: sin él, cada ítem cae a 'not_found' porque estos "
+            "hitos no usan `source_references` (usan `fuente_*`) y por eso "
+            "no hay otra señal desde la que inferir el status."
+        ),
     )
 
     @field_validator("fecha_explicita")
@@ -547,85 +613,28 @@ class EventoTemporalExtracted(BaseModel):
             raise ValueError("Fecha debe estar en formato YYYY-MM-DD")
         return v
 
-
-class EventosTemporalesResponse(BaseModel):
-    """
-    Respuesta completa de extracción de eventos temporales.
-    
-    Contiene la lista de todos los eventos temporales identificados
-    en el documento de pliego.
-    """
-
-    eventos: list[EventoTemporalExtracted] = Field(
-        default_factory=list,
-        description="Lista de eventos temporales encontrados en el documento"
-    )
-
-
-class PlazoRelativoExtracted(BaseModel):
-    """
-    Plazo relativo extraído del documento de pliego.
-    
-    Representa un plazo expresado relativamente a un evento disparador
-    (ej: "10 días después de la apertura", "15 días corridos desde la notificación").
-    """
-
-    descripcion: str = Field(
-        description="Descripción del plazo (ej: 'Presentación de consultas', 'Firma del contrato')",
-        min_length=3,
-        max_length=150,
-    )
-    cantidad: int = Field(
-        description="Cantidad de unidades de tiempo (ej: 10, 15, 30)",
-        ge=0,
-    )
-    unidad: Literal["días", "meses", "años", "horas"] = Field(
-        description="Unidad de tiempo"
-    )
-    tipo_dias: Literal["corridos", "hábiles", "no_especificado"] | None = Field(
-        default="no_especificado",
-        description="Si la unidad es 'días', especificar si son corridos o hábiles"
-    )
-    evento_disparador: str = Field(
-        description="Nombre del evento desde el cual se cuenta el plazo (ej: 'Apertura de Ofertas', 'Notificación de la adjudicación')",
-        min_length=3,
-        max_length=150,
-    )
-    direccion: Literal["desde", "hasta", "antes_de", "después_de"] = Field(
-        description="Dirección temporal del plazo respecto al evento disparador"
-    )
-    es_plazo_maximo: bool = Field(
-        default=False,
-        description="True si es un plazo máximo (límite), False si es duración estimada"
-    )
-    fuente_documento_id: str = Field(description="ID del documento donde se encontró")
-    fuente_pagina: int = Field(description="Número de página donde aparece", ge=1)
-    fuente_fragmento: str = Field(
-        description="Fragmento de texto original que menciona el plazo",
-        min_length=CITATION_MIN_CHARS,
-        max_length=500,
-    )
-
     @field_validator("tipo_dias")
     def validate_tipo_dias_only_for_dias(cls, v, info):
         """Valida que tipo_dias solo se use cuando unidad es 'días'."""
-        if "unidad" in info.data and info.data["unidad"] != "días":
-            if v and v != "no_especificado":
-                raise ValueError("tipo_dias solo aplica cuando unidad es 'días'")
+        if v and info.data.get("unidad") not in (None, "días"):
+            raise ValueError("tipo_dias solo aplica cuando unidad es 'días'")
         return v
 
 
-class PlazosRelativosResponse(BaseModel):
+class HitosTemporalesResponse(BaseModel):
     """
-    Respuesta completa de extracción de plazos relativos.
-    
-    Contiene la lista de todos los plazos relativos identificados
-    en el documento de pliego.
+    Respuesta completa de extracción de hitos temporales (eventos + plazos
+    relativos fusionados).
+
+    El nombre del campo (`eventos_temporales`, no `hitos`) tiene que
+    coincidir con `result_key`/`root_key` del extractor -- `_base_system.txt`
+    instruye al LLM a devolver `{"{root_key}": [...]}` como raíz del JSON, y
+    `run_extractor` (engine/base.py) lee `llm_result.get(result_key)`.
     """
 
-    plazos: list[PlazoRelativoExtracted] = Field(
+    eventos_temporales: list[HitoTemporalExtracted] = Field(
         default_factory=list,
-        description="Lista de plazos relativos encontrados en el documento"
+        description="Lista de hitos temporales encontrados en el documento",
     )
 
 
@@ -770,10 +779,8 @@ __all__ = [
     "RiesgoItem",
     "TipoRiesgo",
     "SubtipoRiesgo",
-    "EventoTemporalExtracted",
-    "EventosTemporalesResponse",
-    "PlazoRelativoExtracted",
-    "PlazosRelativosResponse",
+    "HitoTemporalExtracted",
+    "HitosTemporalesResponse",
     "GenericCategoryItem",
     "PresupuestoItem",
     "ExtractedData",

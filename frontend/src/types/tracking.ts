@@ -1,7 +1,7 @@
 export type TrackingStatus = "active" | "completed";
 export type TrackingCategoryStatus = "not_reviewed" | "in_review" | "closed";
 export type TrackingItemStatus = "not_evaluated" | "compliant" | "non_compliant" | "not_applicable";
-export type TrackingCommentScope = "category" | "checklist_item";
+export type CommentScope = "category" | "checklist_item";
 
 export interface TrackingSourceItemRef {
   version_id: string;
@@ -63,7 +63,7 @@ export interface TrackingComment {
   analysis_id: string;
   version_id: string;
   category_key: string;
-  scope: TrackingCommentScope;
+  scope: CommentScope;
   tracking_item_id?: string | null;
   content: string;
   created_by: string;

@@ -32,6 +32,7 @@ def _event_to_pydantic(row: EventORM) -> Event:
         source_fragment=row.source_fragment,
         source_reference=row.source_reference,
         deleted=row.deleted,
+        hidden=row.hidden,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -50,6 +51,7 @@ def create_event(db: Session, event: Event) -> Event:
         source_fragment=event.source_fragment,
         source_reference=event.source_reference,
         deleted=event.deleted,
+        hidden=event.hidden,
         created_at=event.created_at,
         updated_at=event.updated_at,
     )
@@ -82,6 +84,7 @@ def update_event(db: Session, event: Event) -> Event:
     row.source_fragment = event.source_fragment
     row.source_reference = event.source_reference
     row.deleted = event.deleted
+    row.hidden = event.hidden
     row.updated_at = event.updated_at
     db.commit()
     db.refresh(row)
@@ -93,12 +96,15 @@ def list_events(
     analysis_id: str,
     *,
     include_deleted: bool = False,
+    include_hidden: bool = False,
     limit: int | None = None,
     skip: int = 0,
 ) -> list[Event]:
     query = db.query(EventORM).filter(EventORM.analysis_id == analysis_id)
     if not include_deleted:
         query = query.filter(EventORM.deleted.is_(False))
+    if not include_hidden:
+        query = query.filter(EventORM.hidden.is_(False))
     query = query.order_by(desc(EventORM.created_at))
     if skip:
         query = query.offset(skip)

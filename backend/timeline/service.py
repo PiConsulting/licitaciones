@@ -116,6 +116,7 @@ class TimelineService:
         analysis_id: str,
         user_id: str,
         include_deleted: bool = False,
+        include_hidden: bool = False,
         limit: int | None = None,
         skip: int = 0,
     ) -> list[Event]:
@@ -126,6 +127,8 @@ class TimelineService:
             analysis_id: ID del análisis
             user_id: ID del usuario actual (para validación de ownership)
             include_deleted: Si True, incluye eventos marcados como deleted
+            include_hidden: Si True, incluye eventos marcados como hidden
+                (ver `Event.hidden` -- ocultos "por el momento", no borrados)
             limit: Máximo número de resultados (None = sin límite)
             skip: Número de resultados a saltear (para paginación)
 
@@ -137,8 +140,44 @@ class TimelineService:
         """
         validate_analysis_access(self.db, analysis_id, user_id)
         return repository.list_events(
-            self.db, analysis_id, include_deleted=include_deleted, limit=limit, skip=skip
+            self.db,
+            analysis_id,
+            include_deleted=include_deleted,
+            include_hidden=include_hidden,
+            limit=limit,
+            skip=skip,
         )
+
+    def set_event_hidden(
+        self, event_id: str, analysis_id: str, user_id: str, hidden: bool
+    ) -> Event | None:
+        """
+        Oculta o muestra un evento sin borrarlo (2026-09-01).
+
+        Distinto del soft-delete (`delete_event`): el evento sigue existiendo
+        y participando con normalidad del cálculo de fechas (un evento oculto
+        puede seguir siendo trigger de un deadline de otro evento visible) --
+        solo deja de contar en las estadísticas del timeline y en el panel de
+        "fechas por cargar" del frontend mientras `hidden=True`.
+
+        Args:
+            event_id: ID del evento (sin prefijo)
+            analysis_id: ID del análisis
+            user_id: ID del usuario actual (para validación de ownership)
+            hidden: True para ocultar, False para volver a mostrar
+
+        Returns:
+            Event actualizado, o None si no se encontró
+
+        Raises:
+            HTTPException: 404 si análisis no existe, 403 si no es owner
+        """
+        event = self.get_event(event_id, analysis_id, user_id)
+        if not event:
+            return None
+
+        event.hidden = hidden
+        return self.update_event(event, user_id)
 
     # ==================== DEADLINES ====================
 

@@ -3,7 +3,7 @@ import type {
   AnalysisTracking,
   TrackingCategoryStatus,
   TrackingComment,
-  TrackingCommentScope,
+  CommentScope,
   TrackingItemStatus,
 } from "../types/tracking";
 
@@ -54,7 +54,7 @@ export async function updateTrackingItemStatus(
 export async function listTrackingComments(
   analysisId: string,
   categoryKey: string,
-  options: { scope?: TrackingCommentScope; trackingItemId?: string } = {},
+  options: { scope?: CommentScope; trackingItemId?: string } = {},
 ): Promise<TrackingComment[]> {
   const params: Record<string, string> = {};
   if (options.scope) {

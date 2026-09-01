@@ -15,7 +15,6 @@ from analysis.extraction.extractors import (
     extractor_identificacion_procedimiento,
     extractor_objeto_alcance,
     extractor_plazos,
-    extractor_plazos_relativos,
     extractor_requisitos_admisibilidad,
     extractor_riesgos,
 )
@@ -208,10 +207,66 @@ def merge_node(state: GraphState) -> GraphState:
         _normalize_confidence(_penalize_unverifiable(item)) for item in state.get("riesgos", [])
     ]
     
-    # Timeline: eventos temporales y plazos relativos
-    eventos_temporales = state.get("eventos_temporales", [])
-    plazos_relativos = state.get("plazos_relativos", [])
-    
+    # Timeline: un solo extractor fusionado ("eventos_temporales") que ya
+    # decide él mismo, leyendo el pliego completo, qué es un hito con fecha
+    # propia y qué es un plazo relativo a otro hito -- ver
+    # `analysis/extraction/prompts/eventos_temporales.txt`. Para no tocar
+    # nada río abajo (materializer.py, frontend, tests), acá derivamos las
+    # DOS vistas legacy (`eventos_temporales`/`plazos_relativos`) de esa
+    # única lista fusionada, con la forma exacta que tenían cuando salían de
+    # dos extractores independientes.
+    hitos_temporales = state.get("eventos_temporales", [])
+
+    eventos_temporales = [
+        {
+            "nombre": h.get("nombre"),
+            "fecha_explicita": h.get("fecha_explicita"),
+            "origen_fecha": h.get("origen_fecha"),
+            # True salvo que el LLM marque explícitamente que este hito solo
+            # se agregó para poder referenciarlo como evento_disparador de
+            # otro ítem (regla 2/mencion_propia del prompt) -- default True
+            # (no False) para no marcar como "inferido" a un hito real si el
+            # LLM omitiera el campo en alguna corrida.
+            "mencion_propia": h.get("mencion_propia", True),
+            "fuente_documento_id": h.get("fuente_documento_id"),
+            "fuente_pagina": h.get("fuente_pagina"),
+            "fuente_fragmento": h.get("fuente_fragmento"),
+            "_source_document_id": h.get("_source_document_id"),
+        }
+        for h in hitos_temporales
+    ]
+
+    plazos_relativos = [
+        {
+            "descripcion": h.get("nombre"),
+            "cantidad": h.get("cantidad"),
+            "unidad": h.get("unidad"),
+            "tipo_dias": h.get("tipo_dias"),
+            "evento_disparador": h.get("evento_disparador"),
+            "direccion": h.get("direccion"),
+            "es_plazo_maximo": h.get("es_plazo_maximo", False),
+            "fuente_documento_id": h.get("fuente_documento_id"),
+            "fuente_pagina": h.get("fuente_pagina"),
+            "fuente_fragmento": h.get("fuente_fragmento"),
+            "_source_document_id": h.get("_source_document_id"),
+        }
+        for h in hitos_temporales
+        if h.get("evento_disparador")
+    ]
+
+    # Diagnóstico: si el LLM extrajo hitos pero NINGUNO tiene
+    # evento_disparador, es una señal fuerte de que se está saltando la
+    # mitad "plazo relativo" de la categoría (ver regla 0 del prompt) -- no
+    # bloquea nada, pero deja rastro en logs para no tener que adivinar la
+    # próxima vez que alguien reporte "no aparecen los plazos relativos".
+    if hitos_temporales and not plazos_relativos:
+        logger.warning(
+            "eventos_temporales_sin_plazos_relativos",
+            correlation_id=correlation_id,
+            analysis_id=state["analysis_id"],
+            hitos_extraidos=len(hitos_temporales),
+        )
+
     # FIX (2026-08-22): ya no se canonicaliza `tipo` (eliminado del schema,
     # ver PlazoItem en `schemas.py`). El agrupamiento para dedup usa el valor
     # del plazo (`_plazo_dedup_value`) solo -- sin combinarlo con un tipo, que
@@ -419,7 +474,10 @@ def merge_node(state: GraphState) -> GraphState:
         "eventos_temporales": eventos_temporales,
         "eventos_temporales_extraction_status": state.get("eventos_temporales_status", "unknown"),
         "plazos_relativos": plazos_relativos,
-        "plazos_relativos_extraction_status": state.get("plazos_relativos_status", "unknown"),
+        # Ya no hay un extractor separado para plazos_relativos -- ambas
+        # vistas legacy se derivan de la misma extracción fusionada
+        # ("eventos_temporales"), así que comparten su status.
+        "plazos_relativos_extraction_status": state.get("eventos_temporales_status", "unknown"),
         "documentos_requeridos": [],
         "documentos_extraction_status": NOT_ANALYZED_STATUS,
         "criterios_evaluacion": criterios,
@@ -443,7 +501,6 @@ def merge_node(state: GraphState) -> GraphState:
         "criterios_evaluacion": state.get("criterios_token_usage", {}),
         "identificacion_procedimiento": state.get("identificacion_token_usage", {}),
         "eventos_temporales": state.get("eventos_temporales_token_usage", {}),
-        "plazos_relativos": state.get("plazos_relativos_token_usage", {}),
     }
 
     conflicts: list[dict] = []
@@ -661,7 +718,6 @@ builder.add_node("extract_criterios", extractor_criterios_evaluacion)
 builder.add_node("extract_identificacion", extractor_identificacion_procedimiento)
 builder.add_node("extract_riesgos", extractor_riesgos)
 builder.add_node("extract_eventos_temporales", extractor_eventos_temporales)
-builder.add_node("extract_plazos_relativos", extractor_plazos_relativos)
 builder.add_node("merge", merge_node)
 builder.add_node("synthesize", synthesize_node)
 
@@ -678,7 +734,6 @@ extractor_nodes = [
     "extract_identificacion",
     "extract_riesgos",
     "extract_eventos_temporales",
-    "extract_plazos_relativos",
 ]
 
 for node in extractor_nodes:

@@ -3,10 +3,12 @@ import { useMemo, useState } from "react";
 import { CompleteTrackingConfirmModal } from "../../components/analysis/CompleteTrackingConfirmModal";
 import { StartTrackingConfirmModal } from "../../components/analysis/StartTrackingConfirmModal";
 import { Button } from "../../components/Button";
+import { Tabs, Tab } from "../../components/Tabs";
 import { useToast } from "../../components/ToastContainer";
 import { AnalysisSummaryStrip } from "./AnalysisSummaryStrip";
 import { CategoryList } from "./CategoryList";
 import { AnalysisDetailHeader } from "./AnalysisDetailHeader";
+import { TimelineTab } from "./TimelineTab";
 import { TrackingProgressSummary } from "./components/TrackingProgressSummary";
 import { useAnalysisDetail } from "./hooks/useAnalysisDetail";
 import {
@@ -74,6 +76,76 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
   const isResumeTracking = query.data.tracking?.status === "completed";
   const isTrackingActive = query.data.tracking?.status === "active";
 
+  // Tabs configuration
+  const tabs: Tab[] = [
+    {
+      id: "categories",
+      label: "Categorías",
+      content: (
+        <>
+          {query.data.tracking?.status === "active" ? <TrackingProgressSummary tracking={query.data.tracking} /> : null}
+          <AnalysisSummaryStrip analysis={query.data} />
+          <CategoryList
+            analysis={query.data}
+            onViewSource={({ citation, citations, sources }) => {
+              setSelectedDocumentId(citation.document_id);
+              setSelectedCitation(citation);
+              setSelectedCitations(citations);
+              setSelectedSources(sources);
+              setShowPdfViewer(true);
+            }}
+            trackingActionLoading={updateCategoryMutation.isPending || createCommentMutation.isPending}
+            onChangeTrackingStatus={(categoryKey, status) => {
+              void updateCategoryMutation
+                .mutateAsync({ analysisId, categoryKey, status })
+                .then(() => addToast("success", "Estado de categoría actualizado."))
+                .catch(() => addToast("error", "No se pudo actualizar el estado de la categoría."));
+            }}
+            onChangeTrackingItemStatus={(categoryKey, trackingItemId, status) => {
+              void updateItemMutation.mutateAsync({ analysisId, categoryKey, trackingItemId, status });
+            }}
+            onCreateTrackingComment={async ({ categoryKey, content }) => {
+              await createCommentMutation.mutateAsync({ analysisId, categoryKey, content });
+              addToast("success", "Comentario guardado.");
+            }}
+            onUpdateTrackingComment={async ({ categoryKey, commentId, content }) => {
+              await updateCommentMutation.mutateAsync({ analysisId, categoryKey, commentId, content });
+              addToast("success", "Comentario actualizado.");
+            }}
+            onDeleteTrackingComment={async ({ categoryKey, commentId }) => {
+              await deleteCommentMutation.mutateAsync({ analysisId, categoryKey, commentId });
+              addToast("success", "Comentario eliminado.");
+            }}
+          />
+        </>
+      ),
+    },
+    {
+      id: "timeline",
+      label: "Timeline",
+      content: (
+        <TimelineTab
+          analysisId={analysisId}
+          onViewSource={(documentId, page, fragment) => {
+            setSelectedDocumentId(documentId);
+            setSelectedCitation({
+              // `fragment` es el `source_fragment` del evento/plazo (el texto
+              // del pliego del que salió) -- sin esto el PDFViewer navega a
+              // la página pero no tiene qué texto buscar para resaltar.
+              text: fragment ?? "",
+              page,
+              document_id: documentId,
+              document_name: documentsById.get(documentId)?.filename ?? "Documento",
+            });
+            setSelectedCitations([]);
+            setSelectedSources([]);
+            setShowPdfViewer(true);
+          }}
+        />
+      ),
+    },
+  ];
+
   const handleStartTracking = async () => {
     try {
       await startTrackingMutation.mutateAsync({ analysisId });
@@ -113,46 +185,12 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
 
       <div className="flex min-w-0 flex-col gap-6 xl:flex-row">
         <div
-          data-testid="categories-panel"
+          data-testid="analysis-content-panel"
           className={`min-w-0 w-full rounded-md border border-gray-200 bg-white p-5 ${
             showPdfViewer ? "xl:w-[60%] 2xl:w-[55%]" : "xl:w-full"
           }`}
         >
-          {query.data.tracking?.status === "active" ? <TrackingProgressSummary tracking={query.data.tracking} /> : null}
-
-          <AnalysisSummaryStrip analysis={query.data} />
-          <CategoryList
-            analysis={query.data}
-            onViewSource={({ citation, citations, sources }) => {
-              setSelectedDocumentId(citation.document_id);
-              setSelectedCitation(citation);
-              setSelectedCitations(citations);
-              setSelectedSources(sources);
-              setShowPdfViewer(true);
-            }}
-            trackingActionLoading={updateCategoryMutation.isPending || createCommentMutation.isPending}
-            onChangeTrackingStatus={(categoryKey, status) => {
-              void updateCategoryMutation
-                .mutateAsync({ analysisId, categoryKey, status })
-                .then(() => addToast("success", "Estado de categoría actualizado."))
-                .catch(() => addToast("error", "No se pudo actualizar el estado de la categoría."));
-            }}
-            onChangeTrackingItemStatus={(categoryKey, trackingItemId, status) => {
-              void updateItemMutation.mutateAsync({ analysisId, categoryKey, trackingItemId, status });
-            }}
-            onCreateTrackingComment={async ({ categoryKey, content }) => {
-              await createCommentMutation.mutateAsync({ analysisId, categoryKey, content });
-              addToast("success", "Comentario guardado.");
-            }}
-            onUpdateTrackingComment={async ({ categoryKey, commentId, content }) => {
-              await updateCommentMutation.mutateAsync({ analysisId, categoryKey, commentId, content });
-              addToast("success", "Comentario actualizado.");
-            }}
-            onDeleteTrackingComment={async ({ categoryKey, commentId }) => {
-              await deleteCommentMutation.mutateAsync({ analysisId, categoryKey, commentId });
-              addToast("success", "Comentario eliminado.");
-            }}
-          />
+          <Tabs tabs={tabs} defaultTab="categories" />
         </div>
 
         {showPdfViewer ? (

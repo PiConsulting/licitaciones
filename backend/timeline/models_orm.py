@@ -51,6 +51,10 @@ class EventORM(Base):
     source_fragment: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_reference: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # 2026-09-01: "ocultar sin borrar" -- ver docstring de `Event.hidden` en
+    # timeline/models.py. Requiere migración manual (no hay Alembic en este
+    # repo): ALTER TABLE events ADD COLUMN hidden BOOLEAN NOT NULL DEFAULT FALSE;
+    hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )

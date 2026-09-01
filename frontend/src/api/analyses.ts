@@ -3,7 +3,7 @@ import type {
   AnalysisCreateResponse,
   AnalysisListFilters,
   AnalysisListResponse,
-  AnalysisStartPayload,
+  StartAnalysisRequest,
   AnalysisStartResponse,
   AnalysisStatusResponse,
 } from "../types/analysis";
@@ -31,7 +31,7 @@ export async function createAnalysis(payload: CreateAnalysisPayload): Promise<An
 
 export async function startAnalysis(
   analysisId: string,
-  payload: AnalysisStartPayload = { decisions: [] },
+  payload: StartAnalysisRequest = { decisions: [] },
 ): Promise<AnalysisStartResponse> {
   const response = await apiClient.post<AnalysisStartResponse>(`/analyses/${analysisId}/start`, payload);
   return response.data;
