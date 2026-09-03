@@ -35,5 +35,9 @@
   "riesgos": {
     "definition": "Riesgos comerciales y estrategicos que un oferente deberia considerar antes de decidir participar y al preparar su oferta: condiciones de pago, riesgo cambiario, plazos de entrega exigentes, competencia esperada, direccionamiento hacia un proveedor, mantenimiento de oferta, apertura, capacidades tecnicas exigidas. No son requisitos a presentar ni causales de rechazo formal.",
     "thresholds": { "primary": 0.60, "secondary": 0.48 }
+  },
+  "preview_criterios": {
+    "definition": "FIX (2026-09-03): categoria reducida a 5 conceptos comerciales que ninguna otra categoria cubre (ver analysis/extraction/extractors/preview_criterios.py -- los otros 5 criterios de preview se proyectan desde garantias/plazos_clave/requisitos_admisibilidad/riesgos, no se re-extraen). Condiciones comerciales de pago y logistica: en que moneda se cotiza, si hay tipo de cambio aplicable, como y cuando se paga, si hay anticipo financiero, y quien se hace cargo de los costos de flete, transporte o instalacion del equipamiento hasta destino.",
+    "thresholds": { "primary": 0.60, "secondary": 0.48 }
   }
 }

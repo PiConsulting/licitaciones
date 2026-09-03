@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 
 import structlog
@@ -7,7 +8,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from analysis.extraction.engine.prompts import validate_prompt_inventory
-from analysis.extraction.graph import graph
+from analysis.extraction.graph import graph, graph_phase1, graph_phase2
 from analysis.extraction.state import GraphState
 from analysis.models import Analysis, AnalysisVersion, CurrentStage
 from analysis.progress import build_stage_progress, update_stage_and_progress
@@ -17,6 +18,89 @@ from timeline.materializer import materialize_timeline_from_extraction
 logger = structlog.get_logger(__name__)
 _PROMPT_COST_PER_1K = 0.00015
 _COMPLETION_COST_PER_1K = 0.0006
+
+# FIX (2026-09-03): garantias, plazos_clave/plazos, requisitos_admisibilidad
+# y riesgos se promueven a fase 1 -- preview_criterios ahora proyecta 5 de
+# sus 10 items desde los resultados de estas 4 categorias (ver
+# `analysis/extraction/extractors/preview_criterios.py` y
+# `analysis/extraction/graph/nodes.py`), así que necesitan haber corrido (y
+# haber quedado persistidas) ya en fase 1, no en fase 2. "calidad_por_categoria"
+# se mueve/agrega acá también -- antes solo vivía en fase 2 y el merge de
+# fase 2 con fase 1 solo la traía si YA existía en la versión (ver
+# `extract_categories_phase2` más abajo); si no se persiste desde fase 1, las
+# entradas de calidad de estas 4 categorías se pierden.
+_PHASE1_EXTRACTED_KEYS = {
+    "preview_criterios",
+    "preview_criterios_extraction_status",
+    "preview_criterios_narrative",
+    "preview_criterios_confidence",
+    "objeto_alcance",
+    "objeto_alcance_extraction_status",
+    "objeto_alcance_narrative",
+    "objeto_alcance_confidence",
+    "identificacion_procedimiento",
+    "identificacion_procedimiento_extraction_status",
+    "identificacion_procedimiento_narrative",
+    "datos_procedimiento",
+    "datos_procedimiento_extraction_status",
+    "datos_procedimiento_confidence",
+    "calidad_por_categoria",
+    "requisitos_admisibilidad",
+    "requisitos_admisibilidad_extraction_status",
+    "requisitos_admisibilidad_narrative",
+    "requisitos_admisibilidad_confidence",
+    "plazos_clave",
+    "plazos_clave_extraction_status",
+    "plazos_clave_narrative",
+    "plazos_clave_confidence",
+    "plazos",
+    "plazos_extraction_status",
+    "garantias",
+    "garantias_extraction_status",
+    "garantias_narrative",
+    "garantias_confidence",
+    "riesgos",
+    "riesgos_extraction_status",
+    "riesgos_narrative",
+    "riesgos_confidence",
+}
+
+_PHASE2_EXTRACTED_KEYS = {
+    "calidad_por_categoria",
+    "causales_rechazo",
+    "causales_rechazo_extraction_status",
+    "causales_rechazo_narrative",
+    "causales_extraction_status",
+    "causales_rechazo_confidence",
+    "anexos_obligatorios",
+    "anexos_obligatorios_extraction_status",
+    "anexos_obligatorios_narrative",
+    "anexos_obligatorios_confidence",
+    "criterios_evaluacion",
+    "criterios_evaluacion_extraction_status",
+    "criterios_evaluacion_narrative",
+    "criterios_evaluacion_confidence",
+    "eventos_temporales",
+    "eventos_temporales_extraction_status",
+    "plazos_relativos",
+    "plazos_relativos_extraction_status",
+}
+
+
+def _merge_conflicts(
+    existing_conflicts: list[dict] | None, incoming_conflicts: list[dict] | None
+) -> list[dict]:
+    merged: list[dict] = []
+    seen: set[str] = set()
+
+    for conflict in (existing_conflicts or []) + (incoming_conflicts or []):
+        fingerprint = json.dumps(conflict, sort_keys=True, ensure_ascii=True, default=str)
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        merged.append(conflict)
+
+    return merged
 
 
 def _compute_cost(metadata: dict) -> dict:
@@ -38,12 +122,8 @@ def _compute_cost(metadata: dict) -> dict:
     }
 
 
-def extract_categories(db: Session, analysis: Analysis) -> GraphState:
-    settings = get_settings()
-    max_concurrency = int(settings.extraction_max_concurrency or 4)
-    validate_prompt_inventory()
-
-    initial_state: GraphState = {
+def _build_initial_state(db: Session, analysis: Analysis, max_concurrency: int) -> GraphState:
+    return {
         "analysis_id": analysis.id,
         "correlation_id": analysis.correlation_id,
         "created_by": analysis.created_by,
@@ -51,6 +131,28 @@ def extract_categories(db: Session, analysis: Analysis) -> GraphState:
         "extraction_metadata": {},
         "db_session": db,
     }
+
+
+def _set_completed_stage(db: Session, analysis: Analysis, metadata: dict, *, status: str) -> None:
+    analysis.extraction_metadata = {
+        **metadata,
+        "stage_progress": build_stage_progress(CurrentStage.COMPLETED),
+    }
+    analysis.status = status
+    analysis.current_stage = CurrentStage.COMPLETED.value
+    analysis.progress_percentage = 100
+    analysis.error_message = None
+    analysis.updated_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(analysis)
+
+
+def extract_categories(db: Session, analysis: Analysis) -> GraphState:
+    settings = get_settings()
+    max_concurrency = int(settings.extraction_max_concurrency or 4)
+    validate_prompt_inventory()
+
+    initial_state = _build_initial_state(db, analysis, max_concurrency)
 
     logger.info(
         "category_extraction_started",
@@ -70,6 +172,8 @@ def extract_categories(db: Session, analysis: Analysis) -> GraphState:
     result = graph.invoke(initial_state, config={"max_concurrency": max_concurrency})
 
     extracted_data = result.get("extracted_data", {})
+    timeline_eventos = extracted_data.get("eventos_temporales", result.get("eventos_temporales", []))
+    timeline_plazos = extracted_data.get("plazos_relativos", result.get("plazos_relativos", []))
     conflicts = result.get("conflicts", [])
     metadata = result.get("extraction_metadata", {})
     metadata["cost"] = _compute_cost(metadata)
@@ -94,8 +198,8 @@ def extract_categories(db: Session, analysis: Analysis) -> GraphState:
             db,
             analysis_id=analysis.id,
             created_by=analysis.created_by,
-            eventos_temporales=result.get("eventos_temporales", []),
-            plazos_relativos=result.get("plazos_relativos", []),
+            eventos_temporales=timeline_eventos,
+            plazos_relativos=timeline_plazos,
         )
         logger.info(
             "timeline_materialized",
@@ -125,18 +229,7 @@ def extract_categories(db: Session, analysis: Analysis) -> GraphState:
     )
 
     analysis.current_version_id = new_version.id
-    analysis.extraction_metadata = metadata
-    analysis.status = "analyzed"
-    analysis.current_stage = CurrentStage.COMPLETED.value
-    analysis.progress_percentage = 100
-    analysis.error_message = None
-    analysis.extraction_metadata = {
-        **metadata,
-        "stage_progress": build_stage_progress(CurrentStage.COMPLETED),
-    }
-    analysis.updated_at = datetime.now(UTC)
-    db.commit()
-    db.refresh(analysis)
+    _set_completed_stage(db, analysis, metadata, status="analyzed")
 
     logger.info(
         "category_extraction_completed",
@@ -146,5 +239,199 @@ def extract_categories(db: Session, analysis: Analysis) -> GraphState:
         conflicts_count=len(conflicts),
         total_tokens=metadata["cost"]["total_tokens"],
         estimated_cost_usd=metadata["cost"]["estimated_cost_usd"],
+    )
+    return result
+
+
+def extract_categories_phase1(
+    db: Session,
+    analysis: Analysis,
+    *,
+    total_nodes: int,
+) -> GraphState:
+    settings = get_settings()
+    max_concurrency = int(settings.extraction_max_concurrency or 4)
+    validate_prompt_inventory()
+
+    initial_state = _build_initial_state(db, analysis, max_concurrency)
+    logger.info(
+        "category_extraction_phase1_started",
+        correlation_id=analysis.correlation_id,
+        analysis_id=analysis.id,
+        max_concurrency=max_concurrency,
+        total_nodes=total_nodes,
+    )
+
+    update_stage_and_progress(
+        db,
+        analysis.id,
+        CurrentStage.ANALYZING,
+        progress_increment=45,
+        stage_progress=build_stage_progress(
+            CurrentStage.ANALYZING,
+            done=0,
+            total=total_nodes,
+            analyzing_label="preview",
+        ),
+        status="processing",
+    )
+
+    result = graph_phase1.invoke(initial_state, config={"max_concurrency": max_concurrency})
+    extracted_data = result.get("extracted_data", {})
+    phase1_extracted_data = {k: v for k, v in extracted_data.items() if k in _PHASE1_EXTRACTED_KEYS}
+    metadata = result.get("extraction_metadata", {})
+    metadata["cost"] = _compute_cost(metadata)
+
+    current_version_number = (
+        db.query(func.max(AnalysisVersion.version_number))
+        .filter(AnalysisVersion.analysis_id == analysis.id)
+        .scalar()
+    ) or 0
+    new_version = AnalysisVersion(
+        analysis_id=analysis.id,
+        version_number=int(current_version_number) + 1,
+        extracted_data=phase1_extracted_data,
+        conflicts=result.get("conflicts", []),
+        created_by=analysis.created_by,
+    )
+    db.add(new_version)
+    db.flush()
+
+    update_stage_and_progress(
+        db,
+        analysis.id,
+        CurrentStage.CONSOLIDATING,
+        progress_increment=15,
+        stage_progress=build_stage_progress(CurrentStage.CONSOLIDATING),
+        status="processing",
+    )
+
+    analysis.current_version_id = new_version.id
+    _set_completed_stage(db, analysis, metadata, status="en_revision")
+
+    logger.info(
+        "category_extraction_phase1_completed",
+        correlation_id=analysis.correlation_id,
+        analysis_id=analysis.id,
+        version_id=new_version.id,
+    )
+    return result
+
+
+def extract_categories_phase2(
+    db: Session,
+    analysis: Analysis,
+    *,
+    total_nodes: int,
+) -> GraphState:
+    settings = get_settings()
+    max_concurrency = int(settings.extraction_max_concurrency or 4)
+    validate_prompt_inventory()
+
+    initial_state = _build_initial_state(db, analysis, max_concurrency)
+    logger.info(
+        "category_extraction_phase2_started",
+        correlation_id=analysis.correlation_id,
+        analysis_id=analysis.id,
+        max_concurrency=max_concurrency,
+        total_nodes=total_nodes,
+    )
+
+    current_version = None
+    if analysis.current_version_id:
+        current_version = (
+            db.query(AnalysisVersion)
+            .filter(
+                AnalysisVersion.id == analysis.current_version_id,
+                AnalysisVersion.analysis_id == analysis.id,
+            )
+            .first()
+        )
+    if current_version is None:
+        raise RuntimeError("No se encontró la AnalysisVersion de fase 1 para completar fase 2")
+
+    update_stage_and_progress(
+        db,
+        analysis.id,
+        CurrentStage.ANALYZING,
+        progress_increment=45,
+        stage_progress=build_stage_progress(
+            CurrentStage.ANALYZING,
+            done=0,
+            total=total_nodes,
+            analyzing_label="categorias",
+        ),
+        status="processing",
+    )
+
+    result = graph_phase2.invoke(initial_state, config={"max_concurrency": max_concurrency})
+    extracted_data = result.get("extracted_data", {})
+    timeline_eventos = extracted_data.get("eventos_temporales", result.get("eventos_temporales", []))
+    timeline_plazos = extracted_data.get("plazos_relativos", result.get("plazos_relativos", []))
+    phase2_extracted_data = {k: v for k, v in extracted_data.items() if k in _PHASE2_EXTRACTED_KEYS}
+    metadata = result.get("extraction_metadata", {})
+    metadata["cost"] = _compute_cost(metadata)
+
+    # Decisión de diseño (Epic P1, 2026-09-02): fase 2 NO crea versión nueva.
+    # Solo completa la primera corrida y actualiza in-place la version_number=1.
+    merged_extracted_data = dict(current_version.extracted_data or {})
+    calidad_existente = merged_extracted_data.get("calidad_por_categoria")
+    calidad_nueva = phase2_extracted_data.get("calidad_por_categoria")
+    if isinstance(calidad_existente, dict) and isinstance(calidad_nueva, dict):
+        phase2_extracted_data["calidad_por_categoria"] = {
+            **calidad_existente,
+            **calidad_nueva,
+        }
+    merged_extracted_data.update(phase2_extracted_data)
+    current_version.extracted_data = merged_extracted_data
+    current_version.conflicts = _merge_conflicts(
+        current_version.conflicts,
+        result.get("conflicts", []),
+    )
+    db.flush()
+
+    try:
+        materialize_result = materialize_timeline_from_extraction(
+            db,
+            analysis_id=analysis.id,
+            created_by=analysis.created_by,
+            eventos_temporales=timeline_eventos,
+            plazos_relativos=timeline_plazos,
+        )
+        logger.info(
+            "timeline_materialized_phase2",
+            correlation_id=analysis.correlation_id,
+            analysis_id=analysis.id,
+            events_created=materialize_result.events_created,
+            deadlines_created=materialize_result.deadlines_created,
+            skipped_count=len(materialize_result.skipped),
+        )
+    except Exception:
+        logger.exception(
+            "timeline_materialization_phase2_failed",
+            correlation_id=analysis.correlation_id,
+            analysis_id=analysis.id,
+        )
+
+    update_stage_and_progress(
+        db,
+        analysis.id,
+        CurrentStage.CONSOLIDATING,
+        progress_increment=15,
+        stage_progress=build_stage_progress(CurrentStage.CONSOLIDATING),
+        status="processing",
+    )
+
+    analysis.extraction_metadata = {
+        **(analysis.extraction_metadata or {}),
+        **metadata,
+    }
+    _set_completed_stage(db, analysis, analysis.extraction_metadata or {}, status="analyzed")
+
+    logger.info(
+        "category_extraction_phase2_completed",
+        correlation_id=analysis.correlation_id,
+        analysis_id=analysis.id,
+        version_id=current_version.id,
     )
     return result

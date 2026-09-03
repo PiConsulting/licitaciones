@@ -280,3 +280,44 @@ def test_resolve_ningun_source_queda_huerfano() -> None:
     referenced_ids = {sid for bullet in narrative.blocks[0].items for sid in bullet.source_ids}
     source_ids = {s.id for s in narrative.sources}
     assert referenced_ids == source_ids
+
+
+def test_preview_not_found_se_conserva_sin_fuentes_cuando_se_habilita_keep_empty() -> None:
+    items = [
+        {
+            "tipo": "mantenimiento_oferta",
+            "valor": None,
+            "confidence": 0.0,
+            "extraction_status": "not_found",
+            "source_references": [],
+        }
+    ]
+    raw = RawCategoryNarrative.model_validate(
+        {
+            "blocks": [
+                {
+                    "type": "bullet_list",
+                    "items": [
+                        {
+                            "text": "Mantenimiento de oferta: no se encontró información en el pliego.",
+                            "confidence_level": "baja",
+                            "item_refs": [0],
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+
+    narrative = _resolve_narrative_sources(
+        raw,
+        items,
+        correlation_id="corr",
+        keep_empty_for_statuses={"not_found", "failed"},
+    )
+
+    assert len(narrative.blocks) == 1
+    assert narrative.blocks[0].type == "bullet_list"
+    assert len(narrative.blocks[0].items) == 1
+    assert narrative.blocks[0].items[0].source_ids == []
+    assert narrative.sources == []

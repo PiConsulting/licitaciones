@@ -2,9 +2,11 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 import fitz
+import pytest
 from fastapi.testclient import TestClient
 
-from analysis.models import Analysis
+from analysis.models import Analysis, AnalysisVersion, CurrentStage
+from analysis.progress import build_stage_progress
 from analysis.service import check_duplicates
 from documents.models import Document
 from documents.service import calculate_content_hash
@@ -262,6 +264,62 @@ def test_start_status_endpoint(client: TestClient, auth_token: str) -> None:
     db.close()
 
 
+def test_get_analysis_detail_legacy_without_preview_criterios(client: TestClient, auth_token: str) -> None:
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == "test@cedia.com").first()
+    assert user is not None
+
+    analysis = Analysis(
+        created_by=user.id,
+        status="analyzed",
+        current_stage="completed",
+        correlation_id=str(uuid4()),
+    )
+    db.add(analysis)
+    db.flush()
+
+    version = AnalysisVersion(
+        analysis_id=analysis.id,
+        version_number=1,
+        extracted_data={
+            "objeto_alcance": {
+                "items": [],
+                "confidence": 0,
+                "source_references": [],
+                "extraction_status": "not_found",
+                "summary": "",
+                "is_reviewed": False,
+            },
+            "requisitos_admisibilidad": {
+                "items": [],
+                "confidence": 0,
+                "source_references": [],
+                "extraction_status": "not_found",
+                "summary": "",
+                "is_reviewed": False,
+            },
+        },
+        conflicts=[],
+        created_by=user.id,
+    )
+    db.add(version)
+    db.flush()
+    analysis.current_version_id = version.id
+    db.commit()
+
+    response = client.get(
+        f"/api/v1/analyses/{analysis.id}",
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "analyzed"
+    assert "preview_criterios" not in payload["current_version"]["extracted_data"]
+
+    db.close()
+
+
 def test_delete_error_analysis_hard_deletes_records(
     client: TestClient, auth_token: str, monkeypatch
 ) -> None:
@@ -367,3 +425,120 @@ def test_delete_completed_analysis_soft_deletes_records(
     assert stored_document is not None
     assert stored_document.deleted_at is not None
     db.close()
+
+
+@pytest.mark.parametrize("current_status", ["draft", "processing", "queued", "analyzed", "error", "cancelled"])
+def test_start_categories_rejects_non_review_status(
+    client: TestClient,
+    auth_token: str,
+    current_status: str,
+) -> None:
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == "test@cedia.com").first()
+    assert user is not None
+
+    analysis = Analysis(created_by=user.id, status=current_status, correlation_id=str(uuid4()))
+    db.add(analysis)
+    db.commit()
+
+    response = client.post(
+        f"/api/v1/analyses/{analysis.id}/start-categories",
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["error"]["code"] == "ANALYSIS_NOT_IN_REVIEW"
+    db.close()
+
+
+def test_start_categories_enqueues_phase2(client: TestClient, auth_token: str, monkeypatch) -> None:
+    from analysis import routes as analysis_routes
+
+    queued_ids: list[str] = []
+    monkeypatch.setattr(
+        analysis_routes,
+        "enqueue_analysis_categories",
+        lambda _background_tasks, analysis_id: queued_ids.append(analysis_id),
+    )
+
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == "test@cedia.com").first()
+    assert user is not None
+
+    analysis = Analysis(
+        created_by=user.id,
+        status="en_revision",
+        correlation_id=str(uuid4()),
+    )
+    db.add(analysis)
+    db.commit()
+
+    response = client.post(
+        f"/api/v1/analyses/{analysis.id}/start-categories",
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "queued"
+    assert queued_ids == [analysis.id]
+
+    db.refresh(analysis)
+    assert analysis.progress_percentage == 0
+    assert (analysis.extraction_metadata or {}).get("stage_progress") == "En cola"
+    db.close()
+
+
+def test_start_categories_returns_conflict_when_already_transitioned(
+    client: TestClient, auth_token: str, monkeypatch
+) -> None:
+    from analysis import routes as analysis_routes
+
+    queued_ids: list[str] = []
+    monkeypatch.setattr(
+        analysis_routes,
+        "enqueue_analysis_categories",
+        lambda _background_tasks, analysis_id: queued_ids.append(analysis_id),
+    )
+
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == "test@cedia.com").first()
+    assert user is not None
+
+    analysis = Analysis(
+        created_by=user.id,
+        status="queued",
+        correlation_id=str(uuid4()),
+    )
+    db.add(analysis)
+    db.commit()
+    analysis_id = analysis.id
+    db.close()
+
+    class _StaleAnalysis:
+        def __init__(self, analysis_id: str) -> None:
+            self.id = analysis_id
+            self.status = "en_revision"
+            self.extraction_metadata = {}
+
+    monkeypatch.setattr(
+        analysis_routes,
+        "validate_analysis_ownership",
+        lambda *_args, **_kwargs: _StaleAnalysis(analysis_id),
+    )
+
+    response = client.post(
+        f"/api/v1/analyses/{analysis_id}/start-categories",
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+
+    assert response.status_code == 409
+    payload = response.json()
+    assert payload["error"]["code"] == "ANALYSIS_CATEGORIES_ALREADY_STARTED"
+    assert queued_ids == []
+
+
+def test_build_stage_progress_phase1_no_hardcoded_ocho() -> None:
+    message = build_stage_progress(CurrentStage.ANALYZING, done=0, total=3)
+    assert "de 8" not in message

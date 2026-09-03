@@ -23,6 +23,7 @@ CANONICAL_PROMPT_FILES = {
     "causales_rechazo.txt",
     "anexos_obligatorios.txt",
     "identificacion_procedimiento.txt",
+    "preview_criterios.txt",
     "riesgos.txt",
     "eventos_temporales.txt",
 }
@@ -35,6 +36,7 @@ CANONICAL_CATEGORY_PROMPT_MAP = {
     "causales_rechazo": "causales_rechazo.txt",
     "anexos_obligatorios": "anexos_obligatorios.txt",
     "identificacion_procedimiento": "identificacion_procedimiento.txt",
+    "preview_criterios": "preview_criterios.txt",
     "riesgos": "riesgos.txt",
     "eventos_temporales": "eventos_temporales.txt",
 }

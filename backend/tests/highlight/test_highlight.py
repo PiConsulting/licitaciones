@@ -38,6 +38,32 @@ def test_compute_highlight_regions_citation_too_short():
     assert regions == []
 
 
+def test_compute_highlight_regions_citation_con_gap_marker_busca_fragmento_contiguo(tmp_path):
+    """Si la citation viene concatenada con `[...]`, debe encontrar al menos
+    un fragmento real en el PDF para no perder el highlight."""
+    import fitz
+
+    pdf_path = tmp_path / "gap_marker.pdf"
+    doc = fitz.open()
+    page = doc.new_page(width=600, height=800)
+    page.insert_text(
+        (40, 120),
+        "La adjudicataria deberá ejecutar los trabajos necesarios para mitigar la causa del conflicto dentro del plazo de siete (7) días.",
+    )
+    doc.save(str(pdf_path))
+    doc.close()
+
+    citation = "deberá ejecutar los trabajos necesarios [...] dentro del plazo de siete (7) días"
+    regions = compute_highlight_regions(
+        pdf_path=str(pdf_path),
+        page_number=1,
+        citation=citation,
+        correlation_id="test-gap-marker",
+    )
+
+    assert len(regions) > 0
+
+
 def test_compute_highlights_for_sources_missing_pdf():
     """Sources sin PDF path deben conservarse con highlight_regions vacío."""
     sources = [

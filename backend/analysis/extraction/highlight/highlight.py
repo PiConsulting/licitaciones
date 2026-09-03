@@ -12,6 +12,7 @@ puede usar para dibujar rectangles de highlight sin falsos positivos/negativos.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import structlog
@@ -29,6 +30,35 @@ from analysis.extraction.highlight.search_matching import (
 )
 
 logger = structlog.get_logger(__name__)
+
+_CITATION_GAP_MARKER_RE = re.compile(r"\s*(?:\[\.\.\.\]|\u2026)\s*")
+
+
+def _citation_candidates(citation: str, *, min_length: int) -> list[str]:
+    """Variantes de búsqueda para citas no contiguas.
+
+    Algunos sources agrupan múltiples fragmentos del mismo párrafo en un
+    único `citation` separado por `[...]`. Ese string NO existe de forma
+    contigua en el PDF, así que `search_for` y el fallback por palabras fallan
+    aunque la evidencia sea correcta. Esta función mantiene primero la cita
+    original y, si detecta marcadores de corte, agrega fragmentos contiguos
+    (del más largo al más corto) para intentar ubicar al menos una región.
+    """
+    normalized = (citation or "").strip()
+    if not normalized:
+        return []
+
+    candidates: list[str] = [normalized]
+    if not _CITATION_GAP_MARKER_RE.search(normalized):
+        return candidates
+
+    parts = [part.strip(" .;,:\n\t") for part in _CITATION_GAP_MARKER_RE.split(normalized)]
+    parts = [part for part in parts if len(part) >= min_length]
+    parts.sort(key=len, reverse=True)
+    for part in parts:
+        if part not in candidates:
+            candidates.append(part)
+    return candidates
 
 
 def _rects_to_regions(rects: list[Any]) -> list[dict[str, float]]:
@@ -120,33 +150,42 @@ def compute_highlight_regions(
 
         page = doc[page_number - 1]  # PyMuPDF usa 0-indexed
 
-        text_instances = page.search_for(citation)
+        candidates = _citation_candidates(citation, min_length=min_length)
+        for candidate_index, candidate in enumerate(candidates):
+            if len(candidate.strip()) < min_length:
+                continue
 
-        if text_instances:
-            selected = _select_occurrence_rects(page, text_instances, section_hint, correlation_id)
-            regions = _rects_to_regions(selected)
-            logger.info(
-                "highlight_found_exact",
-                correlation_id=correlation_id,
-                page_number=page_number,
-                rects_returned_by_search=len(text_instances),
-                regions_count=len(regions),
-            )
-            return regions
+            text_instances = page.search_for(candidate)
 
-        occurrences = _search_citation_by_words(page, citation)
-        if occurrences:
-            selected = _select_from_occurrences(page, occurrences, section_hint, correlation_id)
-            regions = _rects_to_regions(selected)
-            logger.info(
-                "highlight_found_by_words",
-                correlation_id=correlation_id,
-                page_number=page_number,
-                occurrences=len(occurrences),
-                regions_count=len(regions),
-                reason="search_for no matcheó: la cita cruza una costura del maquetado",
-            )
-            return regions
+            if text_instances:
+                selected = _select_occurrence_rects(page, text_instances, section_hint, correlation_id)
+                regions = _rects_to_regions(selected)
+                logger.info(
+                    "highlight_found_exact",
+                    correlation_id=correlation_id,
+                    page_number=page_number,
+                    rects_returned_by_search=len(text_instances),
+                    regions_count=len(regions),
+                    used_citation_candidate=candidate_index,
+                    candidate_trimmed=bool(candidate_index > 0),
+                )
+                return regions
+
+            occurrences = _search_citation_by_words(page, candidate)
+            if occurrences:
+                selected = _select_from_occurrences(page, occurrences, section_hint, correlation_id)
+                regions = _rects_to_regions(selected)
+                logger.info(
+                    "highlight_found_by_words",
+                    correlation_id=correlation_id,
+                    page_number=page_number,
+                    occurrences=len(occurrences),
+                    regions_count=len(regions),
+                    reason="search_for no matcheó: la cita cruza una costura del maquetado",
+                    used_citation_candidate=candidate_index,
+                    candidate_trimmed=bool(candidate_index > 0),
+                )
+                return regions
 
         logger.warning(
             "highlight_not_found_in_page",

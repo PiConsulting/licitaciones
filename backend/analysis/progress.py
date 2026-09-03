@@ -15,6 +15,7 @@ STAGE_PROGRESS_MAP: dict[CurrentStage, int] = {
     CurrentStage.COMPLETED: 100,
 }
 
+# `en_revision` NO es terminal: habilita la transición a fase 2 (start-categories).
 TERMINAL_STATUSES = {"analyzed", "error", "cancelled"}
 
 # Timeouts se calculan en base a la cantidad de páginas del documento.
@@ -39,7 +40,11 @@ def set_timeout_timestamps(
 
 
 def build_stage_progress(
-    stage: CurrentStage, *, done: int | None = None, total: int | None = None
+    stage: CurrentStage,
+    *,
+    done: int | None = None,
+    total: int | None = None,
+    analyzing_label: str = "categorias",
 ) -> str:
     if stage == CurrentStage.QUEUED:
         return "En cola"
@@ -48,7 +53,7 @@ def build_stage_progress(
     if stage == CurrentStage.INDEXING:
         return "Preparando para análisis"
     if stage == CurrentStage.ANALYZING and done is not None and total is not None:
-        return f"Analizando categorias ({done} de {total})"
+        return f"Analizando {analyzing_label} ({done} de {total})"
     if stage == CurrentStage.CONSOLIDATING:
         return "Consolidando"
     return "Analizado"

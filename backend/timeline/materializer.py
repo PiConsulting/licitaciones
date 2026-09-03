@@ -90,6 +90,119 @@ _TOKEN_OVERLAP_THRESHOLD = 0.75
 # cargar la fecha a mano en vez de perder la información.
 _VALID_DIRECTIONS = {"desde", "después_de", "hasta", "antes_de"}
 
+_DIRECTION_CUE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    (
+        "desde",
+        re.compile(r"\b(contad[oa]s?\s+desde|contad[oa]s?\s+a\s+partir\s+de|a\s+partir\s+de)\b"),
+    ),
+    ("antes_de", re.compile(r"\b(antes\s+de|previo\s+a|anteriores?\s+a)\b")),
+    ("hasta", re.compile(r"\b(hasta|no\s+mas\s+alla\s+de|a\s+mas\s+tardar)\b")),
+    (
+        "desde",
+        re.compile(r"\b(desde)\b"),
+    ),
+    ("después_de", re.compile(r"\b(despues\s+de|luego\s+de|posterior(?:es)?\s+a)\b")),
+]
+
+_SEQUENCE_RELATION_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(pattern)
+    for pattern in (
+        r"\b(quedara\s+perfeccionad[oa]\s+con|se\s+formaliza\s+con|se\s+perfecciona\s+con)\b",
+        r"\b(con\s+la\s+notificacion|con\s+la\s+recepcion|mediante\s+la\s+notificacion)\b",
+        r"\b(una\s+vez|cumplid[oa]\s+la|obtenid[oa]\s+la)\b",
+        r"\b(tras\s+la|tras\s+el|al\s+recibir)\b",
+    )
+]
+
+
+def _normalize_direction(value: Any) -> str | None:
+    """Normaliza direcciones equivalentes a las 4 canónicas del schema."""
+    if value is None:
+        return None
+    raw = _normalize(str(value))
+    if not raw:
+        return None
+    aliases = {
+        "despues de": "después_de",
+        "despues_de": "después_de",
+        "después de": "después_de",
+        "desde": "desde",
+        "hasta": "hasta",
+        "antes de": "antes_de",
+        "antes_de": "antes_de",
+    }
+    normalized = aliases.get(raw, raw.replace(" ", "_"))
+    return normalized if normalized in _VALID_DIRECTIONS else None
+
+
+def _infer_direction_from_text(*texts: str | None) -> str | None:
+    """Infiere dirección temporal por pistas léxicas cuando el extractor la omite."""
+    combined = " ".join(_normalize(t or "") for t in texts if t)
+    if not combined:
+        return None
+
+    for direction, pattern in _DIRECTION_CUE_PATTERNS:
+        if pattern.search(combined):
+            return direction
+
+    return None
+
+
+def _is_missing_duration(item: dict[str, Any]) -> bool:
+    raw = item.get("cantidad")
+    if raw is None:
+        return True
+    if isinstance(raw, str) and not raw.strip():
+        return True
+    return False
+
+
+def _event_is_mentioned_in_fragment(event_name: str, normalized_fragment: str) -> bool:
+    normalized_event = _normalize(event_name)
+    if not normalized_event:
+        return False
+    if normalized_event in normalized_fragment:
+        return True
+    fragment_tokens = _significant_tokens(normalized_fragment)
+    event_tokens = _significant_tokens(normalized_event)
+    return bool(fragment_tokens & event_tokens)
+
+
+def _infer_structural_dependency_direction(
+    *,
+    descripcion: str,
+    evento_disparador: str,
+    source_fragment: str | None,
+    item: dict[str, Any],
+) -> str | None:
+    """Fallback conservador para relaciones entre hitos sin duración.
+
+    Si falta dirección y cantidad, modela dependencia instantánea (`desde`,
+    duración 0) SOLO cuando el fragmento menciona ambos hitos y trae una
+    pista secuencial explícita.
+    """
+    if not _is_missing_duration(item):
+        return None
+    if not source_fragment:
+        return None
+
+    normalized_fragment = _normalize(source_fragment)
+    if not normalized_fragment:
+        return None
+
+    mentions_target = _event_is_mentioned_in_fragment(descripcion, normalized_fragment)
+    mentions_trigger = _event_is_mentioned_in_fragment(evento_disparador, normalized_fragment)
+    if not (mentions_target and mentions_trigger):
+        return None
+
+    if any(pattern.search(normalized_fragment) for pattern in _SEQUENCE_RELATION_PATTERNS):
+        return "desde"
+
+    # Fallback final: si la extracción ya afirmó una relación temporal entre
+    # dos hitos (target/trigger) pero omitió dirección y duración, persistimos
+    # la dependencia como `desde` con duración 0 para no perder el vínculo.
+    return "desde"
+
 
 class MaterializeResult(BaseModel):
     """Resultado de una corrida de materialización."""
@@ -407,7 +520,20 @@ def materialize_timeline_from_extraction(
             )
             continue
 
-        direccion = item.get("direccion")
+        direccion = _normalize_direction(item.get("direccion"))
+        if direccion is None:
+            direccion = _infer_direction_from_text(
+                item.get("fuente_fragmento"),
+                descripcion,
+                evento_disparador,
+            )
+        if direccion is None:
+            direccion = _infer_structural_dependency_direction(
+                descripcion=descripcion,
+                evento_disparador=evento_disparador,
+                source_fragment=item.get("fuente_fragmento"),
+                item=item,
+            )
         if direccion not in _VALID_DIRECTIONS:
             # Acá sí se descarta -- pero solo porque no sabemos la dirección
             # en absoluto (None, vacío, o un valor que no es ninguno de los

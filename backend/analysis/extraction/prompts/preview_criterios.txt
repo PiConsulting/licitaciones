@@ -1,0 +1,141 @@
+# CONCEPTO DE LA CATEGORÍA
+
+Esta categoría extrae 5 criterios de revisión temprana (preview) para que el usuario
+pueda tomar decisiones comerciales rápidas sin esperar el análisis completo.
+
+Los otros 5 criterios de preview (garantías/cauciones, tiempo de entrega,
+mantenimiento de oferta, requisitos técnicos excluyentes, multas y penalidades)
+NO se piden acá -- se arman automáticamente a partir de lo que ya extrajeron
+las categorías de garantías, plazos clave, requisitos de admisibilidad y
+riesgos, que corren antes en el mismo análisis. No los inventes ni los
+repitas: esta categoría es solo para lo que ninguna otra categoría cubre.
+
+Tipos permitidos (`TipoCriterioPreview`) en ESTA categoría:
+- forma_pago
+- moneda
+- tipo_cambio
+- anticipo_financiero
+- responsabilidad_costos_logisticos
+
+# OBJETIVO
+
+Devolver una lista de items en `{root_key}` con información verificable de estos
+5 criterios.
+
+- Si hay evidencia textual suficiente: emitir item con `extraction_status = "success"` o `"partial"`,
+  `valor` con el dato y `source_references` con al menos una cita literal.
+- Si no hay evidencia suficiente para un criterio: NO inventar el valor, pero SÍ emitir
+  un item para ese tipo con `extraction_status = "not_found"`, `valor = null` y
+  `source_references = []`. No lo omitas: el preview necesita saber que el criterio
+  se buscó y no se encontró, para distinguirlo de un criterio que todavía no se buscó.
+
+# ESTRUCTURA
+
+Cada item debe seguir el schema `PreviewCriterioItem`:
+- `tipo`: uno de los 5 valores permitidos arriba
+- `valor`: texto literal o casi literal del pliego (`null` si `extraction_status = "not_found"`)
+- `metadata`: objeto (usar `{}` si no aplica)
+- `confidence`: número entre 0.0 y 1.0 (`0.0` si `extraction_status = "not_found"`)
+- `source_references`: lista de citas literales (al menos una si hay evidencia; `[]` si `extraction_status = "not_found"`)
+- `extraction_status`: success | partial | not_found | failed
+
+Debés devolver EXACTAMENTE un item por cada uno de los 5 tipos permitidos arriba,
+ni más ni menos -- el que no tenga evidencia se emite igual, como "not_found".
+
+# REGLAS CRÍTICAS
+
+1. No inventar valores.
+2. No mezclar tipos: un item por tipo de criterio.
+3. Las citas deben ser literales y trazables al fragmento.
+4. Si hay contradicciones entre documentos, priorizar pliego principal y bajar confidence.
+5. No emitas items de garantias_cauciones, tiempo_entrega, mantenimiento_oferta,
+   requisitos_tecnicos_excluyentes ni multas_penalidades -- esos se arman aparte.
+
+# EXCEPCIÓN A LA REGLA 4bis ("Pertenencia categórica única") DEL PROMPT GENERAL
+
+FIX (2026-09-03, causa raíz de bug reportado: moneda/forma_pago/tipo_cambio/
+anticipo_financiero/responsabilidad_costos_logisticos volvían "not_found"
+pese a que el chunk correcto SÍ llegaba al contexto -- confirmado con
+experimentos de retrieval aislado). La regla 4bis del prompt general te pide
+preferir dejar un hecho AFUERA de esta categoría si el fragmento "responde
+mejor la pregunta rectora de otra categoría" (identificación, objeto y
+alcance, requisitos de admisibilidad, plazos clave, garantías, causales de
+rechazo, criterios de evaluación, anexos obligatorios, riesgos). Notá que
+preview_criterios NO está en esa lista -- y es a propósito: los 5 criterios de
+acá NO son un tema por sí solos en el pliego, sino un dato puntual que casi
+siempre aparece DENTRO de un fragmento cuyo tema principal es otra categoría.
+Ejemplos reales: la moneda de cotización suele estar en medio de un párrafo
+sobre "Metodología de comparación económica" (que en general pertenece a
+criterios_evaluacion); la responsabilidad por costos logísticos suele estar
+en medio de una cláusula de "Obligaciones del proveedor" o de garantía técnica
+(que en general pertenece a objeto_alcance o garantías).
+
+Para ESTA categoría, aplicá la regla 4bis a nivel de HECHO PUNTUAL, no a nivel
+de fragmento completo: que el fragmento en su conjunto pertenezca a otra
+categoría NO es motivo para dejar afuera el dato de forma de pago, moneda,
+tipo de cambio, anticipo financiero o responsabilidad de costos logísticos si
+ESE dato puntual está en el texto. Extraelo igual, con su cita literal
+acotada a la oración que lo prueba (no al párrafo entero), aunque el resto
+del fragmento hable de otra cosa y aunque ese mismo fragmento también se use
+para extraer otro hecho en otra categoría -- acá no hay duplicado real,
+porque ninguna otra categoría del sistema pregunta por moneda de cotización,
+forma de pago, tipo de cambio, anticipo financiero ni responsabilidad de
+costos logísticos. Si terminás sin emitir ningún item de estos 5 tipos en un
+pliego que sí menciona precios, pagos o moneda en algún lado, es señal de que
+aplicaste 4bis de más -- releé los fragmentos buscando el dato puntual, no el
+tema general del fragmento.
+
+# FORMA DE RESPUESTA
+
+# FIX (2026-09-03): el ejemplo anterior mostraba "moneda" como el caso
+# not_found -- un ejemplo así puede sesgar al modelo a repetir ese patrón
+# para ese tipo puntual en vez de leer el pliego real. El ejemplo de abajo
+# muestra dos "success" (formas distintas de tipo) para no anclar ningún tipo
+# real a not_found; el formato exacto de un item not_found ya está descripto
+# en ESTRUCTURA y OBJETIVO arriba -- no hace falta un segundo ejemplo para
+# copiarlo literal.
+
+Responder exclusivamente JSON válido con raíz:
+{
+    "{root_key}": [
+        {
+            "tipo": "forma_pago",
+            "valor": "Pago a 30 dias contra entrega",
+            "metadata": {},
+            "confidence": 0.8,
+            "source_references": [
+                {
+                    "document_id": "doc-1",
+                    "page_number": 1,
+                    "citation": "El pago se efectuara a 30 dias de la recepcion conforme"
+                }
+            ],
+            "extraction_status": "success"
+        },
+        {
+            "tipo": "anticipo_financiero",
+            "valor": "Se admite anticipo del 20% contra garantia de caucion",
+            "metadata": {},
+            "confidence": 0.7,
+            "source_references": [
+                {
+                    "document_id": "doc-1",
+                    "page_number": 3,
+                    "citation": "podra otorgarse un anticipo financiero del 20% del monto"
+                }
+            ],
+            "extraction_status": "success"
+        }
+    ]
+}
+
+Recordatorio: la lista final que devuelvas debe tener EXACTAMENTE 5 items (uno
+por cada tipo de la sección OBJETIVO), no solo los 2 del ejemplo -- el ejemplo
+de arriba ilustra el formato de un item `success`, no el contenido completo de
+la respuesta.
+
+---
+
+=== CONTENIDO DEL PLIEGO ===
+{chunks}
+=== FIN DEL CONTENIDO ===

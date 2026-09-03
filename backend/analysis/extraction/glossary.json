@@ -302,5 +302,132 @@
       "secondary": 0.15
     },
     "weight": 1.2
+  },
+  "preview_criterios": {
+    "query_terms": [
+      "forma de pago",
+      "condiciones de pago",
+      "moneda de cotizacion",
+      "moneda de pago",
+      "tipo de cambio",
+      "anticipo financiero",
+      "anticipo",
+      "responsabilidad costos logisticos",
+      "transporte",
+      "flete",
+      "desembalaje",
+      "instalacion",
+      "entrega en destino"
+    ],
+    "aliases": [
+      "dolares estadounidenses",
+      "dolares",
+      "USD",
+      "pesos argentinos",
+      "cotizar en moneda extranjera",
+      "pago en moneda extranjera",
+      "ajuste por tipo de cambio",
+      "tipo de cambio aplicable",
+      "cotizacion del dolar",
+      "anticipo de pago",
+      "adelanto financiero",
+      "pago anticipado",
+      "gastos de transporte",
+      "gastos de flete",
+      "seguro de transporte",
+      "costos de instalacion",
+      "puesta en funcionamiento",
+      "entrega e instalacion",
+      "jaula de datacenter",
+      "data center",
+      "logistica de entrega",
+      "factura",
+      "orden de pago",
+      "plazo de pago",
+      "certificado de pago"
+    ],
+    "thresholds": {
+      "primary": 0.25,
+      "secondary": 0.1
+    },
+    "weight": 1.0,
+    "top_k": 45,
+    "category_penalty": 0.0
+  },
+  "eventos_temporales": {
+    "query_terms": [
+      "adjudicacion",
+      "apertura de ofertas",
+      "acto de apertura",
+      "firma de contrato",
+      "recepcion del pliego",
+      "presentacion de ofertas",
+      "entrega",
+      "plazo de entrega",
+      "fecha de adjudicacion",
+      "notificacion de adjudicacion",
+      "orden de compra",
+      "orden de servicio",
+      "inicio de ejecucion",
+      "vigencia del contrato"
+    ],
+    "aliases": [
+      "acto de adjudicacion",
+      "resolucion de adjudicacion",
+      "notificacion de la adjudicacion",
+      "perfeccionamiento del contrato",
+      "suscripcion del contrato",
+      "fecha de firma",
+      "puesta en marcha",
+      "inicio de la prestacion",
+      "recepcion provisoria",
+      "recepcion definitiva",
+      "dias corridos desde la adjudicacion",
+      "dias habiles desde la adjudicacion",
+      "desde la notificacion",
+      "desde la firma del contrato",
+      "cronograma del proceso",
+      "fecha limite de presentacion",
+      "vencimiento del plazo",
+      "consulta de pliego",
+      "circular aclaratoria",
+      "impugnacion",
+      "visita tecnica",
+      "visita de obra"
+    ],
+    "thresholds": {
+      "primary": 0.25,
+      "secondary": 0.1
+    },
+    "weight": 1.0,
+    "top_k": 45
+  },
+  "anexos_obligatorios": {
+    "query_terms": [
+      "anexo",
+      "anexo obligatorio",
+      "formulario",
+      "planilla de cotizacion",
+      "planilla de oferta",
+      "declaracion jurada",
+      "modelo de propuesta",
+      "documentacion anexa"
+    ],
+    "aliases": [
+      "formulario de oferta",
+      "planilla anexa",
+      "anexo tecnico",
+      "anexo economico",
+      "modelo de formulario",
+      "carta de presentacion",
+      "declaracion jurada de mantenimiento de oferta",
+      "documentacion complementaria"
+    ],
+    "thresholds": {
+      "primary": 0.25,
+      "secondary": 0.1
+    },
+    "weight": 1.0,
+    "top_k": 35
   }
 }

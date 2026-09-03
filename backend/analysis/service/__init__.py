@@ -5,6 +5,7 @@ from analysis.service.duplicates import check_duplicates, find_duplicates_for_an
 from analysis.service.lifecycle import (
     delete_analysis,
     enqueue_analysis,
+    enqueue_analysis_categories,
     request_cancellation,
     run_analysis_stub,
     validate_analysis_ownership,
@@ -31,6 +32,7 @@ __all__ = [
     "create_analysis_with_documents",
     "delete_analysis",
     "enqueue_analysis",
+    "enqueue_analysis_categories",
     "find_duplicates_for_analysis",
     "list_analyses",
     "request_cancellation",

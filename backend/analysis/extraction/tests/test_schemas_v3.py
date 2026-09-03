@@ -479,15 +479,29 @@ def test_confidence_negative_fails(valid_source_ref):
 # =============================================================================
 
 
-def test_source_references_empty_fails(valid_source_ref):
-    """source_references vacío debe fallar (min_length=1)."""
-    with pytest.raises(ValidationError):
-        GarantiaItem(
-            tipo=TipoGarantia.MANTENIMIENTO_OFERTA,
-            monto_porcentaje=5.0,
-            confidence=0.9,
-            source_references=[],  # ❌ Min 1 elemento
-        )
+def test_source_references_empty_permitido_a_nivel_schema(valid_source_ref):
+    """FIX (2026-09-03): `source_references=[]` ya NO falla a nivel de schema.
+
+    Antes exigía `min_length=1`: cualquier item sin fuentes moría acá, sin
+    importar la razón. Eso incluía dos casos legítimos que el pipeline
+    necesita conservar (ver `graph/validation.py::_drop_items_without_sources`
+    y `engine/citation_grounding.py::_verify_citation_grounding`):
+    - un placeholder "not_found" explícito (criterio buscado y no encontrado);
+    - un hallazgo real cuya cita no pudo verificarse literalmente contra los
+      chunks (se muestra sin evidencia clickeable, en vez de perderse).
+
+    El contrato de "un item con contenido real y status success/partial
+    necesita al menos una fuente O queda marcado sin evidencia verificable"
+    ahora lo hace cumplir `_drop_items_without_sources`, no este schema.
+    """
+    garantia = GarantiaItem(
+        tipo=TipoGarantia.MANTENIMIENTO_OFERTA,
+        monto_porcentaje=5.0,
+        confidence=0.9,
+        extraction_status="not_found",
+        source_references=[],
+    )
+    assert garantia.source_references == []
 
 
 def test_source_references_multiple_valid(valid_source_ref):

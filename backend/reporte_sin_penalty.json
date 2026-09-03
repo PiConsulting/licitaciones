@@ -1,0 +1,127 @@
+{
+  "ks": [
+    5,
+    10,
+    20,
+    50
+  ],
+  "n_cases": 3,
+  "category_boost_used": "default (0.50)",
+  "category_penalty_used": 0.0,
+  "per_case": [
+    {
+      "case_id": "tucuman_2026_mantenimiento_oferta",
+      "category": "plazos_clave",
+      "analysis_id": "2435d3d7-9182-4ea5-9d20-ce93d51b498d",
+      "gold_total": 1,
+      "recall_with_boost": {
+        "recall@5": 1.0,
+        "recall@10": 1.0,
+        "recall@20": 1.0,
+        "recall@50": 1.0
+      },
+      "recall_baseline": {
+        "recall@5": 1.0,
+        "recall@10": 1.0,
+        "recall@20": 1.0,
+        "recall@50": 1.0
+      }
+    },
+    {
+      "case_id": "bancor_2026_moneda_preview",
+      "category": "preview_criterios",
+      "analysis_id": "8ae9a67a-19e2-4bea-8d5d-09c643acd2d9",
+      "gold_total": 1,
+      "recall_with_boost": {
+        "recall@5": 1.0,
+        "recall@10": 1.0,
+        "recall@20": 1.0,
+        "recall@50": 1.0
+      },
+      "recall_baseline": {
+        "recall@5": 1.0,
+        "recall@10": 1.0,
+        "recall@20": 1.0,
+        "recall@50": 1.0
+      }
+    },
+    {
+      "case_id": "bancor_2026_costos_logisticos_preview",
+      "category": "preview_criterios",
+      "analysis_id": "8ae9a67a-19e2-4bea-8d5d-09c643acd2d9",
+      "gold_total": 1,
+      "recall_with_boost": {
+        "recall@5": 1.0,
+        "recall@10": 1.0,
+        "recall@20": 1.0,
+        "recall@50": 1.0
+      },
+      "recall_baseline": {
+        "recall@5": 1.0,
+        "recall@10": 1.0,
+        "recall@20": 1.0,
+        "recall@50": 1.0
+      }
+    }
+  ],
+  "aggregate_with_boost": {
+    "5": {
+      "overall_mean": 1.0,
+      "by_category": {
+        "plazos_clave": 1.0,
+        "preview_criterios": 1.0
+      }
+    },
+    "10": {
+      "overall_mean": 1.0,
+      "by_category": {
+        "plazos_clave": 1.0,
+        "preview_criterios": 1.0
+      }
+    },
+    "20": {
+      "overall_mean": 1.0,
+      "by_category": {
+        "plazos_clave": 1.0,
+        "preview_criterios": 1.0
+      }
+    },
+    "50": {
+      "overall_mean": 1.0,
+      "by_category": {
+        "plazos_clave": 1.0,
+        "preview_criterios": 1.0
+      }
+    }
+  },
+  "aggregate_baseline": {
+    "5": {
+      "overall_mean": 1.0,
+      "by_category": {
+        "plazos_clave": 1.0,
+        "preview_criterios": 1.0
+      }
+    },
+    "10": {
+      "overall_mean": 1.0,
+      "by_category": {
+        "plazos_clave": 1.0,
+        "preview_criterios": 1.0
+      }
+    },
+    "20": {
+      "overall_mean": 1.0,
+      "by_category": {
+        "plazos_clave": 1.0,
+        "preview_criterios": 1.0
+      }
+    },
+    "50": {
+      "overall_mean": 1.0,
+      "by_category": {
+        "plazos_clave": 1.0,
+        "preview_criterios": 1.0
+      }
+    }
+  }
+}

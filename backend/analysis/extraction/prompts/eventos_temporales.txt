@@ -25,6 +25,37 @@ Incluye:
 - Plazos del procedimiento o de la ejecución contractual contados desde otro evento
 - Cualquier otro hito o plazo temporal mencionado en el pliego
 
+**NO incluye (criterio general, aplicable a cualquier pliego -- no es una lista
+cerrada de palabras, es el PRINCIPIO que las explica):**
+
+El test es: "¿es esto un HITO -- algo que ocurre una vez, en un momento del
+calendario, y que el oferente necesita marcar y accionar?" Si la respuesta es
+no, no es un hito temporal, aunque el texto mencione días, meses o "a partir
+de".
+
+- **Condiciones o modalidades contractuales que se describen con plazos, pero
+  no son en sí mismas un evento que el oferente deba marcar en un calendario.**
+  Ejemplo típico: una forma de pago en cuotas o cheques diferidos ("se pagará
+  en 6 cheques a 30, 60, 90, 120, 150 y 180 días desde la emisión de los
+  valores") es una CONDICIÓN comercial, no un hito -- no generes un ítem
+  "Forma de Pago" (ni uno por cada vencimiento de cuota). Esto es distinto de
+  un plazo real que el oferente sí debe cumplir en una fecha concreta (ej.
+  "el pago se realizará dentro de los 30 días de la factura" SÍ es un plazo,
+  porque ahí "Pago" es el hito que depende de "Factura").
+- **Requisitos, garantías o características técnicas que mencionan una
+  duración pero no marcan un evento del proceso.** Ejemplo: "la garantía
+  técnica del fabricante es de 3 años" describe una característica del
+  producto, no un hito de la licitación -- no la extraigas acá (si además
+  tiene un plazo real de constitución/vigencia con fecha de inicio propia del
+  proceso, ESE plazo sí puede ser un hito, pero la característica en sí no).
+- **Si dudás si algo es un hito o una condición, preguntate: "¿tiene sentido
+  poner esto en un calendario como una fecha a la que el oferente debe
+  llegar?"** Si la respuesta es "no, es solo una regla de cómo se paga / de
+  qué calidad debe ser algo / de qué requisito cumplir", no es un hito
+  temporal -- aunque mencione "días" o "meses", esa categoría (garantías,
+  requisitos, forma de pago) ya se extrae en su propia sección del análisis,
+  no acá.
+
 **Reconocimiento semántico:** Los hitos pueden aparecer en cualquier sección del
 documento (Plazos, Cronograma, Requisitos, Condiciones de contratación, Anexos). Buscá:
 - Menciones explícitas de eventos ("apertura de ofertas", "adjudicación", "recepción del pliego")

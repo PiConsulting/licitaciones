@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
+
+
+_CITATION_GAP_MARKER_RE = re.compile(r"\s*(?:\[\.\.\.\]|\u2026)\s*")
 
 
 def pagina_sin_capa_de_texto(pdf_path: str, page_number: int) -> bool:
@@ -74,9 +78,16 @@ def regiones_desde_renglones_ocr(
 
     from analysis.extraction.highlight.search_matching import _fold
 
-    buscada = _fold(citation)
-    if not buscada:
-        return []
+    raw_citation = (citation or "").strip()
+    candidates = [raw_citation]
+    if _CITATION_GAP_MARKER_RE.search(raw_citation):
+        parts = [part.strip(" .;,:\n\t") for part in _CITATION_GAP_MARKER_RE.split(raw_citation)]
+        parts = [part for part in parts if part]
+        parts.sort(key=len, reverse=True)
+        for part in parts:
+            if part not in candidates:
+                candidates.append(part)
+
     concatenado: list[str] = []
     procedencia: list[tuple[int, int, int]] = []  # (índice de renglón, offset, largo del renglón)
     for indice, renglon in enumerate(renglones):
@@ -88,18 +99,30 @@ def regiones_desde_renglones_ocr(
     if not texto:
         return []
 
-    comienzo = texto.find(buscada)
-    if comienzo < 0:
-        return []
-    final = comienzo + len(buscada) - 1
     por_renglon: dict[int, tuple[int, int, int]] = {}
-    for posicion in range(comienzo, final + 1):
-        indice, offset, largo = procedencia[posicion]
-        if indice in por_renglon:
-            desde, _hasta, _l = por_renglon[indice]
-            por_renglon[indice] = (desde, offset, largo)
-        else:
-            por_renglon[indice] = (offset, offset, largo)
+    for candidate in candidates:
+        buscada = _fold(candidate)
+        if not buscada:
+            continue
+
+        comienzo = texto.find(buscada)
+        if comienzo < 0:
+            continue
+
+        final = comienzo + len(buscada) - 1
+        for posicion in range(comienzo, final + 1):
+            indice, offset, largo = procedencia[posicion]
+            if indice in por_renglon:
+                desde, hasta_existente, _l = por_renglon[indice]
+                por_renglon[indice] = (min(desde, offset), max(hasta_existente, offset), largo)
+            else:
+                por_renglon[indice] = (offset, offset, largo)
+
+        if por_renglon:
+            break
+
+    if not por_renglon:
+        return []
 
     regiones: list[dict[str, float]] = []
     for indice in sorted(por_renglon):

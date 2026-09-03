@@ -24,9 +24,15 @@ from analysis.extraction.extractors.plazos import extractor_plazos
 from analysis.extraction.extractors.requisitos_admisibilidad import (
     extractor_requisitos_admisibilidad,
 )
-from analysis.extraction.graph import graph
+from analysis.extraction.graph import graph, graph_phase1, graph_phase2
 from analysis.extraction.graph.confidence import calculate_confidence
-from analysis.extraction.graph.nodes import merge_node, setup_node, synthesize_node
+from analysis.extraction.graph.nodes import (
+    extractor_nodes_phase1,
+    extractor_nodes_phase2,
+    merge_node,
+    setup_node,
+    synthesize_node,
+)
 from analysis.extraction.schemas import ExtractedData
 
 
@@ -209,6 +215,23 @@ def mock_llm(monkeypatch: pytest.MonkeyPatch) -> None:
             {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
         ),
     )
+
+
+def test_phase_graphs_expose_expected_extractors() -> None:
+    assert extractor_nodes_phase1 == [
+        "extract_preview_criterios",
+        "extract_objeto_alcance",
+        "extract_identificacion",
+    ]
+    assert "extract_eventos_temporales" in extractor_nodes_phase2
+    assert "extract_objeto_alcance" not in extractor_nodes_phase2
+    assert "extract_identificacion" not in extractor_nodes_phase2
+
+
+def test_phase_graphs_are_compiled() -> None:
+    assert graph is not None
+    assert graph_phase1 is not None
+    assert graph_phase2 is not None
 
 
 def test_document_mapping_fluye_de_setup_a_synthesize_para_highlights(

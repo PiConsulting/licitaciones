@@ -43,6 +43,9 @@ class GraphState(TypedDict, total=False):
     identificacion: list[dict[str, Any]]
     identificacion_status: str
 
+    preview_criterios: list[dict[str, Any]]
+    preview_criterios_status: str
+
     riesgos: list[dict[str, Any]]
     riesgos_status: str
 
@@ -78,6 +81,7 @@ class GraphState(TypedDict, total=False):
     criterios_token_usage: dict[str, int]
     restricciones_token_usage: dict[str, int]
     identificacion_token_usage: dict[str, int]
+    preview_criterios_token_usage: dict[str, int]
     cronograma_token_usage: dict[str, int]
     presupuesto_token_usage: dict[str, int]
     eventos_temporales_token_usage: dict[str, int]

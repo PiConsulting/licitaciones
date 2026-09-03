@@ -27,6 +27,7 @@ except ImportError:
 logger = structlog.get_logger(__name__)
 
 CATEGORY_LABELS = {
+    "preview_criterios": "Preview Criterios",
     "objeto_alcance": "Objeto y Alcance",
     "requisitos_admisibilidad": "Requisitos de Admisibilidad",
     "garantias": "Garantías",
@@ -37,6 +38,14 @@ CATEGORY_LABELS = {
     "riesgos": "Riesgos",
 }
 CATEGORY_OUTPUT_CONTRACTS = {
+    "preview_criterios": (
+        "- Sintetizar criterios preliminares clave para decisión temprana de oportunidad.\n"
+        "- Emitir SIEMPRE una lista con exactamente un bullet por cada item recibido.\n"
+        "- Cada bullet debe empezar con el nombre legible del criterio y seguir con una respuesta breve en lenguaje natural.\n"
+        "- Si el item tiene extraction_status='not_found' o 'failed', escribir explícitamente que no se encontró información para ese criterio, sin omitirlo.\n"
+        "- Usar redacción breve y accionable por criterio, sin inventar datos no citados.\n"
+        "- Priorizar texto verificable respaldado por evidencia del pliego cuando exista."
+    ),
     "objeto_alcance": (
         "- Devolver exactamente QUE se licita en 2-3 lineas maximo.\n"
         "- No incluir modalidad, lugar de entrega, plazos, garantias, criterios, causales, anexos ni requisitos.\n"
@@ -115,6 +124,13 @@ def run_synthesis(
     frontend ya tienen fallback, asi que una categoria nunca se queda sin
     respuesta por un fallo puntual de este paso."""
     if not items or not _has_usable_content(items):
+        if category_key == "preview_criterios":
+            category_label = CATEGORY_LABELS.get(category_key, category_key)
+            return _empty_category_narrative(category_label), {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            }
         return None
 
     try:
@@ -141,6 +157,7 @@ def run_synthesis(
             items,
             correlation_id=correlation_id,
             chunks_by_id=chunks_by_id,
+            keep_empty_for_statuses={"not_found", "failed"} if category_key == "preview_criterios" else None,
         )
         if not narrative.blocks:
             logger.error(

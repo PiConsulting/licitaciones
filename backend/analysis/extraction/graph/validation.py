@@ -5,6 +5,7 @@ import structlog
 from pydantic import BaseModel, ValidationError
 
 from analysis.extraction.engine.citation_grounding import shorten_citation_to_evidence
+from analysis.extraction.engine.normalization import _item_has_substantive_content
 from analysis.extraction.schemas import CITATION_MAX_CHARS, CITATION_MIN_CHARS
 
 logger = structlog.get_logger(__name__)
@@ -121,14 +122,53 @@ def _drop_items_without_sources(
     *,
     category: str = "",
     quality: dict[str, dict[str, int]] | None = None,
+    keep_not_found_without_sources: bool = False,
 ) -> tuple[list[dict], str]:
     """El contrato final exige al menos una fuente por item persistido.
     Si el grounding dejó items sin citas verificables, se descartan y la
     categoría baja a partial cuando antes figuraba como success.
     """
     items = _enforce_citation_contract(items)
-    filtered = [item for item in items if list(item.get("source_references", []))]
-    dropped = len(items) - len(filtered)
+    filtered: list[dict] = []
+    placeholders_kept = 0
+    unverified_kept = 0
+    dropped_count = 0
+    for item in items:
+        refs = list(item.get("source_references", []))
+        if refs:
+            filtered.append(item)
+            continue
+
+        item_status = str(item.get("extraction_status", "")).strip().lower()
+        if keep_not_found_without_sources and item_status == "not_found":
+            filtered.append(item)
+            placeholders_kept += 1
+            continue
+
+        # FIX (2026-09-03, bug reportado: preview mostraba solo 4/10
+        # criterios, algunos con dato real pero sin evidencia clickeable):
+        # un item puede llegar acá con status "success"/"partial" y sin
+        # embargo `source_references` vacío -- no porque no se haya
+        # encontrado nada, sino porque `_verify_citation_grounding` (engine/
+        # citation_grounding.py) no pudo confirmar la cita del LLM contra los
+        # chunks recuperados (parafraseo, chunk no recuperado, page_number
+        # mal formado) y la vació, degradando el item a "partial" con
+        # `_warning="cita_no_verificada"`. Antes esto se descartaba entero:
+        # el usuario veía como si el dato nunca se hubiera extraído, cuando
+        # el sistema SÍ lo encontró -- solo no pudo verificar la cita
+        # literal. Se conserva sin evidencia clickeable en vez de perderlo:
+        # el frontend ya sabe renderizar un item sin fuentes verificadas (no
+        # cuenta para "revisado automáticamente", no ofrece botón de ver
+        # fuente), así que el usuario ve el dato con esa salvedad, no un
+        # vacío indistinguible de "no está en el pliego".
+        if _item_has_substantive_content(item):
+            filtered.append(item)
+            unverified_kept += 1
+            continue
+
+        dropped_count += 1
+
+    dropped = dropped_count
     normalized_status = str(status or "unknown")
 
     if dropped and normalized_status in {"success", "unknown"}:
@@ -148,6 +188,14 @@ def _drop_items_without_sources(
         if rescatados:
             registro["con_evidencia_rescatada"] = (
                 registro.get("con_evidencia_rescatada", 0) + rescatados
+            )
+        if placeholders_kept:
+            registro["placeholders_not_found_conservados"] = (
+                registro.get("placeholders_not_found_conservados", 0) + placeholders_kept
+            )
+        if unverified_kept:
+            registro["conservados_sin_evidencia_verificable"] = (
+                registro.get("conservados_sin_evidencia_verificable", 0) + unverified_kept
             )
         registro["conservados"] = len(filtered)
 

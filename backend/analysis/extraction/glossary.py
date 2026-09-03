@@ -71,6 +71,41 @@ def get_category_top_k(category_key: str, default: int = 25) -> int:
     return int(top_k) if isinstance(top_k, (int, float, str)) and str(top_k).isdigit() else default
 
 
+# FIX (2026-09-03, Fase 1.4 del plan RAG): category_penalty configurable por
+# categoría, mismo patrón que get_category_top_k de arriba. Origen: el
+# dataset de evaluación (evaluation/datasets/retrieval_eval_v1.json, 9 casos
+# / 6 pliegos) mostró que el penalty default de -30% (`chunk_retrieval.py`)
+# perjudica activamente el recall de `preview_criterios` en chunks con
+# contenido multi-categoría (comportamiento monotónico y reproducible en
+# Bancor, Nucleoeléctrica y Bancor/Imperva: a menor penalty, mejor recall,
+# sin degradar ningún caso de control) -- pero esa evidencia sólo cubre
+# `preview_criterios` y `plazos_clave` (2 de 11 categorías). En vez de bajar
+# el default global (que afectaría a 9 categorías sin datos que lo validen),
+# se sobreescribe puntualmente por categoría acá, igual que ya se hace con
+# `top_k`. Ver docs/docu/PLAN-fix-preview-criterios-y-hardcodeo-rag.md,
+# sección 1.4, para el detalle del experimento.
+def get_category_penalty(category_key: str, default: float = 0.30) -> float:
+    """Obtiene el category_penalty configurado para una categoría en
+    glossary.json. Si la categoría no define un override, devuelve `default`
+    (el mismo default de producción que ya tenía
+    `_retrieve_with_category_priority`)."""
+    glossary = _load_glossary()
+    entry = glossary.get(category_key, {})
+    if not isinstance(entry, dict):
+        return default
+    penalty = entry.get("category_penalty", default)
+    if isinstance(penalty, bool):
+        return default
+    if isinstance(penalty, (int, float)):
+        return float(penalty)
+    if isinstance(penalty, str):
+        try:
+            return float(penalty)
+        except ValueError:
+            return default
+    return default
+
+
 # FASE 4 del plan RAG v2 (2026-08-24, sección 4.4): query expansion con
 # definición semántica. `category_definitions.json` ya existe desde la Fase 2
 # (4.3, clasificación semántica de chunks) -- acá se reutiliza la misma

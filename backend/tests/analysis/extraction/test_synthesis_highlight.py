@@ -215,10 +215,11 @@ class TestHighlightCoordinateConversion:
 
     def test_compute_highlight_uses_pymupdf_coordinates_as_is(self):
         """compute_highlight_regions usa las coordenadas de PyMuPDF sin invertirlas."""
-        mock_doc = Mock()
+        mock_doc = MagicMock()
         mock_page = Mock()
         mock_rect = Mock()
         mock_rect.x0 = 72.0
+        mock_rect.x1 = 492.0
         mock_rect.y0 = 450.0
         mock_rect.y1 = 486.0
         mock_rect.width = 420.0
@@ -248,11 +249,12 @@ class TestHighlightCoordinateConversion:
 
     def test_compute_highlight_multiple_regions(self):
         """Múltiples matches producen múltiples regiones, cada una con su y original."""
-        mock_doc = Mock()
+        mock_doc = MagicMock()
         mock_page = Mock()
 
-        mock_rect1 = Mock(x0=72.0, y0=450.0, y1=486.0, width=420.0, height=36.0)
-        mock_rect2 = Mock(x0=72.0, y0=600.0, y1=636.0, width=420.0, height=36.0)
+        # Dos rects del mismo match en líneas consecutivas: deben conservarse ambos.
+        mock_rect1 = Mock(x0=72.0, x1=492.0, y0=450.0, y1=486.0, width=420.0, height=36.0)
+        mock_rect2 = Mock(x0=72.0, x1=492.0, y0=500.0, y1=536.0, width=420.0, height=36.0)
 
         mock_page.rect.height = 800.0
         mock_page.search_for.return_value = [mock_rect1, mock_rect2]
@@ -272,7 +274,7 @@ class TestHighlightCoordinateConversion:
 
         assert len(regions) == 2
         assert regions[0]["y"] == 450.0
-        assert regions[1]["y"] == 600.0
+        assert regions[1]["y"] == 500.0
 
 
 class TestHighlightConfigurableThreshold:
@@ -307,7 +309,7 @@ class TestHighlightConfigurableThreshold:
         mock_settings_instance = Mock(spec=[])  # Sin el atributo
         mock_settings.return_value = mock_settings_instance
 
-        mock_doc = Mock()
+        mock_doc = MagicMock()
         mock_page = Mock()
         mock_page.rect.height = 800.0
         mock_page.search_for.return_value = []

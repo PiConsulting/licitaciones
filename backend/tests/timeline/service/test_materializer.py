@@ -325,6 +325,99 @@ class TestMaterializeFromPlazosRelativos:
         assert deadlines[0].calculation_status == "pending"
         assert deadlines[0].deadline_date is None
 
+    def test_direccion_ausente_se_infiere_desde_fuente_fragmento(self, db_session, analysis_id):
+        result = materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[],
+            plazos_relativos=[
+                _plazo_relativo(
+                    "Presentación de consultas",
+                    "Apertura de ofertas",
+                    direccion=None,
+                    fuente_fragmento=(
+                        "Las consultas deberán presentarse a más tardar dentro de los 5 días "
+                        "hábiles contados a partir de la apertura de ofertas."
+                    ),
+                )
+            ],
+        )
+
+        assert result.events_created == 2
+        assert result.deadlines_created == 1
+        assert result.skipped == []
+
+        deadlines = repository.list_deadlines(db_session, analysis_id)
+        assert len(deadlines) == 1
+        assert deadlines[0].direccion == "desde"
+
+    def test_direccion_ausente_con_relacion_entre_hitos_se_infiere_como_dependencia(
+        self, db_session, analysis_id
+    ):
+        result = materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[],
+            plazos_relativos=[
+                _plazo_relativo(
+                    "Notificación formal de adjudicación",
+                    "Adjudicación",
+                    cantidad=None,
+                    unidad=None,
+                    tipo_dias=None,
+                    direccion=None,
+                    fuente_fragmento=(
+                        "La contratación quedará perfeccionada con la notificación formal "
+                        "del acto administrativo de adjudicación."
+                    ),
+                )
+            ],
+        )
+
+        assert result.events_created == 2
+        assert result.deadlines_created == 1
+        assert result.skipped == []
+
+        deadlines = repository.list_deadlines(db_session, analysis_id)
+        assert len(deadlines) == 1
+        assert deadlines[0].direccion == "desde"
+        assert deadlines[0].duration == 0
+
+    def test_direccion_ausente_con_una_vez_cumplida_se_infiere_como_desde(
+        self, db_session, analysis_id
+    ):
+        result = materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[],
+            plazos_relativos=[
+                _plazo_relativo(
+                    "Emisión de la Factura",
+                    "Entrega de los Bienes",
+                    cantidad=None,
+                    unidad=None,
+                    tipo_dias=None,
+                    direccion=None,
+                    fuente_fragmento=(
+                        "La factura deberá ser emitida una vez cumplida la entrega y obtenida "
+                        "la conformidad técnica y administrativa correspondiente."
+                    ),
+                )
+            ],
+        )
+
+        assert result.events_created == 2
+        assert result.deadlines_created == 1
+        assert result.skipped == []
+
+        deadlines = repository.list_deadlines(db_session, analysis_id)
+        assert len(deadlines) == 1
+        assert deadlines[0].direccion == "desde"
+        assert deadlines[0].duration == 0
+
     def test_direccion_desconocida_o_ausente_sigue_saltandose(self, db_session, analysis_id):
         """A diferencia de 'antes_de'/'hasta' (direcciones válidas que el
         motor todavía no sabe calcular), una dirección None/inválida no
@@ -336,7 +429,12 @@ class TestMaterializeFromPlazosRelativos:
             TEST_USER_ID,
             eventos_temporales=[],
             plazos_relativos=[
-                _plazo_relativo("Presentación de consultas", "Apertura de ofertas", direccion=None)
+                _plazo_relativo(
+                    "Presentación de consultas",
+                    "Apertura de ofertas",
+                    direccion=None,
+                    fuente_fragmento="Recepción definitiva sujeta a validación técnica.",
+                )
             ],
         )
 

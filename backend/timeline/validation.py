@@ -57,7 +57,7 @@ def validate_deadline_for_calculation(
     - Que el evento trigger exista y tenga fecha asignada
     - Que el evento target exista
     - Que la duración sea válida (> 0)
-    - Que la unidad sea soportada (actualmente solo "días")
+    - Que la unidad sea soportada ("días", "horas", "meses" o "años")
     - Que el day_type sea conocido ("corridos" o "hábiles")
     
     Args:
@@ -119,11 +119,16 @@ def validate_deadline_for_calculation(
         errors.append(error_msg)
         logger.error(error_msg)
     
-    # 4. Validar unidad (AC1)
-    if deadline.unit != "días":
+    # 4. Validar unidad (AC1). "días" sigue siendo la más común, pero
+    # "horas", "meses" y "años" también son unidades válidas del schema de
+    # extracción (PlazoRelativoExtracted / DurationUnit) -- add_business_days
+    # ya sabe convertirlas a fecha (horas: redondeo hacia arriba a días
+    # completos; meses/años: aritmética calendario). day_type no aplica a
+    # estas tres, se salta la validación 6 para ellas.
+    if deadline.unit not in {"días", "horas", "meses", "años"}:
         error_msg = (
             f"Unidad '{deadline.unit}' no soportada. "
-            "Actualmente solo se soporta la unidad 'días'."
+            "Valores permitidos: 'días', 'horas', 'meses', 'años'."
         )
         errors.append(error_msg)
         logger.error(error_msg)
@@ -147,21 +152,25 @@ def validate_deadline_for_calculation(
         errors.append(error_msg)
         logger.info(error_msg)
 
-    # 6. Validar day_type (AC1, AC3)
-    if deadline.day_type == "no_especificado":
-        error_msg = (
-            "Tipo de día no especificado en documento fuente. "
-            "No se puede calcular fecha sin saber si son días corridos o hábiles."
-        )
-        errors.append(error_msg)
-        logger.warning(error_msg)
-    elif deadline.day_type not in ["corridos", "hábiles"]:
-        error_msg = (
-            f"day_type '{deadline.day_type}' inválido. "
-            "Valores permitidos: 'corridos', 'hábiles'."
-        )
-        errors.append(error_msg)
-        logger.error(error_msg)
+    # 6. Validar day_type (AC1, AC3). Solo aplica cuando unit="días" -- para
+    # "horas"/"meses" el day_type es irrelevante (el pliego no distingue
+    # "horas hábiles" ni "meses corridos" en este dominio) y no debe bloquear
+    # el cálculo.
+    if deadline.unit == "días":
+        if deadline.day_type == "no_especificado":
+            error_msg = (
+                "Tipo de día no especificado en documento fuente. "
+                "No se puede calcular fecha sin saber si son días corridos o hábiles."
+            )
+            errors.append(error_msg)
+            logger.warning(error_msg)
+        elif deadline.day_type not in ["corridos", "hábiles"]:
+            error_msg = (
+                f"day_type '{deadline.day_type}' inválido. "
+                "Valores permitidos: 'corridos', 'hábiles'."
+            )
+            errors.append(error_msg)
+            logger.error(error_msg)
     
     # Warnings (no impiden cálculo pero son informativos)
     if deadline.calculation_status == "error":
