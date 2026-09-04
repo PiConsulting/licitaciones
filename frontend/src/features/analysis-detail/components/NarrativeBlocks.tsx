@@ -293,7 +293,7 @@ export function NarrativeBlocks({
             return (
               <div key={index} className="flex items-start gap-2" data-testid="narrative-paragraph">
                 <p className="flex-1 text-sm leading-relaxed text-gray-800">
-                  {renderNarrativeText(block.text, emphasizeLeadingLabel)}
+                  {renderNarrativeText(block.text, false)}
                 </p>
                 {trackingItems.length === 1 ? <InlineTrackingControls itemIndex={0} /> : null}
               </div>

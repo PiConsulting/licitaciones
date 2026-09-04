@@ -103,7 +103,7 @@ describe("PreviewTab", () => {
     expect(screen.getByTestId("preview-tab-content")).toHaveTextContent(
       "Mantenimiento de oferta: 60 días.",
     );
-    expect(screen.getByText("Objeto:").tagName).toBe("STRONG");
+    expect(screen.queryByText("Objeto:", { selector: "strong" })).not.toBeInTheDocument();
     expect(screen.getByText("Mantenimiento de oferta:").tagName).toBe("STRONG");
     expect(screen.queryByText("Objeto y Alcance")).not.toBeInTheDocument();
   });
@@ -384,5 +384,46 @@ describe("PreviewTab", () => {
     expect(idxAnticipo).toBeGreaterThan(idxMultas);
     expect(idxRequisitos).toBeGreaterThan(idxAnticipo);
     expect(idxResponsabilidad).toBeGreaterThan(idxRequisitos);
+  });
+
+  test("no pone en negrita párrafos de objeto y alcance con dos puntos", () => {
+    const analysis = makeAnalysis({
+      previewCriterios: makeCategoryData([
+        {
+          field_name: "Tiempo de entrega",
+          field_value: "45 días",
+          field_state: "extraido",
+          confidence: 0.8,
+          citations: [],
+        },
+      ]),
+    });
+
+    analysis.current_version.extracted_data.objeto_alcance.narrative = {
+      blocks: [
+        {
+          type: "paragraph",
+          text: "La licitación es para la adquisición de servidores de aplicaciones, de base de datos y de archivos. El objeto se divide en 3 ítems: 4 servidores de aplicaciones tipo XEN, 4 servidores de base de datos y 4 LCD KVM Switch.",
+          confidence_level: "high",
+          source_ids: [],
+        },
+      ],
+      sources: [],
+    };
+
+    render(<PreviewTab analysis={analysis} />);
+
+    expect(
+      screen.getByText(
+        "La licitación es para la adquisición de servidores de aplicaciones, de base de datos y de archivos. El objeto se divide en 3 ítems: 4 servidores de aplicaciones tipo XEN, 4 servidores de base de datos y 4 LCD KVM Switch.",
+      ),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.queryByText(
+        "La licitación es para la adquisición de servidores de aplicaciones, de base de datos y de archivos. El objeto se divide en 3 ítems:",
+        { selector: "strong" },
+      ),
+    ).not.toBeInTheDocument();
   });
 });
