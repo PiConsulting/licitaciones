@@ -455,8 +455,9 @@ con `evento_disparador: "Adjudicación"`, no se mezcla dentro de este):
 
 ---
 
-# CHUNKS DEL PLIEGO
+<contexto_pliego>
 {chunks}
+</contexto_pliego>
 
 ---
 

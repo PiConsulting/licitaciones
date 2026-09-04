@@ -337,9 +337,9 @@ ninguna clase.
 
 ---
 
-=== CONTENIDO DEL PLIEGO ===
+<contexto_pliego>
 {chunks}
-=== FIN DEL CONTENIDO ===
+</contexto_pliego>
 
 **Recordatorio final:**
 - Devolvé JSON válido según schema `GarantiaItem` en `schemas.py`

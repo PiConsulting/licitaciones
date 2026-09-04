@@ -89,27 +89,14 @@ Usá el schema `PlazoItem` definido en `schemas.py`.
 
 # REGLAS ESPECÍFICAS
 
-## 1. texto_original es OBLIGATORIO y debe dar CONTEXTO COMPLETO
+## 1. Regla de completitud de `texto_original` (Q-C-Q)
+El campo `texto_original` es **OBLIGATORIO** y debe ser autocontenido (comprensible sin leer `referencia`). Debe resolver explícitamente:
+- **QUÉ** es el plazo (presentación, apertura, ejecución, entrega, subsanación, etc.).
+- **CUÁNDO** inicia o finaliza el conteo (disparador o hito de referencia).
+- **QUIÉN** es el responsable de cumplirlo o ejecutarlo (Oferente, Adjudicatario, Organismo convocante).
 
-En todos los ítems, incluso `partial` y `not_applicable`. 
-
-**REGLA CRÍTICA:** El `texto_original` debe ser **LO SUFICIENTEMENTE DESCRIPTIVO** para que el lector entienda el plazo **sin necesidad de mirar `referencia`**:
-
-1. **QUÉ plazo es** (presentación, ejecución, pago, etc.)
-2. **CUÁNDO se cuenta** (desde qué evento)
-3. **QUIÉN lo ejecuta** (oferente, adjudicatario, Provincia)
-
-**❌ MAL - Muy corto, sin contexto:**
-- `texto_original: "15 días corridos"`
-- `texto_original: "quince días"`
-- `texto_original: "a continuación de la emisión"`
-
-**✅ BIEN - Descriptivo, con contexto completo:**
-- `texto_original: "La Provincia dispondrá de un plazo máximo de quince (15) días corridos para otorgar la F.A.D. a partir de la fecha de recepción provisoria"`
-- `texto_original: "El plan de trabajo definitivo deberá ser consensuado con la STG a continuación de la emisión de la orden de provisión"`
-- `texto_original: "El adjudicatario deberá presentarse dentro de los 5 días corridos de notificada la adjudicación para suscribir la orden de provisión"`
-
-**Regla práctica:** Incluir al menos la oración completa donde aparece el plazo, con suficiente contexto para entender de qué se trata. Si es necesario, incluir la oración anterior o siguiente.
+*Ejemplo Inválido:* `"15 días corridos"`  
+*Ejemplo Válido:* `"La Provincia dispondrá de un plazo máximo de quince (15) días corridos para otorgar la recepción provisoria a partir de la entrega"`
 
 ## 2. NUNCA calcules fechas
 "Dentro de 10 días hábiles de la notificación" → va completo en `expresion_relativa`
@@ -309,6 +296,6 @@ Si los fragmentos no contienen ningún plazo:
 
 ---
 
-=== CONTENIDO DEL PLIEGO ===
+<contexto_pliego>
 {chunks}
-=== FIN DEL CONTENIDO ===
+</contexto_pliego>

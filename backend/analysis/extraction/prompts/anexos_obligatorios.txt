@@ -292,6 +292,6 @@ Si los fragmentos no mencionan anexos ni formularios:
 
 ---
 
-=== CONTENIDO DEL PLIEGO ===
+<contexto_pliego>
 {chunks}
-=== FIN DEL CONTENIDO ===
+</contexto_pliego>
