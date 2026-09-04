@@ -281,4 +281,108 @@ describe("PreviewTab", () => {
     expect(rendered).toContain("Multas o penalidades:");
     expect(rendered).toContain("Responsabilidad por costos logísticos o de instalación:");
   });
+
+  test("reordena en el orden canónico cuando la narrativa llega con aliases de backend", () => {
+    const analysis = makeAnalysis({
+      previewCriterios: makeCategoryData([]),
+    });
+
+    analysis.current_version.extracted_data.preview_criterios = {
+      ...analysis.current_version.extracted_data.preview_criterios,
+      items: [
+        {
+          field_name: "Tiempo de entrega",
+          field_value: "No se encontró información",
+          field_state: "no_encontrado",
+          confidence: 0.4,
+          citations: [],
+        },
+      ],
+      narrative: {
+        blocks: [
+          {
+            type: "bullet_list",
+            items: [
+              {
+                text: "Tiempo de entrega: no se encontró información específica sobre este criterio en los ítems recibidos.",
+                confidence_level: "low",
+                source_ids: [],
+              },
+              {
+                text: "Forma de pago: el equipamiento se facturará contra su recepción definitiva y conformidad técnica.",
+                confidence_level: "high",
+                source_ids: [],
+              },
+              {
+                text: "Tipo de cambio: las diferencias de cambio se toman entre el día anterior al pago y la fecha de emisión de la factura.",
+                confidence_level: "high",
+                source_ids: [],
+              },
+              {
+                text: "Multas o penalidades: hay riesgo de sanciones por atrasos en la ejecución y en la atención de fallas, con penalidades económicas relevantes.",
+                confidence_level: "high",
+                source_ids: [],
+              },
+              {
+                text: "Anticipo financiero requerido: no se encontró información sobre este criterio en los ítems recibidos.",
+                confidence_level: "low",
+                source_ids: [],
+              },
+              {
+                text: "Requisitos técnicos o certificaciones excluyentes: no se encontró información específica sobre este criterio en los ítems recibidos.",
+                confidence_level: "low",
+                source_ids: [],
+              },
+              {
+                text: "Responsabilidad por costos logísticos o de instalación: durante la instalación, calibración o puesta en marcha del software, todos los gastos quedan a cargo de la contratista.",
+                confidence_level: "high",
+                source_ids: [],
+              },
+              {
+                text: "Moneda de cotización: los bienes y servicios nacionales deben cotizarse en pesos; los importados pueden cotizarse en pesos o en dólares estadounidenses.",
+                confidence_level: "high",
+                source_ids: [],
+              },
+              {
+                text: "Garantías: el pliego remite a la garantía de mantenimiento de oferta y a la de fiel cumplimiento; además, la garantía de oferta se integra en pesos o en dólares según la moneda cotizada.",
+                confidence_level: "high",
+                source_ids: [],
+              },
+              {
+                text: "Mantenimiento de la oferta: la oferta debe mantenerse vigente por el plazo indicado en el pliego y puede ser aceptada dentro de ese período.",
+                confidence_level: "high",
+                source_ids: [],
+              },
+            ],
+          },
+        ],
+        sources: [],
+      },
+    };
+
+    render(<PreviewTab analysis={analysis} />);
+
+    const rendered = screen.getByTestId("preview-tab-content").textContent ?? "";
+    const idxMantenimiento = rendered.indexOf("Mantenimiento de oferta:");
+    const idxEntrega = rendered.indexOf("Tiempo de entrega:");
+    const idxPago = rendered.indexOf("Forma de pago:");
+    const idxMoneda = rendered.indexOf("Licitación en pesos o dólares:");
+    const idxTipoCambio = rendered.indexOf("Tipo de cambio:");
+    const idxGarantias = rendered.indexOf("Garantías o cauciones:");
+    const idxMultas = rendered.indexOf("Multas o penalidades:");
+    const idxAnticipo = rendered.indexOf("Anticipo financiero requerido:");
+    const idxRequisitos = rendered.indexOf("Requisitos técnicos o certificaciones excluyentes:");
+    const idxResponsabilidad = rendered.indexOf("Responsabilidad por costos logísticos o de instalación:");
+
+    expect(idxMantenimiento).toBeGreaterThanOrEqual(0);
+    expect(idxEntrega).toBeGreaterThan(idxMantenimiento);
+    expect(idxPago).toBeGreaterThan(idxEntrega);
+    expect(idxMoneda).toBeGreaterThan(idxPago);
+    expect(idxTipoCambio).toBeGreaterThan(idxMoneda);
+    expect(idxGarantias).toBeGreaterThan(idxTipoCambio);
+    expect(idxMultas).toBeGreaterThan(idxGarantias);
+    expect(idxAnticipo).toBeGreaterThan(idxMultas);
+    expect(idxRequisitos).toBeGreaterThan(idxAnticipo);
+    expect(idxResponsabilidad).toBeGreaterThan(idxRequisitos);
+  });
 });
