@@ -3,11 +3,18 @@ import { CategorySection } from "./CategorySection";
 import type { AnalysisDetail, CategoryData, CategoryId, Citation, NarrativeSource } from "./types";
 import type { TrackingCategoryStatus, TrackingItemStatus } from "../../types/tracking";
 
+// Categoría que todavía no corrió (típicamente fase 2, mientras el análisis
+// está en "en_revision" recién con fase 1 completa): `extraction_status:
+// "not_analyzed"` hace que `CategorySection` la muestre en minimalista
+// ("Todavía no fue analizada") en vez del contenedor completo de "Respuesta"
+// con "No se encontró información" / "Sin evidencia clickeable" -- ese texto
+// afirma que se buscó y no se encontró nada, cuando en realidad todavía no se
+// buscó nada.
 const EMPTY_CATEGORY: CategoryData = {
   items: [],
   confidence: 0,
   source_references: [],
-  extraction_status: "partial",
+  extraction_status: "not_analyzed",
   summary: "Sin datos extraídos todavía.",
   is_reviewed: false,
 };

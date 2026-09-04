@@ -79,7 +79,8 @@ function undatedValue(item: FieldItem): string | null {
 
 interface UndatedEntry {
   item: FieldItem;
-  text: string;
+  label: string;
+  value: string;
 }
 
 interface TimelineChartProps {
@@ -299,7 +300,8 @@ export function PlazosTimeline({ items, narrativeSources = [], onViewSource }: P
       }
       entries.push({
         item,
-        text: `${item.field_name}: ${value}`,
+        label: item.field_name,
+        value,
       });
     }
     return entries;
@@ -358,14 +360,17 @@ export function PlazosTimeline({ items, narrativeSources = [], onViewSource }: P
 
       {undatedEntries.length > 0 ? (
         <ul className={`${dated.length > 0 ? "mt-3 border-t border-gray-200 pt-3" : ""} space-y-1.5`} data-testid="plazos-sin-fecha">
-          {undatedEntries.map(({ item, text }, index) => (
+          {undatedEntries.map(({ item, label, value }, index) => (
             <li
               key={`${item.field_name}-${index}`}
               className="flex items-start gap-2"
               data-testid="plazos-sin-fecha-item"
             >
               <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-gray-400" aria-hidden="true" />
-              <span className="flex-1 text-sm leading-relaxed text-gray-800">{text}</span>
+              <span className="flex-1 text-sm leading-relaxed text-gray-800">
+                <strong className="font-semibold text-gray-900">{`${label}:`}</strong>
+                {` ${value}`}
+              </span>
               {item.citations[0] ? (
                 <SourceEyeButton
                   pages={item.citations.map((citation) => citation.page)}

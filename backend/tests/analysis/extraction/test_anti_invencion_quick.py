@@ -198,6 +198,40 @@ def test_enforce_citation_contract():
     print(f"   ✓ Cita corta procesada correctamente")
 
 
+def test_preview_not_found_placeholders_se_conservan_si_se_habilita_flag():
+    """Permite conservar placeholders not_found sin fuentes para preview."""
+    items = [
+        {
+            "tipo": "mantenimiento_oferta",
+            "valor": None,
+            "source_references": [],
+            "extraction_status": "not_found",
+            "confidence": 0.0,
+        },
+        {
+            "tipo": "forma_pago",
+            "valor": None,
+            "source_references": [],
+            "extraction_status": "not_found",
+            "confidence": 0.0,
+        },
+    ]
+
+    quality = {}
+    filtered, status = _drop_items_without_sources(
+        items,
+        "not_found",
+        category="preview_criterios",
+        quality=quality,
+        keep_not_found_without_sources=True,
+    )
+
+    assert len(filtered) == 2
+    assert status == "not_found"
+    assert quality["preview_criterios"]["placeholders_not_found_conservados"] == 2
+    assert quality["preview_criterios"]["conservados"] == 2
+
+
 if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("TESTS DE REGLA ANTI-INVENCIÓN DE RIESGOS")

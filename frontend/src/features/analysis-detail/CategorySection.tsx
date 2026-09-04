@@ -199,7 +199,15 @@ export function CategorySection({
 
       <QualityNotice quality={category.quality} />
 
-      {categoryId === "plazos_clave" ? (
+      {state === "no_analizada" ? (
+        // Fase 2 todavía no corrió para esta categoría: mostrar el
+        // contenedor completo de "Respuesta" / "Sin evidencia clickeable..."
+        // sugiere que se buscó y no se encontró nada, cuando en realidad
+        // todavía no se buscó. Minimalista a propósito -- no es un hallazgo.
+        <p className="mt-3 text-xs text-gray-500" data-testid="category-not-analyzed">
+          Todavía no fue analizada. Se completa al iniciar el análisis de categorías restantes.
+        </p>
+      ) : categoryId === "plazos_clave" ? (
         <PlazosTimeline
           items={category.items}
           narrativeSources={narrative.sources}

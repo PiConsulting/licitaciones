@@ -42,7 +42,12 @@ Antes de instalar, tene a mano las credenciales de:
    - `.venv\Scripts\python.exe backend/seed.py`
 6. Ejecutar backend:
    - **VSCode**: `Ctrl+Shift+P` > "Tasks: Run Task" > "Run Backend"
-   - **Comando manual**: `.venv\Scripts\python.exe -m uvicorn main:app --reload --app-dir backend`
+   - **Comando manual**: `.venv\Scripts\python.exe -m uvicorn main:app --reload --reload-include "*.txt" --app-dir backend`
+   - FIX (2026-09-03): `--reload` sin `--reload-include` sólo vigila archivos `*.py` por
+     default. Los prompts de extracción (`backend/analysis/extraction/prompts/*.txt`) NO
+     disparaban restart al editarlos, y `_load_prompt()` los cachea en memoria por proceso
+     (`@lru_cache`) -- un cambio en un `.txt` quedaba invisible hasta un restart manual
+     completo. Con `--reload-include "*.txt"` el watcher los detecta como cualquier `.py`.
 
 
 ## Frontend

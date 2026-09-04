@@ -41,7 +41,7 @@ export interface AnalysisStartResponse {
 
 export interface AnalysisStatusResponse {
   id: string;
-  status: "draft" | "queued" | "processing" | "analyzed" | "error" | "cancelled";
+  status: "draft" | "queued" | "processing" | "en_revision" | "analyzed" | "error" | "cancelled";
   current_stage: "queued" | "extracting_text" | "indexing" | "analyzing" | "consolidating" | "completed";
   stage_progress?: string | null;
   progress_percentage: number;

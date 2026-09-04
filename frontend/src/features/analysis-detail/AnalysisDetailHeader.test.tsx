@@ -278,4 +278,24 @@ describe("AnalysisDetailHeader", () => {
     expect(title?.textContent).toBe("pliego.pdf");
     expect(title?.nextElementSibling).toBeNull();
   });
+
+  test("en estado en_revision muestra header completo usando datos_procedimiento de fase 1", () => {
+    const analysis = {
+      ...createAnalysis({
+        organismo: "Ministerio de Salud",
+        expediente: "EXP-2026-331",
+        tipoProcedimiento: "Licitación Pública",
+        procedimiento: "N° 58/2026",
+      }),
+      status: "en_revision" as const,
+    };
+
+    const { container } = render(<AnalysisDetailHeader analysis={analysis} />);
+
+    expect(screen.getByText("En revisión")).toBeInTheDocument();
+    expect(screen.getByText("Licitación Pública — N° 58/2026")).toBeInTheDocument();
+    expect(screen.getByText("Ministerio de Salud · EXP-2026-331")).toBeInTheDocument();
+    const title = container.querySelector("h1");
+    expect(title?.textContent).toBe("Licitación Pública — N° 58/2026");
+  });
 });

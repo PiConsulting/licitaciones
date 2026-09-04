@@ -8,6 +8,7 @@ import structlog
 from analysis.extraction.engine.citation_grounding import (
     _normalize_for_grounding,
 )
+from analysis.extraction.engine.reranking import rerank_chunks
 from infra.config import get_settings
 from infra.ports.pgvector_search import search_hybrid
 
@@ -97,6 +98,10 @@ def _score_chunks_for_category(
             # Sin categoría asignada: neutro (no boost ni penalty)
             adjusted_score = base_score
 
+        # Se persiste el score ajustado para que los pasos posteriores
+        # (corte por relevancia, telemetría, debugging) no pierdan la señal
+        # de priorización por categoría.
+        chunk["retrieval_score"] = adjusted_score
         scored_chunks.append((adjusted_score, chunk))
 
     scored_chunks.sort(key=lambda x: x[0], reverse=True)
@@ -236,9 +241,19 @@ def _retrieve_with_category_priority(
             if existing is None or score > existing[0]:
                 combined[chunk_id] = (score, chunk)
         merged_scored = sorted(combined.values(), key=lambda x: x[0], reverse=True)
-        final_chunks = [chunk for _score, chunk in merged_scored[:top_k]]
+        ranked_chunks = [chunk for _score, chunk in merged_scored]
     else:
-        final_chunks = [chunk for _score, chunk in scored_chunks[:top_k]]
+        ranked_chunks = [chunk for _score, chunk in scored_chunks]
+
+    # Historia 22.5: insertar reranking semántico real entre el scoring
+    # híbrido actual y el corte final top_k. Se limita la ventana para que
+    # el costo de CPU sea acotado en categorías con over-fetch alto.
+    rerank_window = min(len(ranked_chunks), max(top_k * 2, top_k))
+    final_chunks = rerank_chunks(
+        query,
+        ranked_chunks[:rerank_window],
+        top_k=min(top_k, rerank_window),
+    )
 
     category_distribution: dict[str, int] = {}
     for chunk in final_chunks:

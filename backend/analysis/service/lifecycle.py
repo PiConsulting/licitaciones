@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from analysis.models import Analysis, CurrentStage
 from analysis.service.upload import _build_blob_storage
 from documents.models import Document
-from indexing.runner import extract_and_index
+from indexing.runner import extract_and_index_phase1, extract_and_index_phase2
 from infra.adapters.pgvector_search import delete_analysis_chunks
 from infra.database import SessionLocal
 
@@ -47,7 +47,12 @@ def validate_analysis_ownership(db: Session, analysis_id: str, user_id: str) -> 
 
 def enqueue_analysis(background_tasks: BackgroundTasks, analysis_id: str) -> None:
     """Enqueue sync extraction/indexing in FastAPI background threadpool."""
-    background_tasks.add_task(extract_and_index, analysis_id)
+    background_tasks.add_task(extract_and_index_phase1, analysis_id)
+
+
+def enqueue_analysis_categories(background_tasks: BackgroundTasks, analysis_id: str) -> None:
+    """Enqueue fase 2 (solo categorías restantes) en background."""
+    background_tasks.add_task(extract_and_index_phase2, analysis_id)
 
 
 def request_cancellation(db: Session, analysis_id: str, user_id: str) -> Analysis:
@@ -61,6 +66,7 @@ def request_cancellation(db: Session, analysis_id: str, user_id: str) -> Analysi
         raise PermissionError("Only the owner can cancel this analysis")
 
     analysis.cancellation_requested = True
+    # `en_revision` no es terminal: el usuario todavía puede continuar a fase 2.
     if analysis.status not in {"analyzed", "error", "cancelled"}:
         analysis.status = "cancelled"
         analysis.current_stage = CurrentStage.COMPLETED.value
@@ -77,6 +83,7 @@ def delete_analysis(db: Session, analysis_id: str, user_id: str) -> str:
     analysis = validate_analysis_ownership(db, analysis_id, user_id)
     current_status = analysis.status.lower()
 
+    # `en_revision` no bloquea eliminación: ya terminó fase 1 y no hay trabajo activo.
     if current_status in {"queued", "analyzing", "processing"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

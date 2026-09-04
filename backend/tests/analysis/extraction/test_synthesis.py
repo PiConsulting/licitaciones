@@ -272,3 +272,12 @@ def test_run_synthesis_descarta_item_refs_fuera_de_rango(monkeypatch: pytest.Mon
     assert len(narrative.blocks) == 1
     assert "Afirmacion sin evidencia real." not in narrative.blocks[0].text
     assert "No se encontró información" in narrative.blocks[0].text
+
+
+def test_run_synthesis_preview_sin_evidencia_usa_mensaje_canonico() -> None:
+    result = run_synthesis(category_key="preview_criterios", items=[], correlation_id="corr-preview")
+
+    assert result is not None
+    narrative, _token_usage = result
+    assert len(narrative.blocks) == 1
+    assert "No se encontró información sobre Preview Criterios" in narrative.blocks[0].text

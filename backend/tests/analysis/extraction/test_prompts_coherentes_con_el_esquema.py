@@ -164,3 +164,11 @@ def test_los_ejemplos_json_de_cada_categoria_siguen_siendo_json_valido() -> None
                 json.loads(bloque)
             except json.JSONDecodeError as error:  # pragma: no cover - mensaje
                 pytest.fail(f"{categoria}: bloque JSON inválido ({error})\n{bloque[:400]}")
+
+
+def test_preview_criterios_incluye_placeholder_chunks() -> None:
+    """Regresión (2026-09-03): sin `{chunks}` el extractor de preview recibe
+    un prompt sin contenido de pliego y termina devolviendo `not_found`
+    sistemático para los 5 criterios LLM-only."""
+    texto = (PROMPTS_DIR / "preview_criterios.txt").read_text(encoding="utf-8")
+    assert "{chunks}" in texto

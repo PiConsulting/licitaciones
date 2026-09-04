@@ -1,14 +1,8 @@
-"""Reranking semántico local (cross-encoder) -- Historia 22.5.
+"""Reranking semántico local (cross-encoder).
 
-Retoma el diseño (nunca implementado) de la Story 2.18, adaptado a un modelo
-local vía `sentence-transformers` en vez de un proveedor externo pago: corre
-100% en CPU, sin llamadas de red.
-
-Punto de inserción previsto (cuando una historia futura conecte el pipeline
-completo sobre pgvector): entre `infra.ports.pgvector_search.search_hybrid`
-(Historia 22.4) y `chunk_retrieval.py::_score_chunks_for_category` -- ver
-Dev Notes de la Historia 22.5. Este módulo se construye y testea standalone,
-sin modificar `chunk_retrieval.py`, mismo patrón que 22.3/22.4.
+Se ejecuta después del scoring híbrido y antes del corte final `top_k`.
+Corre 100% en CPU (sin red) y tiene fallback seguro al orden actual si
+el modelo falla o si supera el timeout.
 """
 from __future__ import annotations
 
@@ -56,13 +50,12 @@ def rerank_chunks(
     dict de chunk que entró, sin agregar ni quitar keys -- solo cambia el
     orden/subset.
 
-    Fallback seguro (AC3): si el flag está apagado, no hay chunks, el modelo
-    falla al cargar/inferir, o se excede `timeout_seconds`, se devuelve
-    `chunks[:top_k]` tal cual (orden RRF sin rerankear) -- nunca interrumpe
-    el pipeline de extracción.
+    Fallback seguro (AC3): si no hay chunks, el modelo falla al
+    cargar/inferir, o se excede `timeout_seconds`, se devuelve `chunks[:top_k]`
+    tal cual (orden previo sin rerankear) -- nunca interrumpe el pipeline.
     """
     settings = get_settings()
-    if not settings.rag_reranking_enabled or not chunks:
+    if not chunks:
         return chunks[:top_k]
 
     model_name = model_name or settings.rag_reranking_model

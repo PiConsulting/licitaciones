@@ -150,6 +150,41 @@ describe("EventCard", () => {
     expect(screen.getByText(/45 días corridos desde Adjudicación/)).toBeInTheDocument();
   });
 
+  test("clicking deadline detail opens only deadline modal (no event modal)", async () => {
+    const user = userEvent.setup();
+    const event = createMockEvent({ name: "Entrega equipamiento" });
+    const deadline: Deadline = {
+      id: "deadline-1",
+      deadline_id: "deadline-1",
+      analysis_id: "analysis-456",
+      target_event_id: event.event_id,
+      trigger_event_id: "trigger-evt",
+      duration: 45,
+      unit: "días",
+      day_type: "corridos",
+      calculated_date: null,
+      calculation_status: "pending",
+      deleted: false,
+      created_at: "2026-08-28T12:00:00Z",
+      updated_at: "2026-08-28T12:00:00Z",
+    };
+    const triggerEvent = createMockEvent({
+      event_id: "trigger-evt",
+      name: "Adjudicación",
+      event_date: "2026-09-10",
+    });
+
+    render(
+      <EventCard analysisId={ANALYSIS_ID} event={event} deadline={deadline} triggerEvent={triggerEvent} />,
+      { wrapper: createWrapper() }
+    );
+
+    await user.click(screen.getByRole("button", { name: /45 días corridos desde adjudicación/i }));
+
+    expect(screen.getByText("Detalle del plazo")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Editar fecha" })).not.toBeInTheDocument();
+  });
+
   test("does not show dependency indicator when no deadline provided", () => {
     const event = createMockEvent({ name: "Evento sin dependencia" });
 

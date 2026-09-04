@@ -10,6 +10,7 @@ const STATUS_LABELS: Record<AnalysisStatusResponse["status"], string> = {
   draft: "Borrador",
   queued: "En cola",
   processing: "Procesando",
+  en_revision: "En revisión",
   analyzed: "Análisis finalizado",
   error: "Error",
   cancelled: "Cancelado",
@@ -19,7 +20,7 @@ const STAGE_LABELS: Record<AnalysisStatusResponse["current_stage"], string> = {
   queued: "En cola",
   extracting_text: "Extrayendo texto",
   indexing: "Preparando para análisis",
-  analyzing: "Analizando categorias",
+  analyzing: "Analizando",
   consolidating: "Consolidando",
   completed: "Analizado",
 };

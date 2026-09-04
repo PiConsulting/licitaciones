@@ -1,7 +1,9 @@
-"""Grafo de extraccion (LangGraph): setup -> extractores -> merge -> synthesize.
+"""Grafos de extraccion (LangGraph).
 
-Reexporta `graph`, el unico simbolo que el resto del backend importa desde
-aca (`from analysis.extraction.graph import graph`)."""
-from analysis.extraction.graph.nodes import graph
+- `graph`: pipeline completo legado.
+- `graph_phase1`: preview + objeto + identificacion.
+- `graph_phase2`: categorias restantes (incluye timeline).
+"""
+from analysis.extraction.graph.nodes import graph, graph_phase1, graph_phase2
 
-__all__ = ["graph"]
+__all__ = ["graph", "graph_phase1", "graph_phase2"]

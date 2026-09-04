@@ -6,7 +6,7 @@ describe("ProgressBar", () => {
   test("muestra etapa y porcentaje", () => {
     render(<ProgressBar stage="analyzing" progress={45} isProcessing={true} stageProgress="Analizando categorias (4 de 8)" />);
 
-    expect(screen.getByText("Analizando categorias")).toBeInTheDocument();
+    expect(screen.getByText("Analizando")).toBeInTheDocument();
     expect(screen.getByText("45%")).toBeInTheDocument();
   });
 

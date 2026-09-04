@@ -29,7 +29,7 @@ class Analysis(Base):
         hay versiones)
         extraction_metadata: Metadatos relacionados con la extracción de datos
         analysis_name: Nombre del análisis (opcional)
-        status: Estado del análisis (draft|in_progress|completed|failed)
+        status: Estado del análisis (draft|queued|processing|en_revision|analyzed|error|cancelled)
         current_stage: Etapa actual del análisis (queued|extracting_text|indexing|analyzing|consolidating|completed)
         progress_percentage: Porcentaje de progreso del análisis (0-100)
         timeout_warning_at: Timestamp de advertencia de timeout (opcional)

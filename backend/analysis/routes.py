@@ -13,7 +13,8 @@ from fastapi import (
     status,
 )
 
-from analysis.models import CurrentStage
+from analysis.models import Analysis, CurrentStage
+from analysis.progress import build_stage_progress
 from analysis.schemas import (
     AnalysisCreateResponse,
     AnalysisDetailResponse,
@@ -29,6 +30,7 @@ from analysis.service import (
     create_analysis_with_documents,
     delete_analysis,
     enqueue_analysis,
+    enqueue_analysis_categories,
     find_duplicates_for_analysis,
     list_analyses,
     request_cancellation,
@@ -332,6 +334,81 @@ async def get_analysis_status(
             error_message=analysis.error_message,
             extracted_data=extracted_data,
             conflicts=conflicts,
+        )
+    finally:
+        db.close()
+
+
+@analysis_router.post("/{analysis_id}/start-categories", response_model=StartAnalysisResponse)
+async def start_analysis_categories(
+    analysis_id: str,
+    background_tasks: BackgroundTasks,
+    credentials=Depends(http_bearer),
+) -> StartAnalysisResponse:
+    current_user = get_current_user(credentials, None)
+
+    db = SessionLocal()
+    try:
+        analysis = validate_analysis_ownership(db, analysis_id, current_user.id)
+        if analysis.status != "en_revision":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": {
+                        "code": "ANALYSIS_NOT_IN_REVIEW",
+                        "message": "El análisis debe estar en estado en_revision para iniciar categorías",
+                    }
+                },
+            )
+
+        next_metadata = {
+            **(analysis.extraction_metadata or {}),
+            "stage_progress": build_stage_progress(CurrentStage.QUEUED),
+        }
+
+        updated_rows = (
+            db.query(Analysis)
+            .filter(
+                Analysis.id == analysis.id,
+                Analysis.created_by == current_user.id,
+                Analysis.deleted_at.is_(None),
+                Analysis.status == "en_revision",
+            )
+            .update(
+                {
+                    Analysis.status: "queued",
+                    Analysis.current_stage: CurrentStage.QUEUED.value,
+                    Analysis.progress_percentage: 0,
+                    Analysis.cancellation_requested: False,
+                    Analysis.error_message: None,
+                    Analysis.updated_at: datetime.now(UTC),
+                    Analysis.extraction_metadata: next_metadata,
+                },
+                synchronize_session=False,
+            )
+        )
+
+        if updated_rows == 0:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error": {
+                        "code": "ANALYSIS_CATEGORIES_ALREADY_STARTED",
+                        "message": "El análisis ya no está en revisión para iniciar categorías",
+                    }
+                },
+            )
+
+        db.commit()
+        db.refresh(analysis)
+
+        enqueue_analysis_categories(background_tasks, analysis_id)
+
+        return StartAnalysisResponse(
+            id=analysis.id,
+            status=analysis.status,
+            message="Análisis de categorías encolado exitosamente.",
         )
     finally:
         db.close()

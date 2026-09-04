@@ -129,14 +129,16 @@ def recalculate_dependent_dates(
                 stats.errors.extend(validation.errors)
                 continue
             
-            # AC2: Validar que day_type esté especificado (redundante con validation, pero explícito)
-            if deadline.day_type == "no_especificado":
+            # AC2: Validar que day_type esté especificado (redundante con
+            # validation, pero explícito). Solo aplica a unit="días" --
+            # "horas"/"meses" no usan day_type (ver validate_deadline_for_calculation).
+            if deadline.unit == "días" and deadline.day_type == "no_especificado":
                 deadline.calculation_status = "error"
                 deadline.calculation_error = (
                     "Tipo de día no especificado en documento fuente"
                 )
                 service.update_deadline(deadline, user_id)
-                
+
                 error_msg = (
                     f"Deadline {deadline.deadline_id}: tipo de día no especificado"
                 )
@@ -169,7 +171,8 @@ def recalculate_dependent_dates(
             calculated = add_business_days(
                 trigger_event.event_date,
                 deadline.duration,
-                deadline.day_type
+                deadline.day_type,
+                unit=deadline.unit,
             )
 
             logger.info(

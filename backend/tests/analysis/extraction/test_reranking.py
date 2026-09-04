@@ -13,17 +13,9 @@ def _chunk(id_: str, content: str, **extra) -> dict:
     return {"id": id_, "content": content, "search_score": 0.5, **extra}
 
 
-class TestFeatureFlag:
-    def test_disabled_by_default_returns_rrf_order_truncated(self):
-        chunks = [_chunk("a", "x"), _chunk("b", "y"), _chunk("c", "z")]
-        with patch("analysis.extraction.engine.reranking.get_settings") as mock_settings:
-            mock_settings.return_value.rag_reranking_enabled = False
-            result = rerank_chunks("query", chunks, top_k=2)
-        assert result == chunks[:2]
-
+class TestBaseBehavior:
     def test_empty_chunks_returns_empty(self):
-        with patch("analysis.extraction.engine.reranking.get_settings") as mock_settings:
-            mock_settings.return_value.rag_reranking_enabled = True
+        with patch("analysis.extraction.engine.reranking.get_settings"):
             result = rerank_chunks("query", [], top_k=5)
         assert result == []
 
@@ -39,7 +31,6 @@ class TestRerankingOrdering:
                 return_value=[0.1, 0.9, 0.5],  # scores en el mismo orden que `chunks`
             ),
         ):
-            mock_settings.return_value.rag_reranking_enabled = True
             mock_settings.return_value.rag_reranking_model = "fake-model"
             mock_settings.return_value.rag_reranking_timeout_seconds = 5.0
             result = rerank_chunks("query", chunks, top_k=2)
@@ -55,7 +46,6 @@ class TestRerankingOrdering:
             patch("analysis.extraction.engine.reranking.get_settings") as mock_settings,
             patch("analysis.extraction.engine.reranking._predict_scores", return_value=[0.7]),
         ):
-            mock_settings.return_value.rag_reranking_enabled = True
             mock_settings.return_value.rag_reranking_model = "fake-model"
             mock_settings.return_value.rag_reranking_timeout_seconds = 5.0
             result = rerank_chunks("query", [chunk], top_k=1)
@@ -75,7 +65,6 @@ class TestFallbackSeguro:
                 side_effect=RuntimeError("modelo no disponible"),
             ),
         ):
-            mock_settings.return_value.rag_reranking_enabled = True
             mock_settings.return_value.rag_reranking_model = "fake-model"
             mock_settings.return_value.rag_reranking_timeout_seconds = 5.0
             result = rerank_chunks("query", chunks, top_k=2)
@@ -93,7 +82,6 @@ class TestFallbackSeguro:
             patch("analysis.extraction.engine.reranking.get_settings") as mock_settings,
             patch("analysis.extraction.engine.reranking._predict_scores", side_effect=_slow_predict),
         ):
-            mock_settings.return_value.rag_reranking_enabled = True
             mock_settings.return_value.rag_reranking_model = "fake-model"
             mock_settings.return_value.rag_reranking_timeout_seconds = 0.05  # más corto que _slow_predict
             result = rerank_chunks("query", chunks, top_k=2)
@@ -123,7 +111,6 @@ class TestRealCrossEncoderModel:
         ]
 
         with patch("analysis.extraction.engine.reranking.get_settings") as mock_settings:
-            mock_settings.return_value.rag_reranking_enabled = True
             mock_settings.return_value.rag_reranking_model = model_name
             mock_settings.return_value.rag_reranking_timeout_seconds = 30.0
             result = rerank_chunks(

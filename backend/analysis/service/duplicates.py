@@ -34,7 +34,9 @@ def check_duplicates(
                 Document.content_hash == content_hash,
                 Analysis.deleted_at.is_(None),
                 Document.deleted_at.is_(None),
-                Analysis.status.in_(["completed", "analyzing", "analyzed"]),
+                # `en_revision` cuenta como análisis ya procesado para alertar
+                # duplicados aunque todavía no haya corrido fase 2.
+                Analysis.status.in_(["completed", "analyzing", "analyzed", "en_revision"]),
             )
         )
     )

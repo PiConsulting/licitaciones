@@ -157,10 +157,8 @@ class Settings(BaseSettings):
         description="Longitud mínima de citation para calcular highlights (caracteres)",
     )
 
-    # Historia 22.5 (retoma el diseño nunca implementado de la Story 2.18):
-    # reranking semántico local con cross-encoder, entre la fusión RRF
-    # (Historia 22.4) y el boost por categoría de chunk_retrieval.py.
-    rag_reranking_enabled: bool = Field(default=False, alias="RAG_RERANKING_ENABLED")
+    # Reranking semántico local con cross-encoder, entre la fusión híbrida
+    # y el corte final top_k de retrieval.
     rag_reranking_model: str = Field(
         default="cross-encoder/mmarco-mMiniLMv2-L12-H384-v1",
         alias="RAG_RERANKING_MODEL",

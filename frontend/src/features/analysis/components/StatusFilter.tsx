@@ -7,6 +7,7 @@ const STATUS_OPTIONS = [
   { value: "", label: "Todos" },
   { value: "queued", label: "En cola" },
   { value: "analyzing", label: "Analizando" },
+  { value: "en_revision", label: "En revisión" },
   { value: "analyzed", label: "Analizado" },
   { value: "validated", label: "Validado" },
   { value: "error", label: "Error" },

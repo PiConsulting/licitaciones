@@ -46,6 +46,7 @@ describe("PlazosTimeline", () => {
     expect(container.querySelectorAll('[data-testid="plazos-sin-fecha-item"]')).toHaveLength(2);
     expect(container).toHaveTextContent("Mantenimiento de oferta: 30 días corridos desde la apertura");
     expect(container).toHaveTextContent("Consultas: Hasta 5 días antes de la apertura");
+    expect(screen.getByText("Mantenimiento de oferta:").tagName).toBe("STRONG");
   });
 
   test("plazos duplicados del mismo hecho no deberían llegar dos veces (regresión de datos, no de UI)", () => {

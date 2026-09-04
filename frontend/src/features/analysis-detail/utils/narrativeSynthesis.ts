@@ -5,6 +5,7 @@ import type {
   CategoryId,
   CategoryNarrative,
   FieldItem,
+  NarrativeBlockData,
   NarrativeBulletItem,
   NarrativeParagraphBlock,
   NarrativeSource,
@@ -95,7 +96,11 @@ function fallbackBlock(categoryId: CategoryId): NarrativeParagraphBlock {
  * reservada al LLM, que es quien puede juzgar con criterio si el contenido de
  * ese pliego puntual amerita una tabla.
  */
-export function buildNarrativeBlocks(category: CategoryData, categoryId: CategoryId): CategoryNarrative {
+export function buildNarrativeBlocks(
+  category: CategoryData,
+  categoryId: CategoryId,
+  options?: { forceList?: boolean; includeNotFoundItems?: boolean },
+): CategoryNarrative {
   let items = category.items;
 
   // Para riesgos, ordenar primero los comerciales, luego el resto
@@ -120,7 +125,7 @@ export function buildNarrativeBlocks(category: CategoryData, categoryId: Categor
       (item.field_state === "extraido" || item.field_state === "no_aplica") &&
       normalizeText(item.field_value) !== "",
   );
-  if (!hasUsefulData) {
+  if (!hasUsefulData && !options?.includeNotFoundItems) {
     return { blocks: [fallbackBlock(categoryId)], sources: [] };
   }
 
@@ -132,7 +137,7 @@ export function buildNarrativeBlocks(category: CategoryData, categoryId: Categor
   // fuerza a juntar todo en un solo párrafo solo porque la categoría "suele"
   // tener pocos datos -- eso llevaba a respuestas ilegibles cuando el pliego
   // real tenía muchos hechos para esa categoría.
-  const useBulletList = CHECKLIST_CATEGORIES.has(categoryId) || items.length > 1;
+  const useBulletList = options?.forceList || CHECKLIST_CATEGORIES.has(categoryId) || items.length > 1;
 
   if (!useBulletList) {
     const [singleItem] = items;
@@ -181,4 +186,86 @@ export function buildNarrativeBlocks(category: CategoryData, categoryId: Categor
     blocks: [{ type: "bullet_list", items: bulletItems }],
     sources: dedupedSources,
   };
+}
+
+/**
+ * Une varias `CategoryNarrative` (ya sintetizadas o armadas por
+ * `buildNarrativeBlocks`) en una sola, preservando el orden en que se pasan.
+ *
+ * Usado por la vista de preview (`PreviewTab`) para mostrar objeto y alcance
+ * junto con los criterios de preview en UN solo contenedor de "Respuesta" en
+ * vez de dos cajas separadas con encabezados propios -- la persona que está
+ * decidiendo si entra o no a la licitación quiere leer todo seguido, no
+ * cruzar dos secciones que en el fondo hablan de lo mismo (el pliego).
+ *
+ * Cada narrativa de origen numera sus `sources` desde 0, así que unirlas tal
+ * cual haría que los `source_ids` de la segunda parte pisen los de la
+ * primera. Por eso cada parte se corre con un offset antes de concatenar, y
+ * al final se vuelve a deduplicar por contenido (mismo criterio que
+ * `dedupeNarrativeSources`) para no repetir una cita que ambas categorías
+ * citaron por separado.
+ */
+export function mergeCategoryNarratives(parts: CategoryNarrative[]): CategoryNarrative {
+  const nonEmptyParts = parts.filter((part) => part.blocks.length > 0);
+  if (nonEmptyParts.length === 0) {
+    return { blocks: [], sources: [] };
+  }
+
+  const mergedSources: NarrativeSource[] = [];
+  const mergedBlocks: NarrativeBlockData[] = [];
+  let idOffset = 0;
+
+  for (const part of nonEmptyParts) {
+    const localIdMap = new Map<number, number>();
+    let maxLocalId = -1;
+
+    for (const source of part.sources) {
+      const newId = source.id + idOffset;
+      localIdMap.set(source.id, newId);
+      mergedSources.push({ ...source, id: newId });
+      maxLocalId = Math.max(maxLocalId, source.id);
+    }
+
+    const remap = (ids: number[]) => ids.map((id) => localIdMap.get(id) ?? id + idOffset);
+
+    for (const block of part.blocks) {
+      if (block.type === "paragraph") {
+        mergedBlocks.push({ ...block, source_ids: remap(block.source_ids) });
+      } else if (block.type === "bullet_list") {
+        mergedBlocks.push({
+          type: "bullet_list",
+          items: block.items.map((item) => ({ ...item, source_ids: remap(item.source_ids) })),
+        });
+      } else {
+        mergedBlocks.push({
+          type: "table",
+          headers: block.headers,
+          rows: block.rows.map((row) => ({ ...row, source_ids: remap(row.source_ids) })),
+        });
+      }
+    }
+
+    idOffset += maxLocalId + 1;
+  }
+
+  const { sources: dedupedSources, idMapping } = dedupeNarrativeSources(mergedSources);
+  const remapFinal = (ids: number[]) => remapSourceIds(ids, idMapping);
+
+  const finalBlocks: NarrativeBlockData[] = mergedBlocks.map((block) => {
+    if (block.type === "paragraph") {
+      return { ...block, source_ids: remapFinal(block.source_ids) };
+    }
+    if (block.type === "bullet_list") {
+      return {
+        ...block,
+        items: block.items.map((item) => ({ ...item, source_ids: remapFinal(item.source_ids) })),
+      };
+    }
+    return {
+      ...block,
+      rows: block.rows.map((row) => ({ ...row, source_ids: remapFinal(row.source_ids) })),
+    };
+  });
+
+  return { blocks: finalBlocks, sources: dedupedSources };
 }

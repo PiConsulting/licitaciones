@@ -86,9 +86,17 @@ def run_extractor(
                 )
 
         # FIX MEDIUM (#14): Top-K configurable por categoría desde glossary.json
-        from analysis.extraction.glossary import get_category_top_k
+        from analysis.extraction.glossary import get_category_penalty, get_category_top_k
 
         category_top_k = get_category_top_k(result_key, default=settings.extraction_top_k)
+
+        # FIX (2026-09-03, Fase 1.4 del plan): category_penalty configurable
+        # por categoría, mismo mecanismo que category_top_k arriba. Ver el
+        # comentario de `get_category_penalty` en glossary.py para el porqué
+        # (evidencia empírica de daño en preview_criterios, sin datos aún
+        # para las otras categorías -- por eso es un override puntual y no
+        # un cambio del default global en chunk_retrieval.py).
+        category_penalty = get_category_penalty(result_key, default=0.30)
 
         chunks = _retrieve_with_category_priority(
             query=retrieval_query,
@@ -97,6 +105,7 @@ def run_extractor(
             keyword_query=keyword_query or None,
             category=result_key,
             correlation_id=correlation_id,
+            category_penalty=category_penalty,
             global_candidates=state.get("global_candidates"),  # FASE 3 (4.2)
         )
 

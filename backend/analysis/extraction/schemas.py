@@ -14,7 +14,9 @@ Estructura:
 from __future__ import annotations
 
 from enum import Enum
+import re
 from typing import Annotated, Any, Literal, Union
+import unicodedata
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -82,7 +84,24 @@ class ExtractedItem(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
 
     confidence_llm: float | None = Field(default=None, ge=0.0, le=1.0)
-    source_references: list[SourceReference] = Field(min_length=1)
+    # FIX (2026-09-03, bug reportado: preview mostraba solo 4/10 criterios):
+    # antes exigía min_length=1 -- cualquier item sin fuentes, sin importar la
+    # razón, era rechazado por pydantic en `_keep_schema_valid_items` (graph/
+    # validation.py), incluso si `graph/validation.py::_drop_items_without_sources`
+    # ya lo había dejado pasar a propósito (placeholder "not_found", o un
+    # hallazgo real cuya cita no pudo verificarse literalmente contra los
+    # chunks -- ver `_verify_citation_grounding` en engine/citation_grounding.py,
+    # que vacía `source_references` y baja el item a "partial" en vez de
+    # inventar una cita). Con min_length=1, esos items morían igual un par de
+    # líneas después, silenciosamente: el usuario veía el dato desaparecido
+    # por completo, indistinguible de "nunca se extrajo nada". El contrato de
+    # "al menos una fuente" lo sigue exigiendo `_drop_items_without_sources`
+    # para el caso general (items con status success/partial que SÍ tenían
+    # fuentes y las perdieron) -- acá solo se permite que un item sin fuentes
+    # sobreviva la validación de schema; qué hacer con él (descartarlo,
+    # conservarlo como placeholder, conservarlo sin evidencia clickeable) es
+    # una decisión de `_drop_items_without_sources`, no de este schema.
+    source_references: list[SourceReference] = Field(default_factory=list)
     extraction_status: ExtractionStatus = "success"
 
 
@@ -454,6 +473,60 @@ class IdentificacionProcedimientoItem(ExtractedItem):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class TipoCriterioPreview(str, Enum):
+    """Criterios de preview acordados para la fase 1."""
+
+    MANTENIMIENTO_OFERTA = "mantenimiento_oferta"
+    TIEMPO_ENTREGA = "tiempo_entrega"
+    FORMA_PAGO = "forma_pago"
+    MONEDA = "moneda"
+    TIPO_CAMBIO = "tipo_cambio"
+    GARANTIAS_CAUCIONES = "garantias_cauciones"
+    MULTAS_PENALIDADES = "multas_penalidades"
+    ANTICIPO_FINANCIERO = "anticipo_financiero"
+    REQUISITOS_TECNICOS_EXCLUYENTES = "requisitos_tecnicos_excluyentes"
+    RESPONSABILIDAD_COSTOS_LOGISTICOS = "responsabilidad_costos_logisticos"
+
+
+class PreviewCriterioItem(ExtractedItem):
+    """Item de criterio de preview para la fase 1."""
+
+    tipo: TipoCriterioPreview
+    valor: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("tipo", mode="before")
+    @classmethod
+    def normalize_tipo(cls, value: Any) -> Any:
+        if isinstance(value, TipoCriterioPreview):
+            return value
+        if not isinstance(value, str):
+            return value
+
+        normalized = unicodedata.normalize("NFKD", value)
+        normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+        normalized = re.sub(r"[^a-z0-9]+", "_", normalized.lower()).strip("_")
+
+        aliases = {
+            "mantenimiento_de_oferta": "mantenimiento_oferta",
+            "mto_oferta": "mantenimiento_oferta",
+            "tiempo_de_entrega": "tiempo_entrega",
+            "garantias": "garantias_cauciones",
+            "cauciones": "garantias_cauciones",
+            "multas": "multas_penalidades",
+            "penalidades": "multas_penalidades",
+            "anticipo": "anticipo_financiero",
+            "req_tecnicos_excluyentes": "requisitos_tecnicos_excluyentes",
+            "costos_logisticos": "responsabilidad_costos_logisticos",
+        }
+        candidate = aliases.get(normalized, normalized)
+
+        try:
+            return TipoCriterioPreview(candidate)
+        except ValueError:
+            return value
+
+
 class TipoCausal(str, Enum):
     """Tipos de causales de rechazo."""
 
@@ -693,6 +766,11 @@ class ExtractedData(BaseModel):
     )
     identificacion_procedimiento_extraction_status: str = "unknown"
     identificacion_procedimiento_narrative: CategoryNarrative | None = None
+    # Preview NO tiene contrato backend dedicado (`preview_data`): el frontend
+    # unifica visualmente `preview_criterios` + `objeto_alcance`.
+    preview_criterios: list[PreviewCriterioItem] = Field(default_factory=list)
+    preview_criterios_extraction_status: str = "unknown"
+    preview_criterios_narrative: CategoryNarrative | None = None
     riesgos: list[RiesgoItem] = Field(default_factory=list)
     riesgos_extraction_status: str = "unknown"
     riesgos_narrative: CategoryNarrative | None = None
@@ -774,6 +852,8 @@ __all__ = [
     "TipoAnexo",
     "IdentificacionProcedimientoItem",
     "TipoIdentificacion",
+    "PreviewCriterioItem",
+    "TipoCriterioPreview",
     "CausalRechazoItem",
     "TipoCausal",
     "RiesgoItem",

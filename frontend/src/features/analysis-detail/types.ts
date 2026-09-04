@@ -169,7 +169,9 @@ export interface ConflictData {
 export interface AnalysisVersion {
   id: string;
   version_number: number;
-  extracted_data: Record<CategoryId, CategoryData>;
+  extracted_data: Record<CategoryId, CategoryData> & {
+    preview_criterios?: CategoryData;
+  };
   conflicts: Record<string, ConflictData>;
   created_at: string;
   created_by?: string;
@@ -179,7 +181,7 @@ export interface AnalysisDetail {
   id: string;
   analysis_name?: string | null;
   created_at: string;
-  status: "draft" | "queued" | "processing" | "analyzed" | "validated" | "error" | "cancelled";
+  status: "draft" | "queued" | "processing" | "en_revision" | "analyzed" | "validated" | "error" | "cancelled";
   current_stage: string;
   current_version: AnalysisVersion;
   documents: Array<{

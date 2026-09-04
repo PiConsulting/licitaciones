@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import re
+import unicodedata
 
 import structlog
 from langgraph.graph import END, StateGraph
@@ -17,6 +19,7 @@ from analysis.extraction.extractors import (
     extractor_plazos,
     extractor_requisitos_admisibilidad,
     extractor_riesgos,
+    extractor_preview_criterios,
 )
 from analysis.extraction.graph.canonicalization import (
     _canonical_causal_tipo,
@@ -58,6 +61,7 @@ from analysis.extraction.schemas import (
     IdentificacionProcedimientoItem,
     ObjetoAlcanceItem,
     PlazoItem,
+    PreviewCriterioItem,
     RequisitoAdmisibilidadItem,
     RiesgoItem,
 )
@@ -70,6 +74,22 @@ from analysis.extraction.synthesis import (
 
 logger = structlog.get_logger(__name__)
 
+_TABLE_COLUMN_MARKER_RE = re.compile(r"\bcol_\d+\s*:\s*", re.IGNORECASE)
+_ONLY_TABLE_MARKERS_RE = re.compile(r"^(?:\s*col_\d+\s*:\s*)+$", re.IGNORECASE)
+_NON_PROCEDURAL_TEMPORAL_RE = re.compile(
+    r"\b(forma\s+de\s+pago|vencimientos?\s+de\s+pago|cheques?\s+de\s+pago|"
+    r"pago\s+diferido|factura(?:s)?|reajuste|actualizacion\s+de\s+precio|"
+    r"actualización\s+de\s+precio|vigencia\s+de\s+la\s+licencia)\b",
+    re.IGNORECASE,
+)
+_PROCEDURAL_EVENT_HINT_RE = re.compile(
+    r"\b(apertura|presentacion|presentación|adjudicacion|adjudicación|"
+    r"notificacion|notificación|firma|suscripcion|suscripción|recepcion|"
+    r"recepción|entrega|inicio|cierre|consulta|impugnacion|impugnación|"
+    r"evaluacion|evaluación)\b",
+    re.IGNORECASE,
+)
+
 _GLOBAL_CANDIDATE_POOL_QUERY = (
     "Información relevante de un pliego de licitación pública: objeto y "
     "alcance de la contratación, requisitos de admisibilidad, plazos y "
@@ -78,6 +98,61 @@ _GLOBAL_CANDIDATE_POOL_QUERY = (
     "adjudicación, identificación del procedimiento y del organismo "
     "convocante, y riesgos comerciales para el oferente."
 )
+
+
+def _normalize_temporal_text(value: str | None) -> str:
+    if not value:
+        return ""
+    normalized = unicodedata.normalize("NFKD", str(value))
+    without_accents = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    lowered = without_accents.lower()
+    cleaned = re.sub(r"\s+", " ", lowered)
+    return cleaned.strip()
+
+
+def _clean_temporal_fragment(fragment: str | None) -> str | None:
+    if not fragment:
+        return fragment
+    cleaned = _TABLE_COLUMN_MARKER_RE.sub(" ", str(fragment))
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned or fragment
+
+
+def _is_non_procedural_temporal_hito(nombre: str, fragmento: str | None) -> bool:
+    normalized_name = _normalize_temporal_text(nombre)
+    normalized_fragment = _normalize_temporal_text(fragmento)
+    combined = f"{normalized_name} {normalized_fragment}".strip()
+
+    # Duraciones de vigencia/licenciamiento son condiciones comerciales, no
+    # hitos operativos del proceso temporal del timeline.
+    if "vigencia de la licencia" in combined:
+        return True
+
+    if not _NON_PROCEDURAL_TEMPORAL_RE.search(combined):
+        return False
+
+    # Si hay una señal procesal fuerte, no filtramos para evitar falsos
+    # negativos en eventos legítimos que mencionen pago en su contexto.
+    return _PROCEDURAL_EVENT_HINT_RE.search(combined) is None
+
+
+def _is_usable_temporal_hito(nombre: str, fragmento: str | None) -> bool:
+    normalized_name = _normalize_temporal_text(nombre)
+    if not normalized_name:
+        return False
+
+    if _ONLY_TABLE_MARKERS_RE.match(nombre or ""):
+        return False
+
+    if _is_non_procedural_temporal_hito(nombre, fragmento):
+        return False
+
+    cleaned_fragment = _clean_temporal_fragment(fragmento) or ""
+    cleaned_normalized = _normalize_temporal_text(cleaned_fragment)
+    if cleaned_normalized.startswith("col_") and len(cleaned_normalized) < 24:
+        return False
+
+    return True
 
 
 def _build_shared_candidate_pool(analysis_id: str, correlation_id: str) -> list[dict]:
@@ -144,6 +219,8 @@ def setup_node(state: GraphState) -> GraphState:
 
     state.update(
         {
+            "preview_criterios": [],
+            "preview_criterios_status": "pending",
             "objeto_alcance": [],
             "objeto_alcance_status": "pending",
             "requisitos_admisibilidad": [],
@@ -203,6 +280,10 @@ def merge_node(state: GraphState) -> GraphState:
         _normalize_confidence(_penalize_unverifiable(item))
         for item in state.get("identificacion", [])
     ]
+    preview_criterios = [
+        _normalize_confidence(_penalize_unverifiable(item))
+        for item in state.get("preview_criterios", [])
+    ]
     riesgos = [
         _normalize_confidence(_penalize_unverifiable(item)) for item in state.get("riesgos", [])
     ]
@@ -217,42 +298,73 @@ def merge_node(state: GraphState) -> GraphState:
     # dos extractores independientes.
     hitos_temporales = state.get("eventos_temporales", [])
 
-    eventos_temporales = [
-        {
-            "nombre": h.get("nombre"),
-            "fecha_explicita": h.get("fecha_explicita"),
-            "origen_fecha": h.get("origen_fecha"),
-            # True salvo que el LLM marque explícitamente que este hito solo
-            # se agregó para poder referenciarlo como evento_disparador de
-            # otro ítem (regla 2/mencion_propia del prompt) -- default True
-            # (no False) para no marcar como "inferido" a un hito real si el
-            # LLM omitiera el campo en alguna corrida.
-            "mencion_propia": h.get("mencion_propia", True),
-            "fuente_documento_id": h.get("fuente_documento_id"),
-            "fuente_pagina": h.get("fuente_pagina"),
-            "fuente_fragmento": h.get("fuente_fragmento"),
-            "_source_document_id": h.get("_source_document_id"),
-        }
-        for h in hitos_temporales
-    ]
+    eventos_temporales: list[dict] = []
+    plazos_relativos: list[dict] = []
+    seen_event_names: set[str] = set()
+    seen_plazos: set[tuple] = set()
 
-    plazos_relativos = [
-        {
-            "descripcion": h.get("nombre"),
+    for h in hitos_temporales:
+        nombre = str(h.get("nombre") or "").strip()
+        fuente_fragmento = _clean_temporal_fragment(h.get("fuente_fragmento"))
+        if not _is_usable_temporal_hito(nombre, fuente_fragmento):
+            logger.info(
+                "timeline_hito_filtrado",
+                correlation_id=correlation_id,
+                analysis_id=state["analysis_id"],
+                nombre=nombre,
+            )
+            continue
+
+        event_name_key = _normalize_temporal_text(nombre)
+        if event_name_key not in seen_event_names:
+            seen_event_names.add(event_name_key)
+            eventos_temporales.append(
+                {
+                    "nombre": nombre,
+                    "fecha_explicita": h.get("fecha_explicita"),
+                    "origen_fecha": h.get("origen_fecha"),
+                    # True salvo que el LLM marque explícitamente que este hito solo
+                    # se agregó para poder referenciarlo como evento_disparador de
+                    # otro ítem (regla 2/mencion_propia del prompt) -- default True
+                    # (no False) para no marcar como "inferido" a un hito real si el
+                    # LLM omitiera el campo en alguna corrida.
+                    "mencion_propia": h.get("mencion_propia", True),
+                    "fuente_documento_id": h.get("fuente_documento_id"),
+                    "fuente_pagina": h.get("fuente_pagina"),
+                    "fuente_fragmento": fuente_fragmento,
+                    "_source_document_id": h.get("_source_document_id"),
+                }
+            )
+
+        evento_disparador = str(h.get("evento_disparador") or "").strip()
+        if not evento_disparador:
+            continue
+
+        plazo_payload = {
+            "descripcion": nombre,
             "cantidad": h.get("cantidad"),
             "unidad": h.get("unidad"),
             "tipo_dias": h.get("tipo_dias"),
-            "evento_disparador": h.get("evento_disparador"),
+            "evento_disparador": evento_disparador,
             "direccion": h.get("direccion"),
             "es_plazo_maximo": h.get("es_plazo_maximo", False),
             "fuente_documento_id": h.get("fuente_documento_id"),
             "fuente_pagina": h.get("fuente_pagina"),
-            "fuente_fragmento": h.get("fuente_fragmento"),
+            "fuente_fragmento": fuente_fragmento,
             "_source_document_id": h.get("_source_document_id"),
         }
-        for h in hitos_temporales
-        if h.get("evento_disparador")
-    ]
+        dedup_key = (
+            _normalize_temporal_text(nombre),
+            _normalize_temporal_text(evento_disparador),
+            int(h.get("cantidad") or 0),
+            str(h.get("unidad") or ""),
+            str(h.get("tipo_dias") or ""),
+            str(h.get("direccion") or ""),
+        )
+        if dedup_key in seen_plazos:
+            continue
+        seen_plazos.add(dedup_key)
+        plazos_relativos.append(plazo_payload)
 
     # Diagnóstico: si el LLM extrajo hitos pero NINGUNO tiene
     # evento_disparador, es una señal fuerte de que se está saltando la
@@ -294,6 +406,10 @@ def merge_node(state: GraphState) -> GraphState:
     )
     identificacion = _merge_duplicate_items_by_key(
         identificacion, lambda item: (str(item.get("tipo", "")), _normalized_valor_key(item))
+    )
+    preview_criterios = _merge_duplicate_items_by_key(
+        preview_criterios,
+        lambda item: (str(item.get("tipo", "")),),
     )
     for riesgo in riesgos:
         riesgo["subtipo"] = _canonical_riesgo_subtipo(str(riesgo.get("subtipo", "")))
@@ -351,6 +467,13 @@ def merge_node(state: GraphState) -> GraphState:
         str(state.get("identificacion_status", "unknown")),
         category="identificacion_procedimiento",
         quality=calidad,
+    )
+    preview_criterios, preview_criterios_status = _drop_items_without_sources(
+        preview_criterios,
+        str(state.get("preview_criterios_status", "unknown")),
+        category="preview_criterios",
+        quality=calidad,
+        keep_not_found_without_sources=True,
     )
     riesgos, riesgos_status = _drop_items_without_sources(
         riesgos,
@@ -431,6 +554,14 @@ def merge_node(state: GraphState) -> GraphState:
         correlation_id=correlation_id,
         quality=calidad,
     )
+    preview_criterios, preview_criterios_status = _keep_schema_valid_items(
+        preview_criterios,
+        PreviewCriterioItem,
+        preview_criterios_status,
+        category="preview_criterios",
+        correlation_id=correlation_id,
+        quality=calidad,
+    )
     riesgos, riesgos_status = _keep_schema_valid_items(
         riesgos,
         RiesgoItem,
@@ -465,6 +596,9 @@ def merge_node(state: GraphState) -> GraphState:
         "anexos_obligatorios_confidence": _category_confidence(anexos),
         "identificacion_procedimiento": identificacion_canonica,
         "identificacion_procedimiento_extraction_status": identificacion_status,
+        "preview_criterios": preview_criterios,
+        "preview_criterios_extraction_status": preview_criterios_status,
+        "preview_criterios_confidence": _category_confidence(preview_criterios),
         "datos_procedimiento": identificacion,
         "datos_procedimiento_extraction_status": identificacion_status,
         "datos_procedimiento_confidence": _category_confidence(identificacion),
@@ -500,6 +634,7 @@ def merge_node(state: GraphState) -> GraphState:
         "anexos_obligatorios": state.get("anexos_token_usage", {}),
         "criterios_evaluacion": state.get("criterios_token_usage", {}),
         "identificacion_procedimiento": state.get("identificacion_token_usage", {}),
+        "preview_criterios": state.get("preview_criterios_token_usage", {}),
         "eventos_temporales": state.get("eventos_temporales_token_usage", {}),
     }
 
@@ -716,6 +851,7 @@ builder.add_node("extract_anexos", extractor_anexos_obligatorios)
 builder.add_node("extract_requisitos", extractor_requisitos_admisibilidad)
 builder.add_node("extract_criterios", extractor_criterios_evaluacion)
 builder.add_node("extract_identificacion", extractor_identificacion_procedimiento)
+builder.add_node("extract_preview_criterios", extractor_preview_criterios)
 builder.add_node("extract_riesgos", extractor_riesgos)
 builder.add_node("extract_eventos_temporales", extractor_eventos_temporales)
 builder.add_node("merge", merge_node)
@@ -746,3 +882,176 @@ builder.add_edge("merge", "synthesize")
 builder.add_edge("synthesize", END)
 
 graph = builder.compile()
+
+
+# FASE 1 ampliada (2026-09-03, pedido de reducir redundancia entre preview y
+# categorias): garantias, plazos_clave, requisitos_admisibilidad y riesgos se
+# promueven a fase 1 CON SU PROMPT COMPLETO de siempre -- no una version
+# liviana -- porque preview_criterios ahora proyecta 4 de sus 10 items desde
+# los resultados de estas 4 categorias (garantias_cauciones <- garantias,
+# tiempo_entrega/mantenimiento_oferta <- plazos_clave,
+# requisitos_tecnicos_excluyentes <- requisitos_admisibilidad filtrado,
+# multas_penalidades <- riesgos filtrado) en vez de volver a preguntarselo al
+# LLM con su propio query diluido. Fase 2 ya no las vuelve a correr -- ver
+# `_PHASE1_EXTRACTED_KEYS`/`_PHASE2_EXTRACTED_KEYS` en `analysis/extraction/runner.py`.
+#
+# `extract_preview_criterios` deja de depender solo de "setup": ahora depende
+# de que las 4 categorias fuente ya hayan terminado, porque su extractor lee
+# `state["garantias"]`, `state["plazos"]`, `state["requisitos_admisibilidad"]`
+# y `state["riesgos"]` para armar la proyeccion antes de llamar al LLM
+# (liviano) por los 6 campos que no tienen categoria propia.
+#
+# FIX (2026-09-03) -- intento 1, insuficiente: la primera version de este
+# grafo dejaba, ADEMAS de garantias/plazos/requisitos/riesgos ->
+# extract_preview_criterios, los edges ORIGINALES garantias/plazos/
+# requisitos/riesgos -> merge (diamante). Se saco ese camino directo, pero
+# el error `InvalidUpdateError: At key 'preview_criterios': Can receive only
+# one value per step` siguio pasando IDENTICO.
+#
+# FIX (2026-09-03) -- intento 2, tambien insuficiente: se encadenaron
+# garantias -> plazos -> requisitos -> riesgos -> extract_preview_criterios
+# en secuencia (un solo edge de entrada cada una) para sacarle a
+# extract_preview_criterios sus 4 edges de entrada. Elimino ESE error, pero
+# hizo aparecer el MISMO error en otra clave: `At key 'plazos'`. Log:
+# "merge_node_started"/"merge_node_completed" corrian EN PARALELO con
+# extract_plazos (arrancaba "plazos_clave" al mismo timestamp que
+# "merge_node_started") -- es decir, "merge" (con 3 edges de entrada:
+# objeto_alcance, identificacion, extract_preview_criterios) se disparaba en
+# cuanto objeto_alcance/identificacion terminaban, SIN esperar a que la
+# cadena secuencial (todavia en su segundo eslabon) llegara a
+# extract_preview_criterios. Esto prueba que un nodo con edges de entrada de
+# DISTINTA profundidad (algunos a 1 salto de "setup", otros a varios) NO
+# espera de forma confiable a todos en esta version de LangGraph -- el
+# patron que sí funciona ("merge" con 6-10 edges en el grafo completo,
+# `graph` mas abajo) solo funciona porque TODOS esos edges estan a la MISMA
+# profundidad (1 salto desde "setup"), no por una barrera real de "esperar a
+# todos".
+#
+# FIX (2026-09-03) -- intento 3 (DESCARTADO, no se llego a commitear): cadena
+# lineal de los 7 extractores, uno detras de otro, sin ningun fan-in. Sacaba
+# el error pero mataba el paralelismo -- el usuario freno esto explicitamente
+# ("las de categorias tienen que seguir como estaban antes en paralelo").
+#
+# CAUSA RAIZ REAL (encontrada leyendo el source de langgraph==1.2.10, no
+# adivinando): `StateGraph.add_edge(start, end)` se comporta DISTINTO segun
+# el tipo de `start`:
+#   - Si `start` es un solo string, cada llamada arma un writer que empuja a
+#     un canal `EphemeralValue(guard=False)` compartido por TODOS los edges
+#     que apunten al mismo `end` (langgraph/graph/state.py:_add_edge, canal
+#     "branch:to:<end>"). Ese canal es OR: `end` se agenda apenas CUALQUIERA
+#     de sus predecesores escribe ahi (ver `_triggers()` en
+#     langgraph/pregel/_algo.py -- itera los canales trigger del nodo y basta
+#     con que UNO este disponible/mas nuevo que lo ya visto). Por eso, cuando
+#     habiamos armado los fan-in con un `for nodo in lista: builder.add_edge(
+#     nodo, "merge")`, "merge"/"extract_preview_criterios" se disparaban en
+#     cuanto terminaba el PRIMER predecesor, sin esperar al resto.
+#   - Si `start` es una LISTA de nombres, `add_edge` arma un canal
+#     `NamedBarrierValue(names=set(starts))` (langgraph/channels/
+#     named_barrier_value.py): acumula en `seen` los nombres que ya
+#     escribieron, EN CUALQUIER superstep (no exige que lleguen en el mismo
+#     paso), y solo queda "disponible" cuando `seen == names`, es decir
+#     cuando escribieron TODOS. Esto es un join real, verdadero AND, y es
+#     agnostico a la profundidad de cada predecesor -- literal en el
+#     docstring de `add_edge`: "When multiple start nodes are provided, the
+#     graph will wait for ALL of the start nodes to complete before
+#     executing the end node."
+#
+# El "merge" del grafo completo (`graph` mas abajo, 10 extractores) nunca dio
+# este error de casualidad: usa el MISMO patron de loop (`for nodo in
+# extractor_nodes: builder.add_edge(nodo, "merge")`, canal OR), pero como los
+# 10 predecesores estan a la MISMA profundidad (1 salto de "setup"), Pregel
+# los corre a TODOS en el mismo superstep y no avanza al siguiente hasta que
+# terminen todos -- el join "funciona" por la barrera sincronica de Pregel
+# entre supersteps, no porque el canal realmente espere a todos. En fase 1,
+# como objeto_alcance/identificacion (1 salto) y preview_criterios (varios
+# saltos, via garantias/plazos/requisitos/riesgos) quedaban a profundidades
+# distintas, esa coincidencia se rompia.
+#
+# FIX real: usar `add_edge([...], end)` con LISTA en cada punto de fan-in.
+# Restaura el paralelismo original -- garantias/plazos/requisitos/riesgos
+# corren en paralelo (barrera real antes de preview_criterios), y
+# objeto_alcance/identificacion corren en paralelo entre si y con esas 4
+# (barrera real antes de merge, sin importar que preview_criterios termine
+# mas tarde por depender de las otras 4).
+builder_phase1 = StateGraph(GraphState)
+builder_phase1.add_node("setup", setup_node)
+builder_phase1.add_node("extract_preview_criterios", extractor_preview_criterios)
+builder_phase1.add_node("extract_objeto_alcance", extractor_objeto_alcance)
+builder_phase1.add_node("extract_identificacion", extractor_identificacion_procedimiento)
+builder_phase1.add_node("extract_garantias", extractor_garantias)
+builder_phase1.add_node("extract_plazos", extractor_plazos)
+builder_phase1.add_node("extract_requisitos", extractor_requisitos_admisibilidad)
+builder_phase1.add_node("extract_riesgos", extractor_riesgos)
+builder_phase1.add_node("merge", merge_node)
+builder_phase1.add_node("synthesize", synthesize_node)
+builder_phase1.set_entry_point("setup")
+
+# objeto_alcance/identificacion arrancan apenas termina "setup", en paralelo
+# con la tanda de garantias/plazos/requisitos/riesgos (edges 1-a-1 desde un
+# solo nodo -- eso nunca fue el problema, el fan-in solo se rompe del lado
+# de las llegadas, no de las salidas).
+_MERGE_DIRECT_NODES = ["extract_objeto_alcance", "extract_identificacion"]
+for node in _MERGE_DIRECT_NODES:
+    builder_phase1.add_edge("setup", node)
+
+# garantias/plazos/requisitos/riesgos: las 4 fuentes que preview_criterios
+# proyecta. Corren en paralelo entre si (todas cuelgan directo de "setup").
+_PREVIEW_SOURCE_NODES = [
+    "extract_garantias",
+    "extract_plazos",
+    "extract_requisitos",
+    "extract_riesgos",
+]
+for node in _PREVIEW_SOURCE_NODES:
+    builder_phase1.add_edge("setup", node)
+
+# Fan-in real (lista en una sola llamada -> NamedBarrierValue): recien acá
+# se agenda extract_preview_criterios, cuando las 4 terminaron, sin importar
+# el orden en que vayan llegando.
+builder_phase1.add_edge(_PREVIEW_SOURCE_NODES, "extract_preview_criterios")
+
+# Fan-in real hacia "merge": objeto_alcance, identificacion y
+# preview_criterios (que a su vez ya esperó a las 4 fuentes) tienen que
+# terminar los tres, sin importar que preview_criterios llegue varios
+# supersteps mas tarde que los otros dos.
+builder_phase1.add_edge(
+    [*_MERGE_DIRECT_NODES, "extract_preview_criterios"],
+    "merge",
+)
+
+builder_phase1.add_edge("merge", "synthesize")
+builder_phase1.add_edge("synthesize", END)
+
+graph_phase1 = builder_phase1.compile()
+
+
+# FASE 2: ya no corre garantias/plazos_clave/requisitos_admisibilidad/riesgos
+# -- se promovieron a fase 1 (ver comentario arriba). Solo quedan las
+# categorias que preview_criterios no necesita.
+extractor_nodes_phase2 = [
+    "extract_causales",
+    "extract_anexos",
+    "extract_criterios",
+    "extract_eventos_temporales",
+]
+
+
+builder_phase2 = StateGraph(GraphState)
+builder_phase2.add_node("setup", setup_node)
+builder_phase2.add_node("extract_causales", extractor_causales)
+builder_phase2.add_node("extract_anexos", extractor_anexos_obligatorios)
+builder_phase2.add_node("extract_criterios", extractor_criterios_evaluacion)
+builder_phase2.add_node("extract_eventos_temporales", extractor_eventos_temporales)
+builder_phase2.add_node("merge", merge_node)
+builder_phase2.add_node("synthesize", synthesize_node)
+builder_phase2.set_entry_point("setup")
+
+for node in extractor_nodes_phase2:
+    builder_phase2.add_edge("setup", node)
+for node in extractor_nodes_phase2:
+    builder_phase2.add_edge(node, "merge")
+
+builder_phase2.add_edge("merge", "synthesize")
+builder_phase2.add_edge("synthesize", END)
+
+graph_phase2 = builder_phase2.compile()

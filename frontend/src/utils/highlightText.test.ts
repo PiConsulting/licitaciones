@@ -1,4 +1,4 @@
-import { createCitationTextRenderer, isPartOfCitation } from "./highlightText";
+import { createCitationTextRenderer, isPartOfCitation, normalizeText } from "./highlightText";
 
 describe("isPartOfCitation", () => {
   test("detecta un fragmento contenido en la cita, sin importar mayúsculas/espacios", () => {
@@ -21,6 +21,32 @@ describe("isPartOfCitation", () => {
 
   test("no marca match si el fragmento no aparece en ninguna cita", () => {
     expect(isPartOfCitation("garantía", ["El objeto de la licitación es..."])).toBe(false);
+  });
+
+  test("tolera prefijos de tabla col_N en la cita", () => {
+    const citation =
+      "col_2: El oferente deberá cotizar una licencia con una vigencia mínima de TREINTA Y SEIS (36) meses";
+    expect(isPartOfCitation("vigencia mínima", [citation])).toBe(true);
+  });
+
+  test("marca cuando la cita está contenida dentro de un span más largo", () => {
+    const citation = "dentro del plazo de siete (7) días";
+    const spanLargo =
+      "la parte responsable deberá ejecutar los trabajos necesarios dentro del plazo de siete (7) días hábiles";
+    expect(isPartOfCitation(spanLargo, [citation])).toBe(true);
+  });
+
+  test("tolera citas no contiguas unidas por [...], usando fragmentos contiguos", () => {
+    const citation = "deberá ejecutar los trabajos necesarios [...] dentro del plazo de siete (7) días";
+    expect(isPartOfCitation("plazo de siete", [citation])).toBe(true);
+  });
+});
+
+describe("normalizeText", () => {
+  test("elimina marcadores col_N y acentos", () => {
+    expect(normalizeText("col_2: Recepción Definitiva y Puesta en Funcionamiento")).toBe(
+      "recepcion definitiva y puesta en funcionamiento",
+    );
   });
 });
 

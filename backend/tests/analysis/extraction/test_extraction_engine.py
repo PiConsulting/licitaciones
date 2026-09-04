@@ -117,6 +117,37 @@ class TestCategoryBoostUsesRealScore:
         # No debe lanzar excepción y debe devolver ambos chunks.
         assert {c["chunk_index"] for c in result} == {0, 1}
 
+    def test_reranking_is_applied_after_category_scoring(self, monkeypatch):
+        """El orden final debe poder cambiar por reranking semántico.
+        Sin este paso conectado, el resultado queda congelado en score híbrido."""
+        candidates = [
+            _chunk(chunk_index=0, primary_category="garantias", search_score=1.0),
+            _chunk(chunk_index=1, primary_category="garantias", search_score=0.9),
+            _chunk(chunk_index=2, primary_category="garantias", search_score=0.8),
+        ]
+
+        def fake_search(*, query, analysis_id, top_k, keyword_query, category=None):
+            return list(candidates)
+
+        def fake_rerank(query: str, chunks: list[dict], *, top_k: int, **_kwargs):
+            assert query == "garantías exigidas"
+            assert top_k == 2
+            return [chunks[2], chunks[1]]
+
+        monkeypatch.setattr(chunk_retrieval, "search_hybrid", fake_search)
+        monkeypatch.setattr(chunk_retrieval, "rerank_chunks", fake_rerank)
+
+        result = chunk_retrieval._retrieve_with_category_priority(
+            query="garantías exigidas",
+            analysis_id="analysis-1",
+            top_k=2,
+            keyword_query="garantia caucion",
+            category="garantias",
+            correlation_id="corr-1",
+        )
+
+        assert [c["chunk_index"] for c in result] == [2, 1]
+
 
 class TestTokenBudgetUsesRealTokenizer:
     """US-2.3 (hallazgo M-3): el presupuesto de contexto se mide con el

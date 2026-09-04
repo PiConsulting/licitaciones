@@ -118,6 +118,7 @@ def _resolve_narrative_sources(
     *,
     correlation_id: str,
     chunks_by_id: dict[str, dict] | None = None,
+    keep_empty_for_statuses: set[str] | None = None,
 ) -> CategoryNarrative:
     """Traduce la salida cruda del LLM (bloques con `item_refs`) a un
     `CategoryNarrative` (bloques con `source_ids` + `sources`), resolviendo
@@ -195,6 +196,19 @@ def _resolve_narrative_sources(
                 temp_ids.append(stub_with_id["id"])
 
         if not temp_ids:
+            if valid_indexes and keep_empty_for_statuses:
+                statuses = {
+                    str(items[index].get("extraction_status", "")).strip().lower()
+                    for index in valid_indexes
+                }
+                if statuses and statuses.issubset(keep_empty_for_statuses):
+                    logger.info(
+                        "narrative_element_kept_without_evidence",
+                        correlation_id=correlation_id,
+                        context=context,
+                        statuses=sorted(statuses),
+                    )
+                    return []
             logger.info(
                 "narrative_element_dropped_no_evidence",
                 correlation_id=correlation_id,

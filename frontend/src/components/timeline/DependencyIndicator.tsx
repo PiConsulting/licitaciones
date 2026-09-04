@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type MouseEvent } from "react";
 import { ArrowRight } from "lucide-react";
 import type { DeadlineResponse, EventResponse } from "../../types/timeline";
 import { DeadlineDetailModal } from "./DeadlineDetailModal";
@@ -25,20 +25,23 @@ export function DependencyIndicator({
   const [showDetail, setShowDetail] = useState(false);
   const dayTypeLabel = DAY_TYPE_LABEL[deadline.day_type] || deadline.day_type;
 
-  const handleClick = () => {
+  const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
     setShowDetail(true);
   };
 
   if (!triggerEvent || triggerEvent.event_date === null) {
     return (
       <>
-        <div
-          className="mt-2 flex items-center gap-2 text-sm text-gray-500 cursor-pointer hover:text-gray-700"
+        <button
+          type="button"
+          className="mt-2 flex w-full items-center gap-2 text-left text-sm text-gray-500 hover:text-gray-700"
           onClick={handleClick}
         >
           <ArrowRight className="h-4 w-4" />
           <span>Pendiente de fecha de {triggerEvent?.name?.trim() || "evento anterior"}</span>
-        </div>
+        </button>
 
         {showDetail && (
           <DeadlineDetailModal
@@ -56,15 +59,16 @@ export function DependencyIndicator({
 
   return (
     <>
-      <div
-        className="mt-2 flex items-center gap-2 text-sm text-gray-600 cursor-pointer hover:text-blue-600"
+      <button
+        type="button"
+        className="mt-2 flex w-full items-center gap-2 text-left text-sm text-gray-600 hover:text-blue-600"
         onClick={handleClick}
       >
         <ArrowRight className="h-4 w-4" />
         <span>
           {deadline.duration} días {dayTypeLabel} desde {triggerEvent.name?.trim() || "evento"}
         </span>
-      </div>
+      </button>
 
       {showDetail && (
         <DeadlineDetailModal

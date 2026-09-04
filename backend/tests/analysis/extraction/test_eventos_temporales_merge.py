@@ -257,3 +257,96 @@ def test_status_de_plazos_relativos_se_toma_del_status_de_eventos_temporales():
 
     assert extracted["eventos_temporales_extraction_status"] == "partial"
     assert extracted["plazos_relativos_extraction_status"] == "partial"
+
+
+def test_filtra_items_no_procedurales_de_forma_de_pago_y_vigencia_licencia():
+    hitos = [
+        {
+            "nombre": "Forma de Pago",
+            "fecha_explicita": None,
+            "origen_fecha": "pendiente",
+            "evento_disparador": "Emisión de valores",
+            "cantidad": 30,
+            "unidad": "días",
+            "tipo_dias": "no_especificado",
+            "direccion": "desde",
+            "fuente_documento_id": "doc-1",
+            "fuente_pagina": 5,
+            "fuente_fragmento": "El pago se efectuará con cheques de pago diferido.",
+            "extraction_status": "success",
+        },
+        {
+            "nombre": "Vigencia de la Licencia",
+            "fecha_explicita": None,
+            "origen_fecha": "pendiente",
+            "evento_disparador": "Recepción Definitiva",
+            "cantidad": 36,
+            "unidad": "meses",
+            "tipo_dias": "no_especificado",
+            "direccion": "desde",
+            "fuente_documento_id": "doc-1",
+            "fuente_pagina": 23,
+            "fuente_fragmento": "Licencia con vigencia mínima de 36 meses.",
+            "extraction_status": "success",
+        },
+        {
+            "nombre": "Apertura de Cotizaciones",
+            "fecha_explicita": "2026-08-19",
+            "origen_fecha": "detectada",
+            "evento_disparador": None,
+            "fuente_documento_id": "doc-1",
+            "fuente_pagina": 1,
+            "fuente_fragmento": "La apertura será el 19/08/2026 a las 10:00.",
+            "extraction_status": "success",
+        },
+    ]
+
+    state = merge_node(_base_state(hitos))
+    extracted = state["extracted_data"]
+
+    assert [item["nombre"] for item in extracted["eventos_temporales"]] == [
+        "Apertura de Cotizaciones"
+    ]
+    assert extracted["plazos_relativos"] == []
+
+
+def test_limpia_prefijos_columna_y_deduplica_eventos_temporales_repetidos():
+    hitos = [
+        {
+            "nombre": "Entrega de los Bienes",
+            "fecha_explicita": None,
+            "origen_fecha": "pendiente",
+            "evento_disparador": "Notificación de la Adjudicación",
+            "cantidad": 60,
+            "unidad": "días",
+            "tipo_dias": "hábiles",
+            "direccion": "desde",
+            "fuente_documento_id": "doc-1",
+            "fuente_pagina": 27,
+            "fuente_fragmento": "col_2: El plazo de entrega será de 60 días hábiles desde la notificación.",
+            "extraction_status": "success",
+        },
+        {
+            "nombre": "Entrega de los Bienes",
+            "fecha_explicita": None,
+            "origen_fecha": "pendiente",
+            "evento_disparador": "Notificación de la Adjudicación",
+            "cantidad": 60,
+            "unidad": "días",
+            "tipo_dias": "hábiles",
+            "direccion": "desde",
+            "fuente_documento_id": "doc-1",
+            "fuente_pagina": 27,
+            "fuente_fragmento": "col_3: El plazo de entrega será de 60 días hábiles desde la notificación.",
+            "extraction_status": "success",
+        },
+    ]
+
+    state = merge_node(_base_state(hitos))
+    extracted = state["extracted_data"]
+
+    assert len(extracted["eventos_temporales"]) == 1
+    assert len(extracted["plazos_relativos"]) == 1
+    assert extracted["eventos_temporales"][0]["fuente_fragmento"].startswith(
+        "El plazo de entrega"
+    )

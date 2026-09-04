@@ -10,9 +10,11 @@ from analysis.progress import (
     set_timeout_timestamps,
     update_stage_and_progress,
 )
+from documents.models import Document
 from infra.database import SessionLocal
 from indexing.runner import (
     check_cancellation_requested,
+    extract_and_index_phase2,
     check_timeout_exceeded,
     check_timeout_warning,
 )
@@ -159,3 +161,66 @@ def test_cancellation_check_marks_cancelled() -> None:
     db.refresh(analysis)
     assert analysis.status == "cancelled"
     db.close()
+
+
+def test_extract_and_index_phase2_refreshes_timeout_window(monkeypatch) -> None:
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == "test@cedia.com").first()
+    assert user is not None
+
+    analysis = Analysis(
+        created_by=user.id,
+        status="en_revision",
+        current_stage="completed",
+        timeout_at=datetime.now(UTC) - timedelta(minutes=1),
+        timeout_warning_at=datetime.now(UTC) - timedelta(minutes=2),
+        extraction_metadata={"stage_progress": "Analizado", "timeout_warning_reached": True},
+        correlation_id=str(uuid4()),
+    )
+    db.add(analysis)
+    db.flush()
+
+    document = Document(
+        analysis_id=analysis.id,
+        filename="pliego.pdf",
+        blob_name=f"{analysis.id}/pliego.pdf",
+        file_size_bytes=100,
+        page_count=10,
+        is_primary=True,
+        sha256_hash="a" * 64,
+        content_hash="hash-timeout-phase2",
+        created_by=user.id,
+    )
+    db.add(document)
+    db.commit()
+    analysis_id = analysis.id
+    db.close()
+
+    captured: dict[str, object] = {"extract_called": False, "timeout_is_future": False}
+
+    def _fake_timeout_check(db_session, check_analysis_id: str, _logger) -> bool:
+        item = db_session.query(Analysis).filter(Analysis.id == check_analysis_id).first()
+        assert item is not None and item.timeout_at is not None
+        now = datetime.now(UTC)
+        if item.timeout_at.tzinfo is None:
+            now = now.replace(tzinfo=None)
+        captured["timeout_is_future"] = item.timeout_at > now
+        return False
+
+    monkeypatch.setattr("indexing.runner.check_cancellation_requested", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr("indexing.runner.check_timeout_exceeded", _fake_timeout_check)
+    monkeypatch.setattr(
+        "indexing.runner.extract_categories_phase2",
+        lambda *_args, **_kwargs: captured.__setitem__("extract_called", True),
+    )
+
+    extract_and_index_phase2(analysis_id)
+
+    assert captured["extract_called"] is True
+    assert captured["timeout_is_future"] is True
+
+    verify_db = SessionLocal()
+    stored = verify_db.query(Analysis).filter(Analysis.id == analysis_id).first()
+    assert stored is not None
+    assert "timeout_warning_reached" not in (stored.extraction_metadata or {})
+    verify_db.close()

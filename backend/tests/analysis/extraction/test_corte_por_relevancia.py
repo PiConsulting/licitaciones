@@ -154,6 +154,19 @@ def test_el_umbral_es_el_declarado() -> None:
     assert "chunk-91" not in ids
 
 
+def test_prioriza_retrieval_score_sobre_search_score() -> None:
+    """Si un chunk fue promovido por el retrieval, no debe descartarse por
+    quedarse solo con el score crudo."""
+    chunks = [_chunk(i, 0.5) for i in range(_RELEVANCE_MIN_CHUNKS)]
+    critical = _chunk(99, 0.01)
+    critical["retrieval_score"] = 0.45
+    chunks.append(critical)
+
+    ids = {c["id"] for c in _drop_low_relevance_chunks(chunks, category="preview_criterios")}
+
+    assert "chunk-99" in ids
+
+
 def test_lo_descartado_queda_registrado(caplog: Any) -> None:
     """CHK-10: nada se descarta en silencio, y menos evidencia."""
     import logging
