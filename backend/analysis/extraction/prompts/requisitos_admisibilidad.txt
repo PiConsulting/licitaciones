@@ -59,57 +59,20 @@ esas dos preguntas, probablemente no es de esta categoría.
 
 ---
 
-## ❌ EJEMPLOS DE QUÉ NO EXTRAER
+# MATRIZ DE EXCLUSIÓN Y CLASIFICACIÓN
 
-### Caso 1: Garantías Financieras
-**Input:** "El oferente deberá constituir garantía de mantenimiento de oferta equivalente al 1% del presupuesto oficial"
+| Si el fragmento menciona... | Acción del Analista | Justificación |
+| :--- | :--- | :--- |
+| Pólizas, cauciones, 1% del presupuesto | **IGNORAR** | Es una garantía financiera (Categoría: `garantias`). |
+| "Completar Anexo I", "Llenar planilla" | **IGNORAR** | Es un formulario provisto por el pliego (Categoría: `anexos_obligatorios`). |
+| "El Anexo IV exige 2 años de experiencia" | **EXTRAER** | El *contenido* del anexo define un requisito habilitante. |
+| Fecha límite de presentación (ej. 15/08) | **IGNORAR** | Es un hito temporal (Categoría: `plazos_clave`). |
+| La falta del certificado X causará rechazo | **EXTRAER** | Extraer solo el requisito. La consecuencia va en `causales_rechazo`. |
 
-**Correcto:** NO extraer (va en categoría "garantias")
-
-**Incorrecto:** Extraer como requisito de admisibilidad
-
-**Razón:** Es una garantía financiera (caución/póliza), no un documento habilitante.
-
----
-
-### Caso 2: Anexos/Formularios
-**Input:** "Completar Anexo I - Planilla de Cotización"
-
-**Correcto:** NO extraer (va en categoría "anexos_obligatorios")
-
-**Incorrecto:** Extraer como requisito
-
-**Razón:** Es un formulario provisto por el pliego, no documentación del oferente.
-
-**Aclaración importante:** esta exclusión aplica solo a la MENCIÓN genérica del
-formulario/anexo en sí (ej. "completar el Anexo I"). Si el CONTENIDO de un
-anexo describe un requisito habilitante concreto (ej. "Anexo IV — el oferente
-deberá contar con antigüedad mínima de 2 años en la actividad"), ESE contenido
-SÍ se extrae acá como requisito de admisibilidad, aunque venga dentro de un
-anexo numerado. Un mismo anexo puede generar: (a) un ítem índice en
-"anexos_obligatorios" señalando que ese anexo existe y es obligatorio, y (b)
-uno o más ítems acá con cada requisito concreto que ese anexo detalla. No son
-mutuamente excluyentes — extraé ambos.
-
----
-
-### Caso 3: Plazos
-**Input:** "La documentación deberá presentarse hasta las 10:00 hs del día 15/08/2024"
-
-**Correcto:** NO extraer (va en categoría "plazos_clave")
-
-**Incorrecto:** Extraer como requisito
-
-**Razón:** Es un plazo de presentación, no un requisito documental.
-
----
-
-## ⚠️ REGLA DE ORO
-
-Si un chunk menciona "garantía", "caución", "póliza", "seguro de caución", "anexo", "formulario", "planilla":
-→ Verificar que NO sea una garantía financiera ni un anexo/formulario
-→ Si lo es: NO extraer, aunque esté en los fragmentos recuperados
-→ Solo extraer si es un requisito habilitante (ej: "presentar seguro de responsabilidad civil vigente")
+# REGLA DE VIGENCIA REGISTRAL ("PARAGUAS")
+Si el pliego exige que una lista de documentos esté vigente dentro de un registro oficial (ej. Registro de Proveedores):
+1. Emití UN ítem `inscripcion_registro` abarcando la obligación general de inscripción/vigencia.
+2. Emití UN ítem `documento` independiente por CADA certificado listado bajo esa obligación.
 
 ---
 
@@ -181,43 +144,6 @@ sí).
 **Antes de emitir cada ítem**, aplicá la regla de pertenencia de arriba: ¿a qué
 pregunta responde este fragmento? Si no podés justificarlo como "qué hay que
 presentar/acreditar", no lo incluyas acá.
-
-## 1.bis Condición "paraguas" de vigencia en un registro (NO te quedes solo con los documentos sueltos)
-
-Es común que el pliego liste documentos puntuales (certificados, constancias,
-declaraciones juradas) diciendo que TODOS ellos deben estar **vigentes /
-actualizados / en regla dentro de un registro** (Registro de Proveedores,
-Registro Único de Proveedores y Contratistas, Padrón de Proveedores, etc.)
-durante el procedimiento. Esa condición de vigencia registral es, en sí
-misma, un requisito de admisibilidad autónomo (`tipo: "inscripcion_registro"`)
--- no alcanza con listar los documentos individuales como si el requisito
-fuera solo "presentar estos papeles".
-
-**Patrón genérico a reconocer** (aplica a cualquier redacción equivalente):
-```
-"La documentación detallada a continuación se encuentra/deberá encontrarse
-vigente en el Registro [de Proveedores / Único de Proveedores y Contratistas
-/ etc.] durante el procedimiento de selección: [lista de documentos]"
-```
-
-**Ejemplo abstracto:**
-```
-"La documentación detallada a continuación deberá encontrarse vigente en el
-Registro de Proveedores del organismo durante todo el procedimiento:
-- Certificado fiscal
-- Certificado de libre deuda"
-```
-→ Emití **el ítem paraguas** ("mantener vigente e inscripta la documentación
-en el Registro de Proveedores durante el procedimiento", `tipo:
-"inscripcion_registro"`) **Y ADEMÁS** un ítem `documento` por cada papel
-listado. No es uno u otro: son requisitos distintos y complementarios (el
-registro como condición habilitante general, cada documento como pieza
-concreta a mantener actualizada en él).
-
-**Señal de alarma antes de cerrar la categoría:** si extrajiste documentos
-individuales que el pliego agrupa bajo una frase de "vigente/actualizado en
-el Registro de...", releé esa frase agrupadora: probablemente te falta
-emitirla como su propio ítem `inscripcion_registro`.
 
 ## 3. Conservar montos y cantidades
 Si el requisito incluye montos, cantidades o umbrales, conservarlos tal como aparecen.
@@ -326,6 +252,6 @@ Si los fragmentos no contienen requisitos de admisibilidad:
 
 ---
 
-=== CONTENIDO DEL PLIEGO ===
+<contexto_pliego>
 {chunks}
-=== FIN DEL CONTENIDO ===
+</contexto_pliego>

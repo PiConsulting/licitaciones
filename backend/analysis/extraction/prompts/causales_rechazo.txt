@@ -337,6 +337,6 @@ Si los fragmentos no contienen causales de rechazo:
 
 ---
 
-=== CONTENIDO DEL PLIEGO ===
+<contexto_pliego>
 {chunks}
-=== FIN DEL CONTENIDO ===
+</contexto_pliego>

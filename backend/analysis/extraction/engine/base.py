@@ -198,7 +198,7 @@ def run_extractor(
             # sólo 1/8 categorías daba el mismo resultado en 5 corridas (ver
             # `docs/docu/PLAN-structured-outputs-EXT-01.md` y comentario en
             # `shared/adapters/azure_openai.py`). Reproducido también en el
-            # experimento de `scripts/experimento_full_context.py` sobre
+            # experimento de `scripts/retrieval_debug/experimento_full_context.py` sobre
             # `anexos_obligatorios`: mismos 19 chunks, mismo prompt -- "ANEXO
             # V — Plan de Trabajo" aparecía en un modo y no en el otro.
             #

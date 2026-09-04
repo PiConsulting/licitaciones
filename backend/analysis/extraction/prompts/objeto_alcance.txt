@@ -189,6 +189,6 @@ Si los fragmentos no describen el objeto de la contratación:
 
 ---
 
-=== CONTENIDO DEL PLIEGO ===
+<contexto_pliego>
 {chunks}
-=== FIN DEL CONTENIDO ===
+</contexto_pliego>

@@ -18,117 +18,34 @@ NO afirmar si el oferente lo cumple o no.
 
 ---
 
-# QUÉ INCLUYE (únicamente estas dimensiones)
+# DIMENSIONES DE RIESGO PERMITIDAS (LISTA ESTRICTA)
+Extraé un riesgo ÚNICAMENTE si mapea directamente a una de estas dimensiones. Si hay duda, descártalo:
+1. **Fecha / Plazo de entrega:** Tiempos de entrega críticamente ajustados o con penalidades severas.
+2. **Mantenimiento de oferta:** Obligación de mantener la oferta por períodos inusualmente largos o rígidos.
+3. **Moneda y tipo de cambio:** Descalce de monedas, falta de cláusulas de ajuste o moneda no habitual.
+4. **Forma de pago:** Plazos de cobro extendidos, retenciones desfavorables o impacto crítico de cash-flow.
+5. **Competencia:** Señales de alta concurrencia o ventajas explícitas del incumbent / proveedor actual.
+6. **Direccionamiento:** Exigencia de marcas, modelos o certificaciones tan específicas que restringen la competencia. (Declarar marca ofrecida NO es direccionamiento).
+7. **Control de cuenta / relación:** Obligación de abrir cuentas en bancos específicos o pérdida de control operativo.
+8. **Apertura de la oferta:** Presencialidad obligatoria, plazos inmediatos o requisitos operativos rígidos de apertura.
+9. **Capacidades / skills exigidos:** Requisitos técnicos o de experiencia muy específicos a validar contra capacidad propia.
 
-Extraé riesgos SOLO si encajan en alguna de estas categorías. Si un fragmento no encaja
-en ninguna, no generes un item para él, sin importar cuán "riesgoso" suene en términos
-generales.
-
-1. **Fecha / plazo de entrega**: el pliego plantea la fecha o el plazo de entrega como
-   ajustado, exigente, o con consecuencias relevantes si no se cumple. (El dato de la
-   fecha en sí ya se extrae en `plazos_clave`; acá interesa el riesgo/impacto de ese
-   plazo, no repetir la fecha.)
-2. **Mantenimiento de oferta**: condiciones de mantenimiento de la oferta que sean
-   largas, rígidas o desfavorables para el oferente.
-3. **Moneda y tipo de cambio**: riesgo cambiario — pago en moneda distinta a la de los
-   costos, ajuste o falta de ajuste por tipo de cambio, moneda no habitual.
-4. **Forma de pago**: plazos de pago largos, retenciones, pagos contra entrega u otras
-   condiciones de cobro desfavorables para el flujo de caja del oferente.
-5. **Competencia**: señales de que se espera alta concurrencia de oferentes, mercado muy
-   competitivo, o competidores con ventajas explícitas (incumbente, proveedor actual,
-   experiencia previa exigida que pocos tienen).
-6. **Direccionamiento**: señales de que el PLIEGO exige una marca, modelo, certificación
-   o característica tan puntual que sólo un proveedor específico podría cumplirla. Ojo
-   con la dirección de la exigencia: que el pliego le pida al OFERENTE que declare qué
-   marca/modelo está ofreciendo (una divulgación administrativa rutinaria de cualquier
-   licitación) NO es direccionamiento — direccionamiento es que el PLIEGO imponga una
-   marca/modelo/estándar concreto como condición, dejando afuera a quien no lo tenga.
-   Si tenés dudas sobre cuál es el caso, no lo incluyas.
-7. **Control de la cuenta / relación comercial**: requisitos de apertura de cuenta en
-   bancos o entidades específicas, dependencia de terceros para operar, o pérdida de
-   control sobre recursos necesarios para ejecutar el contrato.
-8. **Apertura de la oferta**: condiciones de la apertura que agregan riesgo operativo
-   (presencialidad obligatoria, lugar o fecha rígidos, documentación que debe estar lista
-   con poca anticipación).
-9. **Capacidades / skills exigidos**: requisitos técnicos o de experiencia que son
-   exigentes o específicos, señalados como riesgo A VALIDAR contra las capacidades
-   propias del oferente (no como una afirmación de que el oferente los cumple o no).
-
-No hay una décima dimensión "genérica" ni una excepción por "riesgo severo o inusual".
-Si un candidato no encaja CLARAMENTE en una de las 9 dimensiones de arriba, no es parte
-de esta categoría, sin importar cuán grave o interesante parezca. Es preferible devolver
-menos items, o incluso `{root_key}: []`, antes que forzar algo que no encaja.
-
----
-
-# NO INCLUIR
-
-No es una lista de frases o cláusulas prohibidas — es un criterio de razonamiento que
-tenés que aplicar vos con cada fragmento, sea cual sea el pliego y esté redactado como
-esté redactado. No hay vocabulario fijo que buscar: el mismo contenido puede aparecer con
-palabras completamente distintas en cada pliego.
-
-**Regla de pertenencia categórica**: este sistema ya extrae por separado, en otras
-categorías, el contenido que responde a estas preguntas:
-- ¿Qué documentos/certificaciones hay que presentar para poder ofertar? → eso es
-  `requisitos_admisibilidad`, no `riesgos`.
-- ¿Qué haría que la oferta sea rechazada o descalificada por un motivo formal o técnico?
-  → eso es `causales_rechazo`, no `riesgos`.
-- ¿Qué garantías hay que constituir? → eso es `garantias`, no `riesgos`.
-- ¿Qué fechas y plazos existen? → eso es `plazos_clave`, no `riesgos`.
-- ¿Cómo se evalúan las ofertas? → eso es `criterios_evaluacion`, no `riesgos`.
-Si al leer un fragmento tu primer instinto es "esto respondería una de esas preguntas",
-NO lo pongas en `riesgos` aunque lo redactes con otras palabras (por ejemplo, transformar
-una causal de rechazo en "riesgo de que rechacen la oferta si..." sigue siendo el mismo
-contenido, solo reformulado).
-
-**Esta regla de pertenencia tiene prioridad sobre las 9 dimensiones de QUÉ INCLUYE.** Es
-posible que un fragmento parezca encajar en una dimensión (por ejemplo, que mencione una
-marca o una exigencia técnica, lo que podría sugerir la dimensión 6 o 9) y AL MISMO
-TIEMPO sea, en el fondo, un requisito a presentar o una causal de rechazo ya cubierto por
-otra categoría. En ese caso de conflicto, gana la pertenencia categórica: no lo incluyas
-en `riesgos`, aunque a primera vista parezca encajar en una dimensión. Las 9 dimensiones
-son un filtro adicional sobre lo que YA pasó ese primer filtro de pertenencia, no una vía
-alternativa para igual incluir algo que en el fondo es contenido de otra categoría.
-
-**Regla de diferenciación**: preguntate, sobre cada candidato, si describe algo que un
-oferente experimentado en licitaciones públicas ya asume como parte normal de cualquier
-proceso de este tipo (tareas propias de cumplir el objeto del contrato, cláusulas legales
-o administrativas de rutina que aparecerían en prácticamente cualquier pliego similar,
-sea cual sea el organismo o el rubro) — en ese caso NO aporta una señal diferencial para
-decidir si conviene participar en ESTE pliego puntual, y no corresponde incluirlo. Un
-riesgo real es algo que, si el oferente no lo supiera de antemano, cambiaría su decisión
-de participar o cómo prepara la oferta — no cualquier obligación que vaya a tener que
-cumplir de todos modos si participa.
-
-Aplicá estas dos reglas con tu propio criterio sobre el contenido real del pliego que
-tenés delante — no busques coincidencias con ejemplos o palabras específicas.
-
----
-
-# CONSOLIDACIÓN (importante)
-
-Varias menciones del mismo riesgo de fondo — aunque estén redactadas distinto o
-aparezcan en fragmentos distintos — son UN SOLO item, no varios. Por ejemplo: si el
-pliego menciona en tres lugares distintos requisitos técnicos sobre "el equipo de
-backup", eso es un único riesgo de tipo "capacidades exigidas", no tres items separados.
-Antes de emitir la lista final, revisá los candidatos y fusioná los que describan la
-misma situación de riesgo, aunque mencionen detalles técnicos distintos — quedate con la
-versión que mejor resuma el conjunto.
-
-Preferí menos items, cada uno con mayor densidad de información, antes que muchos items
-finos. El objetivo final es una lista corta y de alto valor, no una lista exhaustiva.
+# GUARDRAILS DE EXTRACCIÓN
+- **Cero tareas de rutina:** Obligaciones operativas estándar del contrato NO son riesgos.
+- **Cero solapamiento categórico:** Si el fragmento responde a "¿Qué presentar?" (`requisitos_admisibilidad`), "¿Qué causa rechazo?" (`causales_rechazo`), "¿Qué garantías constituir?" (`garantias`), o "¿Cómo evalúan?" (`criterios_evaluacion`), NO lo incluyas aquí.
+- **Consolidación obligatoria:** Múltiples menciones del mismo riesgo subyacente deben fusionarse en UN solo ítem robusto con sus citas combinadas.
+- **Lista acotada y de alto valor:** Apuntar a 5-10 riesgos concretos; es preferible devolver `{root_key}: []` con `extraction_status: "not_found"` antes que forzar ítems dudosos.
 
 ---
 
 # OBJETIVO
-Extraer una lista ACOTADA de riesgos relevantes para la decisión de participar y para la
-preparación de la oferta, limitada a las dimensiones descriptas arriba.
+Extraer una lista ACOTADA de riesgos relevantes para la decisión de participar y para la preparación de la oferta, limitada a las 9 dimensiones permitidas.
 
 ---
 
-# CHUNKS DEL PLIEGO
+<contexto_pliego>
 {chunks}
+</contexto_pliego>
 
 ---
 
@@ -179,6 +96,7 @@ preparación de la oferta, limitada a las dimensiones descriptas arriba.
       "tipo": "descalificacion|penalizacion|legal|operativo|financiero|otro",
       "subtipo": "ejecucion|incumplimiento|operativo|plazos|economico|tecnico|legal_contractual|comercial|otro_explicito",
       "valor": "Descripción clara del riesgo, orientada a la decisión de participar",
+      "confidence": 0.85,
       "extraction_status": "success|partial|not_found",
       "source_references": [
         {
