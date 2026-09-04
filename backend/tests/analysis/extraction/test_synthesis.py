@@ -281,3 +281,87 @@ def test_run_synthesis_preview_sin_evidencia_usa_mensaje_canonico() -> None:
     narrative, _token_usage = result
     assert len(narrative.blocks) == 1
     assert "No se encontró información sobre Preview Criterios" in narrative.blocks[0].text
+
+
+def test_run_synthesis_preview_normaliza_titulos_y_orden_canonico(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_call_llm(*, messages, correlation_id):
+        return (
+            {
+                "blocks": [
+                    {
+                        "type": "bullet_list",
+                        "items": [
+                            {"text": "Tiempo de entrega: x", "confidence_level": "alta", "item_refs": [1]},
+                            {"text": "Forma de pago: x", "confidence_level": "alta", "item_refs": [2]},
+                            {"text": "Tipo de cambio: x", "confidence_level": "alta", "item_refs": [4]},
+                            {"text": "Multas o penalidades: x", "confidence_level": "alta", "item_refs": [6]},
+                            {"text": "Anticipo financiero: x", "confidence_level": "alta", "item_refs": [7]},
+                            {"text": "Requisitos técnicos excluyentes: x", "confidence_level": "alta", "item_refs": [8]},
+                            {
+                                "text": "Responsabilidad por costos logísticos: x",
+                                "confidence_level": "alta",
+                                "item_refs": [9],
+                            },
+                            {"text": "Moneda de cotización: x", "confidence_level": "alta", "item_refs": [3]},
+                            {"text": "Garantías: x", "confidence_level": "alta", "item_refs": [5]},
+                            {"text": "Mantenimiento de la oferta: x", "confidence_level": "alta", "item_refs": [0]},
+                        ],
+                    }
+                ]
+            },
+            {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        )
+
+    monkeypatch.setattr("analysis.extraction.engine.base._call_llm", fake_call_llm)
+
+    tipos = [
+        "mantenimiento_oferta",
+        "tiempo_entrega",
+        "forma_pago",
+        "moneda",
+        "tipo_cambio",
+        "garantias_cauciones",
+        "multas_penalidades",
+        "anticipo_financiero",
+        "requisitos_tecnicos_excluyentes",
+        "responsabilidad_costos_logisticos",
+    ]
+    items = [
+        {
+            "tipo": tipo,
+            "valor": f"valor {index}",
+            "confidence": 0.9,
+            "source_references": [
+                {
+                    "document_id": "doc-1",
+                    "page_number": index + 1,
+                    "citation": "Cita suficientemente larga para validar evidencia.",
+                }
+            ],
+            "extraction_status": "success",
+        }
+        for index, tipo in enumerate(tipos)
+    ]
+
+    result = run_synthesis(category_key="preview_criterios", items=items, correlation_id="corr-preview")
+    assert result is not None
+    narrative, _token_usage = result
+
+    assert len(narrative.blocks) == 1
+    assert narrative.blocks[0].type == "bullet_list"
+    texts = [item.text for item in narrative.blocks[0].items]
+
+    assert texts == [
+        "Mantenimiento de oferta: x",
+        "Tiempo de entrega: x",
+        "Forma de Pago: x",
+        "Licitación en pesos o dólares: x",
+        "Tipo de cambio: x",
+        "Garantías o cauciones: x",
+        "Multas o penalidades: x",
+        "Anticipo financiero requerido: x",
+        "Requisitos técnicos o certificaciones excluyentes: x",
+        "Responsabilidad por costos logísticos o de instalación: x",
+    ]

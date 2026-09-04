@@ -26,6 +26,34 @@ except ImportError:
 
 logger = structlog.get_logger(__name__)
 
+_PREVIEW_CANONICAL_TITLE_BY_TIPO: dict[str, str] = {
+    "mantenimiento_oferta": "Mantenimiento de oferta",
+    "tiempo_entrega": "Tiempo de entrega",
+    "forma_pago": "Forma de Pago",
+    "moneda": "Licitación en pesos o dólares",
+    "tipo_cambio": "Tipo de cambio",
+    "garantias_cauciones": "Garantías o cauciones",
+    "multas_penalidades": "Multas o penalidades",
+    "anticipo_financiero": "Anticipo financiero requerido",
+    "requisitos_tecnicos_excluyentes": "Requisitos técnicos o certificaciones excluyentes",
+    "responsabilidad_costos_logisticos": "Responsabilidad por costos logísticos o de instalación",
+}
+_PREVIEW_CANONICAL_ORDER: tuple[str, ...] = (
+    "mantenimiento_oferta",
+    "tiempo_entrega",
+    "forma_pago",
+    "moneda",
+    "tipo_cambio",
+    "garantias_cauciones",
+    "multas_penalidades",
+    "anticipo_financiero",
+    "requisitos_tecnicos_excluyentes",
+    "responsabilidad_costos_logisticos",
+)
+_PREVIEW_ORDER_INDEX: dict[str, int] = {
+    tipo: index for index, tipo in enumerate(_PREVIEW_CANONICAL_ORDER)
+}
+
 CATEGORY_LABELS = {
     "preview_criterios": "Preview Criterios",
     "objeto_alcance": "Objeto y Alcance",
@@ -41,7 +69,29 @@ CATEGORY_OUTPUT_CONTRACTS = {
     "preview_criterios": (
         "- Sintetizar criterios preliminares clave para decisión temprana de oportunidad.\n"
         "- Emitir SIEMPRE una lista con exactamente un bullet por cada item recibido.\n"
-        "- Cada bullet debe empezar con el nombre legible del criterio y seguir con una respuesta breve en lenguaje natural.\n"
+        "- Orden obligatorio de salida (exactamente en este orden):\n"
+        "  1) Mantenimiento de oferta\n"
+        "  2) Tiempo de entrega\n"
+        "  3) Forma de Pago\n"
+        "  4) Licitación en pesos o dólares\n"
+        "  5) Tipo de cambio\n"
+        "  6) Garantías o cauciones\n"
+        "  7) Multas o penalidades\n"
+        "  8) Anticipo financiero requerido\n"
+        "  9) Requisitos técnicos o certificaciones excluyentes\n"
+        "  10) Responsabilidad por costos logísticos o de instalación\n"
+        "- Cada bullet debe empezar con el título EXACTO en español del criterio seguido de dos puntos y luego una respuesta breve en lenguaje natural.\n"
+        "- Mapeo obligatorio tipo -> Título EXACTO:\n"
+        "  mantenimiento_oferta -> \"Mantenimiento de oferta\"\n"
+        "  tiempo_entrega -> \"Tiempo de entrega\"\n"
+        "  forma_pago -> \"Forma de Pago\"\n"
+        "  moneda -> \"Licitación en pesos o dólares\"\n"
+        "  tipo_cambio -> \"Tipo de cambio\"\n"
+        "  garantias_cauciones -> \"Garantías o cauciones\"\n"
+        "  multas_penalidades -> \"Multas o penalidades\"\n"
+        "  anticipo_financiero -> \"Anticipo financiero requerido\"\n"
+        "  requisitos_tecnicos_excluyentes -> \"Requisitos técnicos o certificaciones excluyentes\"\n"
+        "  responsabilidad_costos_logisticos -> \"Responsabilidad por costos logísticos o de instalación\"\n"
         "- Si el item tiene extraction_status='not_found' o 'failed', escribir explícitamente que no se encontró información para ese criterio, sin omitirlo.\n"
         "- Usar redacción breve y accionable por criterio, sin inventar datos no citados.\n"
         "- Priorizar texto verificable respaldado por evidencia del pliego cuando exista."
@@ -109,6 +159,59 @@ CATEGORY_OUTPUT_CONTRACTS = {
 NARRATIVE_CATEGORIES = tuple(CATEGORY_LABELS)
 
 
+def _preview_tipo_from_item_refs(item_refs: list[int], items: list[dict[str, Any]]) -> str | None:
+    for ref in item_refs:
+        if 0 <= ref < len(items):
+            tipo = str(items[ref].get("tipo") or "").strip()
+            if tipo:
+                return tipo
+    return None
+
+
+def _preview_body_without_label(text: str) -> str:
+    if ":" in text:
+        return text.split(":", 1)[1].strip()
+    return text.strip()
+
+
+def _normalize_preview_raw_narrative(
+    raw_narrative: RawCategoryNarrative,
+    items: list[dict[str, Any]],
+) -> RawCategoryNarrative:
+    """Fuerza títulos y orden canónicos de preview antes de resolver fuentes."""
+    blocks_data: list[dict[str, Any]] = []
+
+    for block in raw_narrative.blocks:
+        if block.type != "bullet_list":
+            blocks_data.append(block.model_dump())
+            continue
+
+        decorated: list[tuple[int, int, dict[str, Any]]] = []
+        for index, bullet in enumerate(block.items):
+            bullet_data = bullet.model_dump()
+            tipo = _preview_tipo_from_item_refs(bullet.item_refs, items)
+
+            if tipo in _PREVIEW_CANONICAL_TITLE_BY_TIPO:
+                title = _PREVIEW_CANONICAL_TITLE_BY_TIPO[tipo]
+                body = _preview_body_without_label(bullet.text)
+                bullet_data["text"] = f"{title}: {body}" if body else f"{title}: No se encontró información."
+                order = _PREVIEW_ORDER_INDEX.get(tipo, 10_000)
+            else:
+                order = 10_000
+
+            decorated.append((order, index, bullet_data))
+
+        decorated.sort(key=lambda entry: (entry[0], entry[1]))
+        blocks_data.append({"type": "bullet_list", "items": [entry[2] for entry in decorated]})
+
+    return RawCategoryNarrative.model_validate(
+        {
+            "blocks": blocks_data,
+            "evidence": [e.model_dump() for e in raw_narrative.evidence],
+        }
+    )
+
+
 def run_synthesis(
     *,
     category_key: str,
@@ -151,6 +254,8 @@ def run_synthesis(
             messages=[("human", prompt)], correlation_id=correlation_id
         )
         raw_narrative = RawCategoryNarrative.model_validate(raw)
+        if category_key == "preview_criterios":
+            raw_narrative = _normalize_preview_raw_narrative(raw_narrative, items)
 
         narrative = _resolve_narrative_sources(
             raw_narrative,

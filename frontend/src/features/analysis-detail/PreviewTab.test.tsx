@@ -103,7 +103,7 @@ describe("PreviewTab", () => {
     expect(screen.getByTestId("preview-tab-content")).toHaveTextContent(
       "Mantenimiento de oferta: 60 días.",
     );
-    expect(screen.getByText("Objeto:").tagName).toBe("STRONG");
+    expect(screen.queryByText("Objeto:", { selector: "strong" })).not.toBeInTheDocument();
     expect(screen.getByText("Mantenimiento de oferta:").tagName).toBe("STRONG");
     expect(screen.queryByText("Objeto y Alcance")).not.toBeInTheDocument();
   });
@@ -280,5 +280,150 @@ describe("PreviewTab", () => {
     expect(rendered).toContain("Licitación en pesos o dólares:");
     expect(rendered).toContain("Multas o penalidades:");
     expect(rendered).toContain("Responsabilidad por costos logísticos o de instalación:");
+  });
+
+  test("reordena en el orden canónico cuando la narrativa llega con aliases de backend", () => {
+    const analysis = makeAnalysis({
+      previewCriterios: makeCategoryData([]),
+    });
+
+    analysis.current_version.extracted_data.preview_criterios = {
+      ...analysis.current_version.extracted_data.preview_criterios,
+      items: [
+        {
+          field_name: "Tiempo de entrega",
+          field_value: "No se encontró información",
+          field_state: "no_encontrado",
+          confidence: 0.4,
+          citations: [],
+        },
+      ],
+      narrative: {
+        blocks: [
+          {
+            type: "bullet_list",
+            items: [
+              {
+                text: "Tiempo de entrega: no se encontró información específica sobre este criterio en los ítems recibidos.",
+                confidence_level: "low",
+                source_ids: [],
+              },
+              {
+                text: "Forma de pago: el equipamiento se facturará contra su recepción definitiva y conformidad técnica.",
+                confidence_level: "high",
+                source_ids: [],
+              },
+              {
+                text: "Tipo de cambio: las diferencias de cambio se toman entre el día anterior al pago y la fecha de emisión de la factura.",
+                confidence_level: "high",
+                source_ids: [],
+              },
+              {
+                text: "Multas o penalidades: hay riesgo de sanciones por atrasos en la ejecución y en la atención de fallas, con penalidades económicas relevantes.",
+                confidence_level: "high",
+                source_ids: [],
+              },
+              {
+                text: "Anticipo financiero requerido: no se encontró información sobre este criterio en los ítems recibidos.",
+                confidence_level: "low",
+                source_ids: [],
+              },
+              {
+                text: "Requisitos técnicos o certificaciones excluyentes: no se encontró información específica sobre este criterio en los ítems recibidos.",
+                confidence_level: "low",
+                source_ids: [],
+              },
+              {
+                text: "Responsabilidad por costos logísticos o de instalación: durante la instalación, calibración o puesta en marcha del software, todos los gastos quedan a cargo de la contratista.",
+                confidence_level: "high",
+                source_ids: [],
+              },
+              {
+                text: "Moneda de cotización: los bienes y servicios nacionales deben cotizarse en pesos; los importados pueden cotizarse en pesos o en dólares estadounidenses.",
+                confidence_level: "high",
+                source_ids: [],
+              },
+              {
+                text: "Garantías: el pliego remite a la garantía de mantenimiento de oferta y a la de fiel cumplimiento; además, la garantía de oferta se integra en pesos o en dólares según la moneda cotizada.",
+                confidence_level: "high",
+                source_ids: [],
+              },
+              {
+                text: "Mantenimiento de la oferta: la oferta debe mantenerse vigente por el plazo indicado en el pliego y puede ser aceptada dentro de ese período.",
+                confidence_level: "high",
+                source_ids: [],
+              },
+            ],
+          },
+        ],
+        sources: [],
+      },
+    };
+
+    render(<PreviewTab analysis={analysis} />);
+
+    const rendered = screen.getByTestId("preview-tab-content").textContent ?? "";
+    const idxMantenimiento = rendered.indexOf("Mantenimiento de oferta:");
+    const idxEntrega = rendered.indexOf("Tiempo de entrega:");
+    const idxPago = rendered.indexOf("Forma de pago:");
+    const idxMoneda = rendered.indexOf("Licitación en pesos o dólares:");
+    const idxTipoCambio = rendered.indexOf("Tipo de cambio:");
+    const idxGarantias = rendered.indexOf("Garantías o cauciones:");
+    const idxMultas = rendered.indexOf("Multas o penalidades:");
+    const idxAnticipo = rendered.indexOf("Anticipo financiero requerido:");
+    const idxRequisitos = rendered.indexOf("Requisitos técnicos o certificaciones excluyentes:");
+    const idxResponsabilidad = rendered.indexOf("Responsabilidad por costos logísticos o de instalación:");
+
+    expect(idxMantenimiento).toBeGreaterThanOrEqual(0);
+    expect(idxEntrega).toBeGreaterThan(idxMantenimiento);
+    expect(idxPago).toBeGreaterThan(idxEntrega);
+    expect(idxMoneda).toBeGreaterThan(idxPago);
+    expect(idxTipoCambio).toBeGreaterThan(idxMoneda);
+    expect(idxGarantias).toBeGreaterThan(idxTipoCambio);
+    expect(idxMultas).toBeGreaterThan(idxGarantias);
+    expect(idxAnticipo).toBeGreaterThan(idxMultas);
+    expect(idxRequisitos).toBeGreaterThan(idxAnticipo);
+    expect(idxResponsabilidad).toBeGreaterThan(idxRequisitos);
+  });
+
+  test("no pone en negrita párrafos de objeto y alcance con dos puntos", () => {
+    const analysis = makeAnalysis({
+      previewCriterios: makeCategoryData([
+        {
+          field_name: "Tiempo de entrega",
+          field_value: "45 días",
+          field_state: "extraido",
+          confidence: 0.8,
+          citations: [],
+        },
+      ]),
+    });
+
+    analysis.current_version.extracted_data.objeto_alcance.narrative = {
+      blocks: [
+        {
+          type: "paragraph",
+          text: "La licitación es para la adquisición de servidores de aplicaciones, de base de datos y de archivos. El objeto se divide en 3 ítems: 4 servidores de aplicaciones tipo XEN, 4 servidores de base de datos y 4 LCD KVM Switch.",
+          confidence_level: "high",
+          source_ids: [],
+        },
+      ],
+      sources: [],
+    };
+
+    render(<PreviewTab analysis={analysis} />);
+
+    expect(
+      screen.getByText(
+        "La licitación es para la adquisición de servidores de aplicaciones, de base de datos y de archivos. El objeto se divide en 3 ítems: 4 servidores de aplicaciones tipo XEN, 4 servidores de base de datos y 4 LCD KVM Switch.",
+      ),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.queryByText(
+        "La licitación es para la adquisición de servidores de aplicaciones, de base de datos y de archivos. El objeto se divide en 3 ítems:",
+        { selector: "strong" },
+      ),
+    ).not.toBeInTheDocument();
   });
 });
