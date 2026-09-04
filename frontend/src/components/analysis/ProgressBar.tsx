@@ -5,7 +5,7 @@ const STAGE_DISPLAY_NAMES: Record<string, string> = {
   queued: "En cola",
   extracting_text: "Extrayendo texto",
   indexing: "Preparando para análisis",
-  analyzing: "Analizando categorias",
+  analyzing: "Analizando",
   consolidating: "Consolidando",
   completed: "Analizado",
 };

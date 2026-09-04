@@ -8,9 +8,20 @@ import type { AnalysisDetail } from "./types";
 import type { AnalysisTracking } from "../../types/tracking";
 
 const mockGetAnalysisById = vi.fn();
+const mockGetAnalysisStatus = vi.fn();
+const mockStartAnalysisCategories = vi.fn();
 vi.mock("../../services/api/analysisApi", () => ({
   getAnalysisById: (...args: unknown[]) => mockGetAnalysisById(...args),
 }));
+
+vi.mock("../../api/analyses", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/analyses")>();
+  return {
+    ...actual,
+    getAnalysisStatus: (...args: unknown[]) => mockGetAnalysisStatus(...args),
+    startAnalysisCategories: (...args: unknown[]) => mockStartAnalysisCategories(...args),
+  };
+});
 
 vi.mock("../pdf-viewer/PDFViewer", () => ({
   PDFViewer: ({ documentId, citations, onClose }: { documentId: string; citations: unknown[]; onClose?: () => void }) => (
@@ -97,6 +108,13 @@ function createAnalysis(options?: { tracking?: AnalysisTracking | null }): Analy
   };
 }
 
+function createAnalysisInReview(): AnalysisDetail {
+  return {
+    ...createAnalysis(),
+    status: "en_revision",
+  };
+}
+
 function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -113,9 +131,31 @@ function renderPage() {
   );
 }
 
+function getPreviewSourceButton() {
+  return (
+    screen.queryByRole("button", { name: /Ver fuente en el pliego \(pág\. 15\)/i }) ??
+    screen.queryByRole("button", { name: /Pliego Principal\.pdf · pág\. 15/i })
+  );
+}
+
 describe("AnalysisDetailPage PDF integration", () => {
   beforeEach(() => {
     mockGetAnalysisById.mockResolvedValue(createAnalysis());
+    mockGetAnalysisStatus.mockResolvedValue({
+      id: "analysis-1",
+      status: "processing",
+      current_stage: "analyzing",
+      progress_percentage: 55,
+      stage_progress: "Analizando Preview (2 de 3)",
+    });
+    mockStartAnalysisCategories.mockResolvedValue({
+      id: "analysis-1",
+      status: "queued",
+      message: "Análisis de categorías encolado exitosamente.",
+      requires_resolution: false,
+      duplicates: [],
+      redirect_analysis_id: null,
+    });
     sessionStorage.clear();
   });
 
@@ -127,6 +167,46 @@ describe("AnalysisDetailPage PDF integration", () => {
     });
 
     expect(screen.getByTestId("pdf-viewer-mock")).toHaveTextContent("viewer:doc-1:0");
+  });
+
+  test("usa Preview como pestaña inicial por defecto", async () => {
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("preview-tab-content")).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("button", { name: "Preview" })).toHaveAttribute("aria-current", "page");
+  });
+
+  test("si falta preview_criterios en análisis legacy, mantiene preview funcional y muestra nota informativa", async () => {
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("preview-tab-content")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("preview-tab-legacy-note")).toBeInTheDocument();
+    expect(screen.getByTestId("narrative-blocks")).toBeInTheDocument();
+  });
+
+  test("en análisis legacy, Categorías y Timeline siguen operativos sin romper la vista", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("preview-tab-legacy-note")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Categorías" }));
+    expect(screen.getByRole("button", { name: "Categorías" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByLabelText("Categorías de análisis")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Timeline" }));
+    expect(screen.getByRole("button", { name: "Timeline" })).toHaveAttribute("aria-current", "page");
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Timeline" })).toBeInTheDocument();
+    });
   });
 
   test("la vista divide PDF y campos en contenedores inferiores con anchos xl esperados", async () => {
@@ -166,10 +246,10 @@ describe("AnalysisDetailPage PDF integration", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Pliego Principal\.pdf · pág. 15/i })).toBeInTheDocument();
+      expect(getPreviewSourceButton()).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole("button", { name: /Pliego Principal\.pdf · pág. 15/i }));
+    await user.click(getPreviewSourceButton()!);
 
     expect(screen.getByTestId("pdf-viewer-mock")).toHaveTextContent("viewer:doc-1:1");
   });
@@ -186,7 +266,7 @@ describe("AnalysisDetailPage PDF integration", () => {
     await user.click(screen.getByRole("button", { name: "Ocultar visor PDF" }));
     expect(screen.queryByTestId("pdf-viewer-panel")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /Pliego Principal\.pdf · pág. 15/i }));
+    await user.click(getPreviewSourceButton()!);
 
     expect(screen.getByTestId("pdf-viewer-panel")).toBeInTheDocument();
     expect(screen.getByTestId("pdf-viewer-mock")).toHaveTextContent("viewer:doc-1:1");
@@ -222,5 +302,55 @@ describe("AnalysisDetailPage PDF integration", () => {
     });
 
     expect(screen.queryByRole("button", { name: "Terminar seguimiento" })).not.toBeInTheDocument();
+  });
+
+  test("muestra acción para iniciar análisis de categorías cuando el análisis está en revisión", async () => {
+    mockGetAnalysisById.mockResolvedValue(createAnalysisInReview());
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Iniciar análisis de categorías restantes" })).toBeInTheDocument();
+    });
+  });
+
+  test("no muestra acción para iniciar categorías cuando el análisis ya está analyzed", async () => {
+    mockGetAnalysisById.mockResolvedValue(createAnalysis());
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("analysis-content-panel")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole("button", { name: "Iniciar análisis de categorías restantes" })).not.toBeInTheDocument();
+  });
+
+  test("al iniciar análisis de categorías, muestra barra de progreso del mismo componente", async () => {
+    const user = userEvent.setup();
+    mockGetAnalysisById.mockResolvedValue(createAnalysisInReview());
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Iniciar análisis de categorías restantes" })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Iniciar análisis de categorías restantes" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("categories-progress-panel")).toBeInTheDocument();
+    });
+  });
+
+  test("si hay redirección pendiente persistida y el análisis ya terminó, abre Categorías por defecto", async () => {
+    sessionStorage.setItem("analysis:analysis-1:redirect_to_categories_on_analyze", "1");
+    mockGetAnalysisById.mockResolvedValue(createAnalysis());
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Categorías" })).toHaveAttribute("aria-current", "page");
+    });
   });
 });

@@ -190,7 +190,10 @@ def _drop_low_relevance_chunks(
         return chunks
 
     def score_de(chunk: dict[str, Any]) -> float | None:
-        valor = chunk.get("search_score")
+        # `retrieval_score` preserva la señal ajustada del retrieval
+        # (boost/penalty y posible reranking). Si no está, cae al score
+        # híbrido crudo por compatibilidad.
+        valor = chunk.get("retrieval_score", chunk.get("search_score"))
         try:
             numero = float(valor)  # type: ignore[arg-type]
         except (TypeError, ValueError):

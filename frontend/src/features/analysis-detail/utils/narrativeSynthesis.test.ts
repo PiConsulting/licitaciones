@@ -209,4 +209,24 @@ describe("buildNarrativeBlocks", () => {
       text: expect.stringContaining("No se exige garantía"),
     });
   });
+
+  test("puede incluir items no_encontrado para preservar títulos en preview", () => {
+    const category = createCategory([
+      createField("Mantenimiento de oferta", { state: "no_encontrado", value: null }),
+      createField("Moneda", { state: "no_encontrado", value: null }),
+    ]);
+
+    const narrative = buildNarrativeBlocks(category, "criterios_evaluacion", {
+      forceList: true,
+      includeNotFoundItems: true,
+    });
+
+    expect(narrative.blocks).toHaveLength(1);
+    expect(narrative.blocks[0].type).toBe("bullet_list");
+    if (narrative.blocks[0].type !== "bullet_list") {
+      throw new Error("Expected bullet_list");
+    }
+    expect(narrative.blocks[0].items[0].text).toContain("No se encontró información sobre mantenimiento de oferta");
+    expect(narrative.blocks[0].items[1].text).toContain("No se encontró información sobre moneda");
+  });
 });

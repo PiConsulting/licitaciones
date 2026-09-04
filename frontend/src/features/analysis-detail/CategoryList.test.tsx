@@ -146,11 +146,14 @@ describe("CategoryList - AC5: Compatibilidad con categorías faltantes", () => {
       expect(article).not.toBeNull();
     });
 
-    // Verificar que todas las categorías tienen respuesta generada: 7 con
-    // NarrativeBlocks y Plazos Clave con su propia timeline (vacía en este caso).
-    const narrativeBlocks = screen.getAllByTestId("narrative-blocks");
-    expect(narrativeBlocks).toHaveLength(7);
-    expect(document.getElementById("category-plazos_clave")?.querySelector('[data-testid^="plazos-timeline"]')).not.toBeNull();
+    // Sin datos del backend, `CategoryList` completa con `EMPTY_CATEGORY`
+    // (`extraction_status: "not_analyzed"`): las 8 categorías, incluida
+    // Plazos Clave, se muestran en minimalista -- no como un contenedor de
+    // "Respuesta" vacío ni una timeline vacía, que sugerirían que se buscó y
+    // no se encontró nada.
+    expect(screen.queryAllByTestId("narrative-blocks")).toHaveLength(0);
+    expect(document.getElementById("category-plazos_clave")?.querySelector('[data-testid^="plazos-timeline"]')).toBeNull();
+    expect(screen.getAllByTestId("category-not-analyzed")).toHaveLength(8);
   });
 
   it("debe renderizar categorías con datos parciales sin errores", () => {
@@ -179,9 +182,13 @@ describe("CategoryList - AC5: Compatibilidad con categorías faltantes", () => {
     expect(screen.getByText("Plazos Clave")).toBeInTheDocument(); // Sin datos pero renderizada
     expect(screen.getByText("Requisitos de Admisibilidad")).toBeInTheDocument(); // Sin datos pero renderizada
 
-    // Todas las categorías deben tener respuesta generada (7 narrativas + timeline)
+    // Sólo las 2 categorías con datos reales (objeto_alcance, garantias)
+    // tienen NarrativeBlocks; las otras 6 -- faltantes, `not_analyzed` vía
+    // `EMPTY_CATEGORY` -- se muestran en minimalista, no como timeline/
+    // contenedor vacío.
     const narrativeBlocks = screen.getAllByTestId("narrative-blocks");
-    expect(narrativeBlocks).toHaveLength(7);
-    expect(document.getElementById("category-plazos_clave")?.querySelector('[data-testid^="plazos-timeline"]')).not.toBeNull();
+    expect(narrativeBlocks).toHaveLength(2);
+    expect(document.getElementById("category-plazos_clave")?.querySelector('[data-testid^="plazos-timeline"]')).toBeNull();
+    expect(screen.getAllByTestId("category-not-analyzed")).toHaveLength(6);
   });
 });

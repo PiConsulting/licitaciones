@@ -37,6 +37,11 @@ export async function startAnalysis(
   return response.data;
 }
 
+export async function startAnalysisCategories(analysisId: string): Promise<AnalysisStartResponse> {
+  const response = await apiClient.post<AnalysisStartResponse>(`/analyses/${analysisId}/start-categories`);
+  return response.data;
+}
+
 export async function getAnalysisStatus(analysisId: string): Promise<AnalysisStatusResponse> {
   const response = await apiClient.get<AnalysisStatusResponse>(`/analyses/${analysisId}/status`);
   return response.data;

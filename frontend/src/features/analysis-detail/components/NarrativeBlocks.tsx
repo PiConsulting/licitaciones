@@ -10,6 +10,7 @@ interface NarrativeBlocksProps {
   trackingItems?: TrackingItem[];
   isTrackingClosed?: boolean;
   onChangeTrackingItemStatus?: (trackingItemId: string, status: TrackingItemStatus) => void;
+  emphasizeLeadingLabel?: boolean;
 }
 
 const TRACKING_ITEM_STATUS_OPTIONS: Array<{
@@ -100,6 +101,37 @@ function collectReferencedSourceIds(blocks: NarrativeBlockData[]): Set<number> {
   return ids;
 }
 
+function splitLabelAndValue(text: string): { label: string; value: string } | null {
+  const separatorIndex = text.indexOf(":");
+  if (separatorIndex <= 0) {
+    return null;
+  }
+  const label = text.slice(0, separatorIndex).trim();
+  const value = text.slice(separatorIndex + 1).trim();
+  if (!label || !value) {
+    return null;
+  }
+  return { label, value };
+}
+
+function renderNarrativeText(text: string, emphasizeLeadingLabel: boolean) {
+  if (!emphasizeLeadingLabel) {
+    return text;
+  }
+
+  const split = splitLabelAndValue(text);
+  if (!split) {
+    return text;
+  }
+
+  return (
+    <>
+      <strong className="font-semibold text-gray-900">{`${split.label}:`}</strong>
+      {` ${split.value}`}
+    </>
+  );
+}
+
 interface TrackingItemControlsProps {
   item: TrackingItem;
   isClosed: boolean;
@@ -175,6 +207,7 @@ export function NarrativeBlocks({
   trackingItems = [],
   isTrackingClosed = false,
   onChangeTrackingItemStatus,
+  emphasizeLeadingLabel = false,
 }: NarrativeBlocksProps) {
   const referencedSourceIds = collectReferencedSourceIds(narrative.blocks);
   const paragraphSourceIds = collectParagraphSourceIds(narrative.blocks);
@@ -259,7 +292,9 @@ export function NarrativeBlocks({
           if (block.type === "paragraph") {
             return (
               <div key={index} className="flex items-start gap-2" data-testid="narrative-paragraph">
-                <p className="flex-1 text-sm leading-relaxed text-gray-800">{block.text}</p>
+                <p className="flex-1 text-sm leading-relaxed text-gray-800">
+                  {renderNarrativeText(block.text, emphasizeLeadingLabel)}
+                </p>
                 {trackingItems.length === 1 ? <InlineTrackingControls itemIndex={0} /> : null}
               </div>
             );
@@ -276,7 +311,9 @@ export function NarrativeBlocks({
                     return (
                       <li key={itemIndex} className="flex items-start gap-2" data-testid="narrative-bullet-item">
                         <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-gray-400" aria-hidden="true" />
-                        <span className="flex-1 text-sm leading-relaxed text-gray-800">{item.text}</span>
+                        <span className="flex-1 text-sm leading-relaxed text-gray-800">
+                          {renderNarrativeText(item.text, emphasizeLeadingLabel)}
+                        </span>
                         <InlineTrackingControls itemIndex={currentTrackingItemIndex} />
                         <SourceEyeButton sourceIds={item.source_ids} />
                       </li>

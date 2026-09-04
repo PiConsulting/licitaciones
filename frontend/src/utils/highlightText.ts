@@ -46,8 +46,14 @@ const STOPWORDS = new Set([
   "deberan",
 ]);
 
+const CITATION_GAP_MARKER_RE = /\s*(?:\[\.\.\.\]|…)\s*/g;
+
 export function normalizeText(value: string): string {
-  return value.replace(/\s+/g, " ").trim().toLowerCase();
+  const withoutTableMarkers = value.replace(/\bcol_\d+\s*:\s*/gi, " ");
+  const withoutAccents = withoutTableMarkers
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return withoutAccents.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 function escapeHtml(value: string): string {
@@ -88,8 +94,38 @@ export function isPartOfCitation(itemText: string, citationTexts: string[]): boo
     return false;
   }
 
+  const normalizeCitationCandidates = (citationText: string): string[] => {
+    const raw = citationText ?? "";
+    const normalizedBase = normalizeText(raw);
+    const candidates: string[] = [];
+    if (normalizedBase) {
+      candidates.push(normalizedBase);
+    }
+
+    if (raw.includes("[...]") || raw.includes("…")) {
+      const parts = raw
+        .split(CITATION_GAP_MARKER_RE)
+        .map((part) => normalizeText(part))
+        .filter((part) => part.length >= MIN_FRAGMENT_LENGTH)
+        .sort((a, b) => b.length - a.length);
+      for (const part of parts) {
+        if (!candidates.includes(part)) {
+          candidates.push(part);
+        }
+      }
+    }
+
+    return candidates;
+  };
+
   return citationTexts.some((citationText) =>
-    containsAsWord(normalizeText(citationText), fragment),
+    normalizeCitationCandidates(citationText).some(
+      (candidate) =>
+        // Caso normal: span dentro de la cita.
+        containsAsWord(candidate, fragment) ||
+        // Fallback robusto: cita recortada dentro de un span mayor.
+        (candidate.length >= MIN_FRAGMENT_LENGTH && containsAsWord(fragment, candidate)),
+    ),
   );
 }
 

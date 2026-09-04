@@ -237,4 +237,5 @@ describe("enfoque de la cita en el visor", () => {
     expect(scrollWindow).not.toHaveBeenCalled();
     scrollWindow.mockRestore();
   });
+
 });

@@ -317,6 +317,15 @@ const FIELD_LABELS: Record<string, string> = {
   respuesta_consultas: "Respuesta a consultas",
   visita_obra: "Visita a obra",
   mantenimiento_oferta: "Mantenimiento de oferta",
+  tiempo_entrega: "Tiempo de entrega",
+  forma_pago: "Forma de pago",
+  moneda: "Moneda",
+  tipo_cambio: "Tipo de cambio",
+  garantias_cauciones: "Garantías y cauciones",
+  multas_penalidades: "Multas y penalidades",
+  anticipo_financiero: "Anticipo financiero",
+  requisitos_tecnicos_excluyentes: "Requisitos técnicos excluyentes",
+  responsabilidad_costos_logisticos: "Responsabilidad por costos logísticos",
   adjudicacion: "Adjudicación",
   firma_contrato: "Firma del contrato",
   inicio_ejecucion: "Inicio de ejecución",
@@ -557,7 +566,11 @@ function fromBackendArray(
  * completa de `CategoryId`, si no `datos_procedimiento` nunca se puebla y el
  * organismo/expediente del header del análisis quedan siempre vacíos.
  */
-const NORMALIZE_CATEGORY_IDS: CategoryId[] = [...CATEGORY_ORDER, "datos_procedimiento"];
+const NORMALIZE_CATEGORY_IDS: Array<CategoryId | "preview_criterios"> = [
+  "preview_criterios",
+  ...CATEGORY_ORDER,
+  "datos_procedimiento",
+];
 
 /** Los contadores de calidad que emite `merge_node` por categoría (ATR-03). */
 function toCategoryQuality(value: unknown): CategoryQuality | undefined {
@@ -579,11 +592,15 @@ function toCategoryQuality(value: unknown): CategoryQuality | undefined {
   return Object.keys(quality).length > 0 ? quality : undefined;
 }
 
-function normalizeCategories(extractedData: unknown): Record<CategoryId, CategoryData> {
-  const result = NORMALIZE_CATEGORY_IDS.reduce<Record<CategoryId, CategoryData>>((acc, categoryId) => {
+function normalizeCategories(extractedData: unknown): Record<CategoryId, CategoryData> & {
+  preview_criterios?: CategoryData;
+} {
+  const result = NORMALIZE_CATEGORY_IDS.reduce<
+    Record<CategoryId, CategoryData> & { preview_criterios?: CategoryData }
+  >((acc, categoryId) => {
     acc[categoryId] = emptyCategoryData();
     return acc;
-  }, {} as Record<CategoryId, CategoryData>);
+  }, {} as Record<CategoryId, CategoryData> & { preview_criterios?: CategoryData });
 
   if (!isRecord(extractedData)) {
     return result;
@@ -594,7 +611,7 @@ function normalizeCategories(extractedData: unknown): Record<CategoryId, Categor
   // antiguas o análisis legacy pueden tener solo los nombres viejos.
   // Este fallback se puede eliminar después de Q2 2027 cuando se deprecien
   // completamente los campos legacy del backend.
-  const legacyToUiMap: Partial<Record<CategoryId, string[]>> = {
+  const legacyToUiMap: Partial<Record<CategoryId | "preview_criterios", string[]>> = {
     plazos_clave: ["plazos"],
     requisitos_admisibilidad: ["documentos_requeridos", "restricciones_participacion"],
     datos_procedimiento: ["cronograma_proceso", "estimacion_presupuesto"],
@@ -608,11 +625,15 @@ function normalizeCategories(extractedData: unknown): Record<CategoryId, Categor
   // Cosmos antes de este fix solo tienen el nombre viejo -- este fallback
   // evita perder el estado de esos análisis. Retiro junto con el resto de los
   // campos legacy (Q2 2027).
-  const legacyStatusKey: Partial<Record<CategoryId, string>> = {
+  const legacyStatusKey: Partial<Record<CategoryId | "preview_criterios", string>> = {
     causales_rechazo: "causales_extraction_status",
   };
-  const getStatusValue = (categoryId: CategoryId): unknown => {
-    const primary = extractedData[BACKEND_STATUS_KEY[categoryId]];
+  const getStatusValue = (categoryId: CategoryId | "preview_criterios"): unknown => {
+    const primaryKey =
+      categoryId === "preview_criterios"
+        ? "preview_criterios_extraction_status"
+        : BACKEND_STATUS_KEY[categoryId];
+    const primary = extractedData[primaryKey];
     if (primary !== undefined) {
       return primary;
     }

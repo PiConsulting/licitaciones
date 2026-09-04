@@ -169,23 +169,62 @@ export function PDFViewer({
   // navegar entre citas se resaltaban a la vez todas las citas de esa página,
   // no la que se está mirando. `citationTexts` sí estaba acotado a la cita
   // activa; el overlay de coordenadas no.
-  const activeSources = useMemo(
-    () =>
-      activeCitationInDocument
-        ? (sources ?? []).filter((source) =>
-            isSameCitation(
-              {
-                document_id: source.document_id,
-                page: source.page,
-                text: source.text,
-                document_name: source.document_name,
-              },
-              activeCitationInDocument,
-            ),
-          )
-        : [],
-    [sources, activeCitationInDocument],
-  );
+  //
+  // FIX (2026-09-03): esa version anterior narrowaba a UNA sola cita exacta
+  // (`isSameCitation` contra `activeCitationInDocument`), y eso rompía los
+  // ítems con varias citas propias en la misma página -- ej. un plazo de
+  // "Plazos Clave" con una cita para el plazo y otra para el lugar de
+  // entrega, ambas en la pág. 27. `citation: citations[0]` (el que arma el
+  // llamador) siempre enfocaba la primera, así que el usuario leía "Dirección
+  // General..." (la segunda cita, mostrada aparte con el ícono de lugar) y el
+  // resaltado en el PDF le mostraba la primera ("El plazo de entrega...") --
+  // una oración distinta del mismo párrafo. Las dos citas son evidencia del
+  // MISMO ítem, no de dos ítems distintos, así que corresponde resaltarlas
+  // juntas.
+  //
+  // Por eso ahora se amplía a TODAS las citas de `citations` (el conjunto que
+  // el llamador ya armó para ESTE click puntual, ya sea un ítem con varias
+  // fuentes o el listado "Fuentes verificables" de un párrafo) que caigan en
+  // la MISMA página que la cita enfocada -- no sólo la que matchea
+  // exactamente. `sources` ya viene acotado por el llamador a las fuentes de
+  // este click (nunca el volcado completo de la categoría, que fue la causa
+  // del FIX de 2026-08), así que ampliar por página no reintroduce esa fuga.
+  const activeSources = useMemo(() => {
+    if (!activeCitationInDocument) {
+      return [];
+    }
+    const citationsOnSamePage = citations.filter(
+      (citation) =>
+        citation.document_id === activeCitationInDocument.document_id &&
+        citation.page === activeCitationInDocument.page,
+    );
+    const textMatched = (sources ?? []).filter((source) =>
+      citationsOnSamePage.some((citation) =>
+        isSameCitation(
+          {
+            document_id: source.document_id,
+            page: source.page,
+            text: source.text,
+            document_name: source.document_name,
+          },
+          citation,
+        ),
+      ),
+    );
+    if (textMatched.length > 0) {
+      return textMatched;
+    }
+
+    // Fallback de robustez: si el caller ya acotó `sources` al click actual
+    // pero la cita textual no matchea exactamente (ej. source concatenada con
+    // "[...]" o recortes distintos), priorizar igual doc+página evita perder
+    // el highlight por coordenadas.
+    return (sources ?? []).filter(
+      (source) =>
+        source.document_id === activeCitationInDocument.document_id &&
+        source.page === activeCitationInDocument.page,
+    );
+  }, [sources, citations, activeCitationInDocument]);
 
   const pagesToRender = useMemo(() => {
     // Renderizar TODAS las páginas cuando el documento entra cómodo.

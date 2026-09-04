@@ -21,6 +21,8 @@ function getStatusTone(status: AnalysisDetail["status"]): BadgeTone {
   switch (status) {
     case "validated":
       return "success";
+    case "en_revision":
+      return "warning";
     case "analyzed":
       return "info";
     case "error":
@@ -38,6 +40,8 @@ function getStatusLabel(status: AnalysisDetail["status"]): string {
       return "Borrador";
     case "validated":
       return "Validado";
+    case "en_revision":
+      return "En revisión";
     case "analyzed":
       return "Analizado";
     case "processing":

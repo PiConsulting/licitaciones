@@ -11,7 +11,7 @@ export function useAnalysisStatus(analysisId: string, enabled: boolean) {
     enabled: enabled && analysisId.length > 0,
     refetchInterval: (queryContext) => {
       const status = queryContext.state.data?.status;
-      if (status === "analyzed" || status === "error" || status === "cancelled") {
+      if (status === "analyzed" || status === "en_revision" || status === "error" || status === "cancelled") {
         return false;
       }
       return POLLING_INTERVAL_MS;
