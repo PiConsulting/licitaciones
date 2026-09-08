@@ -20,7 +20,7 @@
     "react-dropzone": "^20.0.0",
     "react-hook-form": "^7.84.0",
     "react-pdf": "^10.4.1",
-    "react-router-dom": "^6.23.0",
+    "react-router-dom": "^6.30.6",
     "tailwind-merge": "^3.6.0",
     "zod": "^4.4.3",
     "zustand": "^5.0.14"
