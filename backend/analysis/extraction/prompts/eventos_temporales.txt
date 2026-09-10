@@ -455,10 +455,6 @@ con `evento_disparador: "Adjudicación"`, no se mezcla dentro de este):
 
 ---
 
-<contexto_pliego>
-{chunks}
-</contexto_pliego>
-
 ---
 
 # INSTRUCCIONES DE EXTRACCIÓN
@@ -855,3 +851,9 @@ Antes de emitir la respuesta:
 17. ✅ Cada hito incluye `"extraction_status": "success"`
 18. ✅ Cada hito incluye `mencion_propia` (true salvo que sea un disparador agregado solo por la regla 2)
 19. ✅ **Releíste los fragmentos buscando "días corridos/hábiles", "dentro de los X días", "X meses desde", "antes de", "después de" -- si hay alguna de estas expresiones y tu lista no tiene ningún `evento_disparador` completado, te falta extraer plazos relativos (ver regla 0)**
+
+---
+
+<contexto_pliego>
+{chunks}
+</contexto_pliego>

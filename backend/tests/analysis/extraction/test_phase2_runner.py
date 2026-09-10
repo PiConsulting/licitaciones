@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from analysis.extraction.runner import extract_categories_phase2
 from analysis.models import Analysis, AnalysisVersion
+from documents.models import Document
 from infra.database import SessionLocal
 from users.models import User
 
@@ -255,4 +256,170 @@ def test_extract_categories_phase2_materializes_from_extracted_data_when_top_lev
         "plazos_relativos"
     ]
 
+    db.close()
+
+
+def test_extract_categories_phase2_reuses_setup_cache_in_initial_state(monkeypatch) -> None:
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == "test@cedia.com").first()
+    assert user is not None
+
+    analysis = Analysis(
+        created_by=user.id,
+        status="en_revision",
+        current_stage="completed",
+        progress_percentage=100,
+        correlation_id=str(uuid4()),
+    )
+    db.add(analysis)
+    db.flush()
+
+    doc = Document(
+        analysis_id=analysis.id,
+        filename="pliego.pdf",
+        blob_name="blob/pliego.pdf",
+        file_size_bytes=1,
+        page_count=1,
+        sha256_hash="abc",
+        extraction_status="completed",
+        created_by=user.id,
+    )
+    db.add(doc)
+    db.flush()
+
+    version = AnalysisVersion(
+        analysis_id=analysis.id,
+        version_number=1,
+        extracted_data={"preview_criterios": []},
+        conflicts=[],
+        created_by=user.id,
+    )
+    db.add(version)
+    db.flush()
+
+    analysis.current_version_id = version.id
+    analysis.extraction_metadata = {
+        "setup_cache": {
+            "analysis_id": analysis.id,
+            "document_ids": [doc.id],
+            "document_id_to_blob_path": {doc.id: "blob/pliego.pdf"},
+            "document_labels": {doc.id: {"filename": "pliego.pdf", "is_primary": True}},
+            "global_candidates": [{"id": "chunk-1", "content": "texto"}],
+        }
+    }
+    db.commit()
+
+    monkeypatch.setattr("analysis.extraction.runner.validate_prompt_inventory", lambda: None)
+
+    captured: dict = {}
+
+    def _phase2_invoke(initial_state, **_kwargs):
+        captured.update(initial_state)
+        return {
+            "extracted_data": {
+                "eventos_temporales": [],
+                "plazos_relativos": [],
+                "calidad_por_categoria": {},
+            },
+            "conflicts": [],
+            "extraction_metadata": {"token_usage": {}},
+        }
+
+    monkeypatch.setattr(
+        "analysis.extraction.runner.graph_phase2",
+        type("_Graph", (), {"invoke": staticmethod(_phase2_invoke)}),
+    )
+    monkeypatch.setattr(
+        "analysis.extraction.runner.materialize_timeline_from_extraction",
+        lambda _db, **_kwargs: type("_R", (), {"events_created": 0, "deadlines_created": 0, "skipped": []})(),
+    )
+
+    extract_categories_phase2(db, analysis, total_nodes=4)
+
+    assert captured.get("document_id_to_blob_path") == {doc.id: "blob/pliego.pdf"}
+    assert captured.get("document_labels", {}).get(doc.id, {}).get("filename") == "pliego.pdf"
+    assert captured.get("global_candidates") == [{"id": "chunk-1", "content": "texto"}]
+    db.close()
+
+
+def test_extract_categories_phase2_invalidates_setup_cache_when_document_set_changes(monkeypatch) -> None:
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == "test@cedia.com").first()
+    assert user is not None
+
+    analysis = Analysis(
+        created_by=user.id,
+        status="en_revision",
+        current_stage="completed",
+        progress_percentage=100,
+        correlation_id=str(uuid4()),
+    )
+    db.add(analysis)
+    db.flush()
+
+    doc = Document(
+        analysis_id=analysis.id,
+        filename="pliego.pdf",
+        blob_name="blob/pliego.pdf",
+        file_size_bytes=1,
+        page_count=1,
+        sha256_hash="def",
+        extraction_status="completed",
+        created_by=user.id,
+    )
+    db.add(doc)
+    db.flush()
+
+    version = AnalysisVersion(
+        analysis_id=analysis.id,
+        version_number=1,
+        extracted_data={"preview_criterios": []},
+        conflicts=[],
+        created_by=user.id,
+    )
+    db.add(version)
+    db.flush()
+
+    analysis.current_version_id = version.id
+    analysis.extraction_metadata = {
+        "setup_cache": {
+            "analysis_id": analysis.id,
+            "document_ids": ["otro-documento"],
+            "document_id_to_blob_path": {"otro-documento": "blob/otro.pdf"},
+            "document_labels": {"otro-documento": {"filename": "otro.pdf", "is_primary": True}},
+            "global_candidates": [{"id": "chunk-legacy"}],
+        }
+    }
+    db.commit()
+
+    monkeypatch.setattr("analysis.extraction.runner.validate_prompt_inventory", lambda: None)
+
+    captured: dict = {}
+
+    def _phase2_invoke(initial_state, **_kwargs):
+        captured.update(initial_state)
+        return {
+            "extracted_data": {
+                "eventos_temporales": [],
+                "plazos_relativos": [],
+                "calidad_por_categoria": {},
+            },
+            "conflicts": [],
+            "extraction_metadata": {"token_usage": {}},
+        }
+
+    monkeypatch.setattr(
+        "analysis.extraction.runner.graph_phase2",
+        type("_Graph", (), {"invoke": staticmethod(_phase2_invoke)}),
+    )
+    monkeypatch.setattr(
+        "analysis.extraction.runner.materialize_timeline_from_extraction",
+        lambda _db, **_kwargs: type("_R", (), {"events_created": 0, "deadlines_created": 0, "skipped": []})(),
+    )
+
+    extract_categories_phase2(db, analysis, total_nodes=4)
+
+    assert "document_id_to_blob_path" not in captured
+    assert "document_labels" not in captured
+    assert "global_candidates" not in captured
     db.close()

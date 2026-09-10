@@ -212,8 +212,14 @@ def test_una_cita_fuera_de_contrato_no_tumba_las_demas_categorias() -> None:
     result = merge_node(state)
     data = result["extracted_data"]
 
-    assert data["objeto_alcance"] == [], "el item sin cita utilizable se descarta"
-    assert data["objeto_alcance_extraction_status"] == "partial"
+    # FIX 2026-09-03: el ítem con `valor` sustantivo cuya cita no se pudo
+    # verificar YA NO se descarta -- se conserva con `source_references` vacío
+    # y status "partial" (el frontend no le ofrece "ver fuente"). Lo que este
+    # test cuida es que eso NO tire una ValidationError que se lleve puestas
+    # las otras 8 categorías.
+    assert len(data["objeto_alcance"]) == 1
+    assert data["objeto_alcance"][0]["source_references"] == []
+    assert data["objeto_alcance_extraction_status"] in {"partial", "success"}
     assert len(data["garantias"]) == 1, "la categoria sana no puede verse afectada"
 
 

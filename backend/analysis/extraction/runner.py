@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import UTC, datetime
 
 import structlog
@@ -12,12 +13,14 @@ from analysis.extraction.graph import graph, graph_phase1, graph_phase2
 from analysis.extraction.state import GraphState
 from analysis.models import Analysis, AnalysisVersion, CurrentStage
 from analysis.progress import build_stage_progress, update_stage_and_progress
+from documents.models import Document
 from infra.config import get_settings
 from timeline.materializer import materialize_timeline_from_extraction
 
 logger = structlog.get_logger(__name__)
 _PROMPT_COST_PER_1K = 0.00015
 _COMPLETION_COST_PER_1K = 0.0006
+_SETUP_CACHE_KEY = "setup_cache"
 
 # FIX (2026-09-03): garantias, plazos_clave/plazos, requisitos_admisibilidad
 # y riesgos se promueven a fase 1 -- preview_criterios ahora proyecta 5 de
@@ -114,22 +117,115 @@ def _compute_cost(metadata: dict) -> dict:
     total_cost = ((prompt_tokens / 1000) * _PROMPT_COST_PER_1K) + (
         (completion_tokens / 1000) * _COMPLETION_COST_PER_1K
     )
+    # Instrumentación (Paso 0.1, plan rag-plan-latencia-2026-09-09): nº total
+    # de llamadas al LLM (extracción map-reduce + síntesis) y wall-time por
+    # categoría, para medir el efecto de cada cambio de paralelización.
+    llm_calls_total = sum(int(item.get("llm_calls", 0)) for item in usage_by_category.values())
+    wall_time_by_category = {
+        name: item["wall_time_seconds"]
+        for name, item in usage_by_category.items()
+        if isinstance(item, dict) and "wall_time_seconds" in item
+    }
     return {
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
         "total_tokens": total_tokens,
         "estimated_cost_usd": round(total_cost, 8),
+        "llm_calls_total": llm_calls_total,
+        "wall_time_by_category": wall_time_by_category,
     }
 
 
-def _build_initial_state(db: Session, analysis: Analysis, max_concurrency: int) -> GraphState:
-    return {
+def _build_initial_state(
+    db: Session,
+    analysis: Analysis,
+    max_concurrency: int,
+    *,
+    setup_cache: dict | None = None,
+) -> GraphState:
+    state: GraphState = {
         "analysis_id": analysis.id,
         "correlation_id": analysis.correlation_id,
         "created_by": analysis.created_by,
         "max_concurrency": max_concurrency,
         "extraction_metadata": {},
         "db_session": db,
+    }
+    if setup_cache:
+        state.update(setup_cache)
+    return state
+
+
+def _get_analysis_document_ids(db: Session, analysis_id: str) -> list[str]:
+    rows = (
+        db.query(Document.id)
+        .filter(Document.analysis_id == analysis_id, Document.deleted_at.is_(None))
+        .order_by(Document.uploaded_at.asc())
+        .all()
+    )
+    return [str(row[0]) for row in rows]
+
+
+def _build_setup_cache_from_result(result: GraphState, analysis_id: str) -> dict | None:
+    mapping = result.get("document_id_to_blob_path")
+    labels = result.get("document_labels")
+    candidates = result.get("global_candidates")
+
+    if not isinstance(mapping, dict) or not isinstance(labels, dict) or not isinstance(candidates, list):
+        return None
+
+    return {
+        "analysis_id": analysis_id,
+        "document_ids": sorted(str(doc_id) for doc_id in mapping.keys()),
+        "document_id_to_blob_path": mapping,
+        "document_labels": labels,
+        "global_candidates": candidates,
+        "cached_at": datetime.now(UTC).isoformat(),
+    }
+
+
+def _load_setup_cache_for_initial_state(db: Session, analysis: Analysis) -> dict | None:
+    metadata = analysis.extraction_metadata or {}
+    cache = metadata.get(_SETUP_CACHE_KEY)
+    if not isinstance(cache, dict):
+        return None
+
+    if str(cache.get("analysis_id")) != str(analysis.id):
+        return None
+
+    cached_doc_ids = cache.get("document_ids")
+    if not isinstance(cached_doc_ids, list):
+        return None
+
+    current_doc_ids = sorted(_get_analysis_document_ids(db, analysis.id))
+    normalized_cached_doc_ids = sorted(str(item) for item in cached_doc_ids)
+    if current_doc_ids != normalized_cached_doc_ids:
+        logger.info(
+            "setup_cache_invalidated_document_mismatch",
+            correlation_id=analysis.correlation_id,
+            analysis_id=analysis.id,
+            current_documents=len(current_doc_ids),
+            cached_documents=len(normalized_cached_doc_ids),
+        )
+        return None
+
+    mapping = cache.get("document_id_to_blob_path")
+    labels = cache.get("document_labels")
+    candidates = cache.get("global_candidates")
+    if not isinstance(mapping, dict) or not isinstance(labels, dict) or not isinstance(candidates, list):
+        return None
+
+    logger.info(
+        "setup_cache_available",
+        correlation_id=analysis.correlation_id,
+        analysis_id=analysis.id,
+        documents=len(mapping),
+        candidates=len(candidates),
+    )
+    return {
+        "document_id_to_blob_path": mapping,
+        "document_labels": labels,
+        "global_candidates": candidates,
     }
 
 
@@ -169,6 +265,7 @@ def extract_categories(db: Session, analysis: Analysis) -> GraphState:
         status="processing",
     )
 
+    _invoke_started = time.monotonic()
     result = graph.invoke(initial_state, config={"max_concurrency": max_concurrency})
 
     extracted_data = result.get("extracted_data", {})
@@ -176,6 +273,7 @@ def extract_categories(db: Session, analysis: Analysis) -> GraphState:
     timeline_plazos = extracted_data.get("plazos_relativos", result.get("plazos_relativos", []))
     conflicts = result.get("conflicts", [])
     metadata = result.get("extraction_metadata", {})
+    metadata["wall_time_seconds"] = round(time.monotonic() - _invoke_started, 2)
     metadata["cost"] = _compute_cost(metadata)
 
     current_version_number = (
@@ -239,6 +337,8 @@ def extract_categories(db: Session, analysis: Analysis) -> GraphState:
         conflicts_count=len(conflicts),
         total_tokens=metadata["cost"]["total_tokens"],
         estimated_cost_usd=metadata["cost"]["estimated_cost_usd"],
+        llm_calls_total=metadata["cost"].get("llm_calls_total"),
+        wall_time_seconds=metadata.get("wall_time_seconds"),
     )
     return result
 
@@ -276,10 +376,15 @@ def extract_categories_phase1(
         status="processing",
     )
 
+    _invoke_started = time.monotonic()
     result = graph_phase1.invoke(initial_state, config={"max_concurrency": max_concurrency})
     extracted_data = result.get("extracted_data", {})
     phase1_extracted_data = {k: v for k, v in extracted_data.items() if k in _PHASE1_EXTRACTED_KEYS}
     metadata = result.get("extraction_metadata", {})
+    metadata["wall_time_seconds"] = round(time.monotonic() - _invoke_started, 2)
+    setup_cache = _build_setup_cache_from_result(result, analysis.id)
+    if setup_cache is not None:
+        metadata[_SETUP_CACHE_KEY] = setup_cache
     metadata["cost"] = _compute_cost(metadata)
 
     current_version_number = (
@@ -314,6 +419,8 @@ def extract_categories_phase1(
         correlation_id=analysis.correlation_id,
         analysis_id=analysis.id,
         version_id=new_version.id,
+        llm_calls_total=metadata["cost"].get("llm_calls_total"),
+        wall_time_seconds=metadata.get("wall_time_seconds"),
     )
     return result
 
@@ -328,7 +435,13 @@ def extract_categories_phase2(
     max_concurrency = int(settings.extraction_max_concurrency or 4)
     validate_prompt_inventory()
 
-    initial_state = _build_initial_state(db, analysis, max_concurrency)
+    setup_cache = _load_setup_cache_for_initial_state(db, analysis)
+    initial_state = _build_initial_state(
+        db,
+        analysis,
+        max_concurrency,
+        setup_cache=setup_cache,
+    )
     logger.info(
         "category_extraction_phase2_started",
         correlation_id=analysis.correlation_id,
@@ -364,12 +477,14 @@ def extract_categories_phase2(
         status="processing",
     )
 
+    _invoke_started = time.monotonic()
     result = graph_phase2.invoke(initial_state, config={"max_concurrency": max_concurrency})
     extracted_data = result.get("extracted_data", {})
     timeline_eventos = extracted_data.get("eventos_temporales", result.get("eventos_temporales", []))
     timeline_plazos = extracted_data.get("plazos_relativos", result.get("plazos_relativos", []))
     phase2_extracted_data = {k: v for k, v in extracted_data.items() if k in _PHASE2_EXTRACTED_KEYS}
     metadata = result.get("extraction_metadata", {})
+    metadata["wall_time_seconds"] = round(time.monotonic() - _invoke_started, 2)
     metadata["cost"] = _compute_cost(metadata)
 
     # Decisión de diseño (Epic P1, 2026-09-02): fase 2 NO crea versión nueva.
@@ -433,5 +548,7 @@ def extract_categories_phase2(
         correlation_id=analysis.correlation_id,
         analysis_id=analysis.id,
         version_id=current_version.id,
+        llm_calls_total=metadata["cost"].get("llm_calls_total"),
+        wall_time_seconds=metadata.get("wall_time_seconds"),
     )
     return result

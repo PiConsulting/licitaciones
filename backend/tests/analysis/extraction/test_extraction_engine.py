@@ -3,8 +3,12 @@
 
 from __future__ import annotations
 
-import pytest
+import time
 
+import pytest
+import structlog
+
+from analysis.extraction.engine import base as extractor_base
 from analysis.extraction.engine import chunk_retrieval, llm_client, normalization
 
 
@@ -26,6 +30,27 @@ def _chunk(
     if search_score is not None:
         chunk["search_score"] = search_score
     return chunk
+
+
+def _rerank_settings(**overrides):
+    """Settings falso COMPLETO para los tests del path de reranking. Reranking
+    ON (el default de producción es False -- ver config.py -- pero acá se
+    ejercita el mecanismo), pool compartido y capas experimentales OFF."""
+    from types import SimpleNamespace
+
+    base = {
+        "rag_reranking_enabled": True,
+        "rag_reranking_timeout_seconds": 15.0,
+        "use_shared_candidate_pool": False,
+        "shared_candidate_pool_purity_threshold": 0.7,
+        "shared_candidate_pool_augment_on_roundtrip": False,
+        "rag_neighbor_expansion_enabled": False,
+        "rag_neighbor_expansion_window": 1,
+        "rag_llm_judge_enabled": False,
+        "rag_llm_judge_window": 25,
+    }
+    base.update(overrides)
+    return SimpleNamespace(**base)
 
 
 class TestCategoryBoostUsesRealScore:
@@ -134,6 +159,7 @@ class TestCategoryBoostUsesRealScore:
             assert top_k == 2
             return [chunks[2], chunks[1]]
 
+        monkeypatch.setattr(chunk_retrieval, "get_settings", _rerank_settings)
         monkeypatch.setattr(chunk_retrieval, "search_hybrid", fake_search)
         monkeypatch.setattr(chunk_retrieval, "rerank_chunks", fake_rerank)
 
@@ -147,6 +173,103 @@ class TestCategoryBoostUsesRealScore:
         )
 
         assert [c["chunk_index"] for c in result] == [2, 1]
+
+
+class TestRerankingGuardrailByPoolSize:
+    def test_reranking_runs_when_pool_within_threshold(self, monkeypatch):
+        candidates = [
+            _chunk(chunk_index=0, primary_category="garantias", search_score=1.0),
+            _chunk(chunk_index=1, primary_category="garantias", search_score=0.9),
+            _chunk(chunk_index=2, primary_category="garantias", search_score=0.8),
+        ]
+
+        called: dict[str, int] = {"count": 0}
+
+        def fake_search(*, query, analysis_id, top_k, keyword_query, category=None):
+            return list(candidates)
+
+        def fake_rerank(query: str, chunks: list[dict], *, top_k: int, **_kwargs):
+            called["count"] += 1
+            return chunks[:top_k]
+
+        monkeypatch.setattr(chunk_retrieval, "get_settings", _rerank_settings)
+        monkeypatch.setattr(chunk_retrieval, "search_hybrid", fake_search)
+        monkeypatch.setattr(chunk_retrieval, "rerank_chunks", fake_rerank)
+
+        result = chunk_retrieval._retrieve_with_category_priority(
+            query="garantías exigidas",
+            analysis_id="analysis-1",
+            top_k=2,
+            keyword_query="garantia caucion",
+            category="garantias",
+            correlation_id="corr-guardrail-low",
+        )
+
+        assert called["count"] == 1
+        assert len(result) == 2
+
+    def test_reranking_is_skipped_when_merged_pool_exceeds_threshold(self, monkeypatch):
+        specific_candidates = [
+            {
+                **_chunk(
+                    chunk_index=i,
+                    primary_category="garantias",
+                    search_score=1.0 - (i * 0.01),
+                ),
+                "id": f"specific-{i}",
+            }
+            for i in range(6)
+        ]
+        shared_candidates = [
+            {
+                **_chunk(
+                    chunk_index=100 + i,
+                    primary_category="otra_categoria",
+                    search_score=0.7 - (i * 0.01),
+                ),
+                "id": f"shared-{i}",
+                "document_id": f"doc-shared-{i}",
+            }
+            for i in range(10)
+        ]
+
+        def fake_search(*, query, analysis_id, top_k, keyword_query, category=None):
+            return list(specific_candidates)
+
+        def should_not_rerank(*_args, **_kwargs):
+            raise AssertionError("rerank_chunks no debe invocarse cuando se activa el guardrail")
+
+        # timeout chico -> rerank_skip_threshold chico (= max(top_k, timeout/costo_par))
+        # -> el guardrail salta cuando `rerank_window` (top_k*2) lo supera.
+        monkeypatch.setattr(
+            chunk_retrieval,
+            "get_settings",
+            lambda: _rerank_settings(
+                use_shared_candidate_pool=True,
+                shared_candidate_pool_purity_threshold=1.0,
+                rag_reranking_timeout_seconds=0.27,
+            ),
+        )
+        monkeypatch.setattr(chunk_retrieval, "search_hybrid", fake_search)
+        monkeypatch.setattr(chunk_retrieval, "rerank_chunks", should_not_rerank)
+
+        with structlog.testing.capture_logs() as captured:
+            result = chunk_retrieval._retrieve_with_category_priority(
+                query="garantías exigidas",
+                analysis_id="analysis-1",
+                top_k=2,
+                keyword_query="garantia caucion",
+                category="garantias",
+                correlation_id="corr-guardrail-high",
+                global_candidates=shared_candidates,
+            )
+
+        assert len(result) == 2
+        events = [
+            entry for entry in captured if entry.get("event") == "reranking_skipped_window_too_large"
+        ]
+        assert len(events) == 1
+        assert events[0]["rerank_window"] > events[0]["threshold"]
 
 
 class TestTokenBudgetUsesRealTokenizer:
@@ -391,3 +514,133 @@ class TestAugmentIdentificacionPayloadRejectsGarbage:
         assert "EXPEDIENTE" not in presupuestos[0]["valor"].upper(), (
             "no debería comerse el campo siguiente (Expediente) dentro del valor del presupuesto"
         )
+
+
+class TestMapReduceParallelismIsDeterministic:
+    """Paso 2 (plan rag-plan-latencia-2026-09-09): paralelizar el map-reduce
+    por documento no puede cambiar QUÉ se extrae ni el ORDEN en que se
+    ensamblan los ítems -- solo el wall-time. El orden importa porque el
+    merge/dedup/detección de conflictos río abajo depende de él.
+    """
+
+    def _setup(self, monkeypatch, *, failing_docs: set[str] | None = None):
+        failing_docs = failing_docs or set()
+        docs = ["doc-a", "doc-b", "doc-c"]
+
+        chunks = [
+            {
+                "document_id": doc,
+                "chunk_index": i,
+                "content": f"contenido del {doc}",
+                "primary_category": "objeto_alcance",
+                "secondary_categories": [],
+                "search_score": 1.0,
+            }
+            for i, doc in enumerate(docs)
+        ]
+
+        monkeypatch.setattr(
+            extractor_base, "_retrieve_with_category_priority", lambda **kw: list(chunks)
+        )
+        monkeypatch.setattr(
+            extractor_base, "_drop_low_relevance_chunks", lambda chunks, **kw: chunks
+        )
+        monkeypatch.setattr(
+            extractor_base, "_truncate_to_token_budget", lambda chunks, *a, **kw: chunks
+        )
+        monkeypatch.setattr(extractor_base, "_verify_citation_grounding", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            extractor_base, "_merge_split_fact_items", lambda items, *a, **kw: items
+        )
+        monkeypatch.setattr(
+            extractor_base, "_normalize_mixed_not_found_items", lambda items, **kw: items
+        )
+        monkeypatch.setattr(
+            "analysis.extraction.engine.validators.detect_cross_contamination",
+            lambda *a, **kw: [],
+        )
+
+        # Retrasos invertidos: doc-c responde primero, doc-a último. Si el
+        # ensamblado dependiera del orden de finalización, el resultado
+        # quedaría [c, b, a] en vez de [a, b, c].
+        delay_by_doc = {"doc-a": 0.15, "doc-b": 0.08, "doc-c": 0.01}
+
+        def fake_call_llm(*, messages, correlation_id):
+            human = messages[-1][1]
+            doc = next(d for d in docs if d in human)
+            if doc in failing_docs:
+                raise RuntimeError(f"fallo simulado en {doc}")
+            time.sleep(delay_by_doc[doc])
+            return (
+                {
+                    "objeto_alcance": [
+                        {
+                            "tipo": "resumen_objeto",
+                            "valor": f"item-de-{doc}",
+                            "extraction_status": "success",
+                            "source_references": [{"document_id": doc, "citation": "x"}],
+                        }
+                    ]
+                },
+                {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            )
+
+        monkeypatch.setattr(extractor_base, "_call_llm", fake_call_llm)
+
+        class _Settings:
+            extraction_top_k = 25
+            extraction_max_context_tokens = 16000
+            query_expansion_use_semantic_definition = False
+            extraction_mapreduce_concurrency = 1
+
+        settings = _Settings()
+        monkeypatch.setattr(extractor_base, "get_settings", lambda: settings)
+        return settings
+
+    def _run(self):
+        state = {"correlation_id": "corr-mapreduce", "analysis_id": "an-mapreduce"}
+        delta = extractor_base.run_extractor(
+            state=state,
+            result_key="objeto_alcance",
+            state_field="objeto_alcance",
+            status_field="objeto_alcance_status",
+            prompt_file_name="objeto_alcance.txt",
+            query="objeto y alcance",
+        )
+        return delta
+
+    def test_parallel_output_matches_sequential(self, monkeypatch):
+        settings = self._setup(monkeypatch)
+
+        settings.extraction_mapreduce_concurrency = 1
+        seq = self._run()
+        settings.extraction_mapreduce_concurrency = 3
+        par = self._run()
+
+        seq_valores = [i["valor"] for i in seq["objeto_alcance"]]
+        par_valores = [i["valor"] for i in par["objeto_alcance"]]
+
+        assert seq_valores == ["item-de-doc-a", "item-de-doc-b", "item-de-doc-c"]
+        assert par_valores == seq_valores, (
+            "el orden de ensamblado no puede depender del orden de finalización de las llamadas"
+        )
+        assert [i["_source_document_id"] for i in par["objeto_alcance"]] == [
+            "doc-a",
+            "doc-b",
+            "doc-c",
+        ]
+        assert seq["objeto_alcance_status"] == par["objeto_alcance_status"]
+        assert par["objeto_alcance_token_usage"]["llm_calls"] == 3
+
+    def test_parallel_one_group_failure_does_not_lose_the_others(self, monkeypatch):
+        settings = self._setup(monkeypatch, failing_docs={"doc-b"})
+        settings.extraction_mapreduce_concurrency = 3
+
+        delta = self._run()
+
+        valores = [i["valor"] for i in delta["objeto_alcance"]]
+        assert valores == ["item-de-doc-a", "item-de-doc-c"], (
+            "un fallo en un documento no puede tumbar ni reordenar los demás"
+        )
+        assert delta["objeto_alcance_status"] != "failed"
+        assert delta["objeto_alcance_token_usage"]["llm_calls"] == 2

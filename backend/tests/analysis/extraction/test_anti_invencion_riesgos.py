@@ -12,23 +12,28 @@ from analysis.extraction.graph.validation import _drop_items_without_sources, _e
 class TestAntiInvencionRiesgos:
     """Tests para regla anti-invención de riesgos."""
 
-    def test_riesgo_sin_fuentes_se_descarta(self):
-        """Un riesgo sin source_references debe ser descartado."""
+    def test_riesgo_con_dato_sin_fuentes_se_conserva_flag(self):
+        """FIX 2026-09-03: un ítem con `valor` sustantivo pero sin
+        `source_references` se conserva (flag, sin botón de fuente) en vez
+        de descartarse. Se descartan solo los ítems sin contenido."""
         items = [
             {
                 "tipo": "descalificacion",
                 "subtipo": "plazos",
-                "valor": "Riesgo inventado sin evidencia",
-                "source_references": [],  # SIN FUENTES
+                "valor": "Riesgo con dato real cuya cita no se pudo verificar",
+                "source_references": [],
                 "extraction_status": "success",
                 "confidence": 0.9,
             }
         ]
 
-        filtered, status = _drop_items_without_sources(items, "success", category="riesgos")
+        quality: dict = {}
+        filtered, status = _drop_items_without_sources(
+            items, "success", category="riesgos", quality=quality
+        )
 
-        assert len(filtered) == 0, "Item sin fuentes debería descartarse"
-        assert status == "partial", "Status debería cambiar a partial"
+        assert len(filtered) == 1
+        assert quality["riesgos"]["conservados_sin_evidencia_verificable"] == 1
 
     def test_riesgo_con_fuentes_validas_se_conserva(self):
         """Un riesgo con source_references válidas debe conservarse."""
@@ -97,13 +102,14 @@ class TestAntiInvencionRiesgos:
             items, "success", category="riesgos", quality=quality
         )
 
-        assert len(filtered) == 2, "Solo 2 items con fuentes deben conservarse"
-        assert status == "partial", "Status debe cambiar a partial por descarte"
-        assert quality["riesgos"]["descartados_sin_evidencia"] == 1
-        assert quality["riesgos"]["conservados"] == 2
+        # El del medio (valor sustantivo, sin fuentes) se conserva flag.
+        assert len(filtered) == 3, "Los 3 items se conservan"
+        assert quality["riesgos"]["conservados_sin_evidencia_verificable"] == 1
+        assert quality["riesgos"]["conservados"] == 3
 
-    def test_todos_sin_fuentes_resulta_en_lista_vacia(self):
-        """Si todos los items carecen de fuentes, la lista queda vacía."""
+    def test_todos_con_dato_sin_fuentes_se_conservan_flag(self):
+        """FIX 2026-09-03: si todos tienen `valor` sustantivo se conservan
+        todos (antes: lista vacía)."""
         items = [
             {
                 "tipo": "otro",
@@ -128,10 +134,9 @@ class TestAntiInvencionRiesgos:
             items, "success", category="riesgos", quality=quality
         )
 
-        assert len(filtered) == 0, "Todos los items deben descartarse"
-        assert status == "partial", "Status debe cambiar a partial"
-        assert quality["riesgos"]["descartados_sin_evidencia"] == 2
-        assert quality["riesgos"]["conservados"] == 0
+        assert len(filtered) == 2
+        assert quality["riesgos"]["conservados_sin_evidencia_verificable"] == 2
+        assert quality["riesgos"]["conservados"] == 2
 
     def test_enforce_citation_contract_aplica_a_riesgos(self):
         """_enforce_citation_contract debe limpiar citas inválidas."""

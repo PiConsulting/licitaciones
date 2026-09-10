@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 
-from evaluation.recall import AggregateRecall, recall_at_k
+from evaluation.recall import AggregateRecall, ndcg_at_k, precision_at_k, recall_at_k, reciprocal_rank
 from evaluation.schemas import EvaluationCase, EvaluationDataset
 
 
@@ -80,3 +80,45 @@ def test_evaluation_dataset_cases_for_category():
     )
     only_garantias = dataset.cases_for_category("garantias")
     assert [c.case_id for c in only_garantias] == ["c1"]
+
+
+def test_precision_at_k_perfect_match():
+    hits, total = precision_at_k(["a", "b"], ["a", "b", "x"], k=2)
+    assert hits == 2
+    assert total == 2
+
+
+def test_precision_at_k_partial_match_respects_k():
+    hits, total = precision_at_k(["a", "b", "c"], ["x", "a", "y", "b"], k=3)
+    assert hits == 1
+    assert total == 3
+
+
+def test_precision_at_k_empty_retrieved_returns_zero_total():
+    hits, total = precision_at_k(["a"], [], k=5)
+    assert hits == 0
+    assert total == 0
+
+
+def test_reciprocal_rank_first_hit_position():
+    rr = reciprocal_rank(["z"], ["a", "b", "z", "c"])
+    assert math.isclose(rr, 1 / 3)
+
+
+def test_reciprocal_rank_no_hit_returns_zero():
+    rr = reciprocal_rank(["z"], ["a", "b", "c"])
+    assert rr == 0.0
+
+
+def test_ndcg_at_k_perfect_is_one():
+    ndcg = ndcg_at_k(["a", "b"], ["a", "b", "x"], k=2)
+    assert math.isclose(ndcg, 1.0)
+
+
+def test_ndcg_at_k_partial_between_zero_and_one():
+    ndcg = ndcg_at_k(["a", "b"], ["x", "a", "b"], k=2)
+    assert 0.0 < ndcg < 1.0
+
+
+def test_ndcg_at_k_no_gold_is_nan():
+    assert math.isnan(ndcg_at_k([], ["a", "b"], k=2))

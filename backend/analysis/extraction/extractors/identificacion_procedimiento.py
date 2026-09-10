@@ -3,11 +3,11 @@ from __future__ import annotations
 from analysis.extraction.engine.base import run_extractor
 from analysis.extraction.state import GraphState
 
+# 2026-09-10: versión corta — la larga con la coletilla "típicamente en la
+# carátula o los primeros artículos" medía 0.879 vs 0.907 de esta.
 _QUERY = (
-    "Datos de identificación del procedimiento: organismo o jurisdicción convocante, número "
-    "de expediente, número y tipo de procedimiento (licitación pública, privada, concurso, "
-    "contratación directa), presupuesto oficial y jurisdicción — típicamente en la carátula o los primeros "
-    "artículos del pliego."
+    "Organismo convocante, número de expediente, tipo de procedimiento, "
+    "presupuesto oficial, jurisdicción"
 )
 
 

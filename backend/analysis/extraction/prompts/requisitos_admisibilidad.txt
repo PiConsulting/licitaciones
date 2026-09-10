@@ -18,6 +18,17 @@ El criterio clave: **"Si esto falta, la oferta se descarta sin evaluarla"**.
 - Capacidad técnica mínima (facturación, equipamiento, personal)
 - Experiencia mínima (contratos previos, certificados de obra)
 - Inhabilitaciones o incompatibilidades
+- **Certificaciones exigidas para la admisibilidad de la propuesta** (ISO/IEC,
+  nivel de partner del fabricante, membresías, habilitación de un organismo
+  técnico) — cuando el pliego las pide como condición para ofertar, no como
+  antecedente deseable.
+- **Condiciones técnicas mínimas EXCLUYENTES del bien/servicio ofertado**: una
+  característica que, si la oferta no la cumple, la vuelve inadmisible. Se
+  reconoce por el lenguaje de obligación + exclusión, no por el tema. Ejemplos
+  reales: "deberá garantizar compatibilidad para ejecutar alguna distribución
+  GNU/Linux", "los componentes deben ser nuevos, sin uso, y su fabricación no
+  deberá encontrarse discontinuada", "las marcas ofertadas deben figurar en el
+  Cuadrante Mágico de Gartner".
 
 **Reconocimiento semántico:** El pliego puede no titular "Requisitos". Buscá:
 - Capítulos de "Documentación", "Antecedentes", "Habilitación"
@@ -41,7 +52,16 @@ El criterio clave: **"Si esto falta, la oferta se descarta sin evaluarla"**.
 **No confundir con:**
 - **Anexos obligatorios**: formularios que el PLIEGO provee para completar (van en otra categoría)
 - **Causales de rechazo**: motivos de descalificación (van en otra categoría)
-- **Especificaciones técnicas**: características del bien/servicio (van en objeto/alcance)
+- **Ficha técnica descriptiva del bien/servicio**: la enumeración de
+  características, funciones, rendimiento y arquitectura de lo que se compra
+  (secciones tipo "Especificaciones técnicas", "Características de rendimiento",
+  "Funciones de administración", subsecciones numeradas `5.1`, `5.2`…) va en
+  **objeto/alcance**, NO acá. La distinción es el lenguaje: si el fragmento
+  *describe* lo ofertado ("deberá contar con", "soportará", "incluye") es ficha
+  técnica; si *condiciona la admisión* ("bajo apercibimiento de inadmisibilidad",
+  "excluyente", "no se admitirán ofertas que no…", "es requisito para ofertar")
+  es de acá. Ante la duda, si NO hay lenguaje de exclusión explícito, va a
+  objeto/alcance.
 - **Riesgos**: esta categoría (`riesgos`) también existe en el sistema y a veces compite
   con esta por el mismo fragmento. La pregunta que distingue a una de otra: ¿el
   fragmento describe algo que el oferente tiene que PRESENTAR o ACREDITAR para que su
@@ -68,6 +88,10 @@ esas dos preguntas, probablemente no es de esta categoría.
 | "El Anexo IV exige 2 años de experiencia" | **EXTRAER** | El *contenido* del anexo define un requisito habilitante. |
 | Fecha límite de presentación (ej. 15/08) | **IGNORAR** | Es un hito temporal (Categoría: `plazos_clave`). |
 | La falta del certificado X causará rechazo | **EXTRAER** | Extraer solo el requisito. La consecuencia va en `causales_rechazo`. |
+| "El equipo deberá contar con 2 procesadores y 128 GB de RAM" | **IGNORAR** | Ficha técnica descriptiva, sin lenguaje de exclusión → objeto/alcance. |
+| "No se admitirán ofertas cuyo equipamiento no sea compatible con GNU/Linux" | **EXTRAER** (`requisito_tecnico_excluyente`) | Condición técnica con exclusión explícita. |
+| "Se exige certificación ISO 27001 vigente para la admisibilidad de la propuesta" | **EXTRAER** (`certificacion`) | Certificación pedida como condición para ofertar. |
+| "Valoración: contar con ISO 9001 suma puntaje" | **IGNORAR** | Es un criterio de evaluación puntuable, no una condición de admisión (Categoría: `criterios_evaluacion`). |
 
 # REGLA DE VIGENCIA REGISTRAL ("PARAGUAS")
 Si el pliego exige que una lista de documentos esté vigente dentro de un registro oficial (ej. Registro de Proveedores):
@@ -87,7 +111,7 @@ Un ítem por requisito. Si vienen en incisos, un ítem por inciso.
 Usá el schema `RequisitoAdmisibilidadItem` definido en `schemas.py`.
 
 **Campos clave:**
-- `tipo`: Usa enum `TipoRequisito` (documento, inhabilitacion, incompatibilidad, sancion_vigente, capacidad_minima, experiencia_minima, inscripcion_registro, otra)
+- `tipo`: Usa enum `TipoRequisito` (documento, inhabilitacion, incompatibilidad, sancion_vigente, capacidad_minima, experiencia_minima, inscripcion_registro, certificacion, requisito_tecnico_excluyente, otra)
 - `valor`: Descripción literal o casi literal del requisito
 - `metadata`: Diccionario con campos:
   - `obligatorio`: "si" | "no" | "no_especificado"
@@ -129,6 +153,33 @@ Umbrales o condiciones habilitantes de elegibilidad.
 - Facturación anual mínima de $X
 - Haber ejecutado al menos 2 contratos similares
 - Estar inscripto en el Registro de Proveedores
+
+### certificacion
+Certificación de un tercero (norma, fabricante, organismo) que el pliego exige
+**como condición para ofertar / para la admisibilidad de la propuesta**. Si la
+certificación solo "suma puntaje", NO es de acá (es `criterios_evaluacion`).
+
+**Ejemplos:**
+- "Certificación ISO/IEC 27001 vigente, exigida para la admisibilidad"
+- "Nivel de partner Platinum/Titanium del fabricante de almacenamiento"
+- "Habilitación del ENACOM para la prestación del servicio"
+
+### requisito_tecnico_excluyente
+Condición técnica mínima del bien/servicio ofertado redactada con lenguaje de
+**obligación + exclusión** (si la oferta no la cumple, es inadmisible). NO es la
+ficha técnica descriptiva: eso va a objeto/alcance. La diferencia está en cómo
+está redactado, no en el tema.
+
+**Ejemplos (extraer):**
+- "Deberá garantizar compatibilidad para ejecutar alguna distribución GNU/Linux"
+- "Los componentes deben ser nuevos, sin uso; su fabricación no deberá estar discontinuada"
+- "Las marcas ofertadas deben figurar en el Cuadrante Mágico de Gartner"
+- "No se admitirán ofertas cuyo equipamiento no soporte redundancia N+1"
+
+**Contraejemplos (IGNORAR — son objeto/alcance):**
+- "El servidor deberá contar con dos procesadores y 128 GB de RAM"
+- "5.1. Características de rendimiento: hasta 2000 flujos concurrentes"
+- "La solución incluye un módulo de administración centralizada"
 
 ## 2. Un ítem por requisito
 Aunque vengan en una sola oración con incisos a), b), c)... emití un ítem por inciso.

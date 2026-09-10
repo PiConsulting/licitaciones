@@ -138,17 +138,69 @@ def test_la_siguiente_seccion_numerada_recupera_la_jerarquia() -> None:
     ]
 
 
-def test_las_vinetas_de_3_2_quedan_dentro_de_3_2() -> None:
+def test_las_vinetas_de_3_2_no_ensucian_el_heading_path() -> None:
+    """Los niveles en viñeta (`· Equipo Principal…`, `o Rendimiento…`) NO son
+    títulos de sección: se descartan del `heading_path` (fix #3). El contenido
+    igual queda colgado de su ancestro numerado real, `3.2.`."""
     intermedios = _to_intermediate_blocks(_bancor())
 
     path = _path_de(intermedios, "Streams concurrentes")
 
-    assert path[:3] == [
+    assert path == [
         "PLIEGO DE ESPECIFICACIONES TÉCNICAS",
         "3. Especificaciones técnicas",
         "3.2. Solución integral de resguardo de información (backup)",
     ]
-    assert "· Equipo Principal de Almacenamiento de BackUp" in path
+    assert not any(str(h).startswith(("·", "o ", "•")) for h in path)
+
+
+def test_item_n_no_es_un_titulo_de_seccion() -> None:
+    """DI marca "ITEM1 - 4 (cuatro) Servidores…" como encabezado. No es una
+    sección: se descarta y el contenido queda bajo el ANEXO real (fix #3)."""
+    bloques = [
+        _h("ANEXO I ESPECIFICACIONES TÉCNICAS", 1, 0),
+        _h("ITEM1 - 4 (cuatro) Servidores de aplicaciones tipo XEN", 2, 1),
+        _p("Cada servidor deberá contar con dos procesadores.", 2),
+        _h("ITEM 3- 4 (cuatro) LCD KVM Switch", 2, 3),
+        _p("El switch KVM deberá soportar al menos ocho puertos.", 4),
+    ]
+
+    intermedios = _to_intermediate_blocks(bloques)
+
+    assert _path_de(intermedios, "dos procesadores") == ["ANEXO I ESPECIFICACIONES TÉCNICAS"]
+    assert _path_de(intermedios, "ocho puertos") == ["ANEXO I ESPECIFICACIONES TÉCNICAS"]
+
+
+def test_col_y_checkbox_no_son_titulos() -> None:
+    bloques = [
+        _h("REQUISITOS DE ADMISIBILIDAD", 1, 0),
+        _h("col_3", 2, 1),
+        _p("La columna consigna el puntaje máximo por rubro.", 2),
+        _h("☐ Declaración jurada de habilidad para contratar", 2, 3),
+        _p("Se adjunta como Anexo IV y tiene carácter de declaración jurada.", 4),
+    ]
+
+    intermedios = _to_intermediate_blocks(bloques)
+
+    assert _path_de(intermedios, "puntaje máximo") == ["REQUISITOS DE ADMISIBILIDAD"]
+    assert _path_de(intermedios, "carácter de declaración jurada") == ["REQUISITOS DE ADMISIBILIDAD"]
+
+
+def test_un_anexo_de_verdad_no_se_descarta_como_vineta() -> None:
+    """Guarda: "ANEXO II - …" empieza con mayúscula, no con viñeta; sigue siendo
+    un título de sección aunque el fix descarte los que arrancan con "- "."""
+    bloques = [
+        _h("PLIEGO DE BASES Y CONDICIONES", 1, 0),
+        _h("ANEXO II - DECLARACIÓN JURADA DE APTITUD", 2, 1),
+        _p("El oferente declara bajo juramento que reúne las condiciones exigidas.", 2),
+    ]
+
+    intermedios = _to_intermediate_blocks(bloques)
+
+    assert _path_de(intermedios, "bajo juramento") == [
+        "PLIEGO DE BASES Y CONDICIONES",
+        "ANEXO II - DECLARACIÓN JURADA DE APTITUD",
+    ]
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from functools import lru_cache
 from time import sleep
 from uuid import UUID
@@ -160,6 +161,58 @@ def _calculate_dynamic_batch_size(chunks: list[dict], max_tokens_per_batch: int 
     return min(dynamic_size, settings.azure_openai_embeddings_batch_size)
 
 
+# Cuántos niveles ANCESTROS del heading (además de la hoja, que siempre se
+# incluye) se anteponen al contenido antes de embeber. La hoja casi siempre
+# es la señal útil ("ANEXO I", "DECLARACIÓN JURADA ..."); los ancestros son
+# hit-or-miss y a menudo boilerplate administrativo -- por eso se filtran.
+_EMBED_HEADING_ANCESTORS = 2
+_EMBED_HEADING_MAX_CHARS = 220
+
+# Niveles de heading que son puro ruido para el retrieval.
+# - PREFIX: el nivel ARRANCA con boilerplate administrativo (referencia a la
+#   norma que aprueba el pliego, nº de expediente, etc.).
+# - FULL: el nivel es solo numeración/código sin palabras, o un "Artículo N"
+#   pelado sin título.
+_HEADING_NOISE_PREFIX_RE = re.compile(
+    r"^\s*(texto\s+aprobado\s+por|visto\s+el\s+expediente|disposici[oó]n\s+(di|n)|"
+    r"resoluci[oó]n\s+(n|r)|expediente\s+(n|electr)|ex-\d)",
+    re.IGNORECASE,
+)
+_HEADING_NOISE_FULL_RE = re.compile(
+    r"^\s*(art[íi]culo\s+\d+\s*[°º.]?\s*|[\d.\-()°º/\s]+|[A-Z]{1,4}-[\d\-]+)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _is_noise_heading(level: str) -> bool:
+    return bool(_HEADING_NOISE_PREFIX_RE.match(level) or _HEADING_NOISE_FULL_RE.match(level))
+
+
+def _embedding_context(chunk: dict) -> str:
+    """Encabezado que se antepone al contenido del chunk para embeber.
+
+    FIX (2026-09-09, reindex A): antes se usaba solo `title` (= `heading_path[-1]`,
+    la hoja). Los headings ancestros -- señal de "esto es un anexo / una
+    garantía / un requisito" -- no llegaban al vector ni al BM25. Ahora se usa
+    la hoja + hasta `_EMBED_HEADING_ANCESTORS` ancestros, saltando niveles que
+    son boilerplate administrativo (`_HEADING_NOISE_RE`) y colapsando
+    repeticiones consecutivas (los pliegos repiten el nombre del organismo).
+    Sin `heading_path`, cae a `title` (comportamiento previo).
+    """
+    # NOTA (2026-09-09): probado (reindex A) anteponer 2-3 niveles del
+    # heading_path al contenido embebido. Medido sobre 76 casos: net +0.007
+    # overall pero con 4 regresiones -- ayuda a categorías con secciones bien
+    # rotuladas (`requisitos_admisibilidad` +0.125, `garantias` +0.044) y
+    # PERJUDICA a las que tienen contenido bajo headings genéricos
+    # ("Artículo X"): `causales_rechazo` −0.042, `riesgos` −0.031. Es un
+    # trade-off real, no ruido (filtrar boilerplate no lo arregló). Con la
+    # barra de 0 regresiones queda descartado para el vector. El heading SÍ
+    # entra al BM25 vía `content_tsv` (migración 20260909_0012), que es señal
+    # secundaria en la fusión RRF y no dominó ninguna categoría.
+    title = chunk.get("title")
+    return " ".join(str(title).split()).strip() if title else ""
+
+
 def generate_embeddings(
     chunks: list[dict],
     correlation_id: str | UUID,
@@ -191,9 +244,9 @@ def generate_embeddings(
         batch = chunks[batch_start : batch_start + batch_size]
         texts = []
         for chunk in batch:
-            title = chunk.get("title")
             content = chunk["content"]
-            embedding_input = f"{title}\n\n{content}" if title else content
+            context = _embedding_context(chunk)
+            embedding_input = f"{context}\n\n{content}" if context else content
             texts.append(embedding_input)
 
         for attempt in range(1, retries + 1):
@@ -209,6 +262,27 @@ def generate_embeddings(
                 for chunk, embedding in zip(batch, embeddings, strict=True):
                     chunk_copy = chunk.copy()
                     chunk_copy["embedding"] = embedding
+                    # Vector multi-label {categoria: score} para el retrieval
+                    # graduado (reindex C+D). Se calcula acá, no en
+                    # `create_chunks`, porque necesita el embedding del chunk
+                    # como señal semántica y en `create_chunks` todavía no
+                    # existe. NO pisa `primary_category`/`secondary_categories`
+                    # (los deja el clasificador mono-label de `create_chunks`).
+                    try:
+                        from indexing.chunking.classification import (
+                            classify_chunk_multilabel,
+                        )
+
+                        chunk_copy["category_scores"] = classify_chunk_multilabel(
+                            chunk_copy, list(embedding)
+                        )["category_scores"]
+                    except Exception as exc:  # noqa: BLE001 - opcional, no debe tumbar el indexado
+                        logger.warning(
+                            "category_scores_computation_failed",
+                            correlation_id=str(correlation_id),
+                            chunk_index=chunk_copy.get("chunk_index"),
+                            error=str(exc)[:200],
+                        )
                     chunks_with_embeddings.append(chunk_copy)
                 break
             except RateLimitError as exc:

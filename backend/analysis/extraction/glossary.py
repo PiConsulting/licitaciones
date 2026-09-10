@@ -106,6 +106,115 @@ def get_category_penalty(category_key: str, default: float = 0.30) -> float:
     return default
 
 
+def get_category_relevance_min_chunks(category_key: str, default: int = 10) -> int:
+    """Obtiene el piso de chunks por categoría para el corte de relevancia.
+
+    Mantiene el comportamiento actual por default y permite override puntual
+    en glossary.json (mismo patrón que top_k/category_penalty).
+    """
+    glossary = _load_glossary()
+    entry = glossary.get(category_key, {})
+    if not isinstance(entry, dict):
+        return default
+    value = entry.get("relevance_min_chunks", default)
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int):
+        return max(1, value)
+    if isinstance(value, float) and value.is_integer():
+        return max(1, int(value))
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if cleaned.isdigit():
+            return max(1, int(cleaned))
+    return default
+
+
+def get_category_relevance_min_ratio(category_key: str, default: float = 0.4) -> float:
+    """Obtiene el ratio de corte de relevancia por categoría.
+
+    Si no hay override o no es coercible a float, mantiene el default.
+    """
+    glossary = _load_glossary()
+    entry = glossary.get(category_key, {})
+    if not isinstance(entry, dict):
+        return default
+    value = entry.get("relevance_min_ratio", default)
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return default
+    return default
+
+
+def get_category_rank_fusion(category_key: str, default: bool = False) -> bool:
+    """Override por categoría: en `_score_chunks_for_category`, fusionar el
+    ranking híbrido con un ranking propio de la señal de categoría vía RRF
+    (scale-free), en vez del boost multiplicativo. Ataca la Causa 2 de la
+    auditoría de ranking (2026-09-09): scores RRF planos donde el
+    multiplicativo no separa gold de ruido. Opt-in por si ayuda a unas
+    categorías y no a otras (patrón de toda la sesión)."""
+    glossary = _load_glossary()
+    entry = glossary.get(category_key, {})
+    if not isinstance(entry, dict):
+        return default
+    value = entry.get("rank_fusion", default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes", "si", "sí"}
+    return default
+
+
+def get_category_graded_scores(category_key: str, default: bool = False) -> bool:
+    """Override por categoría: usar el vector `category_scores` (multi-label)
+    para un boost GRADUADO en el retrieval, en vez del boost binario
+    primary/secondary. Medido (2026-09-09): el graduado ayuda mucho a
+    categorías con gold disperso/multi-categoría (`requisitos_admisibilidad`
+    +0.167, `plazos_clave` +0.03) y PERJUDICA a las de gold limpio y
+    concentrado (`anexos_obligatorios` −0.10, promueve chunks semánticamente
+    vecinos). Por eso es opt-in por categoría."""
+    glossary = _load_glossary()
+    entry = glossary.get(category_key, {})
+    if not isinstance(entry, dict):
+        return default
+    value = entry.get("graded_category_scores", default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes", "si", "sí"}
+    return default
+
+
+def get_category_query_expansion(category_key: str, default: bool = False) -> bool:
+    """Override por categoría de la expansión de query con definición
+    semántica (mismo patrón que top_k/category_penalty).
+
+    Motivo (2026-09-09): medido sobre 76 casos, activar el flag GLOBAL
+    `QUERY_EXPANSION_USE_SEMANTIC_DEFINITION` da resultado mixto -- `riesgos`
+    +0.144 de recall efectivo, pero `anexos_obligatorios` -0.063 y `garantias`
+    -0.024. Sirve donde la frase corta del extractor es vaga (riesgos), daña
+    donde ya es precisa. Por eso se habilita por categoría acá en vez de
+    global. `run_extractor` (base.py) y `measure_recall.py` consultan ESTE
+    override además del flag global.
+    """
+    glossary = _load_glossary()
+    entry = glossary.get(category_key, {})
+    if not isinstance(entry, dict):
+        return default
+    value = entry.get("query_expansion", default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes", "si", "sí"}
+    return default
+
+
 # FASE 4 del plan RAG v2 (2026-08-24, sección 4.4): query expansion con
 # definición semántica. `category_definitions.json` ya existe desde la Fase 2
 # (4.3, clasificación semántica de chunks) -- acá se reutiliza la misma

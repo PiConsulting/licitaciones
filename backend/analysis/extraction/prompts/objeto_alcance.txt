@@ -48,37 +48,43 @@ hardware, pero tampoco una frase genérica.
 ---
 
 # OBJETIVO
-Extraer qué se licita: el objeto y alcance de la contratación de forma COMPLETA Y DESCRIPTIVA.
-Debe quedar en una síntesis útil y concreta (2-4 oraciones, según complejidad).
+Extraer qué se licita: el objeto y alcance de la contratación, como una LISTA de
+ítems (uno por aspecto), no un solo párrafo.
 
-Debe incluir siempre que exista:
-- **Tipo de procedimiento** (licitación pública, privada, concurso, contratación directa)
-- **Qué se contrata** (bienes, servicios, obras)
-- **Cantidades e ítems** si están mencionados en el objeto
-- **Destino o beneficiario** si se especifica (ej: "para la Dirección de X")
-- **Modalidad de adjudicación** si es relevante (por ítem, global, por lote)
+Emití, en este orden y solo cuando el pliego lo diga:
 
-La descripción debe ser **práctica y completa**, no genérica. El oferente debe entender:
-- Qué cotizar exactamente
-- Cuánto de cada cosa
-- Para qué organismo o área
-- Cómo se adjudica
+1. **UN** ítem `resumen_objeto` — síntesis práctica de 2-4 oraciones (tipo de
+   procedimiento + qué se contrata + para qué organismo/área + cómo se adjudica).
+   Es el resumen que ve el oferente de un vistazo. **PROHIBIDO** que sea una frase
+   genérica ("Adquisición de servidores...").
+2. **UN** ítem `item` **por cada número de Ítem / Renglón / Lote** que el pliego
+   enumere (Ítem 1, Ítem 2, Renglón 1, Lote A...) — **NO uno por equipo**. Si
+   "Ítem 5" agrupa pantalla + monitores + mini PCs + UPS, es UN solo ítem cuyo
+   `valor` resume el conjunto ("Ítem 5: equipamiento de videowall — pantalla 75\",
+   monitores de audio, mini PCs, UPS"). En `metadata`: `cantidad`,
+   `unidad_medida`, `renglon`. Si el pliego da modalidades por renglón (24x7x4,
+   NBD, on-site), inclúilas en `valor`.
+3. **UN** ítem `modalidad` si el pliego indica cómo se adjudica (por ítem, global,
+   por lote/renglón).
+4. **UN** ítem `lugar_entrega` si el pliego indica dónde se entrega/presta.
+5. **UN** ítem `oferta_parcial` si el pliego dice si se admiten o no cotizaciones
+   parciales; **UN** ítem `oferta_alternativa` para ofertas alternativas.
 
-Emitir SOLO un ítem `resumen_objeto`, pero con descripción detallada.
+El plazo de ejecución / duración del contrato va en `plazos_clave`, **no acá**.
 
-**PROHIBIDO** devolver solo una frase genérica del tipo:
-- "Adquisición de servidores..."
+Si el pliego NO enumera renglones, alcanza con el `resumen_objeto` (y los que
+correspondan de 3-6).
 
-Si el pliego trae más detalle (ítems, cantidades, adjudicación por ítem, organismo),
-ese detalle DEBE aparecer en `valor`.
+**NO** incluir especificaciones técnicas exhaustivas (procesadores, modelos
+exactos, RAM...) — solo el tipo general del bien/servicio y la cantidad.
 
 # ESTRUCTURA DE SALIDA
 
 Usá el schema `ObjetoAlcanceItem` definido en `schemas.py`.
 
 **Campos clave:**
-- `tipo`: SIEMPRE `resumen_objeto`
-- `valor`: Descripción COMPLETA del objeto (2-4 oraciones según complejidad)
+- `tipo`: enum `TipoObjetoAlcance` — usá `resumen_objeto`, `item`, `modalidad`, `lugar_entrega`, `oferta_parcial`, `oferta_alternativa` (NO uses `plazo_ejecucion`: va en plazos_clave)
+- `valor`: para `resumen_objeto`, 2-4 oraciones; para los demás, la descripción concreta de ese aspecto
 - `metadata`: Diccionario con campos opcionales:
   - `cantidad`: número total de unidades (si aplica y es un valor único)
   - `unidad_medida`: texto (si aplica)
@@ -92,17 +98,18 @@ Usá el schema `ObjetoAlcanceItem` definido en `schemas.py`.
 
 # REGLAS ESPECÍFICAS
 
-## 1. resumen_objeto COMPLETO
-Emitir exactamente UNO con descripción que responda:
-- ¿Qué tipo de procedimiento es?
-- ¿Qué se licita (bienes/servicios/obras)?
-- ¿Cuántos ítems hay y qué son?
-- ¿Para qué organismo/área?
-- ¿Cómo se adjudica?
+## 1. resumen_objeto + enumeración
+El `resumen_objeto` (uno solo) responde: tipo de procedimiento, qué se licita,
+para qué organismo/área, cómo se adjudica.
 
 **Regla de prioridad de evidencia:** si existen secciones tipo "ITEMS LICITADOS",
-"Tabla de Cotización", "adjudicación por ítem/lote" o listados Item 1/2/3,
-usá esas citas para enriquecer el resumen_objeto.
+"Tabla de Cotización", "adjudicación por ítem/lote" o listados Ítem/Renglón 1/2/3,
+emití un ítem `item` por cada uno (con su cita), además del `resumen_objeto`.
+Un renglón que agrupa varios equipos es UN ítem `item` (no uno por equipo).
+
+**No dupliques**: si un dato ya quedó en un ítem `item`/`lugar_entrega`/etc., no
+lo repitas textualmente dentro del `resumen_objeto` — el resumen es la vista de
+conjunto, los otros ítems el detalle.
 
 **Ejemplos:**
 
@@ -149,31 +156,63 @@ Usá `metadata` para campos estructurados cuando sea un valor único claro:
 
 **Fragmento:**
 ```
-[Fragmento: F1, Documento: 7c9e, Página: 2, Sección: Capítulo 1 > Artículo 1°, Tipo: PÁRRAFO]
-Artículo 1° — Objeto. La presente contratación tiene por objeto la provisión de
-200 (doscientas) resmas de papel A4. Modalidad: bienes. No se admiten ofertas alternativas.
+[Fragmento: F1, Documento: 7c9e, Página: 2, Sección: Artículo 1°, Tipo: PÁRRAFO]
+Artículo 1° — Objeto. Adquisición de equipamiento informático para la Dirección
+de Sistemas. Renglón 1: 4 (cuatro) servidores de aplicaciones. Renglón 2: 2 (dos)
+switches de core. Adjudicación por renglón. Lugar de entrega: Av. Rivadavia 1000,
+CABA. No se admiten cotizaciones parciales dentro de un renglón.
 ```
 
-**Salida correcta:**
+**Salida correcta (varios ítems):**
 ```json
 {
   "objeto_alcance": [
     {
       "tipo": "resumen_objeto",
-      "valor": "Provisión de 200 resmas de papel A4",
-      "metadata": {
-        "cantidad": 200,
-        "unidad_medida": "resmas",
-        "renglon": null
-      },
+      "valor": "Contratación directa para la adquisición de equipamiento informático (servidores y switches) para la Dirección de Sistemas, adjudicable por renglón.",
+      "metadata": {},
       "confidence": 0.9,
-      "source_references": [
-        {
-          "document_id": "7c9e",
-          "page_number": 2,
-          "citation": "La presente contratación tiene por objeto la provisión de 200 (doscientas) resmas de papel A4."
-        }
-      ],
+      "source_references": [{"document_id": "7c9e", "page_number": 2, "citation": "Adquisición de equipamiento informático para la Dirección de Sistemas."}],
+      "extraction_status": "success"
+    },
+    {
+      "tipo": "item",
+      "valor": "Renglón 1: 4 (cuatro) servidores de aplicaciones",
+      "metadata": {"cantidad": 4, "unidad_medida": "servidores", "renglon": "1"},
+      "confidence": 0.9,
+      "source_references": [{"document_id": "7c9e", "page_number": 2, "citation": "Renglón 1: 4 (cuatro) servidores de aplicaciones."}],
+      "extraction_status": "success"
+    },
+    {
+      "tipo": "item",
+      "valor": "Renglón 2: 2 (dos) switches de core",
+      "metadata": {"cantidad": 2, "unidad_medida": "switches", "renglon": "2"},
+      "confidence": 0.9,
+      "source_references": [{"document_id": "7c9e", "page_number": 2, "citation": "Renglón 2: 2 (dos) switches de core."}],
+      "extraction_status": "success"
+    },
+    {
+      "tipo": "modalidad",
+      "valor": "Adjudicación por renglón",
+      "metadata": {},
+      "confidence": 0.9,
+      "source_references": [{"document_id": "7c9e", "page_number": 2, "citation": "Adjudicación por renglón."}],
+      "extraction_status": "success"
+    },
+    {
+      "tipo": "lugar_entrega",
+      "valor": "Av. Rivadavia 1000, CABA",
+      "metadata": {},
+      "confidence": 0.9,
+      "source_references": [{"document_id": "7c9e", "page_number": 2, "citation": "Lugar de entrega: Av. Rivadavia 1000, CABA."}],
+      "extraction_status": "success"
+    },
+    {
+      "tipo": "oferta_parcial",
+      "valor": "No se admiten cotizaciones parciales dentro de un renglón",
+      "metadata": {},
+      "confidence": 0.9,
+      "source_references": [{"document_id": "7c9e", "page_number": 2, "citation": "No se admiten cotizaciones parciales dentro de un renglón."}],
       "extraction_status": "success"
     }
   ]

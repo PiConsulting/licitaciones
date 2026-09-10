@@ -35,6 +35,7 @@ _EXPECTED_CHUNK_KEYS = {
     "source",
     "primary_category",
     "secondary_categories",
+    "category_scores",
     "content",
     "search_score",
     "chunk_type",

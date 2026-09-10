@@ -59,32 +59,23 @@ def test_flujo_completo_sin_evidencia():
         extracted_items, "success", category="riesgos", quality=quality
     )
     print(f"       • Items conservados: {len(filtered_items)}")
-    print(f"       • Items descartados: {quality['riesgos']['descartados_sin_evidencia']}")
+    print(f"       • Items descartados: {quality['riesgos'].get('descartados_sin_evidencia', 0)}")
     print(f"       • Status final: {status}")
 
-    # Verificaciones de merge_node
-    assert len(filtered_items) == 0, "Todos los items sin evidencia deben descartarse"
-    assert status == "partial", "Status debe cambiar a partial"
-    assert quality["riesgos"]["descartados_sin_evidencia"] == 2
+    # FIX 2026-09-03: ítems con `valor` sustantivo pero sin cita verificable
+    # se CONSERVAN (flag, sin botón de fuente), no se descartan.
+    assert len(filtered_items) == 2
+    assert quality["riesgos"]["conservados_sin_evidencia_verificable"] == 2
 
-    # 3. synthesis.py genera mensaje apropiado
-    print("\n   [3] synthesis.py genera mensaje canónico:")
+    # El mensaje canónico de "categoría vacía" sigue existiendo para cuando NO
+    # queda ningún ítem.
     category_label = CATEGORY_LABELS["riesgos"]
     narrative = _empty_category_narrative(category_label)
-
-    print(f'       • Mensaje: "{narrative.blocks[0].text}"')
-    print(f"       • Confianza: {narrative.blocks[0].confidence_level}")
-    print(f"       • Fuentes: {len(narrative.sources)} fuentes")
-
-    # Verificaciones de synthesis
     assert len(narrative.blocks) == 1
     assert narrative.blocks[0].type == "paragraph"
     assert "No se encontró información sobre Riesgos" in narrative.blocks[0].text
     assert len(narrative.sources) == 0
     assert narrative.blocks[0].confidence_level == "baja"
-
-    print("\n   ✓ Flujo completo funciona correctamente")
-    print("   ✓ Usuario ve mensaje apropiado en lugar de riesgos inventados")
 
 
 def test_flujo_completo_con_evidencia():
@@ -200,14 +191,13 @@ def test_flujo_mixto():
 
     print(f"\n   [2] merge_node procesa:")
     print(f"       • Items conservados: {len(filtered_items)}")
-    print(f"       • Items descartados: {quality['riesgos']['descartados_sin_evidencia']}")
+    print(f"       • Items descartados: {quality['riesgos'].get('descartados_sin_evidencia', 0)}")
     print(f"       • Status: {status}")
 
-    # Verificaciones
-    assert len(filtered_items) == 2, "Solo items con evidencia deben conservarse"
-    assert status == "partial", "Status debe ser partial (hubo descartes)"
-    assert quality["riesgos"]["descartados_sin_evidencia"] == 1
-    assert quality["riesgos"]["conservados"] == 2
+    # FIX 2026-09-03: el del medio (valor sustantivo, sin cita) se conserva flag.
+    assert len(filtered_items) == 3
+    assert quality["riesgos"]["conservados_sin_evidencia_verificable"] == 1
+    assert quality["riesgos"]["conservados"] == 3
 
     print("\n   ✓ Solo riesgos verificables llegan al usuario")
     print("   ✓ Invenciones descartadas correctamente")

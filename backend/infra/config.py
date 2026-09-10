@@ -63,10 +63,86 @@ class Settings(BaseSettings):
     azure_openai_retry_attempts: int = Field(default=3, alias="AZURE_OPENAI_RETRY_ATTEMPTS")
 
     # Extraction configuration
+    # Defaults subidos 2026-09-10 tras medir (Paso 6.1 del plan de latencia +
+    # cronómetro sobre `santa_fe`, 5 docs): baseline 4/0/1 → fase 1 ~102 s;
+    # 7/8/3 → ~72 s (−29 % en multi-doc, −12,6 % en 1 doc). Los 429 aparecen
+    # con y sin la subida (ruido de cuota de Azure) y tenacity los reintenta.
     extraction_max_concurrency: int = Field(
-        default=4,
+        default=7,
         alias="EXTRACTION_MAX_CONCURRENCY",
-        description="Máxima concurrencia para extracción de páginas",
+        description="Máxima concurrencia para extracción (nodos de categoría en paralelo en el grafo).",
+    )
+    llm_max_concurrency: int = Field(
+        default=8,
+        alias="LLM_MAX_CONCURRENCY",
+        description=(
+            "Freno GLOBAL de llamadas al LLM en vuelo (Paso 1, plan "
+            "rag-plan-latencia-2026-09-09). Cuenta la suma de todas las capas "
+            "que se paralelizan (temas x documentos del map-reduce x "
+            "síntesis), no una sola. 0 = sin límite. Semáforo en "
+            "`llm_client.py::_call_llm`. Default 8 para acotar el pico real "
+            "cuando `extraction_max_concurrency`/`mapreduce` están altos."
+        ),
+    )
+    extraction_mapreduce_concurrency: int = Field(
+        default=3,
+        alias="EXTRACTION_MAPREDUCE_CONCURRENCY",
+        description=(
+            "Paso 2 (plan rag-plan-latencia-2026-09-09). Cuántas llamadas al "
+            "LLM por documento corre en paralelo cada extractor map-reduce. "
+            "1 = secuencial. > 1 paraleliza los documentos de un mismo tema "
+            "(cada documento sigue siendo su propia llamada; nunca se fusionan). "
+            "El tope real contra Azure lo pone LLM_MAX_CONCURRENCY."
+        ),
+    )
+    synthesis_max_concurrency: int = Field(
+        default=4,
+        alias="SYNTHESIS_MAX_CONCURRENCY",
+        description=(
+            "Paso 5 (plan rag-plan-latencia-2026-09-09). Cuántas síntesis de "
+            "categoría corre en paralelo `synthesize_node`. Cada categoría es "
+            "una 2da llamada al LLM independiente (items ya mergeados -> "
+            "narrativa); antes se hacían las 7-9 en serie. 1 = secuencial "
+            "(comportamiento previo). El ensamblado sigue siendo determinista "
+            "(orden de NARRATIVE_CATEGORIES) y el enriquecimiento de highlights "
+            "queda fuera del pool. El tope real contra Azure lo pone "
+            "LLM_MAX_CONCURRENCY."
+        ),
+    )
+    rag_neighbor_expansion_enabled: bool = Field(
+        default=False,
+        alias="RAG_NEIGHBOR_EXPANSION_ENABLED",
+        description=(
+            "Expansión de vecinos en retrieval (2026-09-10). Tras el scoring "
+            "híbrido, para cada chunk del top_k trae también sus vecinos "
+            "posicionales (mismo documento, chunk_index +/- ventana) que ya "
+            "estén en el pool recuperado, insertándolos junto al chunk que los "
+            "trajo. Recupera enumeraciones partidas en chunks consecutivos "
+            "(ej. 'Artículo 16.1: a) ... b) ... c) ...' partido en 7 chunks, "
+            "el retrieval trae 3). Solo reordena el pool ya recuperado; no "
+            "hace fetch a la DB. Default False."
+        ),
+    )
+    rag_neighbor_expansion_window: int = Field(
+        default=1,
+        alias="RAG_NEIGHBOR_EXPANSION_WINDOW",
+        description="Cuántos chunks a cada lado (chunk_index +/- N) considerar vecinos. 1 = solo adyacentes.",
+    )
+    rag_llm_judge_enabled: bool = Field(
+        default=False,
+        alias="RAG_LLM_JUDGE_ENABLED",
+        description=(
+            "Reranking por LLM-as-judge (experimental, 2026-09-10). Alternativa al "
+            "cross-encoder: se le pasa al LLM el top-N de RRF + la definición de la "
+            "categoría y devuelve relevancia 0-3 por chunk. +1 llamada barata por "
+            "categoría (~$0.01 y ~+6s por pliego). Fallback seguro al orden RRF. "
+            "Default False -- se activa solo para experimentar."
+        ),
+    )
+    rag_llm_judge_window: int = Field(
+        default=25,
+        alias="RAG_LLM_JUDGE_WINDOW",
+        description="Cuántos chunks del top de RRF se le mandan al juez LLM para reordenar.",
     )
     extraction_top_k: int = Field(
         default=25,
@@ -123,6 +199,21 @@ class Settings(BaseSettings):
         alias="SHARED_CANDIDATE_POOL_TOP_K",
         description="Cuántos chunks trae la query global de setup_node para el candidate pool compartido.",
     )
+    shared_candidate_pool_augment_on_roundtrip: bool = Field(
+        default=False,
+        alias="SHARED_CANDIDATE_POOL_AUGMENT_ON_ROUNDTRIP",
+        description=(
+            "Cuando el pool compartido NO alcanza el purity_threshold y la categoría "
+            "hace igual su query específica: si es true (histórico) fusiona el pool con "
+            "el resultado específico; si es false lo ignora y usa solo el resultado "
+            "específico. Medido 2026-09-10: la fusión cuesta ~-0.021 de recall efectivo "
+            "sin ahorrar el roundtrip. Default false para que el pool solo aporte cuando "
+            "efectivamente reemplaza la query. (Aun así el pool compartido rinde poco: "
+            "a purity_threshold 0.30 y sin merge el recall queda igual pero solo ~11% de "
+            "los retrieval por categoría saltan el roundtrip, y hay que sumar la query "
+            "del pool -- neto ~break-even. `use_shared_candidate_pool` sigue en false.)"
+        ),
+    )
     shared_candidate_pool_purity_threshold: float = Field(
         default=0.5,
         alias="SHARED_CANDIDATE_POOL_PURITY_THRESHOLD",
@@ -159,6 +250,25 @@ class Settings(BaseSettings):
 
     # Reranking semántico local con cross-encoder, entre la fusión híbrida
     # y el corte final top_k de retrieval.
+    rag_reranking_enabled: bool = Field(
+        default=False,
+        alias="RAG_RERANKING_ENABLED",
+        description=(
+            "FIX (2026-09-08): default False tras medir con el dataset de evaluación. "
+            "El guardrail que decidía cuándo saltear el reranking comparaba la variable "
+            "equivocada (el pool crudo en vez de `rerank_window`, lo que en la práctica "
+            "saltaba el reranking casi siempre); al corregirlo y medir el reranking "
+            "REALMENTE corriendo, el recall efectivo de producción bajó en promedio "
+            "(-0.010, con regresiones reales en identificacion_procedimiento, "
+            "plazos_clave y riesgos) contra apagarlo. El modelo "
+            "(`cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`) es multilingüe genérico, "
+            "no afinado en español administrativo/legal, y el boost/penalty por "
+            "categoría (calibrado con datos reales en esta misma sesión) le gana en la "
+            "mayoría de los casos. El resto del fix (guardrail correcto, warm-up, "
+            "timeout con margen) queda andando por si se prueba un modelo mejor "
+            "(afinado en español/legal, o vía LLM-as-judge con Azure OpenAI) más adelante."
+        ),
+    )
     rag_reranking_model: str = Field(
         default="cross-encoder/mmarco-mMiniLMv2-L12-H384-v1",
         alias="RAG_RERANKING_MODEL",
@@ -169,9 +279,17 @@ class Settings(BaseSettings):
         ),
     )
     rag_reranking_timeout_seconds: float = Field(
-        default=5.0,
+        default=15.0,
         alias="RAG_RERANKING_TIMEOUT_SECONDS",
-        description="Si el reranking no termina en este tiempo, se descarta y se usa el orden RRF (AC3).",
+        description=(
+            "Si el reranking no termina en este tiempo, se descarta y se usa el orden RRF (AC3). "
+            "FIX (2026-09-08): subido de 5.0 -- medido en CPU real, ~0.045s/par en condiciones "
+            "limpias pero con varianza real bajo carga concurrente (hasta ~0.09s/par observado, "
+            "ver hallazgo de sesión); a 5.0s hasta pools de 70-90 candidatos (el tamaño normal de "
+            "`rerank_window`) caían al fallback casi siempre. La extracción corre en "
+            "BackgroundTasks (analysis/routes.py), no bloquea ningún request de usuario, así que "
+            "hay margen real para priorizar que el reranking termine sobre recortarlo agresivo."
+        ),
     )
 
     # FIX: Dead code eliminado (#1, #2, #3) - campos legacy de adaptadores locales:

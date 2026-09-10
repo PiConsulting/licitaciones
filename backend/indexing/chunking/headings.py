@@ -114,6 +114,22 @@ def _normalize_heading_value(text: str) -> str:
     return " ".join(text.strip().split())
 
 
+# Marcadores de lista / artefactos de parseo que Document Intelligence a veces
+# etiqueta como encabezado (trae `heading_level`) pero que NO son titulos de
+# seccion: vinetas ("·", "•", "o ", "- "), "ITEM N", columnas ("col_3"),
+# checkbox ("☐"). Si se apilan en `heading_stack` contaminan el `heading_path`
+# de todo lo que cuelga debajo (y con el la clasificacion por encabezado).
+_BULLET_MARKER_HEADING_RE = re.compile(
+    r"^\s*(?:o\s|[·•▪◦‣]|[-*]\s|item\s*\d|col_\d|[☐□❑])",
+    re.IGNORECASE,
+)
+
+
+def _is_bullet_marker_heading(text: object) -> bool:
+    """True si el texto parece una vineta / fila / artefacto, no un titulo."""
+    return bool(_BULLET_MARKER_HEADING_RE.match(str(text or "")))
+
+
 def _looks_like_section_title(text: str) -> bool:
     """Un titulo de seccion corrido va en mayusculas (es lo que lo distingue
     visualmente del cuerpo). Exigirlo evita partir una oracion comun que apenas

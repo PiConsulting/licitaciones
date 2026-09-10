@@ -108,6 +108,7 @@ def upload_chunks(
                 "source": chunk.get("source"),
                 "primary_category": chunk.get("primary_category"),
                 "secondary_categories": list(chunk.get("secondary_categories") or []),
+                "category_scores": chunk.get("category_scores") or None,
                 "blocks": chunk.get("blocks") or None,
                 "content": chunk["content"],
                 "embedding": chunk["embedding"],
