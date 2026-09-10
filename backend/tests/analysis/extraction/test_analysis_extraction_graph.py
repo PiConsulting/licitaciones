@@ -218,14 +218,24 @@ def mock_llm(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_phase_graphs_expose_expected_extractors() -> None:
-    assert extractor_nodes_phase1 == [
+    # Tras el refactor de fases, garantias/plazos/requisitos/riesgos se
+    # promovieron a fase 1 (para que la preview no dependa de fase 2).
+    assert set(extractor_nodes_phase1) == {
         "extract_preview_criterios",
         "extract_objeto_alcance",
         "extract_identificacion",
-    ]
-    assert "extract_eventos_temporales" in extractor_nodes_phase2
-    assert "extract_objeto_alcance" not in extractor_nodes_phase2
-    assert "extract_identificacion" not in extractor_nodes_phase2
+        "extract_garantias",
+        "extract_plazos",
+        "extract_requisitos",
+        "extract_riesgos",
+    }
+    assert set(extractor_nodes_phase2) == {
+        "extract_causales",
+        "extract_anexos",
+        "extract_criterios",
+        "extract_eventos_temporales",
+    }
+    assert not set(extractor_nodes_phase1) & set(extractor_nodes_phase2)
 
 
 def test_phase_graphs_are_compiled() -> None:
@@ -1308,6 +1318,71 @@ def test_synthesize_node_enumera_el_indice_una_sola_vez(monkeypatch) -> None:
     assert len(enrich_calls) == len(graph_module.NARRATIVE_CATEGORIES)
     for call in enrich_calls:
         assert call["chunks_by_doc_page"] is not None
+
+
+def _run_synthesize_node_with_concurrency(monkeypatch, workers: int) -> dict:
+    """Corre `synthesize_node` con `SYNTHESIS_MAX_CONCURRENCY=workers` y una
+    `run_synthesis` fake determinista (un bloque por categoría con su nombre).
+    Devuelve el `extracted_data` resultante para comparar secuencial vs paralelo.
+    """
+    from types import SimpleNamespace
+
+    from analysis.extraction.graph import nodes as graph_module
+    from analysis.extraction.schemas import CategoryNarrative
+
+    monkeypatch.setattr(
+        "infra.ports.pgvector_search.fetch_all_analysis_chunks",
+        lambda analysis_id: ([], False),
+    )
+    monkeypatch.setattr(
+        "infra.config.get_settings",
+        lambda: SimpleNamespace(synthesis_max_concurrency=workers, is_production=False),
+    )
+
+    def _fake_run_synthesis(*, category_key, items, correlation_id, chunks_by_id, conflicts):
+        narrative = CategoryNarrative.model_validate(
+            {
+                "blocks": [
+                    {
+                        "type": "paragraph",
+                        "text": f"Narrativa de {category_key}",
+                        "confidence_level": "alta",
+                        "source_ids": [],
+                    }
+                ],
+                "sources": [],
+            }
+        )
+        return narrative, {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5}
+
+    monkeypatch.setattr(graph_module, "run_synthesis", _fake_run_synthesis)
+    monkeypatch.setattr(graph_module, "_cleanup_temp_highlights", lambda *_a, **_kw: None)
+
+    state = {
+        "analysis_id": "an-1",
+        "correlation_id": "corr-1",
+        "extracted_data": {key: [{"tipo": "x"}] for key in graph_module.NARRATIVE_CATEGORIES},
+        "extraction_metadata": {"token_usage": {}},
+        "document_id_to_blob_path": {},
+        "conflicts": [],
+    }
+    return graph_module.synthesize_node(state)["extracted_data"]
+
+
+def test_synthesize_node_paralelo_da_el_mismo_resultado_que_secuencial(monkeypatch) -> None:
+    """Paso 5b (plan latencia): `SYNTHESIS_MAX_CONCURRENCY` solo cambia el
+    wall-time; el `extracted_data` (narrativas + orden) tiene que ser idéntico
+    al modo secuencial, porque el ensamblado recorre `NARRATIVE_CATEGORIES` en
+    orden y no en orden de finalización de los threads."""
+    from analysis.extraction.graph import nodes as graph_module
+
+    secuencial = _run_synthesize_node_with_concurrency(monkeypatch, workers=1)
+    paralelo = _run_synthesize_node_with_concurrency(monkeypatch, workers=6)
+
+    for category_key in graph_module.NARRATIVE_CATEGORIES:
+        key = f"{category_key}_narrative"
+        assert secuencial[key] == paralelo[key]
+        assert secuencial[key]["blocks"][0]["text"] == f"Narrativa de {category_key}"
 
 
 def test_build_chunk_indexes_deriva_los_dos_indices_de_una_enumeracion(monkeypatch) -> None:

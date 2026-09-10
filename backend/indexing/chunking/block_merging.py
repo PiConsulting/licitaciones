@@ -10,6 +10,7 @@ from indexing.chunking.page_furniture import (
 )
 from indexing.chunking.headings import (
     _detect_repeated_heading_boilerplate,
+    _is_bullet_marker_heading,
     _merge_split_headings_across_pages,
     _merge_truncated_headings_with_body,
     _nest_unnumbered_headings_under_numbered,
@@ -107,18 +108,27 @@ def _to_intermediate_blocks(blocks: list[dict]) -> list[dict]:
             if not normalized:
                 continue
 
-            logger.debug(
-                "heading_detected",
-                page=last_page,
-                level=level,
-                text=normalized[:80],
-                current_stack=[h for h, _ in heading_stack],
-            )
+            if _is_bullet_marker_heading(normalized):
+                # DI marco una vineta / "ITEM N" / "col_x" como encabezado: no es
+                # un titulo de seccion. No se apila (contaminaria el heading_path
+                # de todo lo que cuelga debajo); cae al bloque de cuerpo de abajo.
+                logger.debug(
+                    "heading_demoted_bullet_marker", page=last_page, text=normalized[:80]
+                )
+                block = {**block, "heading_level": None, "block_type": "paragraph"}
+            else:
+                logger.debug(
+                    "heading_detected",
+                    page=last_page,
+                    level=level,
+                    text=normalized[:80],
+                    current_stack=[h for h, _ in heading_stack],
+                )
 
-            pop_to_level(int(level), last_page)
-            heading_stack.append((normalized, int(level)))
-            heading_has_body.append(False)
-            continue
+                pop_to_level(int(level), last_page)
+                heading_stack.append((normalized, int(level)))
+                heading_has_body.append(False)
+                continue
 
         if heading_has_body:
             for index in range(len(heading_has_body)):

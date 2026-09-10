@@ -153,25 +153,24 @@ def test_extracted_data_sin_riesgos():
     print("   ✓ Narrative None por defecto")
 
 
-def test_riesgo_item_source_references_min_1():
-    """Verifica que source_references requiere al menos 1 item para ítems válidos."""
-    print("\n✅ Test 7: RiesgoItem - Source references mínimo 1")
+def test_riesgo_item_source_references_vacio_pasa_el_schema():
+    """`source_references=[]` YA NO lo rechaza pydantic (FIX 2026-09-03: se
+    quitó `min_length=1` de `ExtractedItem`). El contrato de "al menos una
+    fuente" lo aplica ahora `graph/validation.py::_drop_items_without_sources`
+    -- así un placeholder `not_found` o un hallazgo real cuya cita no se pudo
+    verificar sobreviven la validación de schema y se decide qué hacer con
+    ellos aguas abajo, en vez de morir silenciosamente en pydantic."""
+    print("\n✅ Test 7: RiesgoItem - source_references vacío pasa el schema")
 
-    # Debe fallar sin source_references
-    try:
-        riesgo = RiesgoItem(
-            tipo=TipoRiesgo.LEGAL,
-            subtipo=SubtipoRiesgo.LEGAL_CONTRACTUAL,
-            valor="Riesgo sin fuentes",
-            extraction_status="success",
-            confidence=0.8,
-            source_references=[],  # Vacío - debería fallar
-        )
-        # Si llegamos acá, el test falla
-        assert False, "Debería fallar con source_references vacío"
-    except ValidationError as e:
-        print("   ✓ Validación correcta: rechaza source_references vacío")
-        print(f"   ✓ Error esperado: {str(e)[:100]}...")
+    riesgo = RiesgoItem(
+        tipo=TipoRiesgo.LEGAL,
+        subtipo=SubtipoRiesgo.LEGAL_CONTRACTUAL,
+        valor="Riesgo sin fuentes",
+        extraction_status="partial",
+        confidence=0.8,
+        source_references=[],
+    )
+    assert riesgo.source_references == []
 
 
 def test_riesgo_item_metadata_opcional():

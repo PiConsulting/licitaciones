@@ -98,8 +98,13 @@ sin numeración de anexo) va solo en requisitos.
 ---
 
 # OBJETIVO
-Extraer los formularios que hay que completar y presentar SÍ O SÍ. Un ítem por
-anexo/formulario.
+Extraer los formularios que hay que completar y presentar SÍ O SÍ. **Un ítem
+por anexo/formulario.**
+
+⚠️ Si el pliego lista varios anexos juntos en una sola oración o tabla ("Forman
+parte integrante del presente los Anexos I, II, III y IV" / "Anexo I – Planilla…
+Anexo II – DDJJ… Anexo III – …"), emití **un ítem SEPARADO por cada uno**, cada
+uno con su propio `valor` y su cita. NUNCA los concatenes en un solo `valor`.
 
 # ESTRUCTURA DE SALIDA
 
@@ -264,6 +269,27 @@ de Habilidad para Contratar, que deberá completarse y suscribirse por el repres
       ],
       "extraction_status": "success"
     }
+  ]
+}
+```
+
+# EJEMPLO — varios anexos listados juntos (un ítem por cada uno)
+
+**Fragmento:**
+```
+[Fragmento: F2, Documento: 7c9e, Página: 12, Sección: 9. Anexos, Tipo: PÁRRAFO]
+Forman parte integrante del presente Pliego los siguientes anexos: Anexo I –
+Planilla de Cotización; Anexo II – Declaración Jurada de Antecedentes; Anexo III
+– Memoria de cálculo del dimensionamiento.
+```
+
+**Salida correcta (TRES ítems, no uno):**
+```json
+{
+  "anexos_obligatorios": [
+    {"tipo": "planilla", "valor": "Anexo I – Planilla de Cotización", "metadata": {"debe_completarse": "si", "debe_firmarse": "no_especificado", "presente_en_documentos_subidos": "no_especificado"}, "confidence": 0.9, "source_references": [{"document_id": "7c9e", "page_number": 12, "citation": "Anexo I – Planilla de Cotización"}], "extraction_status": "success"},
+    {"tipo": "declaracion_jurada", "valor": "Anexo II – Declaración Jurada de Antecedentes", "metadata": {"debe_completarse": "si", "debe_firmarse": "no_especificado", "presente_en_documentos_subidos": "no_especificado"}, "confidence": 0.9, "source_references": [{"document_id": "7c9e", "page_number": 12, "citation": "Anexo II – Declaración Jurada de Antecedentes"}], "extraction_status": "success"},
+    {"tipo": "anexo", "valor": "Anexo III – Memoria de cálculo del dimensionamiento", "metadata": {"debe_completarse": "si", "debe_firmarse": "no_especificado", "presente_en_documentos_subidos": "no_especificado"}, "confidence": 0.9, "source_references": [{"document_id": "7c9e", "page_number": 12, "citation": "Anexo III – Memoria de cálculo del dimensionamiento"}], "extraction_status": "success"}
   ]
 }
 ```

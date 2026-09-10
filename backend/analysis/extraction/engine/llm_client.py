@@ -1,6 +1,8 @@
 """Llamada al LLM (Azure OpenAI), parseo de su respuesta, y manejo del presupuesto de tokens."""
 from __future__ import annotations
 
+import threading
+import time
 from functools import lru_cache
 from typing import Any
 import json
@@ -19,12 +21,55 @@ _RELEVANCE_MIN_CHUNKS = 10
 _RELEVANCE_MIN_RATIO = 0.4
 
 
+@lru_cache(maxsize=1)
+def _llm_concurrency_gate() -> threading.BoundedSemaphore | None:
+    """Freno GLOBAL de llamadas al LLM en vuelo (Paso 1, plan
+    rag-plan-latencia-2026-09-09). Vale para la suma de (temas en paralelo) x
+    (documentos en paralelo del map-reduce) x (llamadas de síntesis): sin un
+    tope acá, cuando esas capas se paralelicen la concurrencia real contra
+    Azure se multiplica y dispara 429.
+
+    `LLM_MAX_CONCURRENCY=0` (default) => sin límite => comportamiento idéntico
+    al actual. Un valor > 0 activa el semáforo. `get_settings()` está
+    cacheado, así que el límite es estable durante el proceso.
+    """
+    limit = int(get_settings().llm_max_concurrency or 0)
+    if limit <= 0:
+        return None
+    logger.info("llm_concurrency_gate_enabled", limit=limit)
+    return threading.BoundedSemaphore(limit)
+
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
     reraise=True,
 )
 def _call_llm(
+    messages: list[tuple[str, str]], correlation_id: str
+) -> tuple[dict[str, Any], dict[str, int]]:
+    gate = _llm_concurrency_gate()
+    if gate is not None:
+        _wait_started = time.monotonic()
+        gate.acquire()
+        waited = time.monotonic() - _wait_started
+        if waited > 1.0:
+            logger.info(
+                "llm_concurrency_gate_wait",
+                correlation_id=correlation_id,
+                waited_seconds=round(waited, 2),
+            )
+    try:
+        return _call_llm_inner(messages, correlation_id)
+    finally:
+        # Se libera ANTES de que tenacity haga su backoff entre reintentos
+        # (el sleep ocurre fuera de esta función), así el slot no queda
+        # tomado durante la espera exponencial.
+        if gate is not None:
+            gate.release()
+
+
+def _call_llm_inner(
     messages: list[tuple[str, str]], correlation_id: str
 ) -> tuple[dict[str, Any], dict[str, int]]:
     llm = get_azure_openai_client()
@@ -60,10 +105,21 @@ def _call_llm(
         or 0
     )
     total_tokens = int(usage.get("total_tokens", prompt_tokens + completion_tokens) or 0)
+    # Azure OpenAI cachea automáticamente el prefijo estático de prompts >=1024
+    # tokens (TTL ~5-10 min). Reporta el hit en prompt_tokens_details.cached_tokens.
+    # Se loguea para verificar que el prefijo quedó byte-idéntico (los `{chunks}`
+    # son lo único al final de cada prompt de extracción, plan 6.2).
+    details = usage.get("prompt_tokens_details") or usage.get("input_tokens_details") or {}
+    cached_tokens = int(
+        (details.get("cached_tokens") if isinstance(details, dict) else 0)
+        or usage.get("cache_read_input_tokens", 0)
+        or 0
+    )
     token_usage = {
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
         "total_tokens": total_tokens,
+        "cached_tokens": cached_tokens,
     }
 
     logger.info(
@@ -72,6 +128,8 @@ def _call_llm(
         prompt_tokens=token_usage["prompt_tokens"],
         completion_tokens=token_usage["completion_tokens"],
         total_tokens=token_usage["total_tokens"],
+        cached_tokens=cached_tokens,
+        cache_hit_rate=round(cached_tokens / prompt_tokens, 2) if prompt_tokens else 0.0,
     )
     return parsed, token_usage
 
@@ -181,12 +239,17 @@ def _drop_low_relevance_chunks(
     *,
     correlation_id: str | None = None,
     category: str | None = None,
+    min_chunks: int | None = None,
+    min_ratio: float | None = None,
 ) -> list[dict[str, Any]]:
     """Saca la cola de chunks que el retrieval trajo por completar el `top_k`.
     Mantiene al menos `_RELEVANCE_MIN_CHUNKS` chunks y descarta los demás
     cuya relevancia (score) esté por debajo de `_RELEVANCE_MIN_RATIO` del mejor.
     """
-    if len(chunks) <= _RELEVANCE_MIN_CHUNKS:
+    effective_min_chunks = max(1, int(min_chunks or _RELEVANCE_MIN_CHUNKS))
+    effective_min_ratio = float(min_ratio if min_ratio is not None else _RELEVANCE_MIN_RATIO)
+
+    if len(chunks) <= effective_min_chunks:
         return chunks
 
     def score_de(chunk: dict[str, Any]) -> float | None:
@@ -207,7 +270,7 @@ def _drop_low_relevance_chunks(
         # criterio, y no tenerlo no puede costar chunks.
         return chunks
 
-    umbral = max(conocidos) * _RELEVANCE_MIN_RATIO
+    umbral = max(conocidos) * effective_min_ratio
     # El piso se cuenta por score, no por posición: la expansión
     # children→parent puede alterar el orden de la lista.
     protegidos = {
@@ -215,7 +278,7 @@ def _drop_low_relevance_chunks(
         for indice, _score in sorted(
             enumerate(scores),
             key=lambda par: (par[1] is None, -(par[1] or 0.0)),
-        )[:_RELEVANCE_MIN_CHUNKS]
+        )[:effective_min_chunks]
     }
 
     conservados: list[dict[str, Any]] = []
@@ -234,6 +297,8 @@ def _drop_low_relevance_chunks(
             category=category,
             chunks_kept=len(conservados),
             chunks_dropped=len(descartados),
+            min_chunks=effective_min_chunks,
+            min_ratio=round(effective_min_ratio, 5),
             score_max=round(max(conocidos), 5),
             score_umbral=round(umbral, 5),
             score_descartado_max=round(max(descartados), 5),

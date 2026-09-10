@@ -3,6 +3,7 @@
 documento) -> normalización -> merge -> verificación de citas."""
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import structlog
@@ -63,6 +64,23 @@ def run_extractor(
 
     delta: GraphState = {}
 
+    # Instrumentación (Paso 0.1, plan rag-plan-latencia-2026-09-09): nº de
+    # llamadas al LLM y wall-time de esta rama, para poder medir el efecto de
+    # cada cambio de paralelización/costo. Se cuelga del dict de token_usage
+    # que ya viaja por el pipeline (`{state_field}_token_usage` ->
+    # merge_node -> extraction_metadata), así que no agrega plumbing nuevo.
+    _started = time.monotonic()
+    token_usage_key = f"{state_field}_token_usage"
+
+    def _stamp_metrics(current: GraphState) -> GraphState:
+        usage = current.get(token_usage_key)
+        if not isinstance(usage, dict):
+            usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            current[token_usage_key] = usage
+        usage.setdefault("llm_calls", 0)
+        usage["wall_time_seconds"] = round(time.monotonic() - _started, 2)
+        return current
+
     try:
         settings = get_settings()
         keyword_query = build_keyword_query(result_key)
@@ -75,8 +93,12 @@ def run_extractor(
         # siendo términos discriminantes del glosario. Apagado por default:
         # con el flag en false, retrieval_query == query (comportamiento
         # idéntico al actual).
+        from analysis.extraction.glossary import get_category_query_expansion
+
         retrieval_query = query
-        if settings.query_expansion_use_semantic_definition:
+        if settings.query_expansion_use_semantic_definition or get_category_query_expansion(
+            result_key
+        ):
             retrieval_query = build_semantic_expanded_query(result_key, query)
             if retrieval_query != query:
                 logger.debug(
@@ -86,7 +108,12 @@ def run_extractor(
                 )
 
         # FIX MEDIUM (#14): Top-K configurable por categoría desde glossary.json
-        from analysis.extraction.glossary import get_category_penalty, get_category_top_k
+        from analysis.extraction.glossary import (
+            get_category_penalty,
+            get_category_relevance_min_chunks,
+            get_category_relevance_min_ratio,
+            get_category_top_k,
+        )
 
         category_top_k = get_category_top_k(result_key, default=settings.extraction_top_k)
 
@@ -97,6 +124,8 @@ def run_extractor(
         # para las otras categorías -- por eso es un override puntual y no
         # un cambio del default global en chunk_retrieval.py).
         category_penalty = get_category_penalty(result_key, default=0.30)
+        relevance_min_chunks = get_category_relevance_min_chunks(result_key, default=10)
+        relevance_min_ratio = get_category_relevance_min_ratio(result_key, default=0.4)
 
         chunks = _retrieve_with_category_priority(
             query=retrieval_query,
@@ -113,6 +142,8 @@ def run_extractor(
             chunks,
             correlation_id=correlation_id,
             category=result_key,
+            min_chunks=relevance_min_chunks,
+            min_ratio=relevance_min_ratio,
         )
 
         chunks = _truncate_to_token_budget(
@@ -156,15 +187,14 @@ def run_extractor(
             )
             delta[state_field] = _default_not_found_item() if is_object_result else []
             delta[status_field] = "not_found"
-            delta[f"{state_field}_token_usage"] = {
+            delta[token_usage_key] = {
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
                 "total_tokens": 0,
             }
-            return delta
+            return _stamp_metrics(delta)
 
         document_labels = state.get("document_labels")
-        token_usage_key = f"{state_field}_token_usage"
 
         if is_object_result:
             # Resultado de un solo objeto agregado (ej. estimación de
@@ -177,6 +207,7 @@ def run_extractor(
                 root_key=result_key,
             )
             llm_result, token_usage = _call_llm(messages=messages, correlation_id=correlation_id)
+            token_usage["llm_calls"] = 1
             delta[token_usage_key] = token_usage
             if llm_result.get("_diagnostic") == "sin_contenido_recuperado":
                 logger.error(
@@ -211,21 +242,72 @@ def run_extractor(
             # `PLAN-CORRECCION-RAG-VARIANZA.md` Epic 4).
             groups = _group_chunks_by_document(chunks)
             all_items: list[Any] = []
-            accumulated_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            accumulated_usage = {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "llm_calls": 0,
+            }
             groups_failed = 0
 
-            for document_id, group_chunks in groups.items():
+            def _run_group(group_chunks: list[dict[str, Any]]):
                 group_messages = _build_messages(
                     prompt_file_name=prompt_file_name,
                     chunks_block=_format_chunks(group_chunks, document_labels),
                     glossary_block=build_prompt_glossary_block(result_key),
                     root_key=result_key,
                 )
-                try:
-                    group_result, group_usage = _call_llm(
-                        messages=group_messages, correlation_id=correlation_id
-                    )
-                except Exception as exc:  # noqa: BLE001
+                return _call_llm(messages=group_messages, correlation_id=correlation_id)
+
+            groups_items = list(groups.items())
+
+            # Paso 2 (plan rag-plan-latencia-2026-09-09): las llamadas por
+            # documento son independientes entre sí (cada documento es su
+            # propia unidad lógica), así que se pueden correr en paralelo. El
+            # resultado se ensambla DESPUÉS recorriendo `groups_items` en su
+            # orden original, con lo cual el merge/dedup/detección de
+            # conflictos río abajo es byte-idéntico al modo secuencial -- lo
+            # único que cambia es el wall-time. NUNCA se fusionan chunks de
+            # documentos distintos en una misma llamada: eso dejaría que el
+            # LLM "reconcilie" una contradicción principal vs. anexo en un
+            # solo ítem y se perdería el aviso (ver detección de conflictos
+            # en graph/nodes.py::merge_node). El tope real de concurrencia
+            # contra Azure lo pone el semáforo global de `_call_llm`
+            # (LLM_MAX_CONCURRENCY). `EXTRACTION_MAPREDUCE_CONCURRENCY <= 1`
+            # (default) = secuencial = comportamiento actual.
+            mapreduce_workers = min(
+                len(groups_items),
+                max(1, int(settings.extraction_mapreduce_concurrency or 1)),
+            )
+            results_by_doc: dict[str, Any] = {}
+            if mapreduce_workers <= 1:
+                for document_id, group_chunks in groups_items:
+                    try:
+                        results_by_doc[document_id] = _run_group(group_chunks)
+                    except Exception as exc:  # noqa: BLE001
+                        results_by_doc[document_id] = exc
+            else:
+                from concurrent.futures import ThreadPoolExecutor
+
+                with ThreadPoolExecutor(
+                    max_workers=mapreduce_workers,
+                    thread_name_prefix=f"mapreduce-{result_key}",
+                ) as pool:
+                    future_to_doc = {
+                        pool.submit(_run_group, group_chunks): document_id
+                        for document_id, group_chunks in groups_items
+                    }
+                    for future, document_id in future_to_doc.items():
+                        try:
+                            results_by_doc[document_id] = future.result()
+                        except Exception as exc:  # noqa: BLE001
+                            results_by_doc[document_id] = exc
+
+            # Ensamblado determinístico: se recorre en el orden original de
+            # los grupos, no en el orden en que terminaron las llamadas.
+            for document_id, group_chunks in groups_items:
+                outcome = results_by_doc.get(document_id)
+                if isinstance(outcome, BaseException):
                     groups_failed += 1
                     logger.warning(
                         "extractor_map_reduce_group_failed",
@@ -233,12 +315,17 @@ def run_extractor(
                         category=result_key,
                         document_id=document_id,
                         chunks_en_grupo=len(group_chunks),
-                        error=str(exc),
+                        error=str(outcome),
                     )
                     continue
 
+                group_result, group_usage = outcome
+
                 for key in accumulated_usage:
                     accumulated_usage[key] += int(group_usage.get(key, 0) or 0)
+                # La llamada se hizo (haya devuelto items o "sin_contenido"),
+                # así que cuenta para el costo/latencia real.
+                accumulated_usage["llm_calls"] += 1
 
                 if group_result.get("_diagnostic") == "sin_contenido_recuperado":
                     continue
@@ -378,4 +465,4 @@ def run_extractor(
         delta[state_field] = _default_not_found_item() if is_object_result else []
         delta[status_field] = "failed"
 
-    return delta
+    return _stamp_metrics(delta)

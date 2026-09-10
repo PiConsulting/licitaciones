@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 import re
+import time
 import unicodedata
 
 import structlog
@@ -213,9 +214,39 @@ def setup_node(state: GraphState) -> GraphState:
         correlation_id=state["correlation_id"],
         analysis_id=state["analysis_id"],
     )
-    document_mapping = _build_document_mapping(state["analysis_id"], state.get("db_session"))
-    document_labels = _build_document_labels(state["analysis_id"], state.get("db_session"))
-    global_candidates = _build_shared_candidate_pool(state["analysis_id"], state["correlation_id"])
+    cached_mapping = state.get("document_id_to_blob_path")
+    cached_labels = state.get("document_labels")
+    cached_candidates = state.get("global_candidates")
+
+    can_reuse = (
+        isinstance(cached_mapping, dict)
+        and isinstance(cached_labels, dict)
+        and isinstance(cached_candidates, list)
+        and bool(cached_mapping)
+    )
+
+    if can_reuse:
+        document_mapping = cached_mapping
+        document_labels = cached_labels
+        global_candidates = cached_candidates
+        logger.info(
+            "setup_node_reused",
+            correlation_id=state["correlation_id"],
+            analysis_id=state["analysis_id"],
+            documents=len(document_mapping),
+            candidates=len(global_candidates),
+        )
+    else:
+        document_mapping = _build_document_mapping(state["analysis_id"], state.get("db_session"))
+        document_labels = _build_document_labels(state["analysis_id"], state.get("db_session"))
+        global_candidates = _build_shared_candidate_pool(state["analysis_id"], state["correlation_id"])
+        logger.info(
+            "setup_node_computed",
+            correlation_id=state["correlation_id"],
+            analysis_id=state["analysis_id"],
+            documents=len(document_mapping),
+            candidates=len(global_candidates),
+        )
 
     state.update(
         {
@@ -783,21 +814,88 @@ def synthesize_node(state: GraphState) -> GraphState:
 
     chunks_by_id, chunks_by_doc_page = _build_chunk_indexes(state["analysis_id"], correlation_id)
 
-    synthesized = 0
-    for category_key in NARRATIVE_CATEGORIES:
-        items = extracted_data.get(category_key, [])
-        if not isinstance(items, list):
-            continue
+    conflicts = state.get("conflicts") or []
+    pending = [
+        category_key
+        for category_key in NARRATIVE_CATEGORIES
+        if isinstance(extracted_data.get(category_key, []), list)
+    ]
+
+    def _synthesize_one(category_key: str):
+        """Una categoría: 2da llamada al LLM (items ya mergeados -> narrativa).
+        Devuelve `(narrative, token_usage)` o `None`. NO hace enriquecimiento de
+        highlights -- eso queda para el ensamblado secuencial (PyMuPDF + I/O de
+        blobs, fuera del pool)."""
+        _syn_started = time.monotonic()
         result = run_synthesis(
             category_key=category_key,
-            items=items,
+            items=extracted_data.get(category_key, []),
             correlation_id=correlation_id,
             chunks_by_id=chunks_by_id,
-            conflicts=state.get("conflicts") or [],
+            conflicts=conflicts,
         )
         if result is None:
-            continue
+            return None
         narrative, token_usage = result
+        # Instrumentación (Paso 0.1): la síntesis es una 2da pasada al LLM por
+        # categoría -- se cuenta aparte para ver cuánto pesa en costo/latencia.
+        if isinstance(token_usage, dict):
+            token_usage.setdefault("llm_calls", 1 if token_usage.get("total_tokens") else 0)
+            token_usage["wall_time_seconds"] = round(time.monotonic() - _syn_started, 2)
+        return narrative, token_usage
+
+    # Paso 5 (plan rag-plan-latencia-2026-09-09): las 7-9 síntesis de categoría
+    # son llamadas al LLM independientes entre sí (cada una parte de los items
+    # YA mergeados de su categoría), así que se corren en paralelo con el mismo
+    # patrón que el map-reduce de extracción: pool acotado + ensamblado
+    # determinista recorriendo `NARRATIVE_CATEGORIES` en orden, con lo cual el
+    # `extracted_data` resultante es idéntico al del modo secuencial -- lo único
+    # que cambia es el wall-time. El tope real contra Azure lo pone el semáforo
+    # global de `_call_llm` (LLM_MAX_CONCURRENCY). `SYNTHESIS_MAX_CONCURRENCY<=1`
+    # = secuencial = comportamiento previo.
+    from infra.config import get_settings
+
+    synthesis_workers = min(
+        len(pending),
+        max(1, int(get_settings().synthesis_max_concurrency or 1)),
+    )
+    results_by_category: dict[str, object] = {}
+    if synthesis_workers <= 1:
+        for category_key in pending:
+            try:
+                results_by_category[category_key] = _synthesize_one(category_key)
+            except Exception as exc:  # noqa: BLE001
+                results_by_category[category_key] = exc
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(
+            max_workers=synthesis_workers, thread_name_prefix="synthesis"
+        ) as pool:
+            future_to_category = {
+                pool.submit(_synthesize_one, category_key): category_key
+                for category_key in pending
+            }
+            for future, category_key in future_to_category.items():
+                try:
+                    results_by_category[category_key] = future.result()
+                except Exception as exc:  # noqa: BLE001
+                    results_by_category[category_key] = exc
+
+    synthesized = 0
+    for category_key in pending:
+        outcome = results_by_category.get(category_key)
+        if isinstance(outcome, BaseException):
+            logger.warning(
+                "synthesis_category_failed",
+                correlation_id=correlation_id,
+                category=category_key,
+                error=str(outcome),
+            )
+            continue
+        if outcome is None:
+            continue
+        narrative, token_usage = outcome
         if document_mapping:
             narrative = enrich_narrative_with_highlights(
                 narrative=narrative,
@@ -973,6 +1071,22 @@ graph = builder.compile()
 # objeto_alcance/identificacion corren en paralelo entre si y con esas 4
 # (barrera real antes de merge, sin importar que preview_criterios termine
 # mas tarde por depender de las otras 4).
+
+# Nodos extractores de fase 1 (7). Simétrico con `extractor_nodes_phase2`:
+# tras el refactor de fases (garantias/plazos/requisitos/riesgos promovidos a
+# fase 1) esta lista no existía y el builder de abajo agregaba los nodos
+# inline. Se expone para tests y para tener el inventario de la fase en un
+# solo lugar.
+extractor_nodes_phase1 = [
+    "extract_objeto_alcance",
+    "extract_identificacion",
+    "extract_garantias",
+    "extract_plazos",
+    "extract_requisitos",
+    "extract_riesgos",
+    "extract_preview_criterios",
+]
+
 builder_phase1 = StateGraph(GraphState)
 builder_phase1.add_node("setup", setup_node)
 builder_phase1.add_node("extract_preview_criterios", extractor_preview_criterios)

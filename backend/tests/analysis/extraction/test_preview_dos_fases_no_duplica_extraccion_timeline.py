@@ -234,15 +234,16 @@ def test_flujo_dos_fases_no_duplicacion_objeto_identificacion_y_timeline_en_fase
     assert len(timeline_materialize_calls) == 1
 
     final_data = phase1_version.extracted_data
+    # Este test mockea SOLO objeto/identificacion en fase 1 y
+    # causales/anexos/criterios/eventos en fase 2 (ver `invocation_counter` y
+    # el grafo mockeado). garantias/plazos/requisitos/riesgos se promovieron a
+    # fase 1 pero acá no se mockean, así que no aparecen -- se chequean solo
+    # las categorías que este flujo efectivamente ejercita.
     expected_checklist_categories = {
         "objeto_alcance",
-        "requisitos_admisibilidad",
-        "garantias",
-        "plazos_clave",
         "criterios_evaluacion",
         "causales_rechazo",
         "anexos_obligatorios",
-        "riesgos",
     }
     assert expected_checklist_categories.issubset(set(final_data.keys()))
     assert "preview_criterios" in final_data

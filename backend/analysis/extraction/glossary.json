@@ -31,7 +31,9 @@
       "primary": 0.3,
       "secondary": 0.12
     },
-    "weight": 1.0
+    "weight": 1.0,
+    "category_penalty": 0.15,
+    "top_k": 35
   },
   "garantias": {
     "query_terms": [
@@ -66,7 +68,8 @@
       "secondary": 0.15
     },
     "weight": 1.0,
-    "top_k": 35
+    "top_k": 35,
+    "graded_category_scores": true
   },
   "plazos_clave": {
     "query_terms": [
@@ -110,7 +113,9 @@
       "secondary": 0.15
     },
     "weight": 1.0,
-    "top_k": 35
+    "top_k": 35,
+    "category_penalty": 0.15,
+    "graded_category_scores": true
   },
   "criterios_evaluacion": {
     "query_terms": [
@@ -141,7 +146,9 @@
       "primary": 0.3,
       "secondary": 0.15
     },
-    "weight": 1.0
+    "weight": 1.0,
+    "category_penalty": 0.15,
+    "top_k": 35
   },
   "causales_rechazo": {
     "query_terms": [
@@ -183,7 +190,8 @@
       "primary": 0.35,
       "secondary": 0.15
     },
-    "weight": 1.2
+    "weight": 1.2,
+    "category_penalty": 0.15
   },
   "identificacion_procedimiento": {
     "query_terms": [
@@ -214,7 +222,10 @@
       "primary": 0.2,
       "secondary": 0.1
     },
-    "weight": 0.8
+    "weight": 0.8,
+    "category_penalty": 0.15,
+    "top_k": 35,
+    "query_expansion": true
   },
   "riesgos": {
     "query_terms": [
@@ -301,7 +312,9 @@
       "primary": 0.35,
       "secondary": 0.15
     },
-    "weight": 1.2
+    "weight": 1.2,
+    "category_penalty": 0.15,
+    "query_expansion": true
   },
   "preview_criterios": {
     "query_terms": [
@@ -352,7 +365,9 @@
     },
     "weight": 1.0,
     "top_k": 45,
-    "category_penalty": 0.0
+    "category_penalty": 0.0,
+    "relevance_min_chunks": 14,
+    "relevance_min_ratio": 0.3
   },
   "eventos_temporales": {
     "query_terms": [
@@ -428,6 +443,13 @@
       "secondary": 0.1
     },
     "weight": 1.0,
+    "top_k": 35,
+    "category_penalty": 0.15,
+    "relevance_min_chunks": 14,
+    "relevance_min_ratio": 0.25
+  },
+  "requisitos_admisibilidad": {
+    "graded_category_scores": true,
     "top_k": 35
   }
 }

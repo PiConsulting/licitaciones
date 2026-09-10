@@ -8,9 +8,18 @@ No confundir con garantías técnicas de productos (esas NO van acá).
 
 **Qué incluye:**
 - Garantía de mantenimiento de oferta (o de seriedad)
-- Garantía de cumplimiento de contrato
-- Garantía de anticipo (si hay entrega de fondos anticipada)
+- Garantía de cumplimiento de contrato (o de ejecución / de adjudicación)
+- Garantía de anticipo, y **contragarantía** por el anticipo recibido
+- Garantía de **impugnación** — al pliego, a la preselección/preclasificación,
+  a la preadjudicación. Si el pliego lista varias con montos distintos, es
+  **un ítem por cada una** (ej: al pliego 2%, a la preselección 4%, a la
+  preadjudicación 4% → 3 ítems `impugnacion`).
 - Fondo de reparo o de garantía
+- **Formas de constitución** admitidas (efectivo, aval, seguro de caución,
+  pagaré, títulos públicos…): si se listan de forma general y no por garantía,
+  emití **un** ítem `otra` con esa lista en `forma_constitucion`.
+- **Condiciones de devolución/reintegro** de las garantías: si el pliego las
+  describe, emití un ítem `otra` con esas condiciones en `valor`.
 - Otras garantías financieras exigidas
 
 **Reconocimiento semántico:** El pliego puede no titular "Garantías". Buscá:
@@ -227,9 +236,21 @@ Usá enum `TipoGarantia`:
 - `cumplimiento_contrato`: para garantizar cumplimiento si adjudican
 - `anticipo`: si hay entrega de fondos por adelantado
 - `fondo_reparo`: retención sobre pagos como garantía
+- `contragarantia`: la que constituye el adjudicatario por el anticipo recibido
+- `impugnacion`: para poder impugnar el pliego, la preselección o la preadjudicación
 - `por_vicios_ocultos`: garantía post-entrega
 - `buen_uso_anticipo`: garantía sobre uso correcto del anticipo
-- `otra`: cualquier otra garantía no clasificable
+- `otra`: formas de constitución generales, condiciones de devolución, o cualquier
+  otra garantía no clasificable
+
+## 4bis. Un ítem por cada garantía nombrada
+
+Enumerá: si el pliego menciona mantenimiento de oferta, cumplimiento de contrato,
+contragarantía e impugnación, son **4 ítems** (o más, si impugnación tiene
+variantes con montos distintos). No colapses varias garantías en un solo ítem.
+Esto es distinto del Caso 4.c (garantías **técnicas** repetidas → un solo
+`not_applicable`): acá son garantías **financieras distintas**, cada una es su
+propio ítem.
 
 ## 5. Sin especulación
 
@@ -337,13 +358,15 @@ ninguna clase.
 
 ---
 
-<contexto_pliego>
-{chunks}
-</contexto_pliego>
-
 **Recordatorio final:**
 - Devolvé JSON válido según schema `GarantiaItem` en `schemas.py`
 - `monto_porcentaje` y `monto_valor` mutuamente excluyentes
 - Si el pliego habla de garantías pero no exige ninguna → ítem `not_applicable` con cita
 - Lista vacía `[]` SOLO si los fragmentos no mencionan garantías de ninguna clase
 - Excluí garantías técnicas de productos como ítems financieros
+
+---
+
+<contexto_pliego>
+{chunks}
+</contexto_pliego>

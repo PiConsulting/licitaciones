@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -96,11 +97,36 @@ def _run_health_checks() -> tuple[int, dict[str, Any]]:
     return status_code, payload
 
 
+async def _warm_up_reranker(model_name: str) -> None:
+    """Carga el cross-encoder de reranking en el arranque del server, no en
+    el primer request real. FIX (2026-09-08): sin esto, la primera llamada a
+    `rerank_chunks` de cada proceso paga el costo de importar
+    sentence_transformers/torch (perezoso, dentro de `_load_model`) más la
+    carga de pesos -- >10s medidos en este entorno, muy por encima de
+    `rag_reranking_timeout_seconds` (5.0s por defecto) -- y esa primera
+    llamada siempre cae al fallback de orden RRF. `_load_model` está
+    cacheado (`lru_cache`), así que esto solo paga el costo una vez por
+    proceso. Corre en un thread aparte para no bloquear el event loop
+    durante el arranque; si falla (sin red, modelo no disponible, etc.) solo
+    logueamos -- el reranking sigue teniendo su propio fallback seguro y no
+    debe tumbar el arranque del server por esto.
+    """
+    try:
+        from analysis.extraction.engine.reranking import _load_model
+
+        await asyncio.to_thread(_load_model, model_name)
+        logger.info("Reranker model warmed up: %s", model_name)
+    except Exception:  # noqa: BLE001
+        logger.warning("Reranker model warm-up failed: %s", model_name, exc_info=True)
+
+
 @asynccontextmanager
 async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     if settings.is_production:
         settings.validate_cloud_configuration()
+    if settings.rag_reranking_enabled:
+        await _warm_up_reranker(settings.rag_reranking_model)
     yield
 
 

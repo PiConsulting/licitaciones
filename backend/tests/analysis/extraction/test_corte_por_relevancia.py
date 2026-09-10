@@ -175,3 +175,21 @@ def test_lo_descartado_queda_registrado(caplog: Any) -> None:
         _drop_low_relevance_chunks(_cola_larga(), category="garantias")
 
     assert "extraction_chunks_dropped_low_relevance" in caplog.text
+
+
+def test_override_min_chunks_se_aplica() -> None:
+    chunks = _cola_larga(cantidad=30)
+    resultado = _drop_low_relevance_chunks(
+        chunks,
+        category="preview_criterios",
+        min_chunks=14,
+        min_ratio=_RELEVANCE_MIN_RATIO,
+    )
+    assert len(resultado) >= 14
+
+
+def test_override_min_ratio_mas_permisivo_conserva_mas_chunks() -> None:
+    chunks = _cola_larga(cantidad=30)
+    base = _drop_low_relevance_chunks(chunks, category="preview_criterios", min_ratio=0.4)
+    permissive = _drop_low_relevance_chunks(chunks, category="preview_criterios", min_ratio=0.2)
+    assert len(permissive) >= len(base)

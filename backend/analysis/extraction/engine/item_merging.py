@@ -1,6 +1,7 @@
 """Fusión de items duplicados o partidos entre sí, por identidad débil o por sección del documento."""
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from typing import Any
 
@@ -181,11 +182,28 @@ def _chunk_section_index(
     return chunk_by_id, sections_by_document
 
 
+_ANEXO_ID_RE = re.compile(
+    r"\b(?:anexo|apendice|ap[eé]ndice|formulario|planilla|modelo)\s+"
+    r"(?:n[°ºo.]*\s*)?([ivxlcdm]+|[a-z]|\d{1,3})\b",
+    re.IGNORECASE,
+)
+
+
+def _anexo_identifier(item: dict[str, Any]) -> str:
+    """Identificador del anexo dentro de su sección ('anexo ii', 'formulario 5').
+    Dos anexos DISTINTOS listados en la misma sección ('Forman parte los Anexos
+    I, II y III') no son la misma unidad y no deben fusionarse -- este componente
+    del key los separa. Si no hay identificador reconocible, devuelve '' y el
+    comportamiento vuelve a ser el histórico (fusiona fantasmas de la sección)."""
+    m = _ANEXO_ID_RE.search(_normalize_for_grounding(str(item.get("valor") or "")))
+    return m.group(1).lower() if m else ""
+
+
 def _item_section_key(
     item: dict[str, Any],
     chunk_by_id: dict[str, tuple[str, str]],
     sections_by_document: dict[str, set[str]],
-) -> tuple[str, str] | None:
+) -> tuple[str, str, str] | None:
     """(document_id, sección de primer nivel) de un ítem, o `None` si no se
     puede determinar con confianza.
 
@@ -199,6 +217,8 @@ def _item_section_key(
     confiable de saber a cuál pertenece el ítem fantasma -- se deja sin
     fusionar antes que arriesgarse a mezclar dos unidades distintas.
     """
+    anexo_id = _anexo_identifier(item)
+
     for ref in item.get("source_references") or []:
         if not isinstance(ref, dict):
             continue
@@ -206,13 +226,13 @@ def _item_section_key(
         if chunk_id in chunk_by_id:
             document_id, section = chunk_by_id[chunk_id]
             if document_id and section:
-                return (document_id, section)
+                return (document_id, section, anexo_id)
 
     source_document_id = item.get("_source_document_id")
     if source_document_id:
         candidate_sections = sections_by_document.get(str(source_document_id)) or set()
         if len(candidate_sections) == 1:
-            return (str(source_document_id), next(iter(candidate_sections)))
+            return (str(source_document_id), next(iter(candidate_sections)), anexo_id)
 
     return None
 

@@ -43,10 +43,6 @@ Extraer una lista ACOTADA de riesgos relevantes para la decisión de participar 
 
 ---
 
-<contexto_pliego>
-{chunks}
-</contexto_pliego>
-
 ---
 
 # INSTRUCCIONES DE EXTRACCIÓN
@@ -125,3 +121,9 @@ Extraer una lista ACOTADA de riesgos relevantes para la decisión de participar 
 - Cada item debe corresponder a una de las 9 dimensiones numeradas de "QUÉ INCLUYE". Si
   al revisar la lista final no podés justificar con qué número de dimensión corresponde
   un item, sacalo antes de responder.
+
+---
+
+<contexto_pliego>
+{chunks}
+</contexto_pliego>

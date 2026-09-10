@@ -287,6 +287,8 @@ class TipoGarantia(str, Enum):
     MANTENIMIENTO_OFERTA = "mantenimiento_oferta"
     CUMPLIMIENTO_CONTRATO = "cumplimiento_contrato"
     ANTICIPO = "anticipo"
+    CONTRAGARANTIA = "contragarantia"
+    IMPUGNACION = "impugnacion"
     FONDO_REPARO = "fondo_reparo"
     POR_VICIOS_OCULTOS = "por_vicios_ocultos"
     BUEN_USO_ANTICIPO = "buen_uso_anticipo"
@@ -355,6 +357,16 @@ class TipoRequisito(str, Enum):
     CAPACIDAD_MINIMA = "capacidad_minima"
     EXPERIENCIA_MINIMA = "experiencia_minima"
     INSCRIPCION_REGISTRO = "inscripcion_registro"
+    # Certificación exigida para la admisibilidad de la oferta (ISO, partner
+    # del fabricante, habilitación de organismo técnico). NO la ficha técnica
+    # descriptiva del bien -- eso es objeto/alcance.
+    CERTIFICACION = "certificacion"
+    # Condición técnica mínima, obligatoria y EXCLUYENTE: si la oferta no la
+    # cumple, es inadmisible (ej. "deberá garantizar compatibilidad GNU/Linux",
+    # "componentes nuevos, sin uso", "marca en el Cuadrante Mágico de Gartner").
+    # Se distingue de la ficha técnica descriptiva por el lenguaje de
+    # obligación + exclusión, no por el tema.
+    REQUISITO_TECNICO_EXCLUYENTE = "requisito_tecnico_excluyente"
     OTRA = "otra"
 
 

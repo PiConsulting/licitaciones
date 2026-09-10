@@ -8,7 +8,7 @@ from infra.database import SessionLocal
 from users.models import User
 
 
-def test_extract_categories_phase1_persists_only_preview_objeto_identificacion(monkeypatch) -> None:
+def test_extract_categories_phase1_persists_phase1_keys(monkeypatch) -> None:
     db = SessionLocal()
     user = db.query(User).filter(User.email == "test@cedia.com").first()
     assert user is not None
@@ -55,7 +55,11 @@ def test_extract_categories_phase1_persists_only_preview_objeto_identificacion(m
                 {"tipo": "expediente", "valor": "EX-2026-1", "confidence": 0.9}
             ],
             "datos_procedimiento_extraction_status": "success",
-            "plazos_clave": [{"referencia": "No deberia persistirse en fase1"}],
+            # plazos_clave se promovió a fase 1 (FIX 2026-09-03): SÍ se persiste.
+            "plazos_clave": [{"referencia": "Apertura 15/08"}],
+            "plazos_clave_extraction_status": "success",
+            # causales es de fase 2: NO debe persistirse acá.
+            "causales_rechazo": [{"tipo": "otra", "valor": "no deberia persistirse en fase1"}],
         },
         "conflicts": [],
         "extraction_metadata": {"token_usage": {}},
@@ -83,7 +87,10 @@ def test_extract_categories_phase1_persists_only_preview_objeto_identificacion(m
     assert "identificacion_procedimiento" in stored_version.extracted_data
     assert "identificacion_procedimiento_narrative" in stored_version.extracted_data
     assert "datos_procedimiento" in stored_version.extracted_data
-    assert "plazos_clave" not in stored_version.extracted_data
+    # plazos_clave se promovió a fase 1 → SÍ se persiste.
+    assert "plazos_clave" in stored_version.extracted_data
+    # causales_rechazo es de fase 2 → NO se persiste en fase 1.
+    assert "causales_rechazo" not in stored_version.extracted_data
     assert "preview_data" not in stored_version.extracted_data
 
     db.close()

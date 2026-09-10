@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
+from typing import Any
+
+import structlog
 
 from analysis.extraction.engine.base import run_extractor
+from analysis.extraction.engine.llm_client import _call_llm
 from analysis.extraction.engine.normalization import _aggregate_status
 from analysis.extraction.schemas import TipoCriterioPreview
 from analysis.extraction.state import GraphState
+
+logger = structlog.get_logger(__name__)
 
 # FIX (2026-09-03, pedido de reducir redundancia entre preview y categorias):
 # de los 10 criterios de preview, 5 se solapaban con categorias que ya tienen
@@ -195,12 +202,18 @@ def _project_plazos_clave(plazos: list[dict]) -> list[dict]:
     return projected
 
 
-# Igual que arriba: heurística por palabras clave sobre el `valor` de
-# RequisitoAdmisibilidadItem, filtrando primero a los obligatorios. No
+# Camino primario: el extractor de `requisitos_admisibilidad` ahora auto-etiqueta
+# los ítems con `tipo` = `certificacion` / `requisito_tecnico_excluyente` (ver
+# schemas.py::TipoRequisito y el prompt). Se filtra por ese tag, que es un juicio
+# del LLM sobre el fragmento real -- más confiable que adivinar por vocabulario.
+_TECNICO_EXCLUYENTE_TIPOS = {"certificacion", "requisito_tecnico_excluyente"}
+
+# Fallback por palabras clave sobre el `valor`, solo si no hay ningún ítem
+# etiquetado (pliego analizado antes de este cambio, o el LLM no taggeó). No
 # reemplaza un juicio experto -- puede dejar afuera requisitos técnicos con
-# vocabulario que no matchea, o incluir alguno límite. Pensado para dar una
-# señal rápida en preview, no como sustituto de la categoría completa
-# (`requisitos_admisibilidad`), que sigue teniendo el detalle completo.
+# vocabulario que no matchea (ej. "compatibilidad GNU/Linux"), o incluir alguno
+# límite. Pensado para dar una señal rápida en preview, no como sustituto de la
+# categoría completa (`requisitos_admisibilidad`), que tiene el detalle completo.
 _TECNICO_EXCLUYENTE_KEYWORDS = [
     "iso", "certificacion", "certificado", "partner", "membresia",
     "vmware", "microsoft", "broadcom", "tecnico", "tecnica", "seguridad",
@@ -209,7 +222,8 @@ _TECNICO_EXCLUYENTE_KEYWORDS = [
 
 
 def _project_requisitos_tecnicos(requisitos: list[dict]) -> list[dict]:
-    matches = [
+    tagged = [r for r in requisitos if str(r.get("tipo") or "") in _TECNICO_EXCLUYENTE_TIPOS]
+    matches = tagged or [
         r for r in requisitos
         if (r.get("metadata") or {}).get("obligatorio") == "si"
         and _has_any(r.get("valor"), _TECNICO_EXCLUYENTE_KEYWORDS)
@@ -260,6 +274,14 @@ _COSTOS_LOGISTICOS_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bjaula\s+interior\b"),
 )
 
+_PREVIEW_RIESGO_TYPES: tuple[str, ...] = (
+    "forma_pago",
+    "moneda",
+    "tipo_cambio",
+    "anticipo_financiero",
+    "responsabilidad_costos_logisticos",
+)
+
 
 def _item_text_with_citations(item: dict) -> str:
     parts = [str(item.get("valor") or "")]
@@ -268,21 +290,9 @@ def _item_text_with_citations(item: dict) -> str:
     return " ".join(parts)
 
 
-def _project_preview_llm_fields_from_riesgos(riesgos: list[dict]) -> list[dict]:
-    """Fallback de preview para criterios comerciales/logísticos.
-
-    Si la evidencia ya aparece en `riesgos`, se proyecta al criterio preview
-    correspondiente para evitar depender únicamente de un llamado LLM diluido
-    sobre 5 tipos en simultáneo.
-    """
+def _regex_matches_for_preview_types(riesgos: list[dict]) -> dict[str, list[dict]]:
     if not riesgos:
-        return [
-            _not_found_item("forma_pago"),
-            _not_found_item("moneda"),
-            _not_found_item("tipo_cambio"),
-            _not_found_item("anticipo_financiero"),
-            _not_found_item("responsabilidad_costos_logisticos"),
-        ]
+        return {tipo: [] for tipo in _PREVIEW_RIESGO_TYPES}
 
     def _matches(patterns: tuple[re.Pattern[str], ...]) -> list[dict]:
         return [
@@ -291,7 +301,6 @@ def _project_preview_llm_fields_from_riesgos(riesgos: list[dict]) -> list[dict]:
             if _has_pattern(_item_text_with_citations(item), patterns)
         ]
 
-    projections: list[dict] = []
     mapping: tuple[tuple[str, tuple[re.Pattern[str], ...]], ...] = (
         ("forma_pago", _FORMA_PAGO_PATTERNS),
         ("moneda", _MONEDA_PATTERNS),
@@ -299,13 +308,145 @@ def _project_preview_llm_fields_from_riesgos(riesgos: list[dict]) -> list[dict]:
         ("anticipo_financiero", _ANTICIPO_PATTERNS),
         ("responsabilidad_costos_logisticos", _COSTOS_LOGISTICOS_PATTERNS),
     )
+    return {tipo: _matches(patterns) for tipo, patterns in mapping}
 
-    for tipo, patterns in mapping:
-        matches = _matches(patterns)
-        if not matches:
-            projections.append(_not_found_item(tipo))
+
+def _normalize_preview_type_label(label: str) -> str | None:
+    normalized = _normalize(label).replace("-", "_").replace(" ", "_")
+    aliases = {
+        "forma_pago": "forma_pago",
+        "moneda": "moneda",
+        "tipo_cambio": "tipo_cambio",
+        "anticipo": "anticipo_financiero",
+        "anticipo_financiero": "anticipo_financiero",
+        "costos_logisticos": "responsabilidad_costos_logisticos",
+        "responsabilidad_costos_logisticos": "responsabilidad_costos_logisticos",
+    }
+    return aliases.get(normalized)
+
+
+def _dedupe_matches(items: list[dict]) -> list[dict]:
+    unique: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for item in items:
+        citation_text = " ".join(
+            str(ref.get("citation") or "") for ref in item.get("source_references") or []
+        )
+        signature = (str(item.get("valor") or ""), citation_text)
+        if signature in seen:
             continue
-        projections.append(_merge_matches(matches, tipo))
+        seen.add(signature)
+        unique.append(item)
+    return unique
+
+
+def _classify_preview_fields_via_llm(
+    riesgos: list[dict], *, correlation_id: str
+) -> dict[str, list[dict]] | None:
+    if not riesgos:
+        return {tipo: [] for tipo in _PREVIEW_RIESGO_TYPES}
+
+    payload = [
+        {
+            "index": idx,
+            "texto": _item_text_with_citations(item)[:1800],
+        }
+        for idx, item in enumerate(riesgos)
+    ]
+
+    messages = [
+        (
+            "system",
+            "Clasificas evidencias de riesgos en etiquetas de preview_criterios. "
+            "Devuelve solo JSON válido con key 'classifications'.",
+        ),
+        (
+            "human",
+            (
+                "Para cada item, devuelve una lista multi-etiqueta en 'tipos' usando "
+                "solo: forma_pago, moneda, tipo_cambio, anticipo_financiero, "
+                "responsabilidad_costos_logisticos. Si no aplica, devuelve lista vacía. "
+                "Formato: {'classifications':[{'index':0,'tipos':['moneda']}, ...]}. "
+                f"Items: {json.dumps(payload, ensure_ascii=False)}"
+            ),
+        ),
+    ]
+
+    try:
+        parsed, _usage = _call_llm(messages, correlation_id=f"{correlation_id}-preview-projection")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "preview_projection_llm_failed_fallback_to_regex",
+            correlation_id=correlation_id,
+            error=str(exc)[:200],
+            candidates=len(riesgos),
+        )
+        return None
+
+    matches: dict[str, list[dict]] = {tipo: [] for tipo in _PREVIEW_RIESGO_TYPES}
+    rows = parsed.get("classifications") or []
+    if not isinstance(rows, list):
+        rows = []
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        raw_index = row.get("index")
+        if not isinstance(raw_index, int) or raw_index < 0 or raw_index >= len(riesgos):
+            continue
+        tipos = row.get("tipos") or []
+        if not isinstance(tipos, list):
+            continue
+        for raw_tipo in tipos:
+            if not isinstance(raw_tipo, str):
+                continue
+            normalized_tipo = _normalize_preview_type_label(raw_tipo)
+            if normalized_tipo is None:
+                continue
+            matches[normalized_tipo].append(riesgos[raw_index])
+
+    logger.info(
+        "preview_projection_llm_applied",
+        correlation_id=correlation_id,
+        candidates=len(riesgos),
+        matched_types=sum(1 for tipo in _PREVIEW_RIESGO_TYPES if matches[tipo]),
+    )
+    return matches
+
+
+def _project_preview_llm_fields_from_riesgos(
+    riesgos: list[dict], *, correlation_id: str | None = None
+) -> list[dict]:
+    """Fallback de preview para criterios comerciales/logísticos.
+
+    Si la evidencia ya aparece en `riesgos`, se proyecta al criterio preview
+    correspondiente para evitar depender únicamente de un llamado LLM diluido
+    sobre 5 tipos en simultáneo.
+    """
+    regex_matches = _regex_matches_for_preview_types(riesgos)
+    llm_matches = _classify_preview_fields_via_llm(
+        riesgos,
+        correlation_id=correlation_id or "preview_criterios",
+    )
+
+    projections: list[dict] = []
+    for tipo in _PREVIEW_RIESGO_TYPES:
+        merged = list(regex_matches[tipo])
+        if llm_matches is not None:
+            merged.extend(llm_matches.get(tipo, []))
+        merged = _dedupe_matches(merged)
+
+        if not merged:
+            item = _not_found_item(tipo)
+        else:
+            item = _merge_matches(merged, tipo)
+
+        metadata = dict(item.get("metadata") or {})
+        metadata["_projection_source"] = (
+            "llm_union_regex" if llm_matches is not None else "regex_fallback"
+        )
+        item["metadata"] = metadata
+        projections.append(item)
 
     return projections
 
@@ -327,7 +468,10 @@ def extractor_preview_criterios(state: GraphState) -> GraphState:
     projected += _project_plazos_clave(state.get("plazos", []))
     projected += _project_requisitos_tecnicos(state.get("requisitos_admisibilidad", []))
     projected += _project_multas_penalidades(state.get("riesgos", []))
-    projected += _project_preview_llm_fields_from_riesgos(state.get("riesgos", []))
+    projected += _project_preview_llm_fields_from_riesgos(
+        state.get("riesgos", []),
+        correlation_id=str(state.get("correlation_id", "preview_criterios")),
+    )
 
     combined = [*llm_items, *projected]
 

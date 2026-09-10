@@ -39,6 +39,12 @@ class Chunk(Base):
     source: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     primary_category: Mapped[str | None] = mapped_column(Text, nullable=True)
     secondary_categories: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # Vector multi-label {categoria: score 0-1} (reindex C+D, migración
+    # 20260909_0013 -- la columna real es jsonb; acá `JSON` genérico para no
+    # romper el motor SQLite de los tests). Lo usa el retrieval graduado
+    # (`_score_chunks_for_category`) para las categorías con
+    # `graded_category_scores` en glossary.json.
+    category_scores: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     blocks: Mapped[list | None] = mapped_column(JSON, nullable=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIMENSIONS), nullable=False)

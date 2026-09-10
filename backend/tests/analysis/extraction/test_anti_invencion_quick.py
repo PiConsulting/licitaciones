@@ -14,26 +14,47 @@ if str(backend_dir) not in sys.path:
 from analysis.extraction.graph.validation import _drop_items_without_sources, _enforce_citation_contract
 
 
-def test_riesgo_sin_fuentes_se_descarta():
-    """Un riesgo sin source_references debe ser descartado."""
-    print("\n✅ Test 1: Riesgo sin fuentes se descarta")
+def test_riesgo_sin_fuentes_pero_con_dato_se_conserva_flag():
+    """FIX 2026-09-03: un ítem con `valor` sustantivo pero sin
+    `source_references` YA NO se descarta -- se conserva (el frontend lo
+    renderiza sin botón "ver fuente" y no cuenta como "revisado
+    automáticamente") y se contabiliza en
+    `quality[cat]["conservados_sin_evidencia_verificable"]`. Solo se
+    descartan los ítems SIN contenido sustantivo (ver
+    `test_todos_sin_contenido_ni_fuentes_se_descartan`)."""
+    print("\n✅ Test 1: riesgo con dato pero sin fuente verificable se conserva")
     items = [
         {
             "tipo": "descalificacion",
             "subtipo": "plazos",
-            "valor": "Riesgo inventado sin evidencia",
-            "source_references": [],  # SIN FUENTES
+            "valor": "Riesgo con dato real cuya cita no se pudo verificar",
+            "source_references": [],
             "extraction_status": "success",
             "confidence": 0.9,
         }
     ]
 
-    filtered, status = _drop_items_without_sources(items, "success", category="riesgos")
+    quality: dict = {}
+    filtered, status = _drop_items_without_sources(
+        items, "success", category="riesgos", quality=quality
+    )
 
-    assert len(filtered) == 0, "Item sin fuentes debería descartarse"
-    assert status == "partial", f"Status debería ser partial, fue {status}"
-    print(f"   ✓ Items descartados: {len(items) - len(filtered)}")
-    print(f"   ✓ Status cambiado a: {status}")
+    assert len(filtered) == 1
+    assert quality["riesgos"]["conservados_sin_evidencia_verificable"] == 1
+
+
+def test_todos_sin_contenido_ni_fuentes_se_descartan():
+    """El camino de descarte sigue vivo: ítems sin `valor` (o con valor
+    'no encontrado') y sin fuentes se tiran y el status baja a partial."""
+    items = [
+        {"tipo": "otro", "subtipo": "otro_explicito", "valor": None, "source_references": [], "extraction_status": "success", "confidence": 0.5},
+        {"tipo": "otro", "subtipo": "otro_explicito", "valor": "no encontrado", "source_references": [], "extraction_status": "success", "confidence": 0.5},
+    ]
+    quality: dict = {}
+    filtered, status = _drop_items_without_sources(items, "success", category="riesgos", quality=quality)
+    assert len(filtered) == 0
+    assert status == "partial"
+    assert quality["riesgos"]["descartados_sin_evidencia"] == 2
 
 
 def test_riesgo_con_fuentes_validas_se_conserva():
@@ -104,35 +125,20 @@ def test_mezcla_con_y_sin_fuentes():
         items, "success", category="riesgos", quality=quality
     )
 
-    assert len(filtered) == 2, f"Solo 2 items deben conservarse, se conservaron {len(filtered)}"
-    assert status == "partial", f"Status debe ser partial, fue {status}"
-    assert quality["riesgos"]["descartados_sin_evidencia"] == 1
-    assert quality["riesgos"]["conservados"] == 2
-    print(f"   ✓ Items conservados: {len(filtered)}")
-    print(f"   ✓ Items descartados: {quality['riesgos']['descartados_sin_evidencia']}")
-    print(f"   ✓ Status cambiado a: {status}")
+    # El del medio (valor sustantivo, sin fuentes) se conserva flag; los 3 quedan.
+    assert len(filtered) == 3, f"Los 3 items se conservan, se conservaron {len(filtered)}"
+    assert quality["riesgos"]["conservados_sin_evidencia_verificable"] == 1
+    assert quality["riesgos"]["conservados"] == 3
 
 
-def test_todos_sin_fuentes_resulta_en_lista_vacia():
-    """Si todos los items carecen de fuentes, la lista queda vacía."""
-    print("\n✅ Test 4: Todos los items sin fuentes resulta en lista vacía")
+def test_todos_con_dato_sin_fuentes_se_conservan_flag():
+    """Antes: si todos carecían de fuentes la lista quedaba vacía. Ahora
+    (FIX 2026-09-03): si tienen `valor` sustantivo se conservan todos, con
+    el contador `conservados_sin_evidencia_verificable`."""
+    print("\n✅ Test 4: todos con dato pero sin fuentes -> se conservan flag")
     items = [
-        {
-            "tipo": "otro",
-            "subtipo": "otro_explicito",
-            "valor": "Riesgo 1 sin evidencia",
-            "source_references": [],
-            "extraction_status": "success",
-            "confidence": 0.7,
-        },
-        {
-            "tipo": "otro",
-            "subtipo": "otro_explicito",
-            "valor": "Riesgo 2 sin evidencia",
-            "source_references": [],
-            "extraction_status": "success",
-            "confidence": 0.6,
-        },
+        {"tipo": "otro", "subtipo": "otro_explicito", "valor": "Riesgo 1 con dato", "source_references": [], "extraction_status": "success", "confidence": 0.7},
+        {"tipo": "otro", "subtipo": "otro_explicito", "valor": "Riesgo 2 con dato", "source_references": [], "extraction_status": "success", "confidence": 0.6},
     ]
 
     quality = {}
@@ -140,13 +146,9 @@ def test_todos_sin_fuentes_resulta_en_lista_vacia():
         items, "success", category="riesgos", quality=quality
     )
 
-    assert len(filtered) == 0, "Todos los items deben descartarse"
-    assert status == "partial", f"Status debe ser partial, fue {status}"
-    assert quality["riesgos"]["descartados_sin_evidencia"] == 2
-    assert quality["riesgos"]["conservados"] == 0
-    print(f"   ✓ Items conservados: {len(filtered)}")
-    print(f"   ✓ Items descartados: {quality['riesgos']['descartados_sin_evidencia']}")
-    print(f"   ✓ Status final: {status}")
+    assert len(filtered) == 2
+    assert quality["riesgos"]["conservados_sin_evidencia_verificable"] == 2
+    assert quality["riesgos"]["conservados"] == 2
 
 
 def test_enforce_citation_contract():

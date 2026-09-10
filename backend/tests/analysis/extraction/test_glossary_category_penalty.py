@@ -26,8 +26,11 @@ def test_get_category_penalty_usa_default_si_la_categoria_no_tiene_override() ->
     """Categorías sin `category_penalty` en su entrada de glossary.json
     (todavía sin evidencia que justifique bajarlo) siguen usando el default
     de producción de `_retrieve_with_category_priority` (0.30)."""
+    # `garantias`, `requisitos_admisibilidad` y `eventos_temporales` no tienen
+    # `category_penalty` en glossary.json (varias otras sí lo tienen desde el
+    # experimento penalty=0.15 de 2026-09-09).
     assert get_category_penalty("garantias", default=0.30) == 0.30
-    assert get_category_penalty("plazos_clave", default=0.30) == 0.30
+    assert get_category_penalty("requisitos_admisibilidad", default=0.30) == 0.30
 
 
 def test_get_category_penalty_usa_default_si_la_categoria_no_existe() -> None:

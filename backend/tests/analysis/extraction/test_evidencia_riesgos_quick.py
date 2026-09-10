@@ -231,25 +231,23 @@ def test_evidencia_con_campos_opcionales():
     print("   ✓ Campos opcionales serializados correctamente")
 
 
-def test_no_acepta_riesgo_sin_evidencia():
-    """Verifica que no se acepta riesgo sin source_references (regla anti-invención)."""
-    print("\n✅ Test 6: Rechazo de riesgo sin evidencia")
+def test_riesgo_sin_evidencia_pasa_schema_y_se_filtra_despues():
+    """FIX 2026-09-03: `source_references=[]` YA NO lo rechaza pydantic
+    (se quitó `min_length=1` de `ExtractedItem`). La regla anti-invención
+    la aplica ahora `graph/validation.py::_drop_items_without_sources`, no
+    el schema -- así un placeholder o un hallazgo con cita no verificable
+    sobrevive la validación y se decide qué hacer con él aguas abajo."""
+    print("\n✅ Test 6: riesgo sin evidencia pasa el schema")
 
-    from pydantic import ValidationError
-
-    try:
-        riesgo = RiesgoItem(
-            tipo=TipoRiesgo.OTRO,
-            subtipo=SubtipoRiesgo.OTRO_EXPLICITO,
-            valor="Riesgo inventado sin evidencia",
-            extraction_status="success",
-            confidence=0.7,
-            source_references=[],  # SIN EVIDENCIA
-        )
-        assert False, "Debería rechazar riesgo sin evidencia"
-    except ValidationError:
-        print("   ✓ Validación correcta: rechaza riesgo sin source_references")
-        print("   ✓ Regla anti-invención enforced")
+    riesgo = RiesgoItem(
+        tipo=TipoRiesgo.OTRO,
+        subtipo=SubtipoRiesgo.OTRO_EXPLICITO,
+        valor="Riesgo con dato pero cita no verificable",
+        extraction_status="partial",
+        confidence=0.7,
+        source_references=[],
+    )
+    assert riesgo.source_references == []
 
 
 if __name__ == "__main__":

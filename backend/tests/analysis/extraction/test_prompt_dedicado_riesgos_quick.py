@@ -49,11 +49,13 @@ def test_estructura_dedicada():
 
     prompt = _load_prompt("riesgos.txt")
 
-    # Secciones obligatorias
+    # Secciones obligatorias (el bloque de chunks se marca con
+    # <contexto_pliego>{chunks}</contexto_pliego>, al final del prompt para
+    # que el prefijo estático sea cacheable -- plan latencia 6.2).
     required_sections = [
         "# CONCEPTO DE LA CATEGORÍA",
         "# OBJETIVO",
-        "# CHUNKS DEL PLIEGO",
+        "<contexto_pliego>",
         "# INSTRUCCIONES DE EXTRACCIÓN",
         "# FORMATO DE SALIDA",
         "# VALIDACIÓN DE CALIDAD",
