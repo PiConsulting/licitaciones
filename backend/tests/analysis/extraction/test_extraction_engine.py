@@ -644,3 +644,383 @@ class TestMapReduceParallelismIsDeterministic:
         )
         assert delta["objeto_alcance_status"] != "failed"
         assert delta["objeto_alcance_token_usage"]["llm_calls"] == 2
+
+
+class TestSingleDocumentGroupSplitting:
+    """FIX (2026-09-11, diagnóstico no-determinismo garantías): un pliego de
+    un solo documento con muchos chunks en una categoría (ej. garantías,
+    top_k=35) debe partirse en varios llamados en vez de uno solo -- el
+    map-reduce por documento (2026-08-21) no ayuda en absoluto cuando hay un
+    único documento. Ver `_split_oversized_groups` en item_merging.py."""
+
+    def _setup(self, monkeypatch, *, total_chunks: int, group_max_chunks: int):
+        chunks = [
+            {
+                "document_id": "doc-unico",
+                # Orden invertido a propósito: el retrieval real ordena por
+                # relevancia, no por posición -- `_group_chunks_by_document`
+                # debe reordenar por `chunk_index` antes de partir en lotes.
+                "chunk_index": total_chunks - 1 - i,
+                "content": f"contenido chunk {total_chunks - 1 - i}",
+                "primary_category": "garantias",
+                "secondary_categories": [],
+                "search_score": 1.0,
+            }
+            for i in range(total_chunks)
+        ]
+
+        monkeypatch.setattr(
+            extractor_base, "_retrieve_with_category_priority", lambda **kw: list(chunks)
+        )
+        monkeypatch.setattr(
+            extractor_base, "_drop_low_relevance_chunks", lambda chunks, **kw: chunks
+        )
+        monkeypatch.setattr(
+            extractor_base, "_truncate_to_token_budget", lambda chunks, *a, **kw: chunks
+        )
+        monkeypatch.setattr(extractor_base, "_verify_citation_grounding", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            extractor_base, "_merge_split_fact_items", lambda items, *a, **kw: items
+        )
+        monkeypatch.setattr(
+            extractor_base, "_normalize_mixed_not_found_items", lambda items, **kw: items
+        )
+        monkeypatch.setattr(
+            "analysis.extraction.engine.validators.detect_cross_contamination",
+            lambda *a, **kw: [],
+        )
+
+        call_batches: list[list[int]] = []
+
+        def fake_call_llm(*, messages, correlation_id):
+            human = messages[-1][1]
+            batch_indices = sorted(int(n) for n in __import__("re").findall(r"chunk (\d+)", human))
+            call_batches.append(batch_indices)
+            items = [
+                {
+                    "tipo": "mantenimiento_oferta",
+                    "valor": f"item-chunk-{idx}",
+                    "extraction_status": "success",
+                    "source_references": [{"document_id": "doc-unico", "citation": "x"}],
+                }
+                for idx in batch_indices
+            ]
+            return (
+                {"garantias": items},
+                {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            )
+
+        monkeypatch.setattr(extractor_base, "_call_llm", fake_call_llm)
+        # Aislado de `self_consistency_runs` (glossary.json tiene 2 para
+        # "garantias" desde la Fase 2 de la auditoría RAG) -- esta clase
+        # prueba específicamente el split por tamaño de grupo, no las
+        # corridas repetidas (eso lo cubre `TestSelfConsistencyRuns`).
+        monkeypatch.setattr(
+            "analysis.extraction.glossary.get_category_self_consistency_runs",
+            lambda category, default=1: 1,
+        )
+
+        class _Settings:
+            extraction_top_k = 35
+            extraction_max_context_tokens = 16000
+            query_expansion_use_semantic_definition = False
+            extraction_mapreduce_concurrency = 1
+            extraction_group_max_chunks = group_max_chunks
+
+        settings = _Settings()
+        monkeypatch.setattr(extractor_base, "get_settings", lambda: settings)
+        return call_batches
+
+    def _run(self):
+        state = {"correlation_id": "corr-split", "analysis_id": "an-split"}
+        return extractor_base.run_extractor(
+            state=state,
+            result_key="garantias",
+            state_field="garantias",
+            status_field="garantias_status",
+            prompt_file_name="garantias.txt",
+            query="garantias",
+        )
+
+    def test_large_single_document_group_splits_into_multiple_calls(self, monkeypatch):
+        call_batches = self._setup(monkeypatch, total_chunks=35, group_max_chunks=15)
+
+        delta = self._run()
+
+        # 35 chunks / 15 por lote -> 3 llamados, no 1.
+        assert len(call_batches) == 3
+        assert delta["garantias_token_usage"]["llm_calls"] == 3
+
+        # Cada lote es un tramo CONTIGUO en orden real del documento (no
+        # salteado por score de relevancia).
+        assert call_batches[0] == list(range(0, 15))
+        assert call_batches[1] == list(range(15, 30))
+        assert call_batches[2] == list(range(30, 35))
+
+        # Ningún ítem se pierde en el split: los 35 llegan al resultado final.
+        assert len(delta["garantias"]) == 35
+        assert {item["valor"] for item in delta["garantias"]} == {
+            f"item-chunk-{i}" for i in range(35)
+        }
+
+    def test_small_single_document_group_stays_as_one_call(self, monkeypatch):
+        call_batches = self._setup(monkeypatch, total_chunks=5, group_max_chunks=15)
+
+        delta = self._run()
+
+        assert len(call_batches) == 1
+        assert delta["garantias_token_usage"]["llm_calls"] == 1
+        assert len(delta["garantias"]) == 5
+
+
+class TestSelfConsistencyRuns:
+    """Fase 2 (2026-09-14) de la auditoría RAG: con el chunking ya arreglado
+    (headings/incisos), el gap que queda en garantías/requisitos_
+    admisibilidad/identificacion_procedimiento/riesgos es que el LLM, frente
+    a una cláusula con varios datos, saca uno y descarta otro -- de forma no
+    determinista entre corridas. `self_consistency_runs` (opt-in por
+    categoría en glossary.json) repite cada llamado del map-reduce N veces
+    para que el dedup de aguas abajo (`merge_node`) una lo que aparezca en
+    cualquiera de las corridas, en vez de depender de una sola."""
+
+    def _setup(self, monkeypatch, *, self_consistency_runs: int):
+        chunks = [
+            {
+                "document_id": "doc-unico",
+                "chunk_index": 0,
+                "content": "contenido unico",
+                "primary_category": "garantias",
+                "secondary_categories": [],
+                "search_score": 1.0,
+            }
+        ]
+
+        monkeypatch.setattr(
+            extractor_base, "_retrieve_with_category_priority", lambda **kw: list(chunks)
+        )
+        monkeypatch.setattr(
+            extractor_base, "_drop_low_relevance_chunks", lambda chunks, **kw: chunks
+        )
+        monkeypatch.setattr(
+            extractor_base, "_truncate_to_token_budget", lambda chunks, *a, **kw: chunks
+        )
+        monkeypatch.setattr(extractor_base, "_verify_citation_grounding", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            extractor_base, "_merge_split_fact_items", lambda items, *a, **kw: items
+        )
+        monkeypatch.setattr(
+            extractor_base, "_normalize_mixed_not_found_items", lambda items, **kw: items
+        )
+        monkeypatch.setattr(
+            "analysis.extraction.engine.validators.detect_cross_contamination",
+            lambda *a, **kw: [],
+        )
+        monkeypatch.setattr(
+            "analysis.extraction.glossary.get_category_self_consistency_runs",
+            lambda category, default=1: self_consistency_runs,
+        )
+
+        call_count = {"n": 0}
+
+        def fake_call_llm(*, messages, correlation_id):
+            call_count["n"] += 1
+            items = [
+                {
+                    "tipo": "mantenimiento_oferta",
+                    "valor": f"corrida-{call_count['n']}",
+                    "extraction_status": "success",
+                    "source_references": [{"document_id": "doc-unico", "citation": "x"}],
+                }
+            ]
+            return (
+                {"garantias": items},
+                {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            )
+
+        monkeypatch.setattr(extractor_base, "_call_llm", fake_call_llm)
+
+        class _Settings:
+            extraction_top_k = 35
+            extraction_max_context_tokens = 16000
+            query_expansion_use_semantic_definition = False
+            extraction_mapreduce_concurrency = 1
+            extraction_group_max_chunks = 15
+
+        settings = _Settings()
+        monkeypatch.setattr(extractor_base, "get_settings", lambda: settings)
+        return call_count
+
+    def _run(self):
+        state = {"correlation_id": "corr-self-consistency", "analysis_id": "an-self-consistency"}
+        return extractor_base.run_extractor(
+            state=state,
+            result_key="garantias",
+            state_field="garantias",
+            status_field="garantias_status",
+            prompt_file_name="garantias.txt",
+            query="garantias",
+        )
+
+    def test_default_runs_once_unchanged(self, monkeypatch):
+        call_count = self._setup(monkeypatch, self_consistency_runs=1)
+
+        delta = self._run()
+
+        assert call_count["n"] == 1
+        assert delta["garantias_token_usage"]["llm_calls"] == 1
+        assert len(delta["garantias"]) == 1
+
+    def test_two_runs_calls_twice_and_keeps_both_items(self, monkeypatch):
+        call_count = self._setup(monkeypatch, self_consistency_runs=2)
+
+        delta = self._run()
+
+        assert call_count["n"] == 2
+        assert delta["garantias_token_usage"]["llm_calls"] == 2
+        # Ambos ítems sobreviven a nivel run_extractor -- el dedup entre
+        # corridas pasa después, en merge_node (mismo criterio que ya usa
+        # para duplicados entre documentos distintos).
+        assert [item["valor"] for item in delta["garantias"]] == ["corrida-1", "corrida-2"]
+
+
+class TestVerificationPass:
+    """Fase 2 (2026-09-14), arquitectura "dos pasadas": tras el map-reduce,
+    si la categoría opta in (`verification_pass` en glossary.json), un
+    llamado LLM aparte audita los ítems ya extraídos contra las mismas
+    reglas de la categoría y decide mantener/descartar/fusionar. Estos tests
+    verifican que `run_extractor` la invoca cuando corresponde, propaga su
+    resultado y su costo, y que NO se activa para categorías que no opinaron
+    in -- sin tocar el contenido real del llamado (eso lo cubre
+    `test_verification_pass.py`)."""
+
+    def _setup(self, monkeypatch, *, verification_pass_enabled: bool):
+        chunks = [
+            {
+                "document_id": "doc-unico",
+                "chunk_index": 0,
+                "content": "contenido unico",
+                "primary_category": "riesgos",
+                "secondary_categories": [],
+                "search_score": 1.0,
+            }
+        ]
+
+        monkeypatch.setattr(
+            extractor_base, "_retrieve_with_category_priority", lambda **kw: list(chunks)
+        )
+        monkeypatch.setattr(
+            extractor_base, "_drop_low_relevance_chunks", lambda chunks, **kw: chunks
+        )
+        monkeypatch.setattr(
+            extractor_base, "_truncate_to_token_budget", lambda chunks, *a, **kw: chunks
+        )
+        monkeypatch.setattr(extractor_base, "_verify_citation_grounding", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            extractor_base, "_merge_split_fact_items", lambda items, *a, **kw: items
+        )
+        monkeypatch.setattr(
+            extractor_base, "_normalize_mixed_not_found_items", lambda items, **kw: items
+        )
+        monkeypatch.setattr(
+            "analysis.extraction.engine.validators.detect_cross_contamination",
+            lambda *a, **kw: [],
+        )
+        monkeypatch.setattr(
+            "analysis.extraction.glossary.get_category_self_consistency_runs",
+            lambda category, default=1: 1,
+        )
+        monkeypatch.setattr(
+            extractor_base,
+            "get_category_verification_pass",
+            lambda category: verification_pass_enabled,
+        )
+
+        def fake_call_llm(*, messages, correlation_id):
+            items = [
+                {
+                    "tipo": "economico",
+                    "valor": "candidato-1",
+                    "extraction_status": "success",
+                    "source_references": [{"document_id": "doc-unico", "citation": "x"}],
+                },
+                {
+                    "tipo": "economico",
+                    "valor": "candidato-2",
+                    "extraction_status": "success",
+                    "source_references": [{"document_id": "doc-unico", "citation": "y"}],
+                },
+            ]
+            return (
+                {"riesgos": items},
+                {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            )
+
+        monkeypatch.setattr(extractor_base, "_call_llm", fake_call_llm)
+
+        verification_calls: list[list] = []
+
+        def fake_verification_pass(items, *, prompt_file_name, root_key, correlation_id):
+            verification_calls.append(items)
+            kept = [item for item in items if item["valor"] != "candidato-2"]
+            return kept, {"prompt_tokens": 7, "completion_tokens": 3, "total_tokens": 10}
+
+        monkeypatch.setattr(extractor_base, "run_verification_pass", fake_verification_pass)
+
+        class _Settings:
+            extraction_top_k = 35
+            extraction_max_context_tokens = 16000
+            query_expansion_use_semantic_definition = False
+            extraction_mapreduce_concurrency = 1
+            extraction_group_max_chunks = 15
+
+        settings = _Settings()
+        monkeypatch.setattr(extractor_base, "get_settings", lambda: settings)
+        return verification_calls
+
+    def _run(self):
+        state = {"correlation_id": "corr-verification", "analysis_id": "an-verification"}
+        return extractor_base.run_extractor(
+            state=state,
+            result_key="riesgos",
+            state_field="riesgos",
+            status_field="riesgos_status",
+            prompt_file_name="riesgos.txt",
+            query="riesgos",
+        )
+
+    def test_disabled_skips_verification_pass(self, monkeypatch):
+        verification_calls = self._setup(monkeypatch, verification_pass_enabled=False)
+
+        delta = self._run()
+
+        assert verification_calls == []
+        assert len(delta["riesgos"]) == 2
+        assert delta["riesgos_token_usage"]["llm_calls"] == 1
+
+    def test_enabled_filters_items_and_adds_cost(self, monkeypatch):
+        verification_calls = self._setup(monkeypatch, verification_pass_enabled=True)
+
+        delta = self._run()
+
+        assert len(verification_calls) == 1
+        assert [item["valor"] for item in delta["riesgos"]] == ["candidato-1"]
+        # 1 llamado de map-reduce + 1 de verificación.
+        assert delta["riesgos_token_usage"]["llm_calls"] == 2
+        assert delta["riesgos_token_usage"]["total_tokens"] == 25
+        assert delta["riesgos_token_usage"]["prompt_tokens"] == 17
+
+    def test_enabled_skips_call_when_no_items(self, monkeypatch):
+        verification_calls = self._setup(monkeypatch, verification_pass_enabled=True)
+
+        def fake_call_llm_empty(*, messages, correlation_id):
+            return (
+                {"riesgos": []},
+                {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            )
+
+        monkeypatch.setattr(extractor_base, "_call_llm", fake_call_llm_empty)
+
+        delta = self._run()
+
+        assert verification_calls == []
+        assert delta["riesgos"] == []

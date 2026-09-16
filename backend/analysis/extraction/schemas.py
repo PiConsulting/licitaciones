@@ -475,6 +475,13 @@ class TipoIdentificacion(str, Enum):
     PRESUPUESTO_OFICIAL = "presupuesto_oficial"
     JURISDICCION = "jurisdiccion"
     DENOMINACION = "denominacion"
+    # FIX (2026-09-14, Fase 2 de la auditoría RAG): el golden de varios
+    # pliegos pide datos de contacto/consulta que no tenían dónde ir en este
+    # enum -- ni el LLM los pedía (fuera de alcance del prompt), ni había
+    # ítem que los recibiera. Dos valores nuevos, genéricos (no ligados a la
+    # redacción de ningún pliego puntual):
+    CANAL_CONSULTAS = "canal_consultas"  # domicilio electrónico de notificaciones, correo de consultas administrativas/técnicas
+    LUGAR_CONSULTA_PLIEGO = "lugar_consulta_pliego"  # dónde retirar/consultar el pliego (oficina física o portal en línea)
 
 
 class IdentificacionProcedimientoItem(ExtractedItem):

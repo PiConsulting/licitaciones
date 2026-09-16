@@ -18,9 +18,31 @@ _INCISO_PATTERN = re.compile(
 _RUN_IN_HEADING_RE = re.compile(
     r"^(?P<label>"
     r"(?:art[ií]culo|art\.)\s*(?:n\s*[°ºo]?\s*)?\d+[a-z]?"  # "Artículo 10", "Art. 5a"
-    r"|\d{1,2}(?:\.\d{1,2})*"  # "10", "5.2", "3.1.2"
+    # FIX (2026-09-14, Fase 1 de auditoría RAG, finding P0-1): "10", "5.2",
+    # pero también "10º"/"10°" -- la notación ordinal ("Nº.- TÍTULO") es
+    # estándar en pliegos argentinos y esta rama no la reconocía. Como
+    # consecuencia, cláusulas numeradas así (ej. "8º.- I.V.A.", "10º.-
+    # MANTENIMIENTO DE OFERTA") nunca se promovían a heading propio y
+    # quedaban en el MISMO bloque que la cláusula anterior -- causa raíz
+    # confirmada de un bug real: `_detect_incisos` (más abajo en este
+    # archivo) captura el último inciso hasta el final del bloque sin más
+    # límite, así que el contenido de esas cláusulas siguientes quedaba dentro
+    # del último inciso (y del parent completo) de la cláusula anterior. Caso
+    # real: en un pliego de 1 documento, el chunk del inciso "d)" de la
+    # cláusula de garantías terminaba conteniendo también el texto de IVA,
+    # mayores costos, mantenimiento de oferta e inscripción -- y el LLM citó
+    # ese chunk contaminado para un dato de garantías que en realidad hablaba
+    # de otra cosa (visto en `backend/debug/rag-audit/fase1-mapeo-pipeline-2026-09-14.md`).
+    r"|\d{1,2}(?:\.\d{1,2})*[°º]?"  # "10", "5.2", "3.1.2", "10º", "8°"
     r")"
-    r"\s*[:.\-–)]?\s+"  # Separador después del label (opcional: ":", ".", "-", ")")
+    # FIX (2026-09-14, mismo finding P0-1): el separador solo aceptaba UN
+    # carácter de puntuación (":", ".", "-", ")"). "Nº.- TÍTULO" (punto Y
+    # guion juntos) es la convención más común en pliegos argentinos para
+    # cláusulas numeradas -- con el separador viejo, "8º.- I.V.A." nunca
+    # matcheaba (fallaba después de consumir el ".", porque el "-" que
+    # seguía no es espacio). La rama ".-" tiene que ir ANTES que la clase de
+    # un solo carácter en la alternancia para que se pruebe primero.
+    r"\s*(?:\.-|[:.\-–)])?\s+"  # Separador después del label (".-", o uno de ":", ".", "-", ")")
     r"(?:"
     # Caso con ":" propio del título (ej. "Artículo 10: GARANTÍA DE
     # ADJUDICACIÓN: En caso de corresponder..."): el título es TODO lo que
@@ -46,6 +68,7 @@ def _run_in_title(match: re.Match) -> str:
 _MIN_RUN_IN_TITLE_LETTERS = 3
 _BOILERPLATE_EDGE_CHARS = " -–—:|.,"
 _SPLIT_WORD_MAX_CHARS = 5
+_ROMAN_NUMERAL_RE = re.compile(r"^[IVXLCDM]+$", re.IGNORECASE)
 _PALABRAS_CORTAS_COMPLETAS = {
     "EL",
     "LA",
@@ -80,6 +103,22 @@ _PALABRAS_CORTAS_COMPLETAS = {
 _HEADING_TAIL_MAX_CHARS = 90
 _DECIMAL_HEADING_RE = re.compile(r"^(\d+(?:\.\d+)*)\.\s+\S")
 _TOP_LEVEL_DIVISION_RE = re.compile(r"^(?:anexo|ap[eé]ndice)\b", re.IGNORECASE)
+# Capitulo numerado ("1. OBJETO", "Articulo 16. GARANTIAS", "ARTICULO 9:
+# ADJUDICACION") -- con o sin la palabra "Articulo"/"Art." antes del numero,
+# con "." o ":" como separador. Comun a `_normalize_numbered_heading_levels`
+# (para que sean hermanos entre si) y a `_nest_unnumbered_headings_under_numbered`
+# (para que NO se los trate como heading sin numerar a anidar bajo el ultimo
+# sub-item decimal -- ver el comentario de `_normalize_numbered_heading_levels`
+# para el caso real que motivo esto).
+_CHAPTER_NUMBER_RE = re.compile(
+    r"^(?:art[ií]culo\s*n?[º°]?\.?\s*|art\.\s*n?[º°]?\.?\s*)?(\d+)[.:]\s+[A-ZÁÉÍÓÚÑ]",
+    re.IGNORECASE,
+)
+
+
+def _chapter_number(content: object) -> int | None:
+    match = _CHAPTER_NUMBER_RE.match(str(content or "").strip())
+    return int(match.group(1)) if match else None
 
 
 def _detect_incisos(content: str) -> list[dict]:
@@ -124,10 +163,22 @@ _BULLET_MARKER_HEADING_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Sello de version/revision de plantilla ("V 1.13", "v2.0", "Rev. 3",
+# "Versión 4") -- convencion generica de encabezados/pies de documento, no
+# vocabulario de un pliego puntual. Caso real: PLIEGO_5443-26, "V 1.13" quedo
+# promovido a heading de nivel 4 (una sola aparicion en todo el documento, sin
+# cuerpo propio), generando un chunk titulo-sin-cuerpo.
+_VERSION_STAMP_RE = re.compile(
+    r"^\s*(?:v|ver|vers(?:i[oó]n)?|rev(?:isi[oó]n)?)\.?\s*\d+(?:\.\d+)*\s*$",
+    re.IGNORECASE,
+)
+
 
 def _is_bullet_marker_heading(text: object) -> bool:
-    """True si el texto parece una vineta / fila / artefacto, no un titulo."""
-    return bool(_BULLET_MARKER_HEADING_RE.match(str(text or "")))
+    """True si el texto parece una vineta / fila / artefacto / sello de
+    version, no un titulo."""
+    valor = str(text or "")
+    return bool(_BULLET_MARKER_HEADING_RE.match(valor)) or bool(_VERSION_STAMP_RE.match(valor))
 
 
 def _looks_like_section_title(text: str) -> bool:
@@ -142,6 +193,38 @@ def _looks_like_section_title(text: str) -> bool:
         return False
     uppercase_count = sum(1 for ch in letters if ch.isupper())
     return uppercase_count / len(letters) >= 0.5
+
+
+def _extend_title_with_uppercase_words(title: str, resto: str) -> tuple[str, str]:
+    """Extiende un `title_bare` (capturado no-greedy por `_RUN_IN_HEADING_RE`)
+    con las palabras en MAYÚSCULAS que le siguen inmediatamente, cuando el
+    corte lazy del regex se detuvo demasiado pronto.
+
+    Caso real (Rosario): en "ARTÍCULO 12: PLAZO DE ENTREGA El plazo de
+    entrega..." la rama `title_bare` (no-greedy, sin límite de mayúsculas
+    real) se conforma con "PLA" -- ya cumple `_looks_like_section_title`
+    (3 letras, 100% mayúsculas) y el regex no tiene ninguna razón para seguir.
+    El límite real del título en un pliego argentino es la propia tipografía:
+    sigue en mayúsculas hasta la primera palabra que NO lo es (aquí "El",
+    que arranca la oración del cuerpo). Esto reconstruye ese límite real
+    -- incluyendo el caso de palabra partida a la mitad ("PLA" + "ZO" sin
+    espacio real entre ambas, que se unen sin insertar uno).
+
+    Acotado a `_HEADING_TAIL_MAX_CHARS` en total para no devorar un párrafo
+    entero si el pliego escribe una cláusula completa en mayúsculas (caso
+    real distinto, no un título cortado).
+    """
+    while resto and len(title) < _HEADING_TAIL_MAX_CHARS:
+        match = re.match(r"^(\s*)(\S+)", resto)
+        if not match:
+            break
+        leading_ws, palabra = match.group(1), match.group(2)
+        candidato = palabra.rstrip(":.")
+        if not candidato or not _is_upper_run(candidato):
+            break
+        title = f"{title} {palabra}" if leading_ws else f"{title}{palabra}"
+        resto = resto[match.end() :]
+    return title, resto
 
 
 def _promote_run_in_headings(blocks: list[dict]) -> list[dict]:
@@ -183,10 +266,23 @@ def _promote_run_in_headings(blocks: list[dict]) -> list[dict]:
                 pending.append(stripped)
                 continue
 
-            body = stripped[match.end() :].strip()
-            if not body:
+            raw_resto = stripped[match.end() :]
+            # Antes de extender: si el regex no dejó NADA después del título,
+            # no es un run-in real (heading+cuerpo pegados en el mismo
+            # bloque) -- es la señal original de esta guarda, y se preserva
+            # tal cual. Se calcula ANTES de `_extend_title_with_uppercase_words`
+            # a propósito: esa extensión puede consumir legítimamente TODO
+            # el remanente cuando el título ocupa un párrafo propio completo
+            # (caso real: "ARTÍCULO 12: PLAZO DE ENTREGA" como único
+            # contenido de su bloque, con el cuerpo real en la página
+            # siguiente, en otro bloque) -- eso no debe hacer que se
+            # descarte el heading, solo que no traiga cuerpo propio.
+            if not raw_resto.strip():
                 pending.append(stripped)
                 continue
+
+            title, resto = _extend_title_with_uppercase_words(title, raw_resto)
+            body = resto.strip()
 
             flush_pending()
 
@@ -197,7 +293,8 @@ def _promote_run_in_headings(blocks: list[dict]) -> list[dict]:
             heading_block.pop("table_ref", None)
             emitted.append(heading_block)
 
-            pending.append(body)
+            if body:
+                pending.append(body)
 
         flush_pending()
         promoted.extend(emitted or [block])
@@ -216,10 +313,26 @@ def _detect_repeated_heading_boilerplate(
     organismo licitante, marcada como titulo de nivel 1 en cada pagina del
     pliego de Rosario) -- si no se filtran, terminan como ancestro de TODOS
     los chunks del documento. Solo aplica sobre encabezados (heading_level
-    presente); un parrafo de cuerpo repetido no entra en este chequeo."""
+    presente); un parrafo de cuerpo repetido no entra en este chequeo.
+
+    Ademas incluye, sin depender de frecuencia, cualquier heading marcado
+    `is_confirmed_page_furniture` (`markdown_parsing._collect_page_header_footer_texts`):
+    ese mismo texto ya aparecio en otra pagina del documento como comentario
+    `PageHeader`/`PageFooter` de Document Intelligence -- la propia DI
+    confirmando que es membrete, aunque en ESTA ocurrencia se haya colado
+    como heading real. Caso real: Nucleoelectrica, donde el membrete queda
+    invisible (descartado como comentario) en la mayoria de las paginas y
+    nunca cruza el umbral de frecuencia por si solo."""
+    confirmados = {
+        _normalize_heading_value(str(block.get("content", ""))).lower()
+        for block in blocks
+        if block.get("heading_level") is not None and block.get("is_confirmed_page_furniture")
+    }
+    confirmados.discard("")
+
     total_pages = len({int(block["page_number"]) for block in blocks}) or 1
     if total_pages < min_pages:
-        return set()
+        return confirmados
 
     pages_by_heading: dict[str, set[int]] = defaultdict(set)
     for block in blocks:
@@ -230,7 +343,8 @@ def _detect_repeated_heading_boilerplate(
             pages_by_heading[normalized].add(int(block["page_number"]))
 
     threshold = max(min_pages, int(total_pages * min_page_fraction))
-    return {text for text, pages in pages_by_heading.items() if len(pages) >= threshold}
+    por_frecuencia = {text for text, pages in pages_by_heading.items() if len(pages) >= threshold}
+    return por_frecuencia | confirmados
 
 
 def _strip_boilerplate_fragments(heading: str, boilerplate: set[str]) -> str:
@@ -522,6 +636,96 @@ def _merge_truncated_headings_with_body(blocks: list[dict]) -> list[dict]:
     return merged
 
 
+def _heading_last_token_looks_truncated(heading_text: str) -> bool:
+    """¿La última palabra del heading es una tirada corta en mayúsculas que
+    parece cortada ("PLA", "GAR"), no una palabra corta pero completa
+    ("ANEXO IV", "TÍTULO II", "EL")?
+
+    Sin bbox (no comparable entre páginas distintas) esta es la única señal
+    para decidir si vale la pena buscar la cola de este heading en la página
+    siguiente -- un heading que ya se ve completo ("DOCUMENTACIÓN A
+    PRESENTAR") nunca debe disparar la búsqueda, para no fusionar por error
+    con un párrafo nuevo que sencillamente empieza con una palabra corta en
+    mayúsculas seguida de ":" (ej. "NOTA: Se informa que...").
+    """
+    words = heading_text.split()
+    if not words:
+        return False
+    last = words[-1]
+    if last.upper() in _PALABRAS_CORTAS_COMPLETAS or _ROMAN_NUMERAL_RE.match(last):
+        return False
+    return _is_upper_run(last) and len(last) <= _SPLIT_WORD_MAX_CHARS
+
+
+def _merge_truncated_headings_across_pages(blocks: list[dict]) -> list[dict]:
+    """Reconstruye un heading cortado justo en el salto de página, cuando
+    Document Intelligence etiquetó la cola como párrafo (no como heading) en
+    la página siguiente -- caso real detectado en el pliego de Rosario:
+
+        heading (pág. 4)  "ARTÍCULO 12: PLA"
+        párrafo (pág. 5)  "ZO DE ENTREGA"
+
+    `_merge_split_headings_across_pages` no lo cubre porque exige que la
+    cola TAMBIÉN tenga `heading_level`; `_merge_truncated_headings_with_body`
+    tampoco, porque exige la misma página (usa bbox, que no es comparable
+    entre páginas). La guarda acá es que el heading ORIGINAL tiene que verse
+    cortado (`_heading_last_token_looks_truncated`) -- así un heading ya
+    completo nunca dispara la fusión, aunque el párrafo de la página
+    siguiente empiece con una palabra corta en mayúsculas + ":".
+    """
+    merged: list[dict] = []
+    skip_indexes: set[int] = set()
+
+    for index, block in enumerate(blocks):
+        if index in skip_indexes:
+            continue
+
+        content = str(block.get("content", "")).strip()
+        if (
+            block.get("heading_level") is None
+            or index + 1 >= len(blocks)
+            or not _heading_last_token_looks_truncated(content)
+        ):
+            merged.append(block)
+            continue
+
+        body = blocks[index + 1]
+        if (
+            body.get("heading_level") is not None
+            or body.get("block_type") == "table"
+            or int(body.get("page_number", -1)) != int(block.get("page_number", -2)) + 1
+        ):
+            merged.append(block)
+            continue
+
+        split = _split_heading_tail(str(body.get("content", "")))
+        if split is None:
+            merged.append(block)
+            continue
+
+        tail, remaining_body = split
+        heading_block = dict(block)
+        heading_block["content"] = _join_heading_tail(content, tail)
+        merged.append(heading_block)
+
+        logger.info(
+            "merged_truncated_heading_across_pages",
+            page=block.get("page_number"),
+            heading_before=content[:60],
+            heading_after=heading_block["content"][:80],
+            body_remainder_chars=len(remaining_body),
+        )
+
+        if remaining_body:
+            body_block = dict(body)
+            body_block["content"] = remaining_body
+            merged.append(body_block)
+
+        skip_indexes.add(index + 1)
+
+    return merged
+
+
 def _normalize_numbered_heading_levels(blocks: list[dict]) -> list[dict]:
     """Normaliza los niveles de headings con patron numerico consecutivo
     (1. OBJETO, 2. REQUISITOS, 3. GARANTÍAS...) para que sean hermanos
@@ -529,15 +733,40 @@ def _normalize_numbered_heading_levels(blocks: list[dict]) -> list[dict]:
 
     Azure DI a veces detecta niveles diferentes (## vs ###) para headings
     que son semanticamente del mismo nivel (secciones numeradas consecutivas).
-    """
-    import re
 
+    FIX (auditoría de chunking, hallazgo real sobre el PUBCG de Santa Fe): la
+    version anterior RESETEABA `current_sequence`/`expected_number` ante
+    CUALQUIER heading que no matcheara "N. TÍTULO" -- y eso es prácticamente
+    TODO heading real entre dos capítulos consecutivos (sub-secciones tipo
+    "1.1.", "1.2.", divisores sin número, etc). En la práctica la función
+    nunca lograba encadenar dos capítulos reales porque siempre hay
+    sub-headings en el medio: la secuencia se reseteaba antes de llegar al
+    capítulo siguiente. Confirmado en Santa Fe: "2. DE LA CONVOCATORIA" y "8.
+    Penalidades y Sanciones" quedaban en un nivel de heading más profundo que
+    sus hermanos (1, 3, 4, 5, 6, 7, 9, 10, 11) -- Azure DI les asignó un
+    tamaño de fuente distinto en el PDF -- y como la normalización nunca los
+    alcanzaba, quedaban anidados como si fueran sub-sección del capítulo
+    ANTERIOR (heading_path incorrecto para todo lo que colgaba debajo) y
+    generaban un chunk-solo-título huérfano al cerrarse sin haber recibido
+    nunca su propio cuerpo.
+
+    Ahora un heading que no matchea "N. TÍTULO" (sub-sección, divisor sin
+    número) simplemente se IGNORA -- no rompe la secuencia en curso, la
+    dejamos seguir esperando el próximo capítulo. Solo se resetea la
+    secuencia cuando aparece un "N." que rompe el orden esperado Y no es un
+    reinicio legítimo (otro "1.", ej. un anexo con su propia numeración desde
+    cero).
+
+    FIX 2 (auditoría de chunking, hallazgo real: Pliego del Tribunal Superior
+    de Justicia): "N. TÍTULO" exigía que el numero fuera LO PRIMERO del
+    heading, asi que la misma convención con "Artículo"/"Art." antes del
+    número ("Artículo 16. GARANTÍAS", "ARTÍCULO 9: ADJUDICACIÓN") nunca
+    entraba a la secuencia -- ver `_chapter_number`/`_CHAPTER_NUMBER_RE`.
+    """
     logger.info(
         "normalize_function_called",
         total_blocks=len(blocks),
     )
-
-    numbered_pattern = re.compile(r"^(\d+)\.\s+[A-ZÁÉÍÓÚÑ].*", re.IGNORECASE)
 
     headings_found = [
         (i, block.get("heading_level"), block.get("content", "")[:60])
@@ -559,26 +788,29 @@ def _normalize_numbered_heading_levels(blocks: list[dict]) -> list[dict]:
             continue
 
         content = str(block.get("content", "")).strip()
-        match = numbered_pattern.match(content)
+        number = _chapter_number(content)
 
-        if match:
-            number = int(match.group(1))
-            if number == expected_number:
-                current_sequence.append(i)
-                expected_number += 1
-                logger.info("sequence_item_added", index=i, number=number, content=content[:60])
-            else:
-                if len(current_sequence) >= 2:
-                    sequences.append(current_sequence)
-                    logger.info("sequence_completed_non_consecutive", length=len(current_sequence))
-                current_sequence = [i] if number == 1 else []
-                expected_number = 2 if number == 1 else 1
-        else:
+        if number is None:
+            # Sub-sección o divisor sin número: no es parte de la secuencia
+            # de capítulos, pero tampoco la interrumpe.
+            continue
+
+        if number == expected_number:
+            current_sequence.append(i)
+            expected_number += 1
+            logger.info("sequence_item_added", index=i, number=number, content=content[:60])
+        elif number == 1:
             if len(current_sequence) >= 2:
                 sequences.append(current_sequence)
-                logger.info("sequence_completed_non_numbered", length=len(current_sequence))
-            current_sequence = []
-            expected_number = 1
+                logger.info("sequence_completed_new_start", length=len(current_sequence))
+            current_sequence = [i]
+            expected_number = 2
+        else:
+            # No matchea lo esperado y no es un reinicio legítimo (otro "1.");
+            # probablemente ruido (una referencia a un artículo mal
+            # etiquetada como heading en otro lado) -- se ignora sin resetear
+            # la secuencia real que puede seguir en curso.
+            logger.info("sequence_item_ignored_out_of_order", index=i, number=number, content=content[:60])
 
     if len(current_sequence) >= 2:
         sequences.append(current_sequence)
@@ -676,7 +908,17 @@ def _nest_unnumbered_headings_under_numbered(blocks: list[dict]) -> list[dict]:
 
     for indice in indices_encabezados:
         contenido = str(blocks[indice].get("content", "")).strip()
-        if _decimal_heading_depth(contenido) is not None or _TOP_LEVEL_DIVISION_RE.match(contenido):
+        # FIX (auditoría de chunking, hallazgo real: Pliego del Tribunal
+        # Superior de Justicia): "Artículo 17. TÍTULO" SÍ está numerado (ver
+        # `_chapter_number`) -- si se lo trata como heading "sin numerar" acá,
+        # esta función lo vuelve a anidar bajo el último "16.1/16.2/16.3" justo
+        # después de que `_normalize_numbered_heading_levels` ya lo había
+        # corregido a hermano de "Artículo 16", deshaciendo ese fix.
+        if (
+            _decimal_heading_depth(contenido) is not None
+            or _TOP_LEVEL_DIVISION_RE.match(contenido)
+            or _chapter_number(contenido) is not None
+        ):
             cerrar_tramo()
             tramo = []
             if _decimal_heading_depth(contenido) is not None:

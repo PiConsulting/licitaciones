@@ -237,6 +237,20 @@ Usá enum `TipoGarantia`:
 - `anticipo`: si hay entrega de fondos por adelantado
 - `fondo_reparo`: retención sobre pagos como garantía
 - `contragarantia`: la que constituye el adjudicatario por el anticipo recibido
+
+**`anticipo` vs `contragarantia` — no son lo mismo, y suelen aparecer en la
+misma frase:** "anticipo" es el DINERO que el organismo le adelanta al
+adjudicatario; "contragarantia" es la GARANTÍA que el adjudicatario tiene que
+constituir a cambio, para respaldar ese anticipo. Si el pliego dice "podrá
+otorgarse un anticipo financiero, previa presentación de póliza de caución
+electrónica por el total del monto adjudicado, en concepto de contragarantía"
+→ es **un solo hecho, tipo `contragarantia`** (la póliza es la contragarantía;
+el `valor`/`forma_constitucion` pueden mencionar que respalda un anticipo,
+pero el tipo del ítem es `contragarantia`, no `anticipo`). Solo usá `anticipo`
+cuando el pliego habla del anticipo en sí (monto, condiciones de pago) sin
+describir la garantía que lo respalda. **No emitas dos ítems** (uno
+`anticipo` y otro `otra`/`contragarantia`) para el mismo párrafo -- es un
+error común confirmado en producción.
 - `impugnacion`: para poder impugnar el pliego, la preselección o la preadjudicación
 - `por_vicios_ocultos`: garantía post-entrega
 - `buen_uso_anticipo`: garantía sobre uso correcto del anticipo
@@ -251,6 +265,32 @@ variantes con montos distintos). No colapses varias garantías en un solo ítem.
 Esto es distinto del Caso 4.c (garantías **técnicas** repetidas → un solo
 `not_applicable`): acá son garantías **financieras distintas**, cada una es su
 propio ítem.
+
+## 4ter. Completitud por inciso -- no sacrifiques un dato por otro
+
+Es común que un mismo artículo tenga un inciso por tipo de garantía (a) mantenimiento
+de oferta, b) cumplimiento de contrato...) y, además, uno o más incisos con reglas
+GENERALES que aplican a todas ellas (forma de constitución admitida, a quién se
+reserva el organismo el derecho de aceptar otra póliza, cuándo se liberan). Cuando
+eso pasa, revisá el artículo entero inciso por inciso ANTES de escribir cada ítem:
+
+- El monto/porcentaje O la condición de exención ("no se exige si no supera $X")
+  de un tipo específico vive en SU PROPIO inciso -- no lo reemplaces ni lo dejes
+  afuera solo porque en otro inciso (general, compartido) encontraste la forma de
+  constitución. Un ítem con `forma_constitucion` lleno pero `monto_porcentaje`,
+  `monto_valor` Y `valor` vacíos, cuando el inciso de ESE tipo sí tiene una cifra o
+  una exención, está incompleto -- volvé a leer el inciso específico de ese tipo.
+- La forma de constitución general SÍ va en `forma_constitucion` de cada ítem al
+  que aplique -- pero como complemento del dato específico de ese tipo, nunca en
+  su reemplazo.
+- Si el inciso específico de un tipo dice que está exento (Caso 4.a) SEGUÍ esa
+  regla: `extraction_status: "not_applicable"` con el `valor` explicando la
+  exención -- no lo conviertas en `"success"` vacío solo por tener datos de forma
+  de otro inciso.
+
+Esto no depende de la redacción de ningún pliego en particular: aplica cada vez
+que un artículo mezcla incisos específicos por tipo con incisos generales
+compartidos.
 
 ## 5. Sin especulación
 

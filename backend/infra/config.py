@@ -149,6 +149,22 @@ class Settings(BaseSettings):
         alias="EXTRACTION_TOP_K",
         description="Número de chunks a recuperar por categoría (default si glossary no especifica)",
     )
+    extraction_group_max_chunks: int = Field(
+        default=15,
+        alias="EXTRACTION_GROUP_MAX_CHUNKS",
+        description=(
+            "FIX (2026-09-11, diagnóstico de no-determinismo en garantías): tope de "
+            "chunks por llamado al LLM DENTRO de un mismo documento. El map-reduce por "
+            "documento (2026-08-21) evita 'lost in the middle' solo si el pliego tiene "
+            "varios documentos -- uno de un solo documento sigue mandando el `top_k` "
+            "completo de la categoría (hasta 35 en garantías) en un único llamado. "
+            "Cuando un grupo supera este tope, `_split_oversized_groups` (item_merging.py) "
+            "lo parte en varios llamados más chicos sobre tramos contiguos del documento "
+            "(los chunks ya quedan ordenados por `chunk_index`, no por relevancia), y se "
+            "mergean con la misma maquinaria de dedup que ya usa map-reduce entre "
+            "documentos. <= 0 desactiva el split (comportamiento previo)."
+        ),
+    )
     extraction_max_context_tokens: int = Field(
         default=16000,
         alias="EXTRACTION_MAX_CONTEXT_TOKENS",

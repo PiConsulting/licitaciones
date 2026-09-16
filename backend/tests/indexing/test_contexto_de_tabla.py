@@ -125,6 +125,43 @@ def test_una_frase_introductoria_corta_se_conserva_completa() -> None:
     assert "La evaluación se realizará según la siguiente tabla:" in tabla["content"]
 
 
+def test_la_etiqueta_introductoria_no_sobrevive_como_chunk_propio() -> None:
+    """Auditoría de chunking (Santa Fe, real): un label corto que introduce
+    una tabla ("Facturación y Pago", "Limbo") quedaba dos veces indexado --
+    una vez como `table_context` de la tabla (correcto) y otra vez como su
+    propio chunk título-sin-cuerpo, porque el bloque que lo originó nunca se
+    sacaba de la lista una vez consumido."""
+    bloques = [
+        {"heading_level": 1, "content": "Condiciones del Contrato", "page_number": 1, "source_order": 0},
+        _parrafo("Facturación y Pago", 1, 1),
+        _fila("col_1: Forma de pago\ncol_2: Moneda", 1, 2, 0),
+        _fila("col_1: Contado\ncol_2: Pesos", 1, 2, 1),
+    ]
+
+    chunks = create_chunks(bloques, document_id="doc", correlation_id="corr")
+
+    huerfanos = [c for c in chunks if c["content"].strip() == "Facturación y Pago"]
+    assert not huerfanos, "la etiqueta introductoria quedó como su propio chunk"
+    tabla = next(c for c in chunks if c["block_type"] == "table")
+    assert tabla["table_context"] == "Facturación y Pago"
+
+
+def test_la_etiqueta_introductoria_con_mas_contenido_no_se_pierde() -> None:
+    """Guarda: si el bloque previo tiene MÁS que la sola frase usada como
+    contexto (varios párrafos, `_introductory_tail` se queda con el último),
+    ese contenido adicional sigue siendo real y no se descarta."""
+    bloques = [
+        {"heading_level": 1, "content": "3.1.1. Definición de la solución", "page_number": 8, "source_order": 0},
+        _parrafo(f"{DEFINICION}\n\n{ENCABEZADO_TABLA}", 8, 1),
+        _fila("col_1: Duracion\ncol_2: SKU", 8, 2, 0),
+    ]
+
+    chunks = create_chunks(bloques, document_id="doc", correlation_id="corr")
+
+    copias = [c for c in chunks if "Se busca una solución robusta" in c["content"]]
+    assert len(copias) == 1, "la definición no puede desaparecer del todo"
+
+
 def test_una_tabla_sin_parrafo_previo_no_inventa_contexto() -> None:
     bloques = [
         {"heading_level": 1, "content": "7. Evaluación", "page_number": 5, "source_order": 0},

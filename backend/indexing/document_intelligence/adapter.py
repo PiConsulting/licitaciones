@@ -26,7 +26,13 @@ class AzureDocumentIntelligenceAdapter(DocumentIntelligencePort):
         self._api_key = api_key
         self._timeout_seconds = timeout_seconds
 
-    def extract_text(self, blob_url: str) -> list[dict]:
+    def extract_text(
+        self,
+        blob_url: str,
+        *,
+        document_id: str | None = None,
+        correlation_id: str | None = None,
+    ) -> list[dict]:
         from azure.ai.documentintelligence import DocumentIntelligenceClient
         from azure.ai.documentintelligence.models import (
             AnalyzeDocumentRequest,
@@ -53,11 +59,18 @@ class AzureDocumentIntelligenceAdapter(DocumentIntelligencePort):
                 "Azure DI returned None for content - document may be empty or corrupted"
             )
 
-        blocks, telemetry = _build_markdown_blocks(result)
+        blocks, telemetry = _build_markdown_blocks(
+            result, document_id=document_id, correlation_id=correlation_id
+        )
         if not blocks:
             raise DocumentTextExtractionError("No se detectó texto útil en el documento")
 
-        logger.info("document_intelligence_markdown_blocks", **telemetry)
+        logger.info(
+            "document_intelligence_markdown_blocks",
+            document_id=document_id,
+            correlation_id=correlation_id,
+            **telemetry,
+        )
         return blocks
 
 
@@ -99,7 +112,9 @@ def extract_text(
 
     for attempt in range(1, retries + 1):
         try:
-            pages = adapter.extract_text(blob_url)
+            pages = adapter.extract_text(
+                blob_url, document_id=str(document_id), correlation_id=str(correlation_id)
+            )
             logger.info(
                 "text_extraction_completed",
                 correlation_id=str(correlation_id),

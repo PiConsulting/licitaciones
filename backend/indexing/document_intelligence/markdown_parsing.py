@@ -22,6 +22,18 @@ logger = structlog.get_logger(__name__)
 
 _MD_PAGE_BREAK = "<!-- PageBreak -->"
 _MD_COMMENT_RE = re.compile(r"^<!--.*-->$")
+# Document Intelligence marca explicitamente el membrete/pie que detecta en el
+# margen de la pagina con este comentario -- pero lo hace de forma inconsistente:
+# el MISMO texto puede venir como `PageHeader` en una pagina y, unas paginas mas
+# adelante, como un heading real (`#`/`##`) en el markdown (caso real: Nucleoelectrica,
+# "NUCLEOELECTRICA ARGENTINA S.A. HOJA DE ESPECIFICACIONES TECNICAS DE COMPRA").
+# `_detect_repeated_heading_boilerplate` (headings.py) descarta un heading repetido
+# por FRECUENCIA, pero si la enorme mayoria de las repeticiones quedan invisibles
+# (se tiran como comentario antes de llegar a heading) nunca cruza el umbral. Por
+# eso se captura el texto de estos comentarios: es la propia DI confirmando, en
+# otra pagina del mismo documento, que ese texto es membrete -- sin importar
+# cuantas veces se cuele como heading.
+_MD_PAGE_HEADER_FOOTER_RE = re.compile(r'^<!--\s*Page(?:Header|Footer)\s*=\s*"(.*)"\s*-->$')
 _MD_HEADING_RE = re.compile(r"^(#+)\s+(.+)$")
 _MD_TABLE_START_RE = re.compile(r"^<table\b")
 _MD_TABLE_END_RE = re.compile(r"^</table>")
@@ -36,6 +48,29 @@ _MD_ESCAPE_RE = re.compile(r"\\([-+.>#*_\[\]()!`~])")
 
 def _dehyphenate(text: str) -> str:
     return _LINE_WRAP_HYPHEN_RE.sub(r"\1\2", text)
+
+
+def _normalize_furniture_text(text: str) -> str:
+    """Misma normalizacion que `_normalize_heading_value(...).lower()` en
+    headings.py (whitespace colapsado + minuscula), para que un texto
+    confirmado membrete via `PageHeader`/`PageFooter` matchee exactamente
+    contra el mismo texto cuando aparece como heading."""
+    return " ".join(text.strip().split()).lower()
+
+
+def _collect_page_header_footer_texts(markdown: str) -> set[str]:
+    """Recolecta, en una pasada previa sobre TODO el markdown, el texto que
+    Document Intelligence marco explicitamente como membrete/pie de pagina
+    (`<!-- PageHeader="..." -->` / `<!-- PageFooter="..." -->`). Ver el
+    comentario de `_MD_PAGE_HEADER_FOOTER_RE` para el porque."""
+    textos: set[str] = set()
+    for raw_line in markdown.splitlines():
+        match = _MD_PAGE_HEADER_FOOTER_RE.match(raw_line.strip())
+        if match:
+            normalizado = _normalize_furniture_text(match.group(1))
+            if normalizado:
+                textos.add(normalizado)
+    return textos
 
 
 def _build_para_id_index(
@@ -248,6 +283,68 @@ def _enrich_blocks_with_para_id(
     )
 
 
+def _repair_heading_split_within_single_line(blocks: list[dict]) -> None:
+    """Repara un heading que el MARKDOWN de Document Intelligence partió en
+    dos bloques, aunque su propia capa de layout (`lines`, adjunta por
+    `_attach_lines_to_blocks`) sabe que es UNA sola línea física.
+
+    Caso real (Rosario): el markdown de DI trae
+
+        ## ARTÍCULO 12: PLA
+        ZO DE ENTREGA El plazo de entrega...
+
+    -- dos "líneas" de markdown, la primera detectada como heading. Pero la
+    línea de OCR real, adjunta al segundo bloque porque su bbox cae dentro de
+    ella, es una sola: "ARTÍCULO 12: PLAZO DE ENTREGA". No es la geometría de
+    párrafo (`_starts_on_same_line` en `chunking/headings.py`, pensado para
+    OTRO caso: cuando el heading y el cuerpo son dos bloques DISTINTOS que
+    solo coinciden en altura) -- es una inconsistencia interna de DI entre su
+    heurística de estilo para el markdown y su OCR de línea. Reconstruye
+    usando el texto real de la línea como fuente de verdad -- no un
+    heurístico de forma de palabra -- así que solo actúa cuando puede
+    verificar que el cuerpo, tal como llegó, es exactamente lo que queda de
+    esa línea real después de sacarle el heading.
+    """
+    for index in range(len(blocks) - 1):
+        heading_block = blocks[index]
+        if heading_block.get("heading_level") is None:
+            continue
+
+        body_block = blocks[index + 1]
+        if (
+            body_block.get("heading_level") is not None
+            or body_block.get("table_ref")
+            or body_block.get("page_number") != heading_block.get("page_number")
+        ):
+            continue
+
+        lines = body_block.get("lines") or []
+        if not lines:
+            continue
+
+        first_line_text = str(lines[0].get("t", ""))
+        heading_content = str(heading_block.get("content", ""))
+        if not first_line_text.startswith(heading_content) or len(first_line_text) <= len(
+            heading_content
+        ):
+            continue
+
+        remainder = first_line_text[len(heading_content) :]
+        body_content = str(body_block.get("content", ""))
+        if not body_content.startswith(remainder):
+            continue
+
+        heading_block["content"] = first_line_text
+        body_block["content"] = body_content[len(remainder) :].lstrip()
+
+        logger.info(
+            "repaired_heading_split_within_di_line",
+            page=heading_block.get("page_number"),
+            heading_before=heading_content[:60],
+            heading_after=first_line_text[:80],
+        )
+
+
 def _parse_markdown_blocks(
     markdown: str,
 ) -> tuple[list[dict], dict[int, int], list[tuple[int, int]]]:
@@ -264,6 +361,7 @@ def _parse_markdown_blocks(
     blocks: list[dict] = []
     heading_levels_by_order: dict[int, int] = {}
     table_positions: list[tuple[int, int]] = []
+    confirmed_page_furniture = _collect_page_header_footer_texts(markdown)
 
     page_number = 1
     source_order = 0
@@ -339,6 +437,9 @@ def _parse_markdown_blocks(
             level = len(heading_match.group(1))
             heading_text = heading_match.group(2).strip()
             if heading_text:
+                is_confirmed_furniture = (
+                    _normalize_furniture_text(heading_text) in confirmed_page_furniture
+                )
                 blocks.append(
                     {
                         "page_number": page_number,
@@ -346,6 +447,7 @@ def _parse_markdown_blocks(
                         "content": heading_text,
                         "source_order": source_order,
                         "table_ref": None,
+                        **({"is_confirmed_page_furniture": True} if is_confirmed_furniture else {}),
                     }
                 )
                 heading_levels_by_order[source_order] = level
@@ -369,7 +471,12 @@ def _parse_markdown_blocks(
     return blocks, heading_levels_by_order, table_positions
 
 
-def _build_markdown_blocks(result: object) -> tuple[list[dict], EventDict]:
+def _build_markdown_blocks(
+    result: object,
+    *,
+    document_id: str | None = None,
+    correlation_id: str | None = None,
+) -> tuple[list[dict], EventDict]:
     markdown = str(getattr(result, "content", "") or "")
     tables = list(getattr(result, "tables", None) or [])
     paragraphs = list(getattr(result, "paragraphs", None) or [])
@@ -384,6 +491,7 @@ def _build_markdown_blocks(result: object) -> tuple[list[dict], EventDict]:
     bbox_by_para_id = _build_para_id_index(paragraphs, unit_scales)
     _enrich_blocks_with_para_id(blocks, bbox_by_para_id, _page_sizes_in_points(result, unit_scales))
     _attach_lines_to_blocks(blocks, _build_line_index(result, unit_scales))
+    _repair_heading_split_within_single_line(blocks)
 
     total_table_rows = 0
     tables_placed_in_reading_order = 0
@@ -403,6 +511,8 @@ def _build_markdown_blocks(result: object) -> tuple[list[dict], EventDict]:
             tables_with_fallback_position += 1
             logger.warning(
                 "table_position_fallback",
+                document_id=document_id,
+                correlation_id=correlation_id,
                 table_id=table_id,
                 table_index=index,
                 reason="No <table> tag found in markdown for this table from result.tables",
@@ -434,6 +544,8 @@ def _build_markdown_blocks(result: object) -> tuple[list[dict], EventDict]:
     if tables_with_fallback_position > 0:
         logger.warning(
             "table_position_mismatch",
+            document_id=document_id,
+            correlation_id=correlation_id,
             tables_count=len(tables),
             table_positions_in_markdown=len(table_positions),
             tables_with_fallback=tables_with_fallback_position,

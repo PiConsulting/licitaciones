@@ -191,6 +191,60 @@ def get_category_graded_scores(category_key: str, default: bool = False) -> bool
     return default
 
 
+def get_category_self_consistency_runs(category_key: str, default: int = 1) -> int:
+    """Override por categoría: cuántas veces repetir el llamado LLM de cada
+    grupo del map-reduce (Fase 2 de la auditoría RAG, 2026-09-14). Diagnóstico
+    que lo motiva: con el chunking ya arreglado (headings/incisos, P0-1), el
+    gap que queda en garantías/requisitos_admisibilidad/identificacion_
+    procedimiento/riesgos no es de chunking ni de retrieval -- es que el LLM,
+    frente a una cláusula con varios datos (ej. "exento si no supera $40M" +
+    "forma: póliza electrónica"), saca uno y descarta el otro, de forma no
+    determinista entre corridas (ver comentario de `seed` en
+    `infra/adapters/azure_openai.py`). Repetir el llamado y dejar que el
+    dedup de `merge_node` (ya existe, agrupa por categoría) una los ítems de
+    ambas corridas -- un ítem que aparece en CUALQUIER corrida sobrevive, en
+    vez de depender de que una sola corrida lo haya sacado todo. 1 = sin
+    cambios (default). Opt-in por categoría porque duplica el costo/latencia
+    de las categorías donde se activa -- no hacerlo global sin medir."""
+    glossary = _load_glossary()
+    entry = glossary.get(category_key, {})
+    if not isinstance(entry, dict):
+        return default
+    value = entry.get("self_consistency_runs", default)
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed >= 1 else default
+
+
+def get_category_verification_pass(category_key: str, default: bool = False) -> bool:
+    """Override por categoría: si está en `True`, agrega una 2da pasada tras
+    el map-reduce -- un único llamado LLM extra, liviano (solo ve los ítems ya
+    extraídos, no los chunks del pliego), que audita cada candidato contra las
+    MISMAS reglas de la categoría (reproducidas verbatim de su propio prompt,
+    nunca duplicadas a mano acá) y decide mantener/descartar/fusionar (ver
+    `engine/verification_pass.py`). Pensado para categorías con sobre-extracción
+    medida (ej. riesgos: el modelo completa el patrón "esta cláusula también
+    podría sonar a riesgo" en vez de aplicar el checklist con rigor) -- un
+    juicio de "¿esto pertenece de verdad?" sobre una lista corta y ya
+    consolidada tiende a ser más confiable que pedirle rigor en el mismo
+    llamado que ya está ocupado leyendo texto largo del pliego (mismo
+    mecanismo de "lost in the middle" que motivó el map-reduce por documento).
+    `False` = sin cambios (default). Opt-in por categoría porque suma 1
+    llamado LLM más -- no hacerlo global sin medir."""
+    glossary = _load_glossary()
+    entry = glossary.get(category_key, {})
+    if not isinstance(entry, dict):
+        return default
+    value = entry.get("verification_pass", default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes", "si", "sí"}
+    return default
+
+
 def get_category_query_expansion(category_key: str, default: bool = False) -> bool:
     """Override por categoría de la expansión de query con definición
     semántica (mismo patrón que top_k/category_penalty).

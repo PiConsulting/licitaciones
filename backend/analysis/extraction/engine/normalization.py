@@ -76,6 +76,26 @@ def _normalize_item(item: dict[str, Any], fallback: dict[str, Any] | None = None
         logger.warning("invalid_extraction_status", received=status[:80])
         status = "partial" if normalized.get("source_references") else "not_found"
     normalized["extraction_status"] = status
+
+    # FIX (2026-09-11, bug encontrado auditando garantías/dell): varias
+    # prompts (ej. garantias.txt, Caso 4) exigen explícitamente que todo
+    # ítem `not_applicable` traiga `valor` ("es el único texto que le
+    # explica al oferente por qué no hay garantía... un not_applicable con
+    # valor: null no sirve") -- el LLM viola esa instrucción de todos modos
+    # (observado: ítem con cita real pero `valor: null`, mostrando un N/A al
+    # usuario sin ninguna explicación legible). Confiar en que el LLM cumpla
+    # su propia instrucción no alcanzó -- se lo baja acá de forma
+    # determinística en vez de persistir una afirmación N/A sin sustento.
+    # `_normalize_mixed_not_found_items`/`_drop_items_without_sources`, río
+    # abajo, deciden después si el ítem sobrevive (por sus fuentes) o se
+    # descarta -- acá solo se evita la mentira de un N/A "explicado" que no
+    # explica nada.
+    if normalized["extraction_status"] == "not_applicable" and not str(
+        normalized.get("valor") or ""
+    ).strip():
+        normalized["extraction_status"] = "partial"
+        normalized["_warning"] = "not_applicable_sin_valor"
+
     return normalized
 
 

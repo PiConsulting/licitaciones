@@ -216,6 +216,105 @@ def test_sin_bbox_no_fusiona_nada() -> None:
     assert chunk["title"] == "Artículo Nº 10: GAR"
 
 
+# ---------------------------------------------------------------------------
+# Cola de título en la página SIGUIENTE (auditoría de chunking, Rosario real):
+# a diferencia de los casos de arriba, la cola no está en la misma línea --
+# no hay bbox comparable entre páginas distintas, así que la guarda es que el
+# propio heading ya se vea cortado.
+# ---------------------------------------------------------------------------
+
+
+def test_cola_de_titulo_en_la_pagina_siguiente_se_reconstruye() -> None:
+    """Caso real de Rosario: "ARTÍCULO 12: PLA" (pág. 4) + "ZO DE ENTREGA"
+    (pág. 5, sin heading_level -- DI lo etiquetó como párrafo)."""
+    blocks = [
+        _heading("ARTÍCULO 12: PLA", page=4, order=0, y=9.8),
+        _para("ZO DE ENTREGA", page=5, order=0, y=0.5, height=0.16),
+        _para(
+            "El plazo de entrega de los productos será como máximo de noventa (90) días "
+            "corridos a partir de la recepción de la Orden de Provisión.",
+            page=5,
+            order=1,
+            y=1.6,
+        ),
+    ]
+
+    chunks = _chunks(blocks)
+
+    assert len(chunks) == 1
+    assert chunks[0]["title"] == "ARTÍCULO 12: PLAZO DE ENTREGA"
+    assert chunks[0]["content"].startswith("El plazo de entrega")
+
+
+def test_cola_con_dos_puntos_en_la_pagina_siguiente_se_reconstruye() -> None:
+    """Variante con cuerpo real después del ":" ("Artículo Nº 10: GAR" +
+    "ANTÍA DE ADJUDICACIÓN: En caso de corresponder..."), pero cruzando página."""
+    blocks = [
+        _heading("Artículo Nº 10: GAR", page=4, order=0, y=9.8),
+        _para(_GARANTIAS_BODY, page=5, order=0, y=0.5),
+    ]
+
+    chunk = _chunks(blocks)[0]
+
+    assert chunk["title"] == "Artículo Nº 10: GARANTÍA DE ADJUDICACIÓN"
+    assert chunk["content"].startswith("En caso de corresponder")
+    assert "ANTÍA" not in chunk["content"]
+
+
+def test_no_fusiona_titulo_completo_con_parrafo_de_la_pagina_siguiente() -> None:
+    """Falso positivo a evitar: un heading que YA se ve completo no debe
+    buscar cola en la página siguiente, aunque el párrafo que sigue empiece
+    con una palabra corta en mayúsculas + ":" (real: "Artículo 6:
+    DOCUMENTACIÓN A PRESENTAR" + "NOTA: Se informa que...")."""
+    blocks = [
+        _heading("Artículo 6: DOCUMENTACIÓN A PRESENTAR", page=2, order=0, y=1.5),
+        _para(
+            "NOTA: Se informa que de acuerdo con lo dispuesto en el Decreto 1259/24...",
+            page=3,
+            order=0,
+            y=1.5,
+        ),
+    ]
+
+    chunk = _chunks(blocks)[0]
+
+    assert chunk["title"] == "Artículo 6: DOCUMENTACIÓN A PRESENTAR"
+    assert chunk["content"].startswith("NOTA:")
+
+
+def test_no_fusiona_heading_terminado_en_numeral_romano_con_parrafo_siguiente() -> None:
+    """Falso positivo a evitar: "IV" es corto y en mayúsculas, pero es una
+    palabra COMPLETA (numeral romano), no una tirada cortada."""
+    blocks = [
+        _heading("ANEXO IV", page=1, order=0, y=1.0),
+        _para("NOTA: Documentación complementaria del anexo.", page=2, order=0, y=1.0),
+    ]
+
+    chunk = _chunks(blocks)[0]
+
+    assert chunk["title"] == "ANEXO IV"
+    assert chunk["content"].startswith("NOTA:")
+
+
+def test_no_fusiona_a_traves_de_una_tabla() -> None:
+    blocks = [
+        _heading("ARTÍCULO 12: PLA", page=4, order=0, y=9.8),
+        {
+            "page_number": 5,
+            "block_type": "table",
+            "content": "col_1: Item\ncol_2: Cantidad",
+            "source_order": 0,
+            "row_order": 0,
+            "table_ref": {"table_id": "T1", "row_index": 1, "headers": ["col_1", "col_2"]},
+            "bbox": _bbox(5, 0.5, 0.5),
+        },
+    ]
+
+    chunks = _chunks(blocks)
+
+    assert chunks[0]["title"] == "ARTÍCULO 12: PLA"
+
+
 def test_no_fusiona_un_encabezado_con_una_tabla() -> None:
     blocks = [
         _heading("ARTÍCULO 9: ADJUDICACIÓN", page=4, order=0, y=4.6),

@@ -15,6 +15,8 @@ CANONICAL_PROMPT_FILES = {
     BASE_SYSTEM_PROMPT_FILE,
     RESPONSE_BASE_PROMPT_FILE,
     "_output_schema.txt",
+    "_verification_pass_system.txt",
+    "_verification_pass.txt",
     "objeto_alcance.txt",
     "requisitos_admisibilidad.txt",
     "garantias.txt",

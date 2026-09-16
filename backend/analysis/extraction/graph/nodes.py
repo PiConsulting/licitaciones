@@ -47,6 +47,7 @@ from analysis.extraction.graph.documents import (
     _cleanup_temp_highlights,
     _stampar_nombre_de_documento,
 )
+from analysis.extraction.engine.item_merging import _merge_singleton_tipo_duplicates
 from analysis.extraction.graph.validation import (
     _drop_items_without_sources,
     _keep_schema_valid_items,
@@ -62,6 +63,7 @@ from analysis.extraction.schemas import (
     IdentificacionProcedimientoItem,
     ObjetoAlcanceItem,
     PlazoItem,
+    TipoObjetoAlcance,
     PreviewCriterioItem,
     RequisitoAdmisibilidadItem,
     RiesgoItem,
@@ -422,6 +424,21 @@ def merge_node(state: GraphState) -> GraphState:
     objeto_alcance = _merge_duplicate_items_by_key(
         objeto_alcance, lambda item: (str(item.get("tipo", "")), _normalized_valor_key(item))
     )
+    # FIX (2026-09-14, Fase 2 de la auditoría RAG): el dedup de arriba solo
+    # fusiona duplicados con el MISMO valor -- no detecta dos ítems del mismo
+    # `tipo` SINGLETON ("UN ítem resumen_objeto", "UN ítem lugar_entrega",
+    # ver objeto_alcance.txt) con valores DISTINTOS, que el split de lotes
+    # dentro de un documento (`_split_oversized_groups`, `base.py`) puede
+    # producir -- cada lote ve un subconjunto de chunks distinto, y uno que no
+    # tiene el dato igual emite el ítem singleton con un placeholder mientras
+    # otro sí lo encuentra. `item` es el único tipo de esta categoría que
+    # puede repetirse legítimamente (uno por renglón/ítem licitado).
+    objeto_alcance = _merge_singleton_tipo_duplicates(
+        objeto_alcance,
+        {tipo.value for tipo in TipoObjetoAlcance if tipo != TipoObjetoAlcance.ITEM},
+        category="objeto_alcance",
+        correlation_id=correlation_id,
+    )
     requisitos_admisibilidad = _merge_duplicate_items_by_key(
         requisitos_admisibilidad,
         lambda item: (str(item.get("tipo", "")), _normalized_valor_key(item)),
@@ -671,6 +688,25 @@ def merge_node(state: GraphState) -> GraphState:
 
     conflicts: list[dict] = []
 
+    def _conflict_document_ids(items: list[dict]) -> set[str]:
+        ids: set[str] = set()
+        for item in items:
+            for ref in item.get("source_references") or []:
+                if isinstance(ref, dict) and ref.get("document_id"):
+                    ids.add(str(ref["document_id"]))
+        return ids
+
+    # FIX (2026-09-11, pregunta: "¿se avisa si dos chunks se contradicen
+    # dentro del MISMO pliego?"): la detección de abajo agrupa por
+    # `referencia`/`tipo` y compara valores -- nunca miró `document_id`, así
+    # que YA avisaba igual si la contradicción era entre el cuerpo del
+    # pliego y su propio anexo (mismo documento) que si era entre dos
+    # documentos distintos. Lo único que estaba mal era el texto fijo
+    # "en distintos documentos", que mentía en el caso intra-documento y
+    # podía hacer pensar a quien revisa que el conflicto involucra un
+    # archivo aparte cuando en realidad está en dos secciones del mismo PDF.
+    # Ahora se verifica de verdad contra los `document_id` de las citas.
+
     # FIX (2026-08-22): se agrupaba por `tipo` (enum de 17 valores + "otro").
     # Como la enorme mayoría de los plazos caía en "otro" (ver
     # `_normalized_referencia_key`), este bloque terminaba comparando fechas
@@ -689,12 +725,17 @@ def merge_node(state: GraphState) -> GraphState:
         if len(items) > 1:
             fechas = {item.get("fecha") for item in items}
             if len(fechas) > 1:
+                misma_referencia_en_un_solo_documento = len(_conflict_document_ids(items)) <= 1
                 conflicts.append(
                     {
                         "category": "plazos",
                         "tipo": str(items[0].get("referencia") or "dato"),
                         "values": items,
-                        "reason": "Fechas diferentes en distintos documentos",
+                        "reason": (
+                            "Fechas diferentes dentro del mismo documento"
+                            if misma_referencia_en_un_solo_documento
+                            else "Fechas diferentes en distintos documentos"
+                        ),
                     }
                 )
 
@@ -706,12 +747,17 @@ def merge_node(state: GraphState) -> GraphState:
         if tipo and len(items) > 1:
             montos = {(item.get("monto_porcentaje"), item.get("monto_valor")) for item in items}
             if len(montos) > 1:
+                mismo_tipo_en_un_solo_documento = len(_conflict_document_ids(items)) <= 1
                 conflicts.append(
                     {
                         "category": "garantias",
                         "tipo": tipo,
                         "values": items,
-                        "reason": "Montos diferentes en distintos documentos",
+                        "reason": (
+                            "Montos diferentes dentro del mismo documento"
+                            if mismo_tipo_en_un_solo_documento
+                            else "Montos diferentes en distintos documentos"
+                        ),
                     }
                 )
 

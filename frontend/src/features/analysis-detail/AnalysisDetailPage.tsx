@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { AnalysisProgress } from "../../components/analysis/AnalysisProgress";
+import { ReanalyzeModal } from "../../components/analysis/ReanalyzeModal";
 import { CATEGORY_NAMES, CATEGORY_ORDER } from "../../utils/categoryIcons";
 import { CompleteTrackingConfirmModal } from "../../components/analysis/CompleteTrackingConfirmModal";
 import { StartTrackingConfirmModal } from "../../components/analysis/StartTrackingConfirmModal";
@@ -9,13 +10,15 @@ import { Button } from "../../components/Button";
 import { Tabs, Tab } from "../../components/Tabs";
 import { useToast } from "../../components/ToastContainer";
 import { useAnalysisStatus } from "../../hooks/useAnalysisStatus";
+import { useReanalyzeAnalysis } from "../../hooks/useReanalyzeAnalysis";
 import { useStartAnalysisCategories } from "../../hooks/useStartAnalysisCategories";
-import type { AnalysisStatusResponse } from "../../types/analysis";
+import type { AnalysisStatusResponse, ReanalyzeRequest } from "../../types/analysis";
 import { AnalysisSummaryStrip } from "./AnalysisSummaryStrip";
 import { CategoryList } from "./CategoryList";
 import { AnalysisDetailHeader } from "./AnalysisDetailHeader";
 import { PreviewTab } from "./PreviewTab";
 import { TimelineTab } from "./TimelineTab";
+import { VersionHistoryTab } from "./VersionHistoryTab";
 import { TrackingProgressSummary } from "./components/TrackingProgressSummary";
 import { useAnalysisDetail } from "./hooks/useAnalysisDetail";
 import {
@@ -44,6 +47,7 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
   const queryClient = useQueryClient();
   const { addToast } = useToast();
   const startCategoriesMutation = useStartAnalysisCategories();
+  const reanalyzeMutation = useReanalyzeAnalysis();
   const startTrackingMutation = useStartTracking();
   const completeTrackingMutation = useCompleteTracking();
   const updateCategoryMutation = useUpdateTrackingCategoryStatus();
@@ -58,12 +62,14 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
   const [selectedSources, setSelectedSources] = useState<NarrativeSource[]>([]);
   const [showStartTrackingModal, setShowStartTrackingModal] = useState(false);
   const [showCompleteTrackingModal, setShowCompleteTrackingModal] = useState(false);
+  const [showReanalyzeModal, setShowReanalyzeModal] = useState(false);
   const [showPdfViewer, setShowPdfViewer] = useState(true);
   const [statusPollingEnabled, setStatusPollingEnabled] = useState(false);
   const [redirectToCategoriesOnAnalyze, setRedirectToCategoriesOnAnalyze] = useState(
     () => sessionStorage.getItem(phase2RedirectKey(analysisId)) === "1",
   );
   const [tabsDefaultTab, setTabsDefaultTab] = useState("preview");
+  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
 
   useEffect(() => {
     if (redirectToCategoriesOnAnalyze) {
@@ -88,6 +94,13 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
       setStatusPollingEnabled(true);
     }
   }, [query.data?.status, statusPollingEnabled]);
+
+  useEffect(() => {
+    if (!query.data) {
+      return;
+    }
+    setSelectedVersionId((current) => current ?? query.data.current_version.id);
+  }, [query.data]);
 
   useEffect(() => {
     const polledStatus = statusPolling.data?.status;
@@ -129,6 +142,21 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
   }
 
   const canStartCategories = query.data.status === "en_revision" && !statusPollingEnabled;
+  const canReanalyze =
+    (query.data.status === "en_revision" ||
+      query.data.status === "analyzed" ||
+      query.data.status === "validated" ||
+      query.data.status === "error") &&
+    !statusPollingEnabled;
+  const versions = query.data.versions && query.data.versions.length > 0
+    ? query.data.versions
+    : [query.data.current_version];
+  const selectedVersion = versions.find((version) => version.id === selectedVersionId) ?? query.data.current_version;
+  const versionViewAnalysis = {
+    ...query.data,
+    tracking: null,
+    current_version: selectedVersion,
+  };
 
   // Categorías que fase 1 (Preview) todavía no corrió -- se muestran entre
   // paréntesis en el aviso de "Iniciar análisis de categorías" para que quede
@@ -156,6 +184,30 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
       addToast("success", "Análisis de categorías iniciado.");
     } catch {
       addToast("error", "No se pudo iniciar el análisis de categorías.");
+    }
+  };
+
+  const handleReanalyze = async (payload: ReanalyzeRequest) => {
+    try {
+      const response = await reanalyzeMutation.mutateAsync({ analysisId, payload });
+
+      const queuedStatus: AnalysisStatusResponse = {
+        id: analysisId,
+        status: "queued",
+        current_stage: "queued",
+        progress_percentage: 0,
+        stage_progress: "En cola",
+        reanalysis_type: response.reanalysis_type,
+        reanalysis_categories: response.categories,
+        reanalysis_started_at: new Date().toISOString(),
+      };
+
+      queryClient.setQueryData(["analysis", analysisId, "status"], queuedStatus);
+      setShowReanalyzeModal(false);
+      setStatusPollingEnabled(true);
+      addToast("success", "Reanálisis encolado correctamente.");
+    } catch {
+      addToast("error", "No se pudo encolar el reanálisis.");
     }
   };
 
@@ -256,6 +308,35 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
         />
       ),
     },
+    {
+      id: "versions",
+      label: "Versiones",
+      content: (
+        <div className="space-y-4" data-testid="versions-tab-content">
+          <VersionHistoryTab
+            versions={versions}
+            currentVersionId={query.data.current_version.id}
+            selectedVersionId={selectedVersion.id}
+            onSelectVersion={setSelectedVersionId}
+          />
+
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-4" data-testid="version-detail-panel">
+            <p className="mb-3 text-sm font-semibold text-gray-900">Vista histórica - Versión {selectedVersion.version_number}</p>
+            <AnalysisSummaryStrip analysis={versionViewAnalysis} />
+            <CategoryList
+              analysis={versionViewAnalysis}
+              onViewSource={({ citation, citations, sources }) => {
+                setSelectedDocumentId(citation.document_id);
+                setSelectedCitation(citation);
+                setSelectedCitations(citations);
+                setSelectedSources(sources);
+                setShowPdfViewer(true);
+              }}
+            />
+          </div>
+        </div>
+      ),
+    },
   ];
 
   const handleStartTracking = async () => {
@@ -281,7 +362,29 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
   return (
     <section className="flex min-w-0 flex-col gap-6">
       <div data-testid="detail-summary-panel" className="-mx-6 -mt-6 border-b border-gray-200 bg-surface px-6 pt-6 pb-4">
-        <AnalysisDetailHeader analysis={query.data} />
+        <AnalysisDetailHeader
+          analysis={query.data}
+          rightActions={
+            canReanalyze ? (
+              <div className="rounded-md border border-blue-200 bg-blue-50 p-3" data-testid="reanalyze-panel">
+                <p className="text-sm text-blue-900">
+                  ¿Querés refrescar resultados sin perder historial? Cada reanálisis crea una versión nueva y mantiene
+                  intactas las anteriores.
+                </p>
+                <div className="mt-3">
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => setShowReanalyzeModal(true)}
+                    disabled={reanalyzeMutation.isPending}
+                  >
+                    Reanalizar
+                  </Button>
+                </div>
+              </div>
+            ) : null
+          }
+        />
       </div>
 
       {query.data.documents.length > 1 && activeDocumentId && (
@@ -334,7 +437,11 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
             </div>
           ) : null}
 
-          <Tabs key={`analysis-tabs-${tabsDefaultTab}`} tabs={tabs} defaultTab={tabsDefaultTab} />
+          <Tabs
+            key={`analysis-tabs-${tabsDefaultTab}`}
+            tabs={tabs}
+            defaultTab={tabsDefaultTab}
+          />
         </div>
 
         {showPdfViewer ? (
@@ -434,6 +541,15 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
           onConfirm={() => {
             void handleCompleteTracking();
           }}
+        />
+      ) : null}
+
+      {showReanalyzeModal ? (
+        <ReanalyzeModal
+          open={showReanalyzeModal}
+          isSubmitting={reanalyzeMutation.isPending}
+          onCancel={() => setShowReanalyzeModal(false)}
+          onConfirm={handleReanalyze}
         />
       ) : null}
     </section>

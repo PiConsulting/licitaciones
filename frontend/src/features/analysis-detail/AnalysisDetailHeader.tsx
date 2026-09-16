@@ -1,4 +1,5 @@
 import { ChevronRight } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { Badge, type BadgeTone } from "../../components/Badge";
 import { Button } from "../../components/Button";
@@ -57,6 +58,7 @@ function getStatusLabel(status: AnalysisDetail["status"]): string {
 
 interface AnalysisDetailHeaderProps {
   analysis: AnalysisDetail;
+  rightActions?: ReactNode;
   showStartTrackingAction?: boolean;
   startTrackingLabel?: string;
   startTrackingLoading?: boolean;
@@ -92,6 +94,7 @@ function buildShortTitle(
 
 export function AnalysisDetailHeader({
   analysis,
+  rightActions,
   showStartTrackingAction = false,
   startTrackingLabel = "Iniciar seguimiento",
   startTrackingLoading = false,
@@ -144,7 +147,13 @@ export function AnalysisDetailHeader({
         <span>{`${totalPages} ${totalPages === 1 ? "página" : "páginas"}`}</span>
       </div>
 
-      {showStartTrackingAction ? (
+      {rightActions ? (
+        <div className="absolute right-4 bottom-0 w-full max-w-sm">
+          {rightActions}
+        </div>
+      ) : null}
+
+      {showStartTrackingAction && !rightActions ? (
         <div className="absolute right-4 bottom-0">
           <Button
             type="button"

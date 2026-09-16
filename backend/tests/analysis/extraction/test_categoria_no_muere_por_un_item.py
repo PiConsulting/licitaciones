@@ -142,3 +142,61 @@ def test_el_tope_de_tokens_alcanza_para_una_categoria_larga() -> None:
 
     assert "max_tokens=12000" in fuente
     assert "timeout=180" in fuente
+
+
+# ---------------------------------------------------------------------------
+# 4. `not_applicable` sin `valor` (2026-09-11, bug encontrado auditando
+#    garantías/dell): la prompt de garantías exige "valor OBLIGATORIO... un
+#    not_applicable con valor: null no sirve", y el LLM lo viola igual --
+#    el usuario terminaba viendo un N/A sin ninguna explicación legible.
+# ---------------------------------------------------------------------------
+
+
+def test_not_applicable_sin_valor_se_baja_a_partial() -> None:
+    item = _normalize_item(
+        {
+            "tipo": "mantenimiento_oferta",
+            "valor": None,
+            "vigencia": "SESENTA (60) días a contar desde la fecha de apertura",
+            "extraction_status": "not_applicable",
+            "source_references": [
+                {"document_id": "doc-1", "page_number": 3, "citation": CITA}
+            ],
+        }
+    )
+
+    assert item["extraction_status"] == "partial"
+    assert item["_warning"] == "not_applicable_sin_valor"
+
+
+@pytest.mark.parametrize("valor_vacio", ["", "   ", None])
+def test_not_applicable_con_valor_vacio_o_en_blanco_tambien_se_baja(valor_vacio) -> None:
+    item = _normalize_item(
+        {"valor": valor_vacio, "extraction_status": "not_applicable", "source_references": []}
+    )
+
+    assert item["extraction_status"] == "partial"
+
+
+def test_not_applicable_con_valor_real_no_se_toca() -> None:
+    item = _normalize_item(
+        {
+            "valor": "Exento: no se exige garantía cuando el monto no supera 100 módulos",
+            "extraction_status": "not_applicable",
+            "source_references": [
+                {"document_id": "doc-1", "page_number": 3, "citation": CITA}
+            ],
+        }
+    )
+
+    assert item["extraction_status"] == "not_applicable"
+    assert "_warning" not in item
+
+
+def test_el_guard_no_toca_otros_status() -> None:
+    """El fix es específico de not_applicable -- success/partial/not_found
+    con valor vacío no son el bug que esto arregla."""
+    item = _normalize_item({"valor": None, "extraction_status": "not_found"})
+
+    assert item["extraction_status"] == "not_found"
+    assert "_warning" not in item

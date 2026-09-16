@@ -20,6 +20,31 @@ _PAGE_FURNITURE_MAX_CHARS = 120
 _PAGE_FURNITURE_MIN_PAGES = 3
 _PAGE_FURNITURE_MIN_PAGE_FRACTION = 0.6
 
+# Un contador de pagina ("Hoja 5 de 22", "Pagina 3/10", "Pag. 12 de 45") es
+# membrete aunque el numero cambie en cada pagina -- por eso nunca lo agarra
+# `_drop_repeated_page_furniture` (que descarta por texto EXACTO repetido).
+# Document Intelligence en general lo marca bien como comentario `PageHeader`,
+# pero de forma inconsistente: en algunas paginas se filtra como parrafo de
+# cuerpo normal (caso real: Nucleoelectrica, "HOJA\n1 de 22" en varias paginas
+# de un anexo de 22). Es una convencion generica de plantillas institucionales
+# en espanol, no vocabulario de un pliego puntual.
+_PAGE_COUNTER_RE = re.compile(
+    r"^(?:hoja|p[aá]gina|pag\.?|page)\s*n?[º°]?\s*\d+\s*(?:de|/)\s*\d+\s*$",
+    re.IGNORECASE,
+)
+
+# Mismo caso que el contador de pagina, pero para el sello de version/revision
+# de plantilla ("V 1.13", "Rev. 3") cuando DI lo deja como parrafo de cuerpo
+# en vez de heading (`_is_bullet_marker_heading` en headings.py ya lo demueve
+# SI llega marcado como heading -- esto cubre cuando llega directo como
+# parrafo). Caso real: PLIEGO_5443-26, "V 1.13" sobrevivia como su propio
+# chunk de 5 caracteres, sin heading ni cuerpo alrededor con el que fusionarse
+# (cae justo en un salto de pagina, entre dos secciones distintas).
+_VERSION_STAMP_RE = re.compile(
+    r"^(?:v|ver|vers(?:i[oó]n)?|rev(?:isi[oó]n)?)\.?\s*\d+(?:\.\d+)*\s*$",
+    re.IGNORECASE,
+)
+
 
 def _index_entries(blocks: list[dict]) -> list[str]:
     """Las entradas de una posible tabla de contenidos, una por renglón lógico.
@@ -166,6 +191,32 @@ def _drop_repeated_page_furniture(blocks: list[dict]) -> list[dict]:
         umbral_de_paginas=umbral,
     )
     return conservados
+
+
+def _drop_page_counters(blocks: list[dict]) -> list[dict]:
+    """Saca los parrafos que son SOLO un contador de pagina ("Hoja 5 de 22",
+    "Pagina 3/10") o un sello de version/revision ("V 1.13") -- ver
+    `_PAGE_COUNTER_RE`/`_VERSION_STAMP_RE`. A diferencia de
+    `_drop_repeated_page_furniture`, no depende de que el texto se repita
+    exacto (el numero cambia en cada pagina/version), así que alcanza con que
+    UN bloque matchee el patron."""
+    descartar: set[int] = set()
+    for indice, block in enumerate(blocks):
+        if block.get("heading_level") is not None or block.get("table_ref"):
+            continue
+        texto = " ".join(str(block.get("content", "") or "").split())
+        if texto and (_PAGE_COUNTER_RE.match(texto) or _VERSION_STAMP_RE.match(texto)):
+            descartar.add(indice)
+
+    if not descartar:
+        return blocks
+
+    logger.info(
+        "contador_de_pagina_descartado",
+        bloques_descartados=len(descartar),
+        muestra=[str(blocks[i].get("content", ""))[:40] for i in sorted(descartar)[:5]],
+    )
+    return [block for indice, block in enumerate(blocks) if indice not in descartar]
 
 
 def _safe_page(block: dict) -> int:

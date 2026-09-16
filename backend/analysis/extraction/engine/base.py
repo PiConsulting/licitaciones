@@ -14,6 +14,7 @@ from analysis.extraction.engine.item_merging import (
     _group_chunks_by_document,
     _merge_items_by_document_section,
     _merge_split_fact_items,
+    _split_oversized_groups,
 )
 from analysis.extraction.engine.llm_client import (
     _call_llm,
@@ -33,13 +34,24 @@ from analysis.extraction.engine.prompts import (
     _format_chunks,
     validate_category_prompt_mapping,
 )
-from analysis.extraction.glossary import build_keyword_query, build_prompt_glossary_block, build_semantic_expanded_query
+from analysis.extraction.engine.verification_pass import run_verification_pass
+from analysis.extraction.glossary import (
+    build_keyword_query,
+    build_prompt_glossary_block,
+    build_semantic_expanded_query,
+    get_category_verification_pass,
+)
 from analysis.extraction.state import GraphState
 from infra.config import get_settings
 
 logger = structlog.get_logger(__name__)
 
 _DOCUMENT_SECTION_MERGE_CATEGORIES = {"anexos_obligatorios"}
+
+# Fallback si `settings` no trae `extraction_group_max_chunks` (p.ej. un
+# fake de test que solo define los atributos que usa) -- ver
+# `_split_oversized_groups` en item_merging.py.
+_DEFAULT_EXTRACTION_GROUP_MAX_CHUNKS = 15
 
 
 def run_extractor(
@@ -112,6 +124,7 @@ def run_extractor(
             get_category_penalty,
             get_category_relevance_min_chunks,
             get_category_relevance_min_ratio,
+            get_category_self_consistency_runs,
             get_category_top_k,
         )
 
@@ -241,6 +254,10 @@ def run_extractor(
             # variabilidad de terminología entre pliegos, ver
             # `PLAN-CORRECCION-RAG-VARIANZA.md` Epic 4).
             groups = _group_chunks_by_document(chunks)
+            group_max_chunks = int(
+                getattr(settings, "extraction_group_max_chunks", None)
+                or _DEFAULT_EXTRACTION_GROUP_MAX_CHUNKS
+            )
             all_items: list[Any] = []
             accumulated_usage = {
                 "prompt_tokens": 0,
@@ -259,13 +276,35 @@ def run_extractor(
                 )
                 return _call_llm(messages=group_messages, correlation_id=correlation_id)
 
-            groups_items = list(groups.items())
+            # FIX (2026-09-11): `_split_oversized_groups` puede partir el
+            # grupo de UN documento en varios lotes (mismo `document_id`
+            # repetido) cuando supera `group_max_chunks` -- ver docstring en
+            # item_merging.py. Por eso los resultados se indexan por
+            # POSICIÓN en `groups_items`, no por `document_id`: una clave por
+            # document_id pisaría el resultado de un lote anterior del mismo
+            # documento en vez de acumular los dos.
+            groups_items = _split_oversized_groups(groups, max_chunks_per_call=group_max_chunks)
+
+            # Self-consistency (Fase 2 auditoría RAG, 2026-09-14): repite CADA
+            # grupo `self_consistency_runs` veces -- misma lista de chunks,
+            # llamado independiente. Reusa el mismo pool de paralelización y
+            # ensamblado de abajo sin ramas nuevas: cada repetición es "un
+            # grupo más" con el mismo `document_id`, así que sus ítems se
+            # etiquetan con el mismo `_source_document_id` y el dedup por
+            # categoría de `merge_node` (ya existe, agrupa por tipo/monto o
+            # tipo/subtipo/valor) los fusiona si coinciden o los deja separados
+            # si no -- exactamente el mismo criterio que ya aplica hoy a
+            # duplicados entre documentos distintos. Opt-in por categoría
+            # (`get_category_self_consistency_runs`, default 1 = sin cambios).
+            self_consistency_runs = get_category_self_consistency_runs(result_key)
+            if self_consistency_runs > 1:
+                groups_items = [item for item in groups_items for _ in range(self_consistency_runs)]
 
             # Paso 2 (plan rag-plan-latencia-2026-09-09): las llamadas por
-            # documento son independientes entre sí (cada documento es su
-            # propia unidad lógica), así que se pueden correr en paralelo. El
-            # resultado se ensambla DESPUÉS recorriendo `groups_items` en su
-            # orden original, con lo cual el merge/dedup/detección de
+            # documento (o por lote dentro de un documento, ver arriba) son
+            # independientes entre sí, así que se pueden correr en paralelo.
+            # El resultado se ensambla DESPUÉS recorriendo `groups_items` en
+            # su orden original, con lo cual el merge/dedup/detección de
             # conflictos río abajo es byte-idéntico al modo secuencial -- lo
             # único que cambia es el wall-time. NUNCA se fusionan chunks de
             # documentos distintos en una misma llamada: eso dejaría que el
@@ -279,13 +318,13 @@ def run_extractor(
                 len(groups_items),
                 max(1, int(settings.extraction_mapreduce_concurrency or 1)),
             )
-            results_by_doc: dict[str, Any] = {}
+            results_by_index: dict[int, Any] = {}
             if mapreduce_workers <= 1:
-                for document_id, group_chunks in groups_items:
+                for index, (document_id, group_chunks) in enumerate(groups_items):
                     try:
-                        results_by_doc[document_id] = _run_group(group_chunks)
+                        results_by_index[index] = _run_group(group_chunks)
                     except Exception as exc:  # noqa: BLE001
-                        results_by_doc[document_id] = exc
+                        results_by_index[index] = exc
             else:
                 from concurrent.futures import ThreadPoolExecutor
 
@@ -293,20 +332,20 @@ def run_extractor(
                     max_workers=mapreduce_workers,
                     thread_name_prefix=f"mapreduce-{result_key}",
                 ) as pool:
-                    future_to_doc = {
-                        pool.submit(_run_group, group_chunks): document_id
-                        for document_id, group_chunks in groups_items
+                    future_to_index = {
+                        pool.submit(_run_group, group_chunks): index
+                        for index, (document_id, group_chunks) in enumerate(groups_items)
                     }
-                    for future, document_id in future_to_doc.items():
+                    for future, index in future_to_index.items():
                         try:
-                            results_by_doc[document_id] = future.result()
+                            results_by_index[index] = future.result()
                         except Exception as exc:  # noqa: BLE001
-                            results_by_doc[document_id] = exc
+                            results_by_index[index] = exc
 
             # Ensamblado determinístico: se recorre en el orden original de
             # los grupos, no en el orden en que terminaron las llamadas.
-            for document_id, group_chunks in groups_items:
-                outcome = results_by_doc.get(document_id)
+            for index, (document_id, group_chunks) in enumerate(groups_items):
+                outcome = results_by_index.get(index)
                 if isinstance(outcome, BaseException):
                     groups_failed += 1
                     logger.warning(
@@ -356,10 +395,14 @@ def run_extractor(
             # payload legítimamente vacío, perdiendo la señal de que hubo un
             # error real (ver auditoría: reportaba status="not_found" en vez
             # de "failed"). Se eleva para que lo capture el `except` de abajo,
-            # que sí marca "failed" correctamente.
-            if groups and groups_failed == len(groups):
+            # que sí marca "failed" correctamente. Se compara contra
+            # `groups_items` (lotes, cuenta de llamadas reales) y no contra
+            # `groups` (documentos): un documento partido en varios lotes por
+            # `_split_oversized_groups` puede fallar más veces que documentos
+            # distintos hay.
+            if groups_items and groups_failed == len(groups_items):
                 raise RuntimeError(
-                    f"Todos los grupos ({groups_failed}/{len(groups)}) fallaron al "
+                    f"Todos los grupos ({groups_failed}/{len(groups_items)}) fallaron al "
                     f"llamar al LLM para la categoría {result_key}"
                 )
 
@@ -369,6 +412,7 @@ def run_extractor(
                 correlation_id=correlation_id,
                 category=result_key,
                 documentos=len(groups),
+                llamadas_llm=len(groups_items),
                 documentos_fallidos=groups_failed,
                 items_crudos=len(all_items),
             )
@@ -409,6 +453,20 @@ def run_extractor(
                 normalized_items = _merge_items_by_document_section(
                     normalized_items, chunks, category=result_key, correlation_id=correlation_id
                 )
+            if get_category_verification_pass(result_key) and normalized_items:
+                normalized_items, verification_usage = run_verification_pass(
+                    normalized_items,
+                    prompt_file_name=prompt_file_name,
+                    root_key=result_key,
+                    correlation_id=correlation_id,
+                )
+                usage = delta.get(token_usage_key)
+                if isinstance(usage, dict):
+                    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                        usage[key] = int(usage.get(key, 0) or 0) + int(
+                            verification_usage.get(key, 0) or 0
+                        )
+                    usage["llm_calls"] = int(usage.get("llm_calls", 0) or 0) + 1
             delta[state_field] = normalized_items
 
         if is_object_result:

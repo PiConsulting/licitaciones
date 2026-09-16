@@ -10,6 +10,7 @@ import type { AnalysisTracking } from "../../types/tracking";
 const mockGetAnalysisById = vi.fn();
 const mockGetAnalysisStatus = vi.fn();
 const mockStartAnalysisCategories = vi.fn();
+const mockReanalyzeAnalysis = vi.fn();
 vi.mock("../../services/api/analysisApi", () => ({
   getAnalysisById: (...args: unknown[]) => mockGetAnalysisById(...args),
 }));
@@ -20,6 +21,7 @@ vi.mock("../../api/analyses", async (importOriginal) => {
     ...actual,
     getAnalysisStatus: (...args: unknown[]) => mockGetAnalysisStatus(...args),
     startAnalysisCategories: (...args: unknown[]) => mockStartAnalysisCategories(...args),
+    reanalyzeAnalysis: (...args: unknown[]) => mockReanalyzeAnalysis(...args),
   };
 });
 
@@ -58,9 +60,10 @@ function createTracking(status: "active" | "completed"): AnalysisTracking {
 }
 
 function createAnalysis(options?: { tracking?: AnalysisTracking | null }): AnalysisDetail {
+  const createdAt = new Date().toISOString();
   return {
     id: "analysis-1",
-    created_at: new Date().toISOString(),
+    created_at: createdAt,
     status: "analyzed",
     current_stage: "completed",
     current_version: {
@@ -101,6 +104,72 @@ function createAnalysis(options?: { tracking?: AnalysisTracking | null }): Analy
       conflicts: {},
       created_at: new Date().toISOString(),
     },
+    versions: [
+      {
+        id: "v2",
+        version_number: 2,
+        extracted_data: {
+          objeto_alcance: {
+            confidence: 0.72,
+            extraction_status: "success",
+            is_reviewed: false,
+            summary: "Objeto actualizado",
+            source_references: [],
+            items: [
+              {
+                field_name: "Objeto",
+                field_value: "Adquisicion actualizada",
+                field_state: "extraido",
+                confidence: 0.72,
+                citations: [],
+              },
+            ],
+          },
+          riesgos: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          requisitos_admisibilidad: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          garantias: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          plazos_clave: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          criterios_evaluacion: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          causales_rechazo: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          anexos_obligatorios: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          datos_procedimiento: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+        },
+        conflicts: {},
+        created_at: createdAt,
+      },
+      {
+        id: "v1",
+        version_number: 1,
+        extracted_data: {
+          objeto_alcance: {
+            confidence: 0.6,
+            extraction_status: "success",
+            is_reviewed: false,
+            summary: "Resumen",
+            source_references: [],
+            items: [
+              {
+                field_name: "Objeto",
+                field_value: "Adquisicion",
+                field_state: "extraido",
+                confidence: 0.6,
+                citations: [],
+              },
+            ],
+          },
+          riesgos: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          requisitos_admisibilidad: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          garantias: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          plazos_clave: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          criterios_evaluacion: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          causales_rechazo: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          anexos_obligatorios: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          datos_procedimiento: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+        },
+        conflicts: {},
+        created_at: createdAt,
+      },
+    ],
     documents: [
       { id: "doc-1", filename: "Pliego Principal.pdf", is_primary: true, page_count: 20 },
     ],
@@ -155,6 +224,16 @@ describe("AnalysisDetailPage PDF integration", () => {
       requires_resolution: false,
       duplicates: [],
       redirect_analysis_id: null,
+    });
+    mockReanalyzeAnalysis.mockResolvedValue({
+      id: "analysis-1",
+      status: "queued",
+      message: "Reanálisis encolado",
+      reanalysis_type: "all",
+      categories: [],
+      source_version_id: "v2",
+      target_version_id: "v3",
+      target_version_number: 3,
     });
     sessionStorage.clear();
   });
@@ -351,6 +430,50 @@ describe("AnalysisDetailPage PDF integration", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Categorías" })).toHaveAttribute("aria-current", "page");
+    });
+  });
+
+  test("muestra pestaña Versiones con marcador de versión actual y vista histórica", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Versiones" })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Versiones" }));
+
+    expect(screen.getByTestId("versions-tab-content")).toBeInTheDocument();
+    expect(screen.getByTestId("current-version-badge")).toBeInTheDocument();
+    expect(screen.getByText(/Vista histórica - Versión 1|Vista histórica - Versión 2/i)).toBeInTheDocument();
+  });
+
+  test("modal Reanalizar valida categorías cuando se elige selección manual", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Reanalizar" })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Reanalizar" }));
+    expect(screen.getByTestId("reanalyze-modal")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("radio", { name: "Seleccionar categorías" }));
+
+    const confirmButton = screen.getByRole("button", { name: "Confirmar reanálisis" });
+    expect(confirmButton).toBeDisabled();
+
+    await user.click(screen.getByRole("checkbox", { name: "Riesgos" }));
+    expect(confirmButton).not.toBeDisabled();
+
+    await user.click(confirmButton);
+
+    await waitFor(() => {
+      expect(mockReanalyzeAnalysis).toHaveBeenCalledWith("analysis-1", {
+        reanalysis_type: "categories",
+        categories: ["riesgos"],
+      });
     });
   });
 });

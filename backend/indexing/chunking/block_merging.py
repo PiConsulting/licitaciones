@@ -6,12 +6,14 @@ import structlog
 
 from indexing.chunking.page_furniture import (
     _drop_index_listings,
+    _drop_page_counters,
     _drop_repeated_page_furniture,
 )
 from indexing.chunking.headings import (
     _detect_repeated_heading_boilerplate,
     _is_bullet_marker_heading,
     _merge_split_headings_across_pages,
+    _merge_truncated_headings_across_pages,
     _merge_truncated_headings_with_body,
     _nest_unnumbered_headings_under_numbered,
     _normalize_decimal_heading_levels,
@@ -24,6 +26,51 @@ from indexing.chunking.headings import (
 logger = structlog.get_logger(__name__)
 
 _TABLE_CONTEXT_MAX_CHARS = 300
+_SENTENCE_END_CHARS = ".:;!?…”\")]"
+
+
+def _looks_paragraph_complete(text: str) -> bool:
+    """¿El bloque termina donde termina una idea (punto, ':', ';', cierre de
+    paréntesis/comilla), o quedó cortado a mitad de oración/palabra?
+
+    Es la señal para decidir, cuando dos bloques bajo el mismo heading caen
+    en páginas consecutivas, si hay que tratarlos como dos párrafos
+    genuinamente distintos (separador "\\n\\n", como ya se hace en la misma
+    página) o como el mismo párrafo que Document Intelligence partió al
+    llegar al borde de la página (sin separador, reconstruyendo la palabra
+    si hace falta) -- ver `_join_cross_page_body`.
+    """
+    stripped = str(text or "").rstrip()
+    return bool(stripped) and stripped[-1] in _SENTENCE_END_CHARS
+
+
+def _join_cross_page_body(previous_content: str, next_content: str) -> str:
+    """Une el contenido de dos bloques de CUERPO que Document Intelligence
+    partió justo en el salto de página, cuando comparten heading_path y el
+    primero no terminaba en un límite real de oración (`_looks_paragraph_complete`
+    dio False). Caso real (PUBCG de Santa Fe, salto de página 8→9):
+
+        "...deberán hacerlo en forma conjunta... La UT deberá tener una du-"
+        "ración superior al tiempo que demande la ejecución del contrato..."
+
+    Reconstruye tanto una palabra cortada a la mitad (guion + letra minúscula
+    a continuación) como un corte en límite de palabra (ej. "...efectuado en
+    el" + "Agente Financiero...", sin guion) -- en ningún caso hay overlap
+    real entre los dos fragmentos, así que unirlos con "\\n\\n" (como si
+    fueran párrafos distintos) dejaría la oración partida en dos unidades
+    de retrieval independientes.
+    """
+    left = str(previous_content or "").rstrip()
+    right = str(next_content or "").lstrip()
+    if not left:
+        return right
+    if not right:
+        return left
+
+    if left[-1] == "-" and left[-2:-1].isalpha() and right[:1].isalpha():
+        return f"{left[:-1]}{right}"
+
+    return f"{left} {right}"
 
 
 def _table_group_key(block: dict) -> object | None:
@@ -56,10 +103,12 @@ def _to_intermediate_blocks(blocks: list[dict]) -> list[dict]:
     ordered = _drop_index_listings(ordered)
 
     ordered = _drop_repeated_page_furniture(ordered)
+    ordered = _drop_page_counters(ordered)
 
     ordered = _merge_split_headings_across_pages(ordered)
 
     ordered = _merge_truncated_headings_with_body(ordered)
+    ordered = _merge_truncated_headings_across_pages(ordered)
 
     ordered = _normalize_numbered_heading_levels(ordered)
 
@@ -149,7 +198,15 @@ def _to_intermediate_blocks(blocks: list[dict]) -> list[dict]:
         )
 
     pop_to_level(0, last_page)
-    return intermediate
+    # FIX (auditoría de chunking, hallazgo real: PLIEGO_5443-26, segunda
+    # vuelta): "V 1.13" llega con `heading_level` puesto por DI, así que el
+    # primer `_drop_page_counters` (arriba, antes del loop) lo salta -- su
+    # guarda excluye headings a propósito, porque en ESE punto todavía no se
+    # sabe que es un artefacto y no un heading real (`_is_bullet_marker_heading`
+    # recién lo demuve a párrafo DENTRO del loop de arriba). Se vuelve a
+    # correr acá, sobre los bloques ya demovidos, para sacarlo antes de que
+    # sobreviva como su propio chunk huérfano.
+    return _drop_page_counters(intermediate)
 
 
 def _preceding_table_context(merged: list[dict], table_block: dict) -> str | None:
@@ -224,6 +281,21 @@ def _merge_intermediate_blocks(blocks: list[dict]) -> list[dict]:
             context = _preceding_table_context(merged, block)
             if context:
                 block["table_context"] = context
+                # FIX (auditoria de chunking, generalizado): si el bloque previo
+                # es un parrafo (no otra fila de la MISMA tabla) y su contenido
+                # ENTERO -- no solo un fragmento -- se convirtio en el
+                # table_context, ese parrafo era pura etiqueta introductoria
+                # ("Facturacion y Pago", "Limbo", un bullet/checkbox suelto) y
+                # no aporta nada por si solo. Sin este pop queda duplicado: una
+                # vez como su propio chunk titulo-sin-cuerpo, y otra vez como
+                # contexto de la tabla que ya lo lleva. Si el parrafo previo
+                # tiene MAS contenido que la sola cola usada como contexto
+                # (`_introductory_tail` devuelve solo el ultimo "\n\n"-parrafo),
+                # no se toca: ese contenido adicional sigue siendo real.
+                if merged and merged[-1].get("block_type") != "table":
+                    previous_content = str(merged[-1].get("content", "")).strip()
+                    if previous_content and previous_content == context.strip():
+                        merged.pop()
             if merged:
                 previous = merged[-1]
                 previous_ref = previous.get("table_ref") or {}
@@ -296,11 +368,22 @@ def _merge_intermediate_blocks(blocks: list[dict]) -> list[dict]:
 
         if merged:
             previous = merged[-1]
+            same_page = previous["page_number"] == block["page_number"]
+            next_page = block["page_number"] == previous["page_number"] + 1
+            same_heading = previous.get("heading_path") == block.get("heading_path")
+            previous_looks_cut = not _looks_paragraph_complete(previous.get("content", ""))
             can_merge = (
                 previous.get("block_type") != "table"
                 and not previous.get("is_heading")
-                and previous["page_number"] == block["page_number"]
-                and previous.get("heading_path") == block.get("heading_path")
+                and same_heading
+                # FIX (auditoría de chunking): antes solo se fusionaba en la
+                # MISMA página. Un párrafo que Document Intelligence corta
+                # justo en el salto de página (ej. "...una du-" / "ración
+                # superior...") quedaba en dos chunks separados, sin overlap,
+                # aunque compartieran heading_path -- se fusiona también
+                # cuando cae en la página siguiente y el bloque anterior no
+                # terminaba en un límite real de oración.
+                and (same_page or (next_page and previous_looks_cut))
             )
             if can_merge:
                 if "merged_blocks" not in previous:
@@ -321,7 +404,12 @@ def _merge_intermediate_blocks(blocks: list[dict]) -> list[dict]:
                         "content": block.get("content", ""),
                     }
                 )
-                previous["content"] = f"{previous['content']}\n\n{block['content']}"
+                if same_page:
+                    previous["content"] = f"{previous['content']}\n\n{block['content']}"
+                else:
+                    previous["content"] = _join_cross_page_body(
+                        previous["content"], block["content"]
+                    )
                 continue
         if "merged_blocks" not in block:
             block["merged_blocks"] = [

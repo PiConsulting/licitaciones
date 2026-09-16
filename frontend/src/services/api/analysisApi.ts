@@ -747,12 +747,19 @@ export async function getAnalysisById(analysisId: string): Promise<AnalysisDetai
   try {
     const response = await apiClient.get<AnalysisDetail>(`/analyses/${analysisId}`);
     const payload = response.data;
+    const normalizedVersions = Array.isArray(payload.versions)
+      ? payload.versions.map((version) => ({
+          ...version,
+          extracted_data: normalizeCategories(version?.extracted_data),
+        }))
+      : undefined;
     return {
       ...payload,
       current_version: {
         ...payload.current_version,
         extracted_data: normalizeCategories(payload.current_version?.extracted_data),
       },
+      versions: normalizedVersions,
     };
   } catch (error) {
     if (error instanceof AxiosError && error.response?.status === 404) {

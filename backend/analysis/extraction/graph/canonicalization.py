@@ -6,17 +6,20 @@ import unicodedata
 
 import structlog
 
+from analysis.extraction.schemas import SubtipoRiesgo, TipoCausal, TipoGarantia, TipoIdentificacion
+
 logger = structlog.get_logger(__name__)
 
-_TIPOS_IDENTIFICACION_VALIDOS = {
-    "organismo_convocante",
-    "expediente",
-    "numero_procedimiento",
-    "tipo_procedimiento",
-    "presupuesto_oficial",
-    "jurisdiccion",
-    "denominacion",
-}
+_GARANTIA_VALID_TIPOS = {tipo.value for tipo in TipoGarantia}
+_CAUSAL_VALID_TIPOS = {tipo.value for tipo in TipoCausal}
+_RIESGO_SUBTIPO_VALID = {subtipo.value for subtipo in SubtipoRiesgo}
+
+# FIX (2026-09-14, mismo patrón que el resto de esta ronda): antes este set
+# era una copia a mano del enum, con el mismo riesgo que ya se vio en
+# garantías/causales -- si el enum se amplía y nadie actualiza este set, el
+# valor nuevo cae al fallback de palabras clave o a `None` aunque el LLM ya
+# lo haya devuelto bien. Ahora se deriva directo de `TipoIdentificacion`.
+_TIPOS_IDENTIFICACION_VALIDOS = {tipo.value for tipo in TipoIdentificacion}
 
 
 def _merge_category_status(*statuses: str) -> str:
@@ -63,8 +66,42 @@ def _canonical_garantia_tipo(value: str) -> str:
     if not text:
         return "otra"
 
+    # FIX (2026-09-11, bug encontrado auditando garantías/dell): esta función
+    # coercionaba CUALQUIER tipo que no matcheara sus 3 palabras clave
+    # (cumplimiento+contrato / anticipo / mantenimiento) a "otra" -- incluso
+    # cuando el LLM ya había devuelto un valor VÁLIDO del enum `TipoGarantia`
+    # ampliado (`contragarantia`/`impugnacion`/`fondo_reparo`/
+    # `por_vicios_ocultos`/`buen_uso_anticipo`, agregados a `schemas.py`
+    # después de escribir esta función, que nunca se actualizó). Un ítem
+    # etiquetado correctamente `contragarantia` se pisaba acá mismo con
+    # `otra` en CADA corrida -- sin que el LLM tuviera arte ni parte -- y de
+    # paso rompía el dedup con el ítem `anticipo` gemelo del mismo hecho
+    # (`_garantia_dedup_value` agrupa por `tipo`, así que dos ítems del mismo
+    # hecho con `tipo` distinto nunca se fusionan). Si el valor YA es un
+    # enum válido, se respeta tal cual -- el matcheo por palabra clave de
+    # abajo es solo el fallback para texto libre que el LLM no ajustó al
+    # enum (ej. "Garantía de Cumplimiento de Contrato" en vez de
+    # "cumplimiento_contrato").
+    normalized_slug = text.replace(" ", "_").replace("-", "_")
+    if normalized_slug in _GARANTIA_VALID_TIPOS:
+        return normalized_slug
+
     if "cumplimiento" in text and "contrato" in text:
         return "cumplimiento_contrato"
+    # Debe evaluarse ANTES que "anticipo": "contragarantía por anticipo" es
+    # texto libre típico y contiene ambas palabras -- si "anticipo" se
+    # chequeara primero, una contragarantía en texto libre nunca llegaría a
+    # este branch.
+    if "contragarantia" in text:
+        return "contragarantia"
+    if "impugnacion" in text:
+        return "impugnacion"
+    if "fondo" in text and "reparo" in text:
+        return "fondo_reparo"
+    if "vicio" in text and "oculto" in text:
+        return "por_vicios_ocultos"
+    if "buen uso" in text and "anticipo" in text:
+        return "buen_uso_anticipo"
     if "anticipo" in text:
         return "anticipo"
     if (
@@ -98,6 +135,21 @@ def _canonical_identificacion_tipo(value: str) -> str | None:
         return "jurisdiccion"
     if "denomina" in text or "nombre del llamado" in text or "nombre_del_llamado" in text:
         return "denominacion"
+    if (
+        "domicilio electronico" in text
+        or "correo de consulta" in text
+        or "canal de consulta" in text
+        or "mail de consulta" in text
+    ):
+        return "canal_consultas"
+    if (
+        "lugar de consulta" in text
+        or "consulta del pliego" in text
+        or "consulta en linea" in text
+        or "retirar el pliego" in text
+        or "adquisicion del pliego" in text
+    ):
+        return "lugar_consulta_pliego"
     if "proced" in text:
         if "tipo" in text:
             return "tipo_procedimiento"
@@ -110,12 +162,29 @@ def _canonical_causal_tipo(value: str) -> str:
     if not text:
         return "otra"
 
+    # FIX (2026-09-14, mismo patrón que `_canonical_garantia_tipo`, P1-3 de
+    # la auditoría RAG): esta función no tenía chequeo de match exacto contra
+    # el enum, y ni siquiera cubría los 6 valores de `TipoCausal` -- faltaba
+    # `etica` por completo. Cualquier causal que el LLM etiquetara
+    # correctamente `etica` se pisaba con `otra` acá mismo. Igual que en
+    # garantías: si el valor YA es un enum válido, se respeta tal cual.
+    if text in _CAUSAL_VALID_TIPOS:
+        return text
+
     if any(term in text for term in ["formal", "document", "garantia", "presentacion", "termino"]):
         return "formal"
     if any(term in text for term in ["tecnic", "especificacion", "muestra"]):
         return "tecnica"
     if any(term in text for term in ["econom", "precio", "cotizacion"]):
         return "economica"
+    if any(
+        term in text
+        for term in [
+            "etic", "corrupcion", "soborno", "colusion", "cohech",
+            "dadiva", "conflicto de interes", "falsedad",
+        ]
+    ):
+        return "etica"
     if any(term in text for term in ["legal", "inhabilit", "registro", "juridic"]):
         return "legal"
 
@@ -134,7 +203,19 @@ def _canonical_riesgo_subtipo(value: str) -> str:
     text = _normalize_text(value)
     if not text:
         return "otro_explicito"
-    
+
+    # FIX (2026-09-14, mismo patrón que `_canonical_garantia_tipo`, P1-3 de
+    # la auditoría RAG): sin este chequeo, un `subtipo` que el LLM ya
+    # devolvía como el slug exacto "comercial" caía por TODAS las ramas de
+    # palabras clave de abajo (ninguna busca literalmente "comercial", solo
+    # frases como "mantenimiento oferta"/"moneda"/"forma pago") y terminaba
+    # en "otro_explicito" -- y de paso rompía el dedup con otro ítem
+    # `comercial` gemelo del mismo hecho (el merge de riesgos agrupa por
+    # `subtipo`). Los otros 8 valores del enum coincidían por casualidad con
+    # alguna palabra clave de su propia rama; "comercial" era el único que no.
+    if text in _RIESGO_SUBTIPO_VALID:
+        return text
+
     # Comercial (muy específico - primero)
     if any(
         term in text
