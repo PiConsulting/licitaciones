@@ -1,6 +1,12 @@
-import { NarrativeBlocks } from "./components/NarrativeBlocks";
+import { ChevronDown, ChevronUp } from "lucide-react";
+import { useState } from "react";
+
+import { PreviewCriterionCard } from "./components/PreviewCriterionCard";
 import type { AnalysisDetail, CategoryData, CategoryNarrative, Citation, NarrativeSource } from "./types";
-import { buildNarrativeBlocks, mergeCategoryNarratives } from "./utils/narrativeSynthesis";
+import { filterVerifiedSources, collectReferencedSourceIds, resolveSourceIdsToSources } from "./utils/resolveNarrativeSources";
+import { normalizePreviewSummary } from "./utils/normalizePreviewSummary";
+import { splitLabelAndValue } from "./utils/splitLabelAndValue";
+import { buildNarrativeBlocks } from "./utils/narrativeSynthesis";
 
 interface PreviewTabProps {
   analysis: AnalysisDetail;
@@ -181,13 +187,21 @@ function categoryNarrativeOrFallback(
   fallbackCategoryId: Parameters<typeof buildNarrativeBlocks>[1],
   options?: Parameters<typeof buildNarrativeBlocks>[2],
 ): CategoryNarrative | null {
-  if (!category || category.items.length === 0) {
+  if (!category) {
     return null;
   }
-  return category.narrative ?? buildNarrativeBlocks(category, fallbackCategoryId, options);
+  if (category.narrative) {
+    return category.narrative;
+  }
+  if (category.items.length === 0) {
+    return null;
+  }
+  return buildNarrativeBlocks(category, fallbackCategoryId, options);
 }
 
 export function PreviewTab({ analysis, onViewSource }: PreviewTabProps) {
+  const [showObjectSources, setShowObjectSources] = useState(false);
+
   const extractedData = analysis.current_version.extracted_data;
   const objetoAlcance = extractedData.objeto_alcance;
   const previewCriterios = normalizePreviewCategory(extractedData.preview_criterios);
@@ -201,20 +215,139 @@ export function PreviewTab({ analysis, onViewSource }: PreviewTabProps) {
   // datos y el backend tampoco mandó narrative.
   const previewNarrative = normalizePreviewNarrative(
     categoryNarrativeOrFallback(previewCriterios, "criterios_evaluacion", {
-    forceList: true,
-    includeNotFoundItems: true,
+      forceList: true,
+      includeNotFoundItems: true,
     }),
   );
 
-  const unifiedNarrative =
-    objetoNarrative || previewNarrative
-      ? mergeCategoryNarratives([objetoNarrative, previewNarrative].filter((n): n is CategoryNarrative => n !== null))
-      : null;
+  const previewBullets = previewNarrative?.blocks.flatMap((block) => (block.type === "bullet_list" ? block.items : [])) ?? [];
+  const previewReferencedIds = collectReferencedSourceIds(previewNarrative?.blocks ?? []);
+  const previewSourceById = new Map(
+    filterVerifiedSources(previewNarrative?.sources ?? [])
+      .filter((source) => previewReferencedIds.has(source.id))
+      .map((source) => [source.id, source]),
+  );
+  const objectReferencedIds = collectReferencedSourceIds(objetoNarrative?.blocks ?? []);
+  const objectSources = filterVerifiedSources(objetoNarrative?.sources ?? []).filter((source) =>
+    objectReferencedIds.has(source.id),
+  );
+  const objectDetailText =
+    objetoNarrative?.blocks
+      .map((block) => {
+        if (block.type === "paragraph") {
+          return block.text;
+        }
+        if (block.type === "bullet_list") {
+          return block.items.map((item) => item.text).join("\n");
+        }
+        return block.rows.map((row) => row.cells.join(" · ")).join("\n");
+      })
+      .filter(Boolean)
+      .join("\n\n") ?? "";
+
+  const handleViewObjectSource = (selectedSource: NarrativeSource) => {
+    if (!onViewSource) {
+      return;
+    }
+    const citations = objectSources.map((source) => ({
+      text: source.text,
+      page: source.page,
+      document_id: source.document_id,
+      document_name: source.document_name,
+    }));
+    onViewSource({
+      citation: {
+        text: selectedSource.text,
+        page: selectedSource.page,
+        document_id: selectedSource.document_id,
+        document_name: selectedSource.document_name,
+      },
+      citations,
+      sources: objectSources,
+    });
+  };
+
+  const hasContent = Boolean(objetoNarrative || previewBullets.length > 0);
 
   return (
     <section data-testid="preview-tab-content">
-      {unifiedNarrative ? (
-        <NarrativeBlocks narrative={unifiedNarrative} onViewSource={onViewSource} emphasizeLeadingLabel />
+      {hasContent ? (
+        <>
+          {objetoNarrative ? (
+            <article
+              className="relative mt-3 overflow-hidden rounded-xl border border-white/50 bg-white/35 p-4 pb-12 shadow-md backdrop-blur-md sm:p-5 sm:pb-12"
+              data-testid="preview-object-card"
+            >
+              <div className="flex items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-cedia-primary">Objeto y Alcance</h3>
+                  <p className="mt-2 whitespace-pre-line break-words text-sm leading-relaxed text-gray-800" data-testid="preview-object-text">
+                    {objectDetailText}
+                  </p>
+                </div>
+              </div>
+
+              {showObjectSources ? (
+                <div id="preview-object-sources" className="mt-3 rounded-md border border-white/60 bg-white/75 p-2 backdrop-blur" data-testid="preview-object-sources-panel">
+                  {objectSources.length > 0 ? (
+                    <ul className="space-y-2" data-testid="preview-object-sources-list">
+                      {objectSources.map((source) => (
+                        <li key={source.id}>
+                          <button
+                            type="button"
+                            className="w-full rounded border border-gray-200 px-2 py-1 text-left text-xs text-cedia-primary hover:border-cedia-primary"
+                            onClick={() => handleViewObjectSource(source)}
+                          >
+                            <span className="font-semibold">{source.document_name}</span>
+                            <span>{` · pág. ${source.page}`}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-gray-600">Sin fuentes verificables para Objeto y Alcance.</p>
+                  )}
+                </div>
+              ) : null}
+
+              <button
+                type="button"
+                className="absolute bottom-2 right-2 inline-flex h-7 w-7 items-center justify-center rounded-full border border-cedia-primary/40 bg-white/75 text-cedia-primary transition-colors hover:border-cedia-primary hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                aria-expanded={showObjectSources}
+                aria-controls="preview-object-sources"
+                aria-label={showObjectSources ? "Ocultar fuentes" : "Mostrar fuentes"}
+                title={showObjectSources ? "Ocultar fuentes" : "Mostrar fuentes"}
+                onClick={() => setShowObjectSources((value) => !value)}
+                data-testid="preview-object-sources-toggle"
+              >
+                {showObjectSources ? <ChevronUp className="h-4 w-4" aria-hidden="true" /> : <ChevronDown className="h-4 w-4" aria-hidden="true" />}
+              </button>
+            </article>
+          ) : null}
+
+          {previewBullets.length > 0 ? (
+            <div className="mt-3 flex w-full flex-wrap gap-2 overflow-x-hidden" data-testid="preview-criteria-cards">
+              {previewBullets.map((item, index) => {
+                const split = splitLabelAndValue(item.text);
+                const title = split?.label || PREVIEW_TITLES[index] || `Criterio ${index + 1}`;
+                const summary = normalizePreviewSummary(title, item.resumen, split?.value ?? item.text);
+                const sources = resolveSourceIdsToSources(item.source_ids, previewSourceById);
+
+                return (
+                  <PreviewCriterionCard
+                    key={`${title}-${index}`}
+                    title={title}
+                    resumen={summary}
+                    bulletItem={item}
+                    sources={sources}
+                    contentId={`preview-criterion-content-${index}`}
+                    onViewSource={onViewSource}
+                  />
+                );
+              })}
+            </div>
+          ) : null}
+        </>
       ) : (
         <div
           className="rounded-md border border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-700"
@@ -230,7 +363,7 @@ export function PreviewTab({ analysis, onViewSource }: PreviewTabProps) {
         </p>
       ) : null}
 
-      {unifiedNarrative ? (
+      {hasContent ? (
         <p className="mt-3 text-xs text-gray-500" data-testid="preview-tab-categories-hint">
           Este preview es un resumen. Podés ver el detalle completo de requisitos de admisibilidad y garantías,
           con todas sus fuentes, en la sección Categorías.

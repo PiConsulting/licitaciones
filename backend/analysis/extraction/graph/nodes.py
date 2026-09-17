@@ -250,27 +250,47 @@ def setup_node(state: GraphState) -> GraphState:
             candidates=len(global_candidates),
         )
 
+    # FIX (2026-09-16, bug reportado: preview mostraba datos viejos/vacíos de
+    # mantenimiento_oferta al reanalizar SOLO preview_criterios, pese a que el
+    # fix de 2026-09-11 ya sembraba `initial_state["plazos"/"garantias"/
+    # "requisitos_admisibilidad"]` con los datos reales ANTES de invocar el
+    # grafo -- ver `_PREVIEW_CRITERIOS_SOURCE_STATE_KEYS` en
+    # `analysis/service/lifecycle.py`). Causa real: `setup_node` corre
+    # SIEMPRE primero en cualquier grafo, incluido el mini-grafo de una sola
+    # categoría, y este bloque pisaba esos 3 campos sembrados con `[]`
+    # incondicionalmente -- volvía a colapsar el preview a `not_found` justo
+    # antes de que `extractor_preview_criterios` los necesitara. `riesgos`
+    # sobrevivía por no estar en esta lista (motivo por el cual solo
+    # `multas_penalidades`/los campos proyectados desde riesgos funcionaban
+    # bien, y el resto no). El fix real es genérico, no específico de
+    # preview_criterios: nunca pisar un campo que YA llegó con datos
+    # sembrados -- solo inicializar los que de verdad están vacíos/ausentes.
+    defaults = {
+        "preview_criterios": [],
+        "preview_criterios_status": "pending",
+        "objeto_alcance": [],
+        "objeto_alcance_status": "pending",
+        "requisitos_admisibilidad": [],
+        "requisitos_admisibilidad_status": "pending",
+        "plazos": [],
+        "plazos_status": "pending",
+        "garantias": [],
+        "garantias_status": "pending",
+        "causales": [],
+        "causales_status": "pending",
+        "anexos": [],
+        "anexos_status": "pending",
+        "criterios": [],
+        "criterios_status": "pending",
+        "identificacion": [],
+        "identificacion_status": "pending",
+        "conflicts": [],
+    }
+    for key, default in defaults.items():
+        if not state.get(key):
+            state[key] = default
     state.update(
         {
-            "preview_criterios": [],
-            "preview_criterios_status": "pending",
-            "objeto_alcance": [],
-            "objeto_alcance_status": "pending",
-            "requisitos_admisibilidad": [],
-            "requisitos_admisibilidad_status": "pending",
-            "plazos": [],
-            "plazos_status": "pending",
-            "garantias": [],
-            "garantias_status": "pending",
-            "causales": [],
-            "causales_status": "pending",
-            "anexos": [],
-            "anexos_status": "pending",
-            "criterios": [],
-            "criterios_status": "pending",
-            "identificacion": [],
-            "identificacion_status": "pending",
-            "conflicts": [],
             "document_id_to_blob_path": document_mapping,
             "document_labels": document_labels,
             "global_candidates": global_candidates,

@@ -159,11 +159,6 @@ Copiá el monto tal como aparece en el pliego (con moneda y separadores).
 
 ## 6bis. canal_consultas
 
-# FIX (2026-09-14, Fase 2 de la auditoría RAG): este tipo y el siguiente
-# (`lugar_consulta_pliego`) no existían -- el golden de varios pliegos pedía
-# estos datos y no había dónde ponerlos, ni el LLM los buscaba. Genérico, no
-# depende de la redacción de ningún pliego puntual.
-
 El canal por el que el organismo recibe consultas del oferente, o por el que
 notifica al oferente durante el procedimiento: domicilio electrónico
 constituido a los fines del procedimiento, correo de consultas

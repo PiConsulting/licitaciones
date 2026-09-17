@@ -179,6 +179,7 @@ def _resolve_from_evidence(
                 kept_items.append(
                     {
                         "text": bullet.text,
+                        "resumen": bullet.resumen,
                         "confidence_level": bullet.confidence_level,
                         "source_ids": source_ids,
                     }

@@ -95,16 +95,6 @@ esas dos preguntas, probablemente no es de esta categoría.
 | "El personal afectado al servicio deberá contar con cobertura de ART/seguro de vida/aportes sindicales vigentes" | **IGNORAR** | Obligación laboral del personal que se controla DURANTE LA EJECUCIÓN del contrato (una vez adjudicado), no una condición para que la oferta no se rechace al presentarla. |
 | "Deberá acreditar afiliación a ART y constancias de pago del personal en relación de dependencia" | **IGNORAR** | Mismo caso: cumplimiento laboral/previsional del personal en ejecución, no requisito de admisibilidad de la oferta. |
 
-# FIX (2026-09-14, Fase 2 de la auditoría RAG): medido en un pliego real, el
-# extractor sacaba como `documento` de admisibilidad ítems como "Certificado
-# de cobertura de ART", "Seguro colectivo de vida obligatorio", "constancia de
-# aportes sindicales" -- el golden no los cuenta acá. La distinción real: la
-# categoría es "¿qué tengo que presentar CON LA OFERTA para que no me
-# rechacen de entrada?", no "¿qué obligaciones legales tiene el personal del
-# adjudicatario durante la ejecución del contrato?". Esto no depende de la
-# redacción de ningún pliego en particular -- aplica cada vez que un pliego
-# de servicios (limpieza, seguridad, mantenimiento con personal en sitio)
-# mezcla ambos tipos de exigencia en el mismo capítulo.
 **Regla adicional -- admisibilidad de LA OFERTA vs. cumplimiento laboral DEL
 PERSONAL en ejecución:** si el fragmento exige algo sobre el personal que el
 adjudicatario va a afectar al servicio (ART, seguro de vida, aportes,

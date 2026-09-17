@@ -108,21 +108,38 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
       return;
     }
 
-    if (polledStatus === "analyzed") {
-      setStatusPollingEnabled(false);
-      if (redirectToCategoriesOnAnalyze) {
-        setTabsDefaultTab("categories");
-        setRedirectToCategoriesOnAnalyze(false);
-      }
-      void query.refetch();
+    const isTerminal =
+      polledStatus === "analyzed" ||
+      polledStatus === "en_revision" ||
+      polledStatus === "error" ||
+      polledStatus === "cancelled" ||
+      polledStatus === "validated";
+    if (!isTerminal) {
       return;
     }
 
-    if (polledStatus === "en_revision" || polledStatus === "error" || polledStatus === "cancelled") {
+    let cancelled = false;
+    const shouldRedirectToCategories = polledStatus === "analyzed" && redirectToCategoriesOnAnalyze;
+    setRedirectToCategoriesOnAnalyze(false);
+
+    // Se espera a que termine el refetch del detalle antes de apagar el
+    // polling: si se desmonta el panel de progreso (gateado por
+    // `statusPollingEnabled`) antes de que llegue la data nueva, el usuario ve
+    // un parpadeo (el panel desaparece y, un instante después, el resto de la
+    // página vuelve a moverse cuando el detalle finalmente llega).
+    void query.refetch().then(() => {
+      if (cancelled) {
+        return;
+      }
+      if (shouldRedirectToCategories) {
+        setTabsDefaultTab("categories");
+      }
       setStatusPollingEnabled(false);
-      setRedirectToCategoriesOnAnalyze(false);
-      void query.refetch();
-    }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [query, redirectToCategoriesOnAnalyze, statusPolling.data?.status, statusPollingEnabled]);
 
   const documentsById = useMemo(() => {

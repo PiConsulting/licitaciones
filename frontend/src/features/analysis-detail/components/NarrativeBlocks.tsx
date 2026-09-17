@@ -2,6 +2,14 @@ import { Check, Circle, CircleSlash, X } from "lucide-react";
 
 import type { TrackingItem, TrackingItemStatus } from "../../../types/tracking";
 import type { CategoryNarrative, Citation, NarrativeBlockData, NarrativeSource } from "../types";
+import { splitLabelAndValue } from "../utils/splitLabelAndValue";
+import {
+  collectParagraphSourceIds,
+  collectReferencedSourceIds,
+  filterVerifiedSources,
+  resolveSourceIdsToSources,
+  sourceToCitation,
+} from "../utils/resolveNarrativeSources";
 import { SourceEyeButton as EyeButton } from "./SourceEyeButton";
 
 interface NarrativeBlocksProps {
@@ -50,70 +58,15 @@ const TRACKING_ITEM_STATUS_OPTIONS: Array<{
   },
 ];
 
-function sourceToCitation(source: NarrativeSource): Citation {
-  return {
-    text: source.text,
-    page: source.page,
-    document_id: source.document_id,
-    document_name: source.document_name,
-  };
-}
-
-/**
- * Filtra sources que no son verificables (marcadas por el backend con
- * `unverified: true`). Estas citations no pueden ser encontradas en el PDF y
- * no deben mostrarse al usuario.
- */
-function filterVerifiedSources(sources: NarrativeSource[]): NarrativeSource[] {
-  return sources.filter((source) => !source.unverified);
-}
-
 /** `source_ids` que referencian los bloques `paragraph`.
  *
  * Los párrafos no tienen un "ítem" al que colgarle un botón sin ensuciar la
  * lectura corrida, así que su evidencia sigue yendo al listado del pie. Es el
  * caso de categorías como Objeto y Alcance, que son un párrafo y no una lista.
  */
-function collectParagraphSourceIds(blocks: NarrativeBlockData[]): Set<number> {
-  const ids = new Set<number>();
-  for (const block of blocks) {
-    if (block.type === "paragraph") {
-      block.source_ids.forEach((id) => ids.add(id));
-    }
-  }
-  return ids;
-}
-
 /** Todos los `source_ids` que efectivamente usa algún bloque/bullet/fila.
  * Una fuente que ningún elemento referencia no puede aparecer en ningún lado:
  * mostrarla sugiere una trazabilidad que no existe. */
-function collectReferencedSourceIds(blocks: NarrativeBlockData[]): Set<number> {
-  const ids = new Set<number>();
-  for (const block of blocks) {
-    if (block.type === "paragraph") {
-      block.source_ids.forEach((id) => ids.add(id));
-    } else if (block.type === "bullet_list") {
-      block.items.forEach((item) => item.source_ids.forEach((id) => ids.add(id)));
-    } else {
-      block.rows.forEach((row) => row.source_ids.forEach((id) => ids.add(id)));
-    }
-  }
-  return ids;
-}
-
-function splitLabelAndValue(text: string): { label: string; value: string } | null {
-  const separatorIndex = text.indexOf(":");
-  if (separatorIndex <= 0) {
-    return null;
-  }
-  const label = text.slice(0, separatorIndex).trim();
-  const value = text.slice(separatorIndex + 1).trim();
-  if (!label || !value) {
-    return null;
-  }
-  return { label, value };
-}
-
 function renderNarrativeText(text: string, emphasizeLeadingLabel: boolean) {
   if (!emphasizeLeadingLabel) {
     return text;
@@ -223,9 +176,7 @@ export function NarrativeBlocks({
   const paragraphCitations = paragraphSources.map(sourceToCitation);
 
   const resolveSources = (sourceIds: number[]): NarrativeSource[] =>
-    sourceIds
-      .map((id) => sourceById.get(id))
-      .filter((source): source is NarrativeSource => source !== undefined);
+    resolveSourceIdsToSources(sourceIds, sourceById);
 
   /** Abre el visor acotado a la evidencia del elemento clickeado: la
    * navegación anterior/siguiente del visor recorre SÓLO esas citas, no las de

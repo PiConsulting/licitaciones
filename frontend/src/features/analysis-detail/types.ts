@@ -87,6 +87,7 @@ export interface NarrativeParagraphBlock {
 
 export interface NarrativeBulletItem {
   text: string;
+  resumen?: string;
   confidence_level: ConfidenceLevel;
   source_ids: number[];
 }

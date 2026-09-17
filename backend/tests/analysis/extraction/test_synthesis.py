@@ -365,3 +365,279 @@ def test_run_synthesis_preview_normaliza_titulos_y_orden_canonico(
         "Requisitos técnicos o certificaciones excluyentes: x",
         "Responsabilidad por costos logísticos o de instalación: x",
     ]
+
+
+def test_run_synthesis_preview_propaga_resumen_hasta_narrative_final(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_call_llm(*, messages, correlation_id):
+        return (
+            {
+                "blocks": [
+                    {
+                        "type": "bullet_list",
+                        "items": [
+                            {
+                                "text": "Mantenimiento de oferta: 60 días",
+                                "resumen": "60 días",
+                                "confidence_level": "alta",
+                                "item_refs": [0],
+                            },
+                            {
+                                "text": "Forma de Pago: En pesos",
+                                "resumen": "En pesos",
+                                "confidence_level": "alta",
+                                "item_refs": [1],
+                            },
+                        ],
+                    }
+                ]
+            },
+            {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        )
+
+    monkeypatch.setattr("analysis.extraction.engine.base._call_llm", fake_call_llm)
+
+    items = [
+        {
+            "tipo": "mantenimiento_oferta",
+            "valor": "60 días",
+            "confidence": 0.9,
+            "source_references": [
+                {
+                    "document_id": "doc-1",
+                    "page_number": 1,
+                    "citation": "La oferta deberá mantenerse por 60 días.",
+                }
+            ],
+            "extraction_status": "success",
+        },
+        {
+            "tipo": "forma_pago",
+            "valor": "En pesos",
+            "confidence": 0.9,
+            "source_references": [
+                {
+                    "document_id": "doc-1",
+                    "page_number": 2,
+                    "citation": "El pago se realizará en pesos argentinos.",
+                }
+            ],
+            "extraction_status": "success",
+        },
+    ]
+
+    result = run_synthesis(category_key="preview_criterios", items=items, correlation_id="corr-preview")
+    assert result is not None
+    narrative, _token_usage = result
+
+    assert narrative.blocks[0].type == "bullet_list"
+    assert narrative.blocks[0].items[0].resumen == "60 días"
+    assert narrative.blocks[0].items[1].resumen == "En pesos"
+
+
+def test_run_synthesis_preview_forza_resumen_no_informado_en_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_call_llm(*, messages, correlation_id):
+        return (
+            {
+                "blocks": [
+                    {
+                        "type": "bullet_list",
+                        "items": [
+                            {
+                                "text": "Mantenimiento de oferta: No se encontró información.",
+                                "resumen": "N/A",
+                                "confidence_level": "media",
+                                "item_refs": [0],
+                            },
+                            {
+                                "text": "Forma de Pago: En pesos",
+                                "resumen": "En pesos",
+                                "confidence_level": "alta",
+                                "item_refs": [1],
+                            }
+                        ],
+                    }
+                ]
+            },
+            {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        )
+
+    monkeypatch.setattr("analysis.extraction.engine.base._call_llm", fake_call_llm)
+
+    items = [
+        {
+            "tipo": "mantenimiento_oferta",
+            "valor": "",
+            "confidence": 0.7,
+            "source_references": [
+                {
+                    "document_id": "doc-1",
+                    "page_number": 1,
+                    "citation": "No se identifica información sobre mantenimiento de oferta.",
+                }
+            ],
+            "extraction_status": "not_found",
+        },
+        {
+            "tipo": "forma_pago",
+            "valor": "En pesos",
+            "confidence": 0.9,
+            "source_references": [
+                {
+                    "document_id": "doc-1",
+                    "page_number": 2,
+                    "citation": "El pago se realizará en pesos argentinos.",
+                }
+            ],
+            "extraction_status": "success",
+        }
+    ]
+
+    result = run_synthesis(category_key="preview_criterios", items=items, correlation_id="corr-preview")
+    assert result is not None
+    narrative, _token_usage = result
+
+    assert narrative.blocks[0].type == "bullet_list"
+    assert narrative.blocks[0].items[0].resumen == "No informado"
+    assert narrative.blocks[0].items[1].resumen == "En pesos"
+
+
+def test_run_synthesis_preview_propaga_resumen_via_resolucion_por_evidencia(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regresion: cuando el LLM devuelve `evidence` (el camino real de
+    produccion, ver `_response_base.txt`), `_resolve_from_evidence` es el que
+    arma la narrative final -- y antes descartaba `resumen` al construir cada
+    bullet, dejando las cards de preview siempre en "-"."""
+
+    def fake_call_llm(*, messages, correlation_id):
+        return (
+            {
+                "blocks": [
+                    {
+                        "type": "bullet_list",
+                        "items": [
+                            {
+                                "text": "Mantenimiento de oferta: 60 días",
+                                "resumen": "60 días",
+                                "confidence_level": "alta",
+                                "item_refs": [0],
+                            },
+                            {
+                                "text": "Forma de Pago: En pesos",
+                                "resumen": "En pesos",
+                                "confidence_level": "alta",
+                                "item_refs": [1],
+                            },
+                        ],
+                    }
+                ],
+                "evidence": [
+                    {
+                        "document_id": "doc-1",
+                        "page_number": 1,
+                        "text": "La oferta deberá mantenerse por 60 días.",
+                        "claim": "Mantenimiento de oferta: 60 días",
+                        "item_refs": [0],
+                    },
+                    {
+                        "document_id": "doc-1",
+                        "page_number": 2,
+                        "text": "El pago se realizará en pesos argentinos.",
+                        "claim": "Forma de Pago: En pesos",
+                        "item_refs": [1],
+                    },
+                ],
+            },
+            {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        )
+
+    monkeypatch.setattr("analysis.extraction.engine.base._call_llm", fake_call_llm)
+
+    items = [
+        {
+            "tipo": "mantenimiento_oferta",
+            "valor": "60 días",
+            "confidence": 0.9,
+            "source_references": [
+                {
+                    "document_id": "doc-1",
+                    "page_number": 1,
+                    "citation": "La oferta deberá mantenerse por 60 días.",
+                }
+            ],
+            "extraction_status": "success",
+        },
+        {
+            "tipo": "forma_pago",
+            "valor": "En pesos",
+            "confidence": 0.9,
+            "source_references": [
+                {
+                    "document_id": "doc-1",
+                    "page_number": 2,
+                    "citation": "El pago se realizará en pesos argentinos.",
+                }
+            ],
+            "extraction_status": "success",
+        },
+    ]
+
+    result = run_synthesis(category_key="preview_criterios", items=items, correlation_id="corr-preview-evidence")
+    assert result is not None
+    narrative, _token_usage = result
+
+    assert narrative.blocks[0].type == "bullet_list"
+    assert narrative.blocks[0].items[0].resumen == "60 días"
+    assert narrative.blocks[0].items[1].resumen == "En pesos"
+
+
+def test_run_synthesis_categoria_no_preview_no_requiere_resumen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_call_llm(*, messages, correlation_id):
+        return (
+            {
+                "blocks": [
+                    {
+                        "type": "bullet_list",
+                        "items": [
+                            {
+                                "text": "Garantía de oferta del 1%.",
+                                "confidence_level": "alta",
+                                "item_refs": [0],
+                            }
+                        ],
+                    }
+                ]
+            },
+            {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        )
+
+    monkeypatch.setattr("analysis.extraction.engine.base._call_llm", fake_call_llm)
+
+    items = [
+        {
+            "tipo": "garantia_oferta",
+            "valor": "1%",
+            "confidence": 0.8,
+            "source_references": [
+                {
+                    "document_id": "doc-1",
+                    "page_number": 3,
+                    "citation": "La garantía de oferta será del 1%.",
+                }
+            ],
+            "extraction_status": "success",
+        }
+    ]
+
+    result = run_synthesis(category_key="garantias", items=items, correlation_id="corr-garantias")
+    assert result is not None
+    narrative, _token_usage = result
+
+    assert narrative.blocks[0].type == "bullet_list"
+    assert narrative.blocks[0].items[0].resumen is None

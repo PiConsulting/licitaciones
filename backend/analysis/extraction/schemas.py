@@ -134,6 +134,7 @@ class NarrativeParagraphBlock(BaseModel):
 
 class NarrativeBulletItem(BaseModel):
     text: str
+    resumen: str | None = None
     confidence_level: ConfidenceLevel
     source_ids: list[int] = Field(default_factory=list)
 
@@ -177,6 +178,7 @@ class RawNarrativeParagraphBlock(BaseModel):
 
 class RawNarrativeBulletItem(BaseModel):
     text: str
+    resumen: str | None = None
     confidence_level: ConfidenceLevel
     item_refs: list[int] = Field(default_factory=list)
 
@@ -305,7 +307,14 @@ class GarantiaItem(ExtractedItem):
 
     tipo: TipoGarantia
     valor: str | None = None
-    monto_porcentaje: float | None = Field(None, ge=0.0, le=100.0)
+    # `le=100.0` original descartaba contragarantías reales (ej. 150% del
+    # anticipo financiero, práctica legítima de sobre-colateralización en
+    # licitaciones argentinas -- caso real medido: santa_fe). El porcentaje
+    # siempre está atado a una cita verificada del pliego (citation grounding),
+    # así que el techo acá es solo para atajar errores de unidad grotescos
+    # (ej. confundir monto_valor con monto_porcentaje), no para limitar el
+    # dominio real de negocio.
+    monto_porcentaje: float | None = Field(None, ge=0.0, le=1000.0)
     monto_valor: float | None = Field(None, ge=0.0)
     moneda: str | None = None
     base_calculo: str | None = None

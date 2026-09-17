@@ -244,6 +244,46 @@ def test_phase_graphs_are_compiled() -> None:
     assert graph_phase2 is not None
 
 
+def test_setup_node_no_pisa_campos_ya_sembrados(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regresión (2026-09-16, bug reportado: preview mostraba datos vacíos/
+    viejos de mantenimiento_oferta al reanalizar SOLO preview_criterios).
+    Causa real: `setup_node` reseteaba `garantias`/`plazos`/
+    `requisitos_admisibilidad`/etc a `[]` INCONDICIONALMENTE, pisando el
+    sembrado que `_run_selected_categories_reanalysis` hace antes de invocar
+    el mini-grafo de una sola categoría (ver `_PREVIEW_CRITERIOS_SOURCE_STATE_KEYS`
+    en `analysis/service/lifecycle.py`). El fix: `setup_node` solo inicializa
+    un campo si todavía está vacío/ausente -- nunca pisa un valor real ya
+    presente en el state al momento de invocar el grafo."""
+    from analysis.extraction.graph import nodes as graph_module
+
+    monkeypatch.setattr(graph_module, "_build_document_mapping", lambda *_a, **_kw: {})
+    monkeypatch.setattr(graph_module, "_build_document_labels", lambda *_a, **_kw: {})
+    monkeypatch.setattr(graph_module, "_build_shared_candidate_pool", lambda *_a, **_kw: [])
+
+    sembrado_plazos = [{"referencia": "Mantenimiento de oferta", "texto_original": "30 días"}]
+    sembrado_garantias = [{"tipo": "mantenimiento_oferta"}]
+    state: dict = {
+        "analysis_id": "analysis-123",
+        "correlation_id": "corr-456",
+        "db_session": None,
+        "plazos": sembrado_plazos,
+        "garantias": sembrado_garantias,
+        # `requisitos_admisibilidad` NO se siembra a propósito -- debe caer
+        # al default `[]` normal, igual que siempre.
+    }
+    result = setup_node(state)
+
+    assert result["plazos"] == sembrado_plazos
+    assert result["garantias"] == sembrado_garantias
+    assert result["requisitos_admisibilidad"] == []
+    assert result["requisitos_admisibilidad_status"] == "pending"
+    # Campos que setup_node SIEMPRE resetea (no estaban sembrados en este
+    # test) siguen inicializándose normalmente -- no es que el fix los deje
+    # de tocar del todo, solo que no pisa lo que YA vino con datos.
+    assert result["preview_criterios"] == []
+    assert result["objeto_alcance"] == []
+
+
 def test_document_mapping_fluye_de_setup_a_synthesize_para_highlights(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

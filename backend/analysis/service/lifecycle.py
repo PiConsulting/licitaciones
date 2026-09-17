@@ -31,6 +31,7 @@ from analysis.extraction.runner import (
 from analysis.extraction.state import GraphState
 from analysis.models import Analysis, CurrentStage
 from analysis.progress import build_stage_progress
+from analysis.service.cancellation import revert_or_mark_cancelled
 from analysis.service.upload import _build_blob_storage
 from documents.models import Document
 from indexing.runner import TOTAL_PHASE1_NODES, extract_and_index_phase1, extract_and_index_phase2
@@ -330,6 +331,12 @@ def _run_selected_categories_reanalysis(analysis_id: str, selected_categories: l
         db.commit()
 
         for index, category in enumerate(normalized_categories, start=1):
+            db.refresh(analysis)
+            if analysis.cancellation_requested:
+                revert_or_mark_cancelled(analysis, db)
+                db.commit()
+                return
+
             spec = _CATEGORY_EXTRACTOR_SPECS.get(category)
             if spec is None:
                 continue
@@ -413,6 +420,12 @@ def _run_selected_categories_reanalysis(analysis_id: str, selected_categories: l
             analysis.updated_at = datetime.now(UTC)
             db.commit()
 
+        db.refresh(analysis)
+        if analysis.cancellation_requested:
+            revert_or_mark_cancelled(analysis, db)
+            db.commit()
+            return
+
         analysis.status = "analyzed"
         analysis.current_stage = CurrentStage.COMPLETED.value
         analysis.progress_percentage = 100
@@ -437,6 +450,11 @@ def _merge_phase1_into_latest_version(analysis_id: str, source_version_id: str |
             .first()
         )
         if analysis is None or not analysis.current_version_id:
+            return
+
+        if analysis.cancellation_requested:
+            revert_or_mark_cancelled(analysis, db)
+            db.commit()
             return
 
         latest_version = next(
@@ -802,12 +820,10 @@ def request_cancellation(db: Session, analysis_id: str, user_id: str) -> Analysi
 
     analysis.cancellation_requested = True
     # `en_revision` no es terminal: el usuario todavía puede continuar a fase 2.
-    if analysis.status not in {"analyzed", "error", "cancelled"}:
-        analysis.status = "cancelled"
-        analysis.current_stage = CurrentStage.COMPLETED.value
-        analysis.progress_percentage = max(analysis.progress_percentage or 0, 95)
-        analysis.error_message = "El analisis fue cancelado por el usuario"
-        analysis.updated_at = datetime.now(UTC)
+    # Si hay un reanálisis en curso, cancelar descarta el intento y vuelve al
+    # status/versión previos en vez de marcar todo el análisis "cancelled"
+    # (ver `revert_or_mark_cancelled`).
+    revert_or_mark_cancelled(analysis, db)
 
     db.commit()
     db.refresh(analysis)

@@ -25,6 +25,7 @@ from analysis.extraction.engine.normalization import (
     _aggregate_status,
     _augment_identificacion_payload,
     _default_not_found_item,
+    _fill_missing_valor_for_garantias,
     _item_has_substantive_content,
     _normalize_item,
     _normalize_mixed_not_found_items,
@@ -34,12 +35,10 @@ from analysis.extraction.engine.prompts import (
     _format_chunks,
     validate_category_prompt_mapping,
 )
-from analysis.extraction.engine.verification_pass import run_verification_pass
 from analysis.extraction.glossary import (
     build_keyword_query,
     build_prompt_glossary_block,
     build_semantic_expanded_query,
-    get_category_verification_pass,
 )
 from analysis.extraction.state import GraphState
 from infra.config import get_settings
@@ -437,6 +436,8 @@ def run_extractor(
                 payload = []
             if result_key == "identificacion_procedimiento":
                 payload = _augment_identificacion_payload(payload, chunks)
+            if result_key == "garantias":
+                payload = _fill_missing_valor_for_garantias(payload)
             normalized_items = [_normalize_item(item) for item in payload if isinstance(item, dict)]
             normalized_items = _normalize_mixed_not_found_items(
                 normalized_items, category=result_key
@@ -453,20 +454,6 @@ def run_extractor(
                 normalized_items = _merge_items_by_document_section(
                     normalized_items, chunks, category=result_key, correlation_id=correlation_id
                 )
-            if get_category_verification_pass(result_key) and normalized_items:
-                normalized_items, verification_usage = run_verification_pass(
-                    normalized_items,
-                    prompt_file_name=prompt_file_name,
-                    root_key=result_key,
-                    correlation_id=correlation_id,
-                )
-                usage = delta.get(token_usage_key)
-                if isinstance(usage, dict):
-                    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
-                        usage[key] = int(usage.get(key, 0) or 0) + int(
-                            verification_usage.get(key, 0) or 0
-                        )
-                    usage["llm_calls"] = int(usage.get("llm_calls", 0) or 0) + 1
             delta[state_field] = normalized_items
 
         if is_object_result:

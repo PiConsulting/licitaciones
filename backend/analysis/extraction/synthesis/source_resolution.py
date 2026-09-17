@@ -240,6 +240,7 @@ def _resolve_narrative_sources(
                 kept_items.append(
                     {
                         "text": bullet.text,
+                        "resumen": bullet.resumen,
                         "confidence_level": bullet.confidence_level,
                         "source_ids": source_ids,
                     }

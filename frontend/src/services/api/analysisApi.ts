@@ -154,6 +154,7 @@ function toNarrativeBlock(value: unknown): NarrativeBlockData | null {
       .filter(isRecord)
       .map((item) => ({
         text: String(item.text ?? "").trim(),
+        resumen: item.resumen == null ? undefined : String(item.resumen),
         confidence_level: toConfidenceLevel(item.confidence_level),
         source_ids: toSourceIds(item.source_ids),
       }))

@@ -475,6 +475,7 @@ async def reanalyze_analysis(
 
         effective_categories = _resolve_reanalysis_categories(payload.reanalysis_type, categories)
         source_version_id = analysis.current_version_id
+        source_status = analysis.status
 
         analysis.status = "queued"
         analysis.current_stage = CurrentStage.QUEUED.value
@@ -487,6 +488,11 @@ async def reanalyze_analysis(
             "reanalysis_type": payload.reanalysis_type,
             "reanalysis_categories": effective_categories,
             "reanalysis_started_at": datetime.now(UTC).isoformat(),
+            # Permite que cancelar este reanálisis revierta al status/versión
+            # previos en vez de marcar todo el análisis "cancelled" (ver
+            # `analysis.service.cancellation.revert_or_mark_cancelled`).
+            "reanalysis_source_status": source_status,
+            "reanalysis_source_version_id": source_version_id,
         }
         analysis.updated_at = datetime.now(UTC)
         db.commit()
