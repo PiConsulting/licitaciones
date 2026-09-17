@@ -87,6 +87,7 @@ export interface NarrativeParagraphBlock {
 
 export interface NarrativeBulletItem {
   text: string;
+  resumen?: string;
   confidence_level: ConfidenceLevel;
   source_ids: number[];
 }
@@ -184,6 +185,7 @@ export interface AnalysisDetail {
   status: "draft" | "queued" | "processing" | "en_revision" | "analyzed" | "validated" | "error" | "cancelled";
   current_stage: string;
   current_version: AnalysisVersion;
+  versions?: AnalysisVersion[];
   documents: Array<{
     id: string;
     filename: string;

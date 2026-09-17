@@ -177,6 +177,14 @@ Buscá ACTIVAMENTE estos anexos comunes en pliegos argentinos (no te limites a e
 - "Declaración de Conflicto de Interés"
 - "Manifestación Jurada de Capacidad para Contratar"
 
+### 3.4 Modelo de Nota de Presentación
+"Modelo de Nota de Presentación de Oferta"
+→ tipo: `formulario`, debe_completarse: `"si"`, debe_firmarse: `"si"`
+
+### 3.5 Formulario de Datos del Oferente
+"Formulario de Identificación del Oferente"
+→ tipo: `formulario`, debe_completarse: "si", debe_firmarse: verificar
+
 ### 3.6 Anexos instructivos/técnicos (requisitos, presentación técnica, plan de trabajo)
 "Anexo IV — Requisitos a Cumplimentar" / "Anexo V — Presentación Técnica de las Ofertas"
 → tipo: `anexo`, debe_completarse: `"no"` (no es un formulario, es texto instructivo
@@ -189,14 +197,6 @@ anexo, pero DEBE aparecer como ítem acá porque el pliego lo numera y lo hace
 obligatorio. Su contenido detallado (requisitos, plazos, causales de rechazo)
 se extrae también, por separado, en las categorías correspondientes — no te
 autolimites a no listarlo acá solo porque no es un formulario.
-
-### 3.4 Modelo de Nota de Presentación
-"Modelo de Nota de Presentación de Oferta"
-→ tipo: `formulario`, debe_completarse: `"si"`, debe_firmarse: `"si"`
-
-### 3.5 Formulario de Datos del Oferente
-"Formulario de Identificación del Oferente"
-→ tipo: `formulario`, debe_completarse: "si", debe_firmarse: verificar
 
 **⚠️ NO OMITIR:** Si el pliego lista anexos A, B, C... o I, II, III... extrae TODOS, no solo algunos.
 

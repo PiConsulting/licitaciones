@@ -118,9 +118,13 @@ class TestClassifyChunkCategories:
         assert "category_scores" in result
 
     def test_secondary_categories_threshold(self):
-        # Chunk que menciona múltiples categorías
+        # Chunk que menciona múltiples categorías. Heading con un calificador
+        # propio (no solo "Requisitos" a secas) para que sea un match FUERTE
+        # y no compita con el contenido -- lo que se está probando acá es la
+        # población de secondary, no la competencia heading/contenido (eso
+        # ya lo cubre TestHeadingDebilCedeAlContenido).
         chunk = {
-            "heading_path": ["Requisitos"],
+            "heading_path": ["Requisitos de Admisibilidad"],
             "content": """
                 Presentar certificado de habilitación y antecedentes.
                 Constituir garantía de mantenimiento de oferta.
@@ -145,6 +149,238 @@ class TestClassifyChunkCategories:
         # No debe crashear, puede retornar None
         assert "primary_category" in result
         assert "secondary_categories" in result
+
+
+class TestTableContextClassification:
+    """Auditoría de chunking (Santa Fe, real): una fila de tabla de un
+    formulario tipo SIGAF/Comprar cuelga de un heading_path genérico
+    ("Monedas de Cotización"), pero trae `table_context` -- el label que la
+    introduce -- con la misma claridad que un heading real. Sin esto, un
+    chunk que mezcla varios campos de formulario en una sola tabla (real:
+    "Períodos de Renovación de Mantenimiento de Oferta" + "Oferta
+    Alternativa" + "Metodología y Criterios de Evaluación") se clasifica por
+    keywords sobre TODO el contenido mezclado, y el campo que de verdad
+    importa pierde por volumen de texto contra otro campo no relacionado."""
+
+    def test_table_context_con_patron_de_categoria_gana_a_las_keywords_mezcladas(self):
+        chunk = {
+            "heading_path": ["Monedas de Cotización"],
+            "table_context": "Períodos de Renovación de Mantenimiento de Oferta",
+            "content": (
+                "Períodos de Renovación de Mantenimiento de Oferta\n\ncol_1: 4\ncol_2: 15\n"
+                "Oferta Alternativa\ncol_1: Si\n"
+                "Metodología y Criterios de Evaluación\ncol_1: La Comisión Evaluadora de la "
+                "presente gestión estará conformada por el personal detallado en el "
+                "formulario EVALUADORES, procederá a analizar la admisibilidad y la "
+                "conveniencia de las propuestas presentadas."
+            ),
+        }
+
+        result = classify_chunk_categories(chunk)
+
+        assert result["primary_category"] == "garantias"
+
+    def test_table_context_generico_no_fuerza_nada(self):
+        """Si el label no matchea ningún patrón de categoría, no cambia nada
+        -- se sigue cayendo a keywords, igual que antes de este fix."""
+        chunk = {
+            "heading_path": [],
+            "table_context": "Detalle de Renglones",
+            "content": "El oferente deberá constituir garantía de mantenimiento de oferta del 1%",
+        }
+
+        result = classify_chunk_categories(chunk)
+
+        assert result["primary_category"] == "garantias"  # vía keywords, no vía table_context
+
+    def test_heading_path_real_sigue_ganando_sobre_table_context(self):
+        """El heading_path (cuando SÍ matchea algo) sigue teniendo prioridad
+        -- table_context es solo un fallback para cuando el heading no dice
+        nada específico."""
+        chunk = {
+            "heading_path": ["Requisitos de Admisibilidad"],
+            "table_context": "Garantía de Mantenimiento de Oferta",
+            "content": "col_1: Documentación requerida",
+        }
+
+        result = classify_chunk_categories(chunk)
+
+        assert result["primary_category"] == "requisitos_admisibilidad"
+
+    def test_sin_table_context_no_rompe_nada(self):
+        chunk = {"heading_path": [], "content": "col_1: Item\ncol_2: Cantidad"}
+
+        result = classify_chunk_categories(chunk)
+
+        assert "primary_category" in result
+
+
+class TestHeadingDebilCedeAlContenido:
+    """Auditoría de chunking (Santa Fe y Rosario, reales): un párrafo que
+    cuelga de "ANEXO N" y cuyo propio sub-encabezado no dice nada específico
+    caía al heading raíz "ANEXO N", que matchea `anexos_obligatorios` por la
+    sola palabra "anexo" -- sin importar de qué hablara el párrafo. Casos
+    reales: una cláusula de responsabilidad por patentes/derechos de autor
+    (ANEXO IV.B de Santa Fe) y las especificaciones técnicas + garantía del
+    equipamiento (ANEXO I de Rosario, ANEXO V de Santa Fe) quedaban
+    `anexos_obligatorios` COMO PRIMARY en vez de `riesgos`/`garantias`.
+
+    Clasificación multi-label (pedido explícito): "anexo" sí sigue siendo
+    señal de `anexos_obligatorios` -- el párrafo VIVE dentro de un anexo, y
+    eso hace falta para que la extracción pueda resumir qué anexos tiene el
+    pliego y qué hay que completar en cada uno -- pero es una señal DÉBIL
+    (`_HEADING_WEAK_PATTERNS["anexos_obligatorios"] = {"anexo"}`, mismo
+    mecanismo que ya existía para `requisitos_admisibilidad`): el contenido
+    real del párrafo le puede ganar el PRIMARY, pero `anexos_obligatorios`
+    NUNCA se pierde -- queda como secondary. NO hardcodeado a ningún pliego:
+    aplica a cualquier "ANEXO N" de cualquier documento."""
+
+    def test_responsabilidad_civil_bajo_anexo_generico_pasa_a_riesgos(self):
+        """Caso real: ANEXO IV.B de Santa Fe."""
+        chunk = {
+            "heading_path": ["ANEXO IV REQUISITOS A CUMPLIMENTAR", "B. RESPONSABILIDAD ANTE TERCEROS"],
+            "content": (
+                "El oferente asume toda la responsabilidad, por las violaciones que se "
+                "pudieran causar, en materia de patentes, derechos de autor o licencias de "
+                "uso, con respecto a los bienes y servicios proporcionados, en caso de "
+                "resultar adjudicatario de la presente licitación."
+            ),
+        }
+
+        result = classify_chunk_categories(chunk)
+
+        assert result["primary_category"] == "riesgos"
+        assert "anexos_obligatorios" in result["secondary_categories"]
+
+    def test_garantia_de_equipamiento_bajo_anexo_generico_pasa_a_garantias(self):
+        """Caso real: ANEXO I de Rosario (especificaciones técnicas + garantía
+        del servidor)."""
+        chunk = {
+            "heading_path": ["ANEXO I ESPECIFICACIONES TÉCNICAS"],
+            "content": (
+                "Garantía del servidor: deberá extenderse por al menos 3 (tres) años. "
+                "Garantía del monitor: 12 meses."
+            ),
+        }
+
+        result = classify_chunk_categories(chunk)
+
+        assert result["primary_category"] == "garantias"
+        assert "anexos_obligatorios" in result["secondary_categories"]
+
+    def test_sin_señal_de_contenido_el_anexo_generico_sigue_siendo_el_ultimo_recurso(self):
+        """Si el contenido tampoco aporta nada, "anexo" sigue siendo mejor que
+        nada -- mismo comportamiento que antes de este fix para el caso
+        genuinamente genérico (acá no hay nada que desplazar a secondary,
+        porque no hay ninguna otra categoría en juego)."""
+        chunk = {
+            "heading_path": ["ANEXO V", "1. CARACTERÍSTICAS GENERALES"],
+            "content": "Ver detalle en la ficha técnica adjunta.",
+        }
+
+        result = classify_chunk_categories(chunk)
+
+        assert result["primary_category"] == "anexos_obligatorios"
+
+    def test_formulario_como_heading_sigue_ganando_de_inmediato(self):
+        """Guarda: "formulario"/"planilla"/"modelo" siguen siendo señal FUERTE
+        -- a diferencia de "anexo", nombran un documento concreto. No debe
+        cambiar nada para estos casos."""
+        chunk = {
+            "heading_path": ["Formulario CD-02"],
+            "content": (
+                "El adjudicatario deberá asumir a su costo la defensa en juicio y los "
+                "eventuales perjuicios emergentes."
+            ),
+        }
+
+        result = classify_chunk_categories(chunk)
+
+        assert result["primary_category"] == "anexos_obligatorios"
+
+    def test_documentacion_como_heading_debil_tambien_cede_generalizado(self):
+        """El mismo mecanismo, aplicado al patrón débil que YA existía
+        (`requisitos_admisibilidad`): si el contenido real es claramente otra
+        cosa, ya no lo tapa un heading genérico "Documentación"."""
+        chunk = {
+            "heading_path": ["Documentación"],
+            "content": (
+                "El oferente deberá mantener el precio cotizado durante sesenta (60) días "
+                "corridos contados a partir de la apertura, prorrogable automáticamente por "
+                "otros sesenta (60) días."
+            ),
+        }
+
+        result = classify_chunk_categories(chunk)
+
+        assert result["primary_category"] != "requisitos_admisibilidad"
+
+    def test_documentacion_con_contenido_de_documentacion_sigue_funcionando(self):
+        """No regresión: cuando el heading débil Y el contenido coinciden, el
+        resultado sigue siendo el mismo que antes."""
+        chunk = {
+            "heading_path": ["Documentación a presentar"],
+            "content": (
+                "Documentación que acredite la personería y/o capacidad legal para "
+                "contraer obligaciones, debidamente certificada."
+            ),
+        }
+
+        result = classify_chunk_categories(chunk)
+
+        assert result["primary_category"] == "requisitos_admisibilidad"
+
+
+class TestTituloDelPliegoNoContaminaTodoElDocumento:
+    """Auditoría de chunking (PLIEGO_5443-26, real): "Licitación Privada Nº
+    94/26" -- el TÍTULO del documento -- queda como ancestro de TODO el
+    heading_path (Document Intelligence lo pone en la raíz de cada sección).
+    "licitacion" matcheaba el patrón de `identificacion_procedimiento`, así
+    que cualquier chunk cuyo heading intermedio no matcheara nada terminaba
+    en esa categoría por herencia del título -- specs técnicas de
+    mantenimiento, requisitos de personal, stock de repuestos, todo
+    "identificacion_procedimiento" sin importar el contenido real.
+
+    Mismo mecanismo multi-label que "anexo"/"requisito": "licitacion" queda
+    como patrón DÉBIL -- el contenido real le puede ganar el primary, pero
+    identificacion_procedimiento se conserva como secondary."""
+
+    def test_specs_de_mantenimiento_bajo_el_titulo_del_pliego_no_quedan_en_identificacion(self):
+        chunk = {
+            "heading_path": ["Licitación Privada Nº 94/26", "Pliego de Especificaciones Técnicas"],
+            "content": (
+                "Provisión de servicio de mantenimiento correctivo de un equipo, incluyendo "
+                "mano de obra, materiales y repuestos originales necesarios para subsanar el "
+                "mal funcionamiento detectado durante la visita técnica."
+            ),
+        }
+
+        result = classify_chunk_categories(chunk)
+
+        assert result["primary_category"] != "identificacion_procedimiento"
+        assert "identificacion_procedimiento" in result["secondary_categories"]
+
+    def test_sin_señal_de_contenido_el_titulo_sigue_siendo_el_ultimo_recurso(self):
+        chunk = {
+            "heading_path": ["Licitación Privada Nº 94/26", "Datos Generales"],
+            "content": "Sin observaciones adicionales al respecto.",
+        }
+
+        result = classify_chunk_categories(chunk)
+
+        assert result["primary_category"] == "identificacion_procedimiento"
+
+    def test_una_seccion_que_realmente_identifica_el_procedimiento_sigue_funcionando(self):
+        """No regresión: si el heading trae ADEMÁS un calificador fuerte
+        ("expediente", "organismo"), sigue ganando de inmediato como antes."""
+        chunk = {
+            "heading_path": ["Licitación Privada Nº 94/26", "6. Organismo Contratante"],
+            "content": "Individualización del organismo o área contratante.",
+        }
+
+        result = classify_chunk_categories(chunk)
+
+        assert result["primary_category"] == "identificacion_procedimiento"
 
 
 class TestCategoryHeadingPatterns:

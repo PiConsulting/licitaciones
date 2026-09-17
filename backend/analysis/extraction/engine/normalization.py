@@ -52,6 +52,113 @@ def _default_not_found_item() -> dict[str, Any]:
     }
 
 
+# Etiquetas legibles para GarantiaItem.tipo (schemas.TipoGarantia), usadas
+# solo para componer `valor` cuando el LLM lo devuelve vacío -- ver
+# `_fill_missing_valor_for_garantias`.
+_GARANTIA_TIPO_LABELS: dict[str, str] = {
+    "mantenimiento_oferta": "Garantía de Mantenimiento de Oferta",
+    "cumplimiento_contrato": "Garantía de Cumplimiento de Contrato",
+    "anticipo": "Anticipo Financiero",
+    "contragarantia": "Contragarantía",
+    "impugnacion": "Garantía de Impugnación",
+    "fondo_reparo": "Fondo de Reparo",
+    "por_vicios_ocultos": "Garantía por Vicios Ocultos",
+    "buen_uso_anticipo": "Garantía de Buen Uso del Anticipo",
+    "otra": "Garantía",
+}
+
+
+def _compose_garantia_valor(item: dict[str, Any]) -> str | None:
+    """Arma un `valor` legible ("Título: descripción") a partir de los campos
+    que el propio ítem ya trae -- nunca inventa un dato nuevo, solo reformula
+    en una línea lo que ya está en `monto_porcentaje`/`forma_constitucion`/
+    `vigencia`, o como último recurso la cita ya verificada.
+
+    Por qué existe (auditoría RAG Fase 2, 2026-09-16, `backend/debug/rag-audit/
+    fase2-generacion-2026-09-16.md`): confirmado con un experimento controlado
+    que el LLM omite `valor` en una fracción real de las corridas -- incluso
+    con un solo chunk limpio, sin ruido, mismo prompt, dos corridas seguidas
+    dieron resultados distintos. Es no-determinismo de muestreo, no falta de
+    información ni de instrucción en el prompt (que ya pide `valor` obligatorio
+    hace tiempo). Reforzar la instrucción en el prompt para TODOS los status
+    se probó y tuvo un efecto secundario negativo (indujo al LLM a partir un
+    mismo hecho en dos ítems -- uno bien tipificado sin dato, otro mal
+    tipificado con el dato -- medido en `extraction_eval.py`: wrong_rate
+    0.211->0.292). Por eso el fallback vive acá, en código determinístico,
+    después de que el LLM ya decidió cuántos ítems y de qué tipo son.
+    """
+    tipo = str(item.get("tipo") or "").strip()
+    label = _GARANTIA_TIPO_LABELS.get(tipo) or (tipo.replace("_", " ").strip().capitalize() or "Garantía")
+
+    parts: list[str] = []
+
+    monto_porcentaje = item.get("monto_porcentaje")
+    monto_valor = item.get("monto_valor")
+    moneda = str(item.get("moneda") or "").strip()
+    base_calculo = str(item.get("base_calculo") or item.get("sobre_que_se_calcula") or "").strip()
+
+    if monto_porcentaje not in (None, ""):
+        monto_txt = f"{monto_porcentaje}%"
+        if base_calculo:
+            monto_txt += f" de {base_calculo}"
+        parts.append(monto_txt)
+    elif monto_valor not in (None, ""):
+        monto_txt = f"{moneda} {monto_valor}".strip() if moneda else str(monto_valor)
+        if base_calculo:
+            monto_txt += f" de {base_calculo}"
+        parts.append(monto_txt)
+
+    forma = str(item.get("forma_constitucion") or "").strip()
+    if forma:
+        parts.append(forma if forma.lower().startswith("mediante") else f"mediante {forma}")
+
+    vigencia = str(item.get("vigencia") or "").strip()
+    if vigencia:
+        parts.append(f"vigencia {vigencia}")
+
+    if parts:
+        return f"{label}: " + ", ".join(parts)
+
+    # Sin ningún campo estructurado (común en el caso de exención/
+    # not_applicable, donde no hay monto que constituir): la cita ya pasó por
+    # `_verify_citation_grounding`, así que es texto real del pliego -- mejor
+    # eso que un ítem en blanco.
+    refs = item.get("source_references")
+    if isinstance(refs, list):
+        for ref in refs:
+            if isinstance(ref, dict):
+                citation = str(ref.get("citation") or "").strip()
+                if citation:
+                    return f"{label}: {citation}"
+
+    return None
+
+
+def _fill_missing_valor_for_garantias(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Red de seguridad determinística: si el LLM no completó `valor` en un
+    ítem de garantías, lo compone acá antes de normalizar -- no depende de
+    que el LLM recuerde la instrucción del prompt en cada corrida. No cambia
+    `tipo`, `extraction_status` ni la cantidad de ítems -- solo evita que
+    `valor` llegue vacío al usuario. Se llama sobre el payload crudo del LLM,
+    antes de `_normalize_item`, para que si logra componer un valor, el
+    status `not_applicable` original (si corresponde) no se baje a `partial`
+    por el guard de abajo.
+    """
+    filled = 0
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("valor") or "").strip():
+            continue
+        composed = _compose_garantia_valor(item)
+        if composed:
+            item["valor"] = composed
+            filled += 1
+    if filled:
+        logger.info("garantias_valor_completado_por_fallback", count=filled)
+    return items
+
+
 def _normalize_item(item: dict[str, Any], fallback: dict[str, Any] | None = None) -> dict[str, Any]:
     normalized = dict(fallback or {})
     normalized.update(item)
@@ -76,6 +183,26 @@ def _normalize_item(item: dict[str, Any], fallback: dict[str, Any] | None = None
         logger.warning("invalid_extraction_status", received=status[:80])
         status = "partial" if normalized.get("source_references") else "not_found"
     normalized["extraction_status"] = status
+
+    # FIX (2026-09-11, bug encontrado auditando garantías/dell): varias
+    # prompts (ej. garantias.txt, Caso 4) exigen explícitamente que todo
+    # ítem `not_applicable` traiga `valor` ("es el único texto que le
+    # explica al oferente por qué no hay garantía... un not_applicable con
+    # valor: null no sirve") -- el LLM viola esa instrucción de todos modos
+    # (observado: ítem con cita real pero `valor: null`, mostrando un N/A al
+    # usuario sin ninguna explicación legible). Confiar en que el LLM cumpla
+    # su propia instrucción no alcanzó -- se lo baja acá de forma
+    # determinística en vez de persistir una afirmación N/A sin sustento.
+    # `_normalize_mixed_not_found_items`/`_drop_items_without_sources`, río
+    # abajo, deciden después si el ítem sobrevive (por sus fuentes) o se
+    # descarta -- acá solo se evita la mentira de un N/A "explicado" que no
+    # explica nada.
+    if normalized["extraction_status"] == "not_applicable" and not str(
+        normalized.get("valor") or ""
+    ).strip():
+        normalized["extraction_status"] = "partial"
+        normalized["_warning"] = "not_applicable_sin_valor"
+
     return normalized
 
 

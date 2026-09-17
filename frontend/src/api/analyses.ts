@@ -6,6 +6,8 @@ import type {
   StartAnalysisRequest,
   AnalysisStartResponse,
   AnalysisStatusResponse,
+  ReanalyzeRequest,
+  ReanalyzeResponse,
 } from "../types/analysis";
 
 interface CreateAnalysisPayload {
@@ -39,6 +41,14 @@ export async function startAnalysis(
 
 export async function startAnalysisCategories(analysisId: string): Promise<AnalysisStartResponse> {
   const response = await apiClient.post<AnalysisStartResponse>(`/analyses/${analysisId}/start-categories`);
+  return response.data;
+}
+
+export async function reanalyzeAnalysis(
+  analysisId: string,
+  payload: ReanalyzeRequest,
+): Promise<ReanalyzeResponse> {
+  const response = await apiClient.post<ReanalyzeResponse>(`/analyses/${analysisId}/reanalyze`, payload);
   return response.data;
 }
 

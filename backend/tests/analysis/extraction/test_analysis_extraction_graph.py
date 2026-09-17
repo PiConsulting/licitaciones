@@ -244,6 +244,46 @@ def test_phase_graphs_are_compiled() -> None:
     assert graph_phase2 is not None
 
 
+def test_setup_node_no_pisa_campos_ya_sembrados(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regresión (2026-09-16, bug reportado: preview mostraba datos vacíos/
+    viejos de mantenimiento_oferta al reanalizar SOLO preview_criterios).
+    Causa real: `setup_node` reseteaba `garantias`/`plazos`/
+    `requisitos_admisibilidad`/etc a `[]` INCONDICIONALMENTE, pisando el
+    sembrado que `_run_selected_categories_reanalysis` hace antes de invocar
+    el mini-grafo de una sola categoría (ver `_PREVIEW_CRITERIOS_SOURCE_STATE_KEYS`
+    en `analysis/service/lifecycle.py`). El fix: `setup_node` solo inicializa
+    un campo si todavía está vacío/ausente -- nunca pisa un valor real ya
+    presente en el state al momento de invocar el grafo."""
+    from analysis.extraction.graph import nodes as graph_module
+
+    monkeypatch.setattr(graph_module, "_build_document_mapping", lambda *_a, **_kw: {})
+    monkeypatch.setattr(graph_module, "_build_document_labels", lambda *_a, **_kw: {})
+    monkeypatch.setattr(graph_module, "_build_shared_candidate_pool", lambda *_a, **_kw: [])
+
+    sembrado_plazos = [{"referencia": "Mantenimiento de oferta", "texto_original": "30 días"}]
+    sembrado_garantias = [{"tipo": "mantenimiento_oferta"}]
+    state: dict = {
+        "analysis_id": "analysis-123",
+        "correlation_id": "corr-456",
+        "db_session": None,
+        "plazos": sembrado_plazos,
+        "garantias": sembrado_garantias,
+        # `requisitos_admisibilidad` NO se siembra a propósito -- debe caer
+        # al default `[]` normal, igual que siempre.
+    }
+    result = setup_node(state)
+
+    assert result["plazos"] == sembrado_plazos
+    assert result["garantias"] == sembrado_garantias
+    assert result["requisitos_admisibilidad"] == []
+    assert result["requisitos_admisibilidad_status"] == "pending"
+    # Campos que setup_node SIEMPRE resetea (no estaban sembrados en este
+    # test) siguen inicializándose normalmente -- no es que el fix los deje
+    # de tocar del todo, solo que no pisa lo que YA vino con datos.
+    assert result["preview_criterios"] == []
+    assert result["objeto_alcance"] == []
+
+
 def test_document_mapping_fluye_de_setup_a_synthesize_para_highlights(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -407,6 +447,67 @@ def test_merge_node_detects_conflicts() -> None:
     result = merge_node(state)
     assert len(result["conflicts"]) > 0
     assert result["conflicts"][0]["category"] == "plazos"
+    assert result["conflicts"][0]["reason"] == "Fechas diferentes en distintos documentos"
+
+
+def test_merge_node_detecta_conflicto_dentro_del_mismo_documento() -> None:
+    """FIX (2026-09-11, pregunta: '¿se avisa si dos partes del MISMO pliego se
+    contradicen, ej. cuerpo vs. su propio anexo?'): la detección de conflictos
+    agrupa por `referencia`/`tipo` y compara valores -- nunca miró
+    `document_id`, así que YA avisaba en el caso intra-documento. Lo que
+    faltaba era que el texto fijo "en distintos documentos" mentía en ese
+    caso. Acá los dos ítems comparten el mismo `document_id` (mismo PDF, dos
+    secciones distintas) y el conflicto debe seguir apareciendo, con el
+    texto correcto."""
+    state = {
+        "analysis_id": "analysis-1",
+        "correlation_id": "corr-1",
+        "plazos": [
+            {
+                "referencia": "Presentación de ofertas",
+                "fecha": "2024-05-15",
+                "texto_original": "Las ofertas deben presentarse hasta el 15 de mayo de 2024.",
+                "source_references": [
+                    {
+                        "document_id": "doc-1",
+                        "page_number": 1,
+                        "citation": "Cita literal del cuerpo del pliego.",
+                    }
+                ],
+                "extraction_status": "success",
+                "confidence": 0.8,
+            },
+            {
+                "referencia": "Presentación de ofertas",
+                "fecha": "2024-05-20",
+                "texto_original": "Las ofertas deben presentarse hasta el 20 de mayo de 2024.",
+                "source_references": [
+                    {
+                        "document_id": "doc-1",
+                        "page_number": 30,
+                        "citation": "Cita literal del anexo, mismo documento.",
+                    }
+                ],
+                "extraction_status": "success",
+                "confidence": 0.8,
+            },
+        ],
+        "garantias": [],
+        "causales": [],
+        "requisitos_admisibilidad": [],
+        "criterios": [],
+        "plazos_status": "success",
+        "garantias_status": "success",
+        "causales_status": "success",
+        "requisitos_admisibilidad_status": "success",
+        "criterios_status": "success",
+    }
+
+    result = merge_node(state)
+
+    assert len(result["conflicts"]) > 0
+    assert result["conflicts"][0]["category"] == "plazos"
+    assert result["conflicts"][0]["reason"] == "Fechas diferentes dentro del mismo documento"
 
 
 def test_merge_fusiona_plazos_duplicados_del_mismo_hecho() -> None:
@@ -863,7 +964,7 @@ def test_parser_tolera_texto_antes_del_json() -> None:
 
 
 def test_todos_los_prompts_referenciados_existen_y_tienen_placeholders() -> None:
-    base = Path("analysis/extraction")
+    base = Path(__file__).resolve().parents[3] / "analysis" / "extraction"
     extractor_files = [
         "objeto_alcance.py",
         "requisitos_admisibilidad.py",
@@ -927,7 +1028,7 @@ def test_esquema_de_cada_prompt_usa_result_key_como_raiz() -> None:
     vacia SIEMPRE, en cualquier pliego. Este test evita que el desacople
     reaparezca sin que ningun otro test lo note (los tests con LLM mockeado no
     lo detectan porque el mock no valida el texto literal del prompt)."""
-    base = Path("analysis/extraction/prompts")
+    base = Path(__file__).resolve().parents[3] / "analysis" / "extraction" / "prompts"
 
     for category_key, prompt_file_name in CANONICAL_CATEGORY_PROMPT_MAP.items():
         contenido = (base / prompt_file_name).read_text(encoding="utf-8")
@@ -1183,6 +1284,38 @@ def test_dedup_no_cambia_comportamiento_de_plazos_y_garantias() -> None:
 
     assert len(result["extracted_data"]["plazos_clave"]) == 1
     assert len(result["extracted_data"]["garantias"]) == 1
+
+
+def test_merge_no_colapsa_contragarantia_a_otra() -> None:
+    """Bug real (2026-09-11, pliego 'dell'): `_canonical_garantia_tipo` solo
+    reconocía 3 de los 9 valores de `TipoGarantia` -- cualquier ítem que el
+    LLM etiquetara correctamente `contragarantia` (o `impugnacion`,
+    `fondo_reparo`, `por_vicios_ocultos`, `buen_uso_anticipo`) se pisaba con
+    `otra` acá mismo, en `merge_node`, sin que el LLM tuviera arte ni parte.
+    Este test corre el pipeline completo (no solo la función de
+    canonicalización aislada) para confirmar que el dato que persiste de
+    verdad conserva el tipo correcto."""
+    state = _dedup_base_state()
+    state["garantias"] = [
+        {
+            "tipo": "contragarantia",
+            "monto_porcentaje": None,
+            "monto_valor": None,
+            "confidence": 0.8,
+            "valor": "por el total del monto adjudicado, en concepto contragarantía por anticipo financiero",
+            "forma_constitucion": "póliza de caución electrónica",
+            "source_references": [
+                {"document_id": "doc-1", "page_number": 3, "citation": "Cita literal A."}
+            ],
+            "extraction_status": "success",
+        },
+    ]
+
+    result = merge_node(state)
+    garantias = result["extracted_data"]["garantias"]
+
+    assert len(garantias) == 1
+    assert garantias[0]["tipo"] == "contragarantia"
 
 
 def test_merge_ordena_items_por_documento_primario_y_filename() -> None:

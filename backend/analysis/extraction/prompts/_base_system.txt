@@ -177,10 +177,6 @@ Acotar resultado a [0.0, 1.0] con dos decimales.
 - `not_applicable` con cita → confidence = `0.7`
 - `success` con confidence `0.0` → contradictorio, revisar
 
-El ajuste por "cita larga" se eliminó a propósito: las citas ahora son cortas
-por diseño (40-120 caracteres), así que premiar el largo empujaba justo en la
-dirección contraria a la regla 3.
-
 # FORMATO DE SALIDA
 Devolvés EXCLUSIVAMENTE un objeto JSON válido.
 

@@ -92,7 +92,9 @@ CATEGORY_OUTPUT_CONTRACTS = {
         "  anticipo_financiero -> \"Anticipo financiero requerido\"\n"
         "  requisitos_tecnicos_excluyentes -> \"Requisitos técnicos o certificaciones excluyentes\"\n"
         "  responsabilidad_costos_logisticos -> \"Responsabilidad por costos logísticos o de instalación\"\n"
+        "- Por cada bullet devolver también `resumen`: string corto (ideal <= 6 palabras) derivado del MISMO dato usado en `text`, sin agregar información nueva.\n"
         "- Si el item tiene extraction_status='not_found' o 'failed', escribir explícitamente que no se encontró información para ese criterio, sin omitirlo.\n"
+        "- Para esos casos not_found/failed, el campo `resumen` debe ser exactamente \"No informado\".\n"
         "- Usar redacción breve y accionable por criterio, sin inventar datos no citados.\n"
         "- Priorizar texto verificable respaldado por evidencia del pliego cuando exista."
     ),
@@ -190,6 +192,13 @@ def _normalize_preview_raw_narrative(
         for index, bullet in enumerate(block.items):
             bullet_data = bullet.model_dump()
             tipo = _preview_tipo_from_item_refs(bullet.item_refs, items)
+            statuses = {
+                str(items[ref].get("extraction_status", "")).strip().lower()
+                for ref in bullet.item_refs
+                if 0 <= ref < len(items)
+            }
+            if statuses and statuses.issubset({"not_found", "failed"}):
+                bullet_data["resumen"] = "No informado"
 
             if tipo in _PREVIEW_CANONICAL_TITLE_BY_TIPO:
                 title = _PREVIEW_CANONICAL_TITLE_BY_TIPO[tipo]
@@ -243,7 +252,7 @@ def run_synthesis(
             "- Priorizar exactitud, concision y separacion estricta por categoria.",
         )
         prompt = (
-            _load_response_base_prompt()
+            _load_response_base_prompt(category_key)
             .replace("{items_json}", _serialize_items(items))
             .replace("{category_label}", category_label)
             .replace("{category_output_contract}", category_contract)

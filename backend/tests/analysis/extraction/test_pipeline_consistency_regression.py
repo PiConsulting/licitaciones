@@ -533,9 +533,15 @@ def test_titulo_en_singular_clasifica_igual_que_en_plural() -> None:
 
 def test_categorias_secundarias_no_dependen_del_tamano_del_glossary() -> None:
     """El score se dividia por la cantidad total de terminos de la categoria, asi
-    que una categoria con muchos sinonimos no llegaba nunca al umbral."""
+    que una categoria con muchos sinonimos no llegaba nunca al umbral.
+
+    Heading con un calificador propio (no "Requisitos" a secas): desde el fix
+    de "heading débil cede al contenido" (auditoría de chunking), un heading
+    genérico de una sola palabra compite con el contenido real en vez de
+    ganar siempre -- lo que se prueba acá es la población de secondary bajo
+    un heading FUERTE, no esa competencia."""
     chunk = {
-        "heading_path": ["Requisitos"],
+        "heading_path": ["Requisitos de Admisibilidad"],
         "content": (
             "Presentar certificado de habilitación y antecedentes. "
             "Constituir garantía de mantenimiento de oferta. Completar Anexo I."

@@ -51,6 +51,27 @@ export interface AnalysisStatusResponse {
   error_message?: string | null;
   extracted_data?: Record<string, unknown> | null;
   conflicts?: Array<Record<string, unknown>> | null;
+  reanalysis_type?: "all" | "phase1" | "phase2" | "categories" | null;
+  reanalysis_categories?: string[];
+  reanalysis_started_at?: string | null;
+}
+
+export type ReanalyzeType = "all" | "phase1" | "phase2" | "categories";
+
+export interface ReanalyzeRequest {
+  reanalysis_type: ReanalyzeType;
+  categories?: string[];
+}
+
+export interface ReanalyzeResponse {
+  id: string;
+  status: string;
+  message: string;
+  reanalysis_type: ReanalyzeType;
+  categories: string[];
+  source_version_id: string | null;
+  target_version_id: string | null;
+  target_version_number: number | null;
 }
 
 export type AnalysisListSortBy = "created_at" | "status" | "current_stage";

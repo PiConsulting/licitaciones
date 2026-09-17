@@ -64,8 +64,18 @@ CATEGORY_HEADING_PATTERNS = {
         "causal",
         "motivos de rechazo",
     ],
+    # "anexo" a secas describe DÓNDE vive el párrafo (dentro de un archivo/
+    # sección llamada "Anexo N"), no de qué trata -- un documento anexo puede
+    # tener cláusulas de garantías, riesgos, objeto/alcance, requisitos...
+    # de cualquier categoría. Por eso "anexo" está marcado como patrón DÉBIL
+    # (ver `_HEADING_WEAK_PATTERNS` más abajo): el contenido real puede
+    # ganarle el PRIMARY, pero -- clasificación multi-label -- el chunk sigue
+    # llevando `anexos_obligatorios` como secondary, porque igual pertenece a
+    # un anexo y hace falta para que la extracción pueda resumir qué anexos
+    # tiene el pliego y qué hay que completar en cada uno.
     "anexos_obligatorios": [
         "anexo",
+        "anexos obligatorios",
         "formulario",
         "planilla",
         "modelo",
@@ -94,10 +104,25 @@ CATEGORY_HEADING_PATTERNS = {
 }
 
 
-# Un match por uno de estos términos, SOLO, es señal débil: se puede anular si
-# el título trae además un calificador de los de abajo.
+# Un match por uno de estos términos, SOLO, es señal débil: dice DÓNDE vive
+# el contenido (o una noción genérica), no DE QUÉ trata. Se puede anular si el
+# título trae además un calificador de los de abajo (antipatrón), y además
+# -- a diferencia de un match fuerte -- se deja competir con la clasificación
+# por contenido real del párrafo en vez de ganar automáticamente (ver
+# `classify_chunk_categories`).
 _HEADING_WEAK_PATTERNS = {
     "requisitos_admisibilidad": {"requisito", "documentacion"},
+    "anexos_obligatorios": {"anexo"},
+    # FIX (auditoría de chunking, hallazgo real: PLIEGO_5443-26): "licitacion"
+    # matchea el TÍTULO del documento ("Licitación Privada Nº 94/26"), que
+    # Document Intelligence pone como ancestro de TODO el heading_path -- no
+    # describe de qué trata un chunk puntual, describe qué ES el documento
+    # entero. Sin esto, cualquier chunk cuyo heading intermedio no matcheara
+    # nada terminaba en identificacion_procedimiento por herencia del título
+    # (specs técnicas, requisitos de personal, stock de repuestos... quedaban
+    # mal clasificados). Multi-label: el contenido real puede ganar el
+    # primary, pero identificacion_procedimiento se conserva como secondary.
+    "identificacion_procedimiento": {"licitacion"},
 }
 # "Requisitos técnicos / funcionales / de rendimiento" es la ficha del bien
 # ofertado (objeto/alcance), no la documentación habilitante del oferente.
@@ -133,8 +158,12 @@ def _normalize_for_matching(text: str) -> str:
     return " ".join(normalized.split())
 
 
-def _classify_single_heading(heading: str) -> str | None:
-    """Clasifica UN encabezado (no una ruta) contra los patrones de categoría.
+def _classify_single_heading_detailed(heading: str) -> tuple[str | None, bool]:
+    """Como `_classify_single_heading`, pero además indica si el ÚNICO motivo
+    del match fue un patrón débil (`_HEADING_WEAK_PATTERNS`) -- una etiqueta
+    que dice DÓNDE vive el contenido, no DE QUÉ trata. `classify_chunk_categories`
+    usa esa señal para decidir si conviene dejar competir a la clasificación
+    por contenido real antes de aceptar el heading como definitivo.
 
     Scoring por categoría: cantidad de patrones que matchean y, como desempate,
     cuál aparece ANTES en el título. En castellano el núcleo del sintagma va
@@ -144,9 +173,10 @@ def _classify_single_heading(heading: str) -> str | None:
     """
     normalized = _normalize_for_matching(heading.lower())
     if not normalized:
-        return None
+        return None, False
 
     scores: dict[str, tuple[int, int]] = {}
+    matched_by_category: dict[str, set[str]] = {}
     for category, patterns in CATEGORY_HEADING_PATTERNS.items():
         matches = 0
         earliest = len(normalized)
@@ -162,23 +192,41 @@ def _classify_single_heading(heading: str) -> str | None:
         if _suppressed_by_antipattern(category, matched_patterns, normalized):
             continue
         scores[category] = (matches, earliest)
+        matched_by_category[category] = matched_patterns
 
     if not scores:
-        return None
-    return min(scores.items(), key=lambda item: (-item[1][0], item[1][1]))[0]
+        return None, False
+
+    winner = min(scores.items(), key=lambda item: (-item[1][0], item[1][1]))[0]
+    weak_patterns = _HEADING_WEAK_PATTERNS.get(winner, set())
+    is_weak_only = bool(matched_by_category[winner]) and matched_by_category[winner] <= weak_patterns
+    return winner, is_weak_only
+
+
+def _classify_single_heading(heading: str) -> str | None:
+    """Clasifica UN encabezado (no una ruta) contra los patrones de categoría."""
+    category, _is_weak = _classify_single_heading_detailed(heading)
+    return category
+
+
+def _classify_by_heading_detailed(heading_path: list[str]) -> tuple[str | None, bool]:
+    """Como `_classify_by_heading`, pero además indica si el match viene
+    ÚNICAMENTE de un patrón débil -- ver `_classify_single_heading_detailed`."""
+    if not heading_path:
+        return None, False
+
+    for heading in reversed(heading_path):
+        category, is_weak = _classify_single_heading_detailed(str(heading))
+        if category is not None:
+            return category, is_weak
+
+    return None, False
 
 
 def _classify_by_heading(heading_path: list[str]) -> str | None:
     """Clasifica un chunk por su título de sección, de la hoja hacia la raíz."""
-    if not heading_path:
-        return None
-
-    for heading in reversed(heading_path):
-        category = _classify_single_heading(str(heading))
-        if category is not None:
-            return category
-
-    return None
+    category, _is_weak = _classify_by_heading_detailed(heading_path)
+    return category
 
 
 @lru_cache(maxsize=1)
@@ -619,20 +667,57 @@ def classify_chunk_categories(chunk: dict) -> dict:
     content = chunk.get("content", "")
     chunk_id = chunk.get("chunk_id", "unknown")
 
-    heading_category = _classify_by_heading(heading_path)
+    heading_category, heading_is_weak = _classify_by_heading_detailed(heading_path)
+
+    # FIX (auditoría de chunking): una fila de tabla no tiene `heading_path`
+    # propio salvo el de la sección genérica que la envuelve (ej. "Monedas de
+    # Cotización" en un formulario tipo SIGAF/Comprar) -- pero SÍ suele traer
+    # `table_context`, el párrafo/label que la introduce (ver
+    # `_preceding_table_context` en `block_merging.py`), que muchas veces
+    # nombra la categoría con la misma claridad que un heading real (ej.
+    # "Períodos de Renovación de Mantenimiento de Oferta" matchea el patrón
+    # de `garantias`). Sin esto, esa etiqueta quedaba diluida en el scoring
+    # por keywords de TODO el contenido de la tabla -- que en un formulario
+    # puede mezclar varios campos no relacionados en una sola región visual
+    # (ese mismo chunk real también trae "Metodología y Criterios de
+    # Evaluación") -- y perdía contra otra categoría por volumen de texto.
+    if not heading_category and chunk.get("table_context"):
+        heading_category, heading_is_weak = _classify_single_heading_detailed(
+            str(chunk["table_context"])
+        )
 
     keyword_scores = _classify_by_keywords(content, glossary)
 
-    primary_category = heading_category  # El título tiene prioridad
+    # FIX (auditoría de chunking, generalizado a cualquier pliego): un heading
+    # que matcheó SOLO por un patrón débil (ej. "anexo", que dice dónde vive
+    # el párrafo, no de qué trata -- ver `_HEADING_WEAK_PATTERNS`) no gana
+    # automáticamente. Se lo deja compitiendo con la clasificación por
+    # contenido real de este mismo párrafo (abajo); solo se usa como último
+    # recurso si el contenido tampoco aporta una categoría con score
+    # suficiente. Un heading con match FUERTE (la inmensa mayoría de los
+    # casos) sigue ganando de inmediato, sin cambios de comportamiento.
+    primary_category = heading_category if not heading_is_weak else None
 
     if not primary_category and keyword_scores:
+        # El umbral que el contenido tiene que superar depende de a QUÉ se
+        # está enfrentando. Si no hay heading en absoluto, tiene que alcanzar
+        # el umbral de `primary` (sin cambios: mismo comportamiento de
+        # siempre). Pero si lo que está desplazando es un heading DÉBIL
+        # (`heading_category` no None, `heading_is_weak` True) -- una etiqueta
+        # que ya sabemos que no dice nada específico -- alcanza con superar
+        # el umbral de `secondary`, ya calibrado por categoría: no hace falta
+        # que el contenido sea un candidato fuerte en soledad, alcanza con que
+        # le gane a un rival que de por sí es débil.
+        threshold_key = "secondary" if heading_category else "primary"
+        default_threshold = _DEFAULT_SECONDARY_THRESHOLD if heading_category else _DEFAULT_PRIMARY_THRESHOLD
+
         candidates = []
         for cat, score in keyword_scores.items():
             entry = glossary.get(cat, {})
             thresholds = entry.get("thresholds", {}) if isinstance(entry, dict) else {}
-            primary_threshold = thresholds.get("primary", _DEFAULT_PRIMARY_THRESHOLD)
+            required = thresholds.get(threshold_key, default_threshold)
 
-            if score >= primary_threshold:
+            if score >= required:
                 candidates.append((cat, score))
 
         if candidates:
@@ -652,6 +737,12 @@ def classify_chunk_categories(chunk: dict) -> dict:
                         close_competitors={c[0]: round(c[1], 3) for c in close_competitors},
                         heading_path=" > ".join(heading_path) if heading_path else None,
                     )
+
+    # Si el contenido tampoco aportó nada, el heading débil (ej. "anexo") es
+    # mejor que nada -- se usa como último recurso, igual que antes de este
+    # fix cuando era la única señal disponible.
+    if not primary_category and heading_category:
+        primary_category = heading_category
 
     # FASE 2 (plan RAG v2, 2026-08-24, sección 4.3): si ni el heading ni las
     # keywords del glosario encontraron una categoría primaria, el chunk
@@ -713,6 +804,16 @@ def classify_chunk_categories(chunk: dict) -> dict:
             )
             if score >= secondary_threshold:
                 secondary_categories.append(cat)
+
+    # El heading débil que el contenido desplazó de primary sigue siendo
+    # información real (el párrafo SÍ vive dentro de ese anexo/sección) --
+    # se conserva como secondary en vez de perderse.
+    if (
+        heading_category
+        and heading_category != primary_category
+        and heading_category not in secondary_categories
+    ):
+        secondary_categories.append(heading_category)
 
     return {
         "primary_category": primary_category,

@@ -122,6 +122,9 @@ def create_chunks(
                     "source": source,  # RAG PHASE 3: Metadata estructurada para highlighting
                     "blocks": blocks_data,  # LEGACY: Mantener por compatibilidad
                     "chunk_type": "normal",
+                    # Solo para clasificar (ver fix en classify_chunk_categories) --
+                    # no es un campo persistido del chunk.
+                    "table_context": block.get("table_context"),
                 }
                 classification = classify_chunk_categories(chunk_dict)
                 chunk_dict["primary_category"] = classification["primary_category"]

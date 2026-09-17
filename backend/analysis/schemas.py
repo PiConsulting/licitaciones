@@ -42,6 +42,25 @@ class StartAnalysisResponse(BaseModel):
     redirect_analysis_id: str | None = None
 
 
+ReanalyzeType = Literal["all", "phase1", "phase2", "categories"]
+
+
+class ReanalyzeRequest(BaseModel):
+    reanalysis_type: ReanalyzeType
+    categories: list[str] = Field(default_factory=list)
+
+
+class ReanalyzeResponse(BaseModel):
+    id: str
+    status: str
+    message: str
+    reanalysis_type: ReanalyzeType
+    categories: list[str] = Field(default_factory=list)
+    source_version_id: str | None = None
+    target_version_id: str | None = None
+    target_version_number: int | None = None
+
+
 class AnalysisStatusResponse(BaseModel):
     id: str
     status: str
@@ -54,6 +73,9 @@ class AnalysisStatusResponse(BaseModel):
     error_message: str | None = None
     extracted_data: dict | None = None
     conflicts: list[dict] | None = None
+    reanalysis_type: ReanalyzeType | None = None
+    reanalysis_categories: list[str] = Field(default_factory=list)
+    reanalysis_started_at: datetime | None = None
 
 
 class AnalysisListItem(BaseModel):
@@ -94,6 +116,7 @@ class AnalysisDetailResponse(BaseModel):
     status: str
     current_stage: str
     current_version: AnalysisVersionResponse
+    versions: list[AnalysisVersionResponse] = Field(default_factory=list)
     documents: list[DocumentResponse]
     created_by: str | None = None
     tracking: dict | None = None

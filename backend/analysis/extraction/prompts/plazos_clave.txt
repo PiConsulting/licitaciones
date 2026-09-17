@@ -166,7 +166,7 @@ el pliego te da.
 
 ---
 
-## 7. Presentación de ofertas vs apertura de ofertas
+## 6. Presentación de ofertas vs apertura de ofertas
 Son hitos DISTINTOS aunque compartan día. Emití dos ítems separados, cada uno
 con su propia `referencia`.
 
@@ -177,7 +177,7 @@ con su propia `referencia`.
 → 2 ítems: uno con `referencia: "Presentación de ofertas"` (14:00), otro con
 `referencia: "Apertura de ofertas"` (15:00).
 
-## 8. Plazo compuesto: disparador + duración = UN SOLO ítem
+## 7. Plazo compuesto: disparador + duración = UN SOLO ítem
 
 Muchos pliegos redactan el plazo como una sola oración con dos partes: la
 condición que lo dispara ("a partir de...", "desde...", "contados desde...")
@@ -208,22 +208,22 @@ contenido es la cláusula que dispara el conteo (sin una duración propia,
 sin fecha propia), casi seguro pertenece dentro de `expresion_relativa` de
 OTRO ítem que sí tiene la duración -- no es un plazo en sí mismo.
 
-## 9. prorrogable
+## 8. prorrogable
 Solo `"si"` o `"no"` si el pliego lo dice explícitamente para ese plazo.
 En cualquier otro caso: `"no_especificado"`.
 
 No lo infieras de una cláusula genérica de prórroga en otro artículo.
 
-## 10. lugar
+## 9. lugar
 Lugar físico del acto (presentación, apertura, visita). Si el pliego lo menciona, copialo.
 
 **Ejemplo:** `"Mesa de Entradas"`, `"Salón B del edificio municipal"`.
 
-## 11. Fragmentos de tabla
+## 10. Fragmentos de tabla
 Si el plazo viene de una tabla de cronograma, `citation` usa formato especial:
 `Encabezado: <columna> | Fila: <fila> | Valor: <valor>`
 
-## 12. Sin especulación
+## 11. Sin especulación
 Si el pliego no menciona:
 - fecha → `None`
 - hora → `None`  

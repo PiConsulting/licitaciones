@@ -248,6 +248,16 @@ El criterio es: ¿el pliego describe una sola ocurrencia, o dos acciones distint
 pasan en momentos distintos? Si son dos acciones distintas, son dos ítems, cada uno con
 su propio `nombre`, y uno puede tener al otro como `evento_disparador` si corresponde.
 
+**Tampoco fragmentes en varios ítems lo que el pliego nombra con varias palabras
+alternativas para UNA sola acción.** Cuando el texto une sinónimos o variantes con
+"o"/"y" para referirse a una misma facultad o hecho (ej. "el Banco podrá realizar
+pruebas de concepto, visitas o verificaciones para validar lo declarado"), es UN SOLO
+hito con un `nombre` que agrupe la idea completa — no un ítem por cada sustantivo de la
+enumeración. Test para distinguir esto del caso anterior: si sacando cualquiera de las
+palabras alternativas la oración sigue describiendo la MISMA facultad o el mismo hecho
+(ninguna acción adicional se pierde), son sinónimos de una sola cosa, no hitos
+distintos.
+
 **Ejemplos de normalización de nombres (para decidir si es "el mismo hito"):**
 - "fecha de adjudicación", "cuando se adjudique", "notificada la adjudicación", "de la adjudicación" → `"Adjudicación"`
 - "acto de apertura", "apertura de sobres", "apertura pública", "de la apertura", "desde la apertura" → `"Apertura de Ofertas"`
@@ -366,6 +376,36 @@ evento del proceso?* Si la respuesta a ambas es no, NO es un hito.
 
 - **Duraciones que no dependen de un evento del proceso**: garantías con vigencia fija,
   validez de certificaciones, plazos de una norma externa citada solo como referencia.
+
+- **Obligaciones RECURRENTES o continuas durante la ejecución del contrato**: algo que
+  se repite periódicamente o se mantiene mientras dure el contrato, sin una fecha de
+  cierre puntual (informes mensuales, simulacros o pruebas anuales, ajustes/controles
+  continuos de un indicador, mesas de soporte 24x7x365, operación continua de un
+  servicio). Son condiciones de CÓMO se presta el servicio, no un hito que el oferente
+  marca una vez en su calendario — no tienen un "cuándo ocurre" puntual, ocurren siempre
+  o cada tanto mientras el contrato esté vigente.
+  ❌ NO extraer `{"nombre": "Reporte Mensual", ...}`
+  ❌ NO extraer `{"nombre": "Simulacros de Crisis", ...}`
+  ❌ NO extraer `{"nombre": "Ajuste de RTO y RPO", ...}`
+  ❌ NO extraer `{"nombre": "Operación Continua del Entorno", ...}`
+  ✅ Si el pliego fija una fecha o plazo puntual para EMPEZAR esa obligación recurrente
+  (ej. "la operación continua inicia dentro de los 10 días de la puesta en marcha"), ESE
+  inicio sí es un hito — lo recurrente en sí no lo es.
+  ⛔ No le agregues al `nombre` una aclaración de que es recurrente (ej. "... -
+  Recurrente", "... Continuo/a") como forma de igualmente incluirlo: si es una
+  obligación recurrente, no generás NINGÚN ítem para ella, ni con esa aclaración en el
+  nombre ni sin ella.
+
+- **Nombres genéricos sin una acción puntual concreta identificable**: no le pongas una
+  etiqueta genérica tipo "Hito Intermedio del Plan de Trabajo" o "Acumulación de
+  Penalidades" solo porque el texto menciona plazos o penalidades en términos
+  generales. Si no podés señalar, dentro de la cita, una acción puntual específica con
+  su propio sujeto y momento (ver regla 7 — nunca inventes hitos), no hay hito que
+  extraer ahí.
+  ❌ NO extraer `{"nombre": "Hito Intermedio del Plan de Trabajo", ...}` (genérico, sin
+  acción puntual identificable en el texto)
+  ❌ NO extraer `{"nombre": "Acumulación de Penalidades", ...}` (es una condición sobre
+  penalidades ya acumuladas, no una acción que ocurre en un momento)
 
 Si tenés duda entre "esto es un hito" y "esto es una condición/requisito/metadato",
 optá por NO extraerlo. Es preferible una lista más corta y precisa que una lista larga
@@ -851,6 +891,10 @@ Antes de emitir la respuesta:
 17. ✅ Cada hito incluye `"extraction_status": "success"`
 18. ✅ Cada hito incluye `mencion_propia` (true salvo que sea un disparador agregado solo por la regla 2)
 19. ✅ **Releíste los fragmentos buscando "días corridos/hábiles", "dentro de los X días", "X meses desde", "antes de", "después de" -- si hay alguna de estas expresiones y tu lista no tiene ningún `evento_disparador` completado, te falta extraer plazos relativos (ver regla 0)**
+20. ✅ NO hay obligaciones recurrentes/continuas (informes periódicos, simulacros o
+    controles que se repiten, servicios "durante toda la ejecución") extraídas como
+    hito, ni nombres genéricos sin una acción puntual identificable en el texto (ver
+    regla 8)
 
 ---
 

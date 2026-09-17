@@ -15,6 +15,12 @@ logger = structlog.get_logger(__name__)
 RESPONSE_BASE_PROMPT_FILE = "_response_base.txt"
 OUTPUT_SCHEMA_FILE = "_output_schema.txt"
 _USABLE_STATUSES = {"success", "partial", "not_applicable"}
+_PREVIEW_BULLET_RESUMEN_SCHEMA = (
+    "\n\nRegla adicional para category_key=preview_criterios:\n"
+    "- En cada item de bullet_list incluir también `resumen` (string corto, ideal <= 6 palabras).\n"
+    "- `resumen` debe salir del mismo dato usado en `text` (sin invención).\n"
+    "- Si extraction_status del item referenciado es not_found o failed, `resumen` debe ser exactamente \"No informado\".\n"
+)
 _CONFLICT_CATEGORY_TO_NARRATIVE = {
     "plazos": "plazos_clave",
     "garantias": "garantias",
@@ -42,7 +48,7 @@ def _empty_category_narrative(category_label: str) -> CategoryNarrative:
 
 
 @lru_cache(maxsize=1)
-def _load_response_base_prompt() -> str:
+def _load_response_base_prompt(category_key: str | None = None) -> str:
     """Carga el prompt base y el schema de output, concatenándolos."""
     # Este módulo vive en analysis/extraction/synthesis/ (un nivel más
     # profundo que el synthesis.py original) -- parent.parent sigue
@@ -50,7 +56,8 @@ def _load_response_base_prompt() -> str:
     prompts_dir = Path(__file__).resolve().parent.parent / "prompts"
     base_prompt = (prompts_dir / RESPONSE_BASE_PROMPT_FILE).read_text(encoding="utf-8")
     output_schema = (prompts_dir / OUTPUT_SCHEMA_FILE).read_text(encoding="utf-8")
-    return f"{base_prompt}\n\n---\n\n{output_schema}"
+    preview_schema = _PREVIEW_BULLET_RESUMEN_SCHEMA if category_key == "preview_criterios" else ""
+    return f"{base_prompt}\n\n---\n\n{output_schema}{preview_schema}"
 
 
 def _serialize_items(items: list[dict[str, Any]]) -> str:

@@ -92,6 +92,18 @@ esas dos preguntas, probablemente no es de esta categoría.
 | "No se admitirán ofertas cuyo equipamiento no sea compatible con GNU/Linux" | **EXTRAER** (`requisito_tecnico_excluyente`) | Condición técnica con exclusión explícita. |
 | "Se exige certificación ISO 27001 vigente para la admisibilidad de la propuesta" | **EXTRAER** (`certificacion`) | Certificación pedida como condición para ofertar. |
 | "Valoración: contar con ISO 9001 suma puntaje" | **IGNORAR** | Es un criterio de evaluación puntuable, no una condición de admisión (Categoría: `criterios_evaluacion`). |
+| "El personal afectado al servicio deberá contar con cobertura de ART/seguro de vida/aportes sindicales vigentes" | **IGNORAR** | Obligación laboral del personal que se controla DURANTE LA EJECUCIÓN del contrato (una vez adjudicado), no una condición para que la oferta no se rechace al presentarla. |
+| "Deberá acreditar afiliación a ART y constancias de pago del personal en relación de dependencia" | **IGNORAR** | Mismo caso: cumplimiento laboral/previsional del personal en ejecución, no requisito de admisibilidad de la oferta. |
+
+**Regla adicional -- admisibilidad de LA OFERTA vs. cumplimiento laboral DEL
+PERSONAL en ejecución:** si el fragmento exige algo sobre el personal que el
+adjudicatario va a afectar al servicio (ART, seguro de vida, aportes,
+convenio colectivo, nómina) y el verbo/momento es de EJECUCIÓN ("deberá
+mantener", "el personal afectado tendrá", "se verificará durante la
+prestación") y no de PRESENTACIÓN DE LA OFERTA, no es de esta categoría.
+Preguntate: ¿esto se presenta CON la oferta para no ser rechazado, o se
+exige/controla DESPUÉS de adjudicado, mientras se ejecuta el servicio? Solo
+lo primero va acá.
 
 # REGLA DE VIGENCIA REGISTRAL ("PARAGUAS")
 Si el pliego exige que una lista de documentos esté vigente dentro de un registro oficial (ej. Registro de Proveedores):

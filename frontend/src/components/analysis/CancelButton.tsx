@@ -13,8 +13,12 @@ export function CancelButton({ analysisId, disabled = false }: CancelButtonProps
 
   const mutation = useMutation({
     mutationFn: () => cancelAnalysis(analysisId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["analysis", analysisId, "status"] });
+    onSuccess: (response) => {
+      // Escribe la respuesta ya resuelta en vez de invalidar: invalidar dispara
+      // un refetch adicional que puede pisarse con el polling en curso (una
+      // respuesta vieja resolviendo después de esta) y demora un round-trip
+      // más el "parpadeo" del panel de progreso al cancelar.
+      queryClient.setQueryData(["analysis", analysisId, "status"], response);
     },
   });
 

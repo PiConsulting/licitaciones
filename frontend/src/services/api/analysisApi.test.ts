@@ -152,4 +152,59 @@ describe("analysisApi extraction_status parsing", () => {
     expect(category.items[0]?.citations[0]?.document_name).toBe("Pliego Principal.pdf");
     expect(category.narrative?.sources[0]?.document_name).toBe("Pliego Principal.pdf");
   });
+
+  test("preserva `resumen` de cada bullet de preview_criterios_narrative (regresión: cards de preview en '-')", async () => {
+    getMock.mockResolvedValueOnce({
+      data: {
+        id: "analysis-4",
+        created_at: "2026-09-16T00:00:00Z",
+        status: "analyzed",
+        current_stage: "completed",
+        current_version: {
+          id: "v1",
+          version_number: 1,
+          extracted_data: {
+            preview_criterios: [],
+            preview_criterios_extraction_status: "success",
+            preview_criterios_narrative: {
+              blocks: [
+                {
+                  type: "bullet_list",
+                  items: [
+                    {
+                      text: "Mantenimiento de oferta: 60 días",
+                      resumen: "60 días",
+                      confidence_level: "high",
+                      source_ids: [0],
+                    },
+                  ],
+                },
+              ],
+              sources: [
+                {
+                  id: 0,
+                  document_id: "doc-1",
+                  document_name: "Pliego Principal.pdf",
+                  page_number: 3,
+                  citation: "La oferta deberá mantenerse por 60 días.",
+                },
+              ],
+            },
+          },
+          conflicts: {},
+          created_at: "2026-09-16T00:00:00Z",
+        },
+        documents: [{ id: "doc-1", filename: "Pliego Principal.pdf", is_primary: true }],
+      },
+    });
+
+    const result = await getAnalysisById("analysis-4");
+    const category = result.current_version.extracted_data.preview_criterios;
+    const block = category?.narrative?.blocks[0];
+
+    expect(block?.type).toBe("bullet_list");
+    if (block?.type === "bullet_list") {
+      expect(block.items[0]?.resumen).toBe("60 días");
+    }
+  });
 });

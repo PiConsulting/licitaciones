@@ -11,6 +11,7 @@ from analysis.extraction.runner import (
     extract_categories_phase2,
 )
 from analysis.models import Analysis, CurrentStage
+from analysis.service.cancellation import revert_or_mark_cancelled
 from analysis.progress import (
     build_stage_progress,
     calculate_timeout_minutes,
@@ -154,11 +155,7 @@ def check_cancellation_requested(db: Session, analysis_id: str, logger_instance)
         correlation_id=analysis.correlation_id,
         analysis_id=analysis_id,
     )
-    analysis.status = "cancelled"
-    analysis.current_stage = CurrentStage.COMPLETED.value
-    analysis.error_message = "El analisis fue cancelado por el usuario"
-    analysis.progress_percentage = min(99, max(analysis.progress_percentage or 0, 35))
-    analysis.updated_at = datetime.now(UTC)
+    revert_or_mark_cancelled(analysis, db)
     db.commit()
     return True
 

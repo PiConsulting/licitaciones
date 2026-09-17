@@ -168,6 +168,64 @@ _MANTENIMIENTO_OFERTA_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 
+# FIX (2026-09-16, bug reportado: preview mostraba "Plazo de mantenimiento de
+# las ofertas." sin ningún número, mientras plazos_clave SÍ tenía "Plazo de
+# Mantenimiento de la Oferta: 30 días corridos..." -- caso real: santa_fe,
+# análisis multi-documento donde el pliego MARCO solo nombra el concepto
+# ("Plazo de mantenimiento de las ofertas.") y el pliego PARTICULAR trae el
+# número real. `mantenimiento_matches[0]`/`entrega_matches[0]` tomaba el
+# primer match en el orden en que aparece en `plazos` -- que no tiene por qué
+# ser el más completo. El fix es genérico (no depende de qué pliego/documento
+# sea "el marco"): entre los matches, preferir el/los que tengan una duración
+# concreta (un número + día/mes/año, o `expresion_relativa` ya estructurada)
+# sobre uno que solo menciona el concepto sin cifra.
+_DURATION_PATTERN = re.compile(r"\d+\s*\(?[a-z]*\)?\s*(?:dias?|meses|mes|anos?|horas?)\b")
+
+
+def _has_concrete_duration(item: dict) -> bool:
+    """`expresion_relativa` puede estar seteada con solo una referencia al
+    concepto ("dentro del plazo de mantenimiento de la oferta", sin decir
+    cuánto es) -- eso NO cuenta como duración concreta por sí solo. Se busca
+    el patrón numérico en `expresion_relativa` + `texto_original` juntos."""
+    combined = f"{item.get('expresion_relativa') or ''} {item.get('texto_original') or ''}"
+    return bool(_DURATION_PATTERN.search(_normalize(combined)))
+
+
+def _best_descriptive_match(matches: list[dict], patterns: tuple[re.Pattern[str], ...]) -> dict:
+    """Entre varios ítems que matchean el mismo criterio de preview (por
+    mencionarlo en `referencia` O en `texto_original`), elige el mejor para
+    usar como `valor` legible, en este orden de preferencia:
+
+    1. Ítems cuya propia `referencia` ya es sobre el tema (no solo una
+       mención de paso dentro de un ítem que trata otra cosa) Y que además
+       tienen una duración concreta.
+    2. Cualquier ítem con duración concreta (aunque el tema central del ítem
+       sea otro).
+    3. El de mayor `confidence_llm` entre todos, si ninguno tiene duración.
+
+    Caso real (santa_fe): "Devolución garantía de oferta" MENCIONA
+    "mantenimiento de la oferta" de paso (para explicar cuándo se libera la
+    garantía) y hasta tiene un número (30 días) -- pero ESE número es sobre
+    la devolución, no sobre cuánto dura el mantenimiento. Su `referencia` no
+    habla de "mantenimiento de oferta"; la del ítem correcto ("Mantenimiento
+    de oferta") sí. Filtrar por `referencia` antes de mirar duración evita
+    agarrar el número equivocado."""
+
+    def es_sobre_el_tema(item: dict) -> bool:
+        return _has_pattern(item.get("referencia", ""), patterns)
+
+    on_topic = [m for m in matches if es_sobre_el_tema(m)]
+    on_topic_with_duration = [m for m in on_topic if _has_concrete_duration(m)]
+
+    if on_topic_with_duration:
+        pool = on_topic_with_duration
+    else:
+        with_duration = [m for m in matches if _has_concrete_duration(m)]
+        pool = with_duration or on_topic or matches
+
+    return max(pool, key=lambda item: item.get("confidence_llm") or item.get("confidence") or 0.0)
+
+
 def _project_plazos_clave(plazos: list[dict]) -> list[dict]:
     projected: list[dict] = []
 
@@ -180,7 +238,10 @@ def _project_plazos_clave(plazos: list[dict]) -> list[dict]:
     ]
     if entrega_matches:
         item = _merge_matches(entrega_matches, "tiempo_entrega")
-        item["valor"] = entrega_matches[0].get("texto_original") or item["valor"]
+        item["valor"] = (
+            _best_descriptive_match(entrega_matches, _ENTREGA_PATTERNS).get("texto_original")
+            or item["valor"]
+        )
         projected.append(item)
     else:
         projected.append(_not_found_item("tiempo_entrega"))
@@ -194,7 +255,12 @@ def _project_plazos_clave(plazos: list[dict]) -> list[dict]:
     ]
     if mantenimiento_matches:
         item = _merge_matches(mantenimiento_matches, "mantenimiento_oferta")
-        item["valor"] = mantenimiento_matches[0].get("texto_original") or item["valor"]
+        item["valor"] = (
+            _best_descriptive_match(mantenimiento_matches, _MANTENIMIENTO_OFERTA_PATTERNS).get(
+                "texto_original"
+            )
+            or item["valor"]
+        )
         projected.append(item)
     else:
         projected.append(_not_found_item("mantenimiento_oferta"))

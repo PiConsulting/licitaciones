@@ -55,7 +55,7 @@ todo.
 Usá el schema `IdentificacionProcedimientoItem` definido en `schemas.py`.
 
 **Campos clave:**
-- `tipo`: Usa enum `TipoIdentificacion` (organismo_convocante, expediente, numero_procedimiento, tipo_procedimiento, presupuesto_oficial, jurisdiccion)
+- `tipo`: Usa enum `TipoIdentificacion` (organismo_convocante, expediente, numero_procedimiento, tipo_procedimiento, presupuesto_oficial, jurisdiccion, denominacion, canal_consultas, lugar_consulta_pliego)
 - `valor`: Texto literal o casi literal del pliego
 - `metadata`: Diccionario vacío (reservado para futuros usos)
 - `confidence`: [0.0-1.0] según el algoritmo de confianza
@@ -157,6 +157,35 @@ Si el pliego declara explícitamente un presupuesto oficial, extraelo como un
 
 Copiá el monto tal como aparece en el pliego (con moneda y separadores).
 
+## 6bis. canal_consultas
+
+El canal por el que el organismo recibe consultas del oferente, o por el que
+notifica al oferente durante el procedimiento: domicilio electrónico
+constituido a los fines del procedimiento, correo de consultas
+administrativas y/o técnicas, teléfono de contacto para consultas.
+
+**Ejemplos:**
+- "Domicilio electrónico constituido: notificaciones@organismo.gov.ar" → `valor`: "notificaciones@organismo.gov.ar"
+- "Las consultas técnicas y administrativas se dirigirán a compras@municipio.gob.ar"
+
+Si el pliego menciona varios canales distintos (uno para consultas técnicas,
+otro para notificaciones formales), extraelos como ítems separados solo si
+son direcciones/canales DISTINTOS -- si es el mismo dato repetido, consolidá
+en un solo ítem.
+
+## 6ter. lugar_consulta_pliego
+
+Dónde se puede retirar, consultar o descargar el pliego: oficina física
+(dirección), portal en línea (URL), o ambos.
+
+**Ejemplos:**
+- "El pliego puede consultarse en la Dirección General de Compras, sita en..." → `valor` con la dirección
+- "Disponible en www.organismo.gob.ar/licitaciones" → `valor` con la URL
+
+Si el pliego da una dirección física Y una URL como dos formas de acceder al
+mismo pliego, extraelos como UN ítem con ambos datos en `valor` (es el mismo
+hecho: "dónde consigo el pliego"), no dos ítems separados.
+
 ## 7. denominacion
 
 Un título corto y descriptivo de QUÉ se licita — pensado para identificar el
@@ -207,6 +236,8 @@ Valores disponibles:
 - `presupuesto_oficial`
 - `jurisdiccion`
 - `denominacion`
+- `canal_consultas`
+- `lugar_consulta_pliego`
 
 ---
 

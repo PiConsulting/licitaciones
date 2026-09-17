@@ -80,6 +80,95 @@ def _merge_two_items(primary: dict[str, Any], secondary: dict[str, Any]) -> dict
     return merged
 
 
+_PLACEHOLDER_VALOR_MARKERS = (
+    "no especificado",
+    "no se especifica",
+    "no encontrado",
+    "no se encontro",
+    "not_found",
+    "no aplica",
+    "sin informacion",
+)
+
+
+def _looks_like_placeholder_valor(item: dict[str, Any]) -> bool:
+    """`True` si el `valor` del ítem es un placeholder de "no hay dato"
+    (cualquiera de las frases típicas que ya usan los prompts para eso), no
+    un dato real."""
+    valor = _normalize_for_grounding(str(item.get("valor") or ""))
+    if not valor:
+        return True
+    return any(marker in valor for marker in _PLACEHOLDER_VALOR_MARKERS)
+
+
+def _merge_singleton_tipo_duplicates(
+    items: list[dict[str, Any]],
+    singleton_tipos: set[str],
+    *,
+    category: str,
+    correlation_id: str,
+) -> list[dict[str, Any]]:
+    """Colapsa a UN SOLO ítem los `tipo` que el propio prompt de la categoría
+    ya declara como singleton ("UN ítem X", ver `objeto_alcance.txt`).
+
+    FIX (2026-09-14, Fase 2 de la auditoría RAG): el dedup existente
+    (`_merge_duplicate_items_by_key` en `graph/nodes.py`) fusiona por
+    `(tipo, valor)` -- solo detecta duplicados con el MISMO texto. No detecta
+    dos ítems del MISMO tipo singleton con valores DISTINTOS (ej. uno con el
+    dato real y otro con un placeholder "No especificado"), que el map-reduce
+    por lote (`_split_oversized_groups`, ver `base.py`) puede producir: cada
+    lote ve un subconjunto distinto de chunks, y un lote que no tiene el dato
+    en su subconjunto igual emite el ítem singleton con un placeholder,
+    mientras otro lote sí lo encuentra. Genérico por diseño: qué tipos son
+    singleton lo decide el CALLER (a partir de lo que ya declara el prompt de
+    cada categoría), esta función no sabe nada de ningún pliego en particular
+    -- solo sabe fusionar duplicados de un `tipo` que se supone que aparece
+    una sola vez.
+
+    Si hay algún candidato con dato real (no placeholder), los placeholders
+    del mismo tipo se descartan antes de fusionar -- ver `_looks_like_placeholder_valor`.
+    Si TODOS son placeholder, se conserva uno (no se pierde el tipo)."""
+    if len(items) < 2:
+        return items
+
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    passthrough: list[dict[str, Any]] = []
+    for item in items:
+        tipo = str(item.get("tipo") or "")
+        if tipo in singleton_tipos:
+            grouped[tipo].append(item)
+        else:
+            passthrough.append(item)
+
+    if not any(len(group) > 1 for group in grouped.values()):
+        return items
+
+    result = list(passthrough)
+    merges = 0
+    for tipo, group in grouped.items():
+        if len(group) == 1:
+            result.append(group[0])
+            continue
+        substantive = [g for g in group if not _looks_like_placeholder_valor(g)]
+        candidates = substantive or group
+        merged = candidates[0]
+        for extra in candidates[1:]:
+            merged = _merge_two_items(merged, extra)
+        result.append(merged)
+        merges += 1
+
+    if merges:
+        logger.info(
+            "merged_singleton_tipo_duplicates",
+            correlation_id=correlation_id,
+            category=category,
+            merges=merges,
+            original_count=len(items),
+            final_count=len(result),
+        )
+    return result
+
+
 def _merge_split_fact_items(
     items: list[dict[str, Any]],
     chunks: list[dict[str, Any]],
@@ -203,21 +292,34 @@ def _item_section_key(
     item: dict[str, Any],
     chunk_by_id: dict[str, tuple[str, str]],
     sections_by_document: dict[str, set[str]],
-) -> tuple[str, str, str] | None:
-    """(document_id, sección de primer nivel) de un ítem, o `None` si no se
-    puede determinar con confianza.
+) -> tuple[str, ...] | None:
+    """Clave de fusión de un ítem, o `None` si no se puede determinar con
+    confianza.
 
-    Primero intenta a partir de una cita YA VERIFICADA (la fuente más
-    confiable: el `chunk_id` es real y su `section_path` también). Si el
-    ítem no tiene ninguna cita verificada (`source_references` vacío -- el
-    caso típico de un "anexo" fantasma que el LLM generó sin poder citarlo),
-    cae al `document_id` de origen (ver tag `_source_document_id` en
-    `run_extractor`) -- pero SOLO si ese documento tiene una única sección de
-    primer nivel. Si el documento mezcla más de una sección, no hay forma
-    confiable de saber a cuál pertenece el ítem fantasma -- se deja sin
-    fusionar antes que arriesgarse a mezclar dos unidades distintas.
+    FIX (2026-09-14, Fase 2 de la auditoría RAG): un anexo NUMERADO ("Anexo
+    II") tiene una sola identidad real en todo el pliego, sin importar en
+    qué documento subido aparece -- puede estar mencionado en el índice del
+    pliego principal (documento A) y, por separado, ser su propio archivo
+    subido con el contenido real (documento B). Antes la clave incluía
+    SIEMPRE `document_id`, así que esas dos apariciones del mismo anexo
+    nunca se fusionaban -- medido en un pliego real (multi-documento, 6
+    anexos numerados): cada uno salía duplicado. Cuando `_anexo_identifier`
+    reconoce un identificador, se agrupa SOLO por él -- global al pliego,
+    no al documento.
+
+    Para los "fantasmas" SIN identificador reconocible (el caso original que
+    esta función ya cubría: el LLM generó un ítem a partir de un índice
+    interno de la sección, sin poder citar contenido real de cada entrada),
+    se mantiene el criterio anterior: (document_id, sección de primer nivel)
+    a partir de una cita YA VERIFICADA, o del `document_id` de origen si ese
+    documento tiene una única sección de primer nivel. Ahí SÍ hace falta
+    acotar a un documento -- sin identificador no hay forma confiable de
+    saber si dos fantasmas de documentos distintos son la misma unidad o
+    no, así que se prefiere no fusionar antes que arriesgarse.
     """
     anexo_id = _anexo_identifier(item)
+    if anexo_id:
+        return (anexo_id,)
 
     for ref in item.get("source_references") or []:
         if not isinstance(ref, dict):
@@ -272,7 +374,7 @@ def _merge_items_by_document_section(
 
     chunk_by_id, sections_by_document = _chunk_section_index(chunks)
 
-    groups: dict[tuple[str, str], list[int]] = {}
+    groups: dict[tuple[str, ...], list[int]] = {}
     for i, item in enumerate(items):
         key = _item_section_key(item, chunk_by_id, sections_by_document)
         if key is None:
@@ -314,15 +416,58 @@ def _merge_items_by_document_section(
 
 
 def _group_chunks_by_document(chunks: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
-    """Agrupa los chunks recuperados por `document_id`, preservando el orden
-    en que llegaron dentro de cada grupo (que ya viene ordenado por
-    relevancia desde el retrieval).
+    """Agrupa los chunks recuperados por `document_id`.
 
     Usado por el extractor map-reduce (ver `run_extractor`): partir por
     documento en vez de mandar todo junto en un solo llamado al LLM.
+
+    FIX (2026-09-11, diagnóstico de no-determinismo en garantías): antes
+    cada grupo quedaba en el orden de llegada del retrieval (por score de
+    relevancia), no en el orden real del documento. Para una categoría que
+    pide "enumerá TODAS las garantías/plazos/...", leer los fragmentos
+    salteados en vez de en el orden en que aparecen en el pliego dificulta
+    el barrido sistemático que necesita el LLM para no saltearse ninguno.
+    Se reordena cada grupo por `chunk_index` (posición real en el
+    documento) -- no cambia QUÉ chunks entran, solo en qué orden se leen.
     """
     groups: dict[str, list[dict[str, Any]]] = {}
     for chunk in chunks:
         document_id = str(chunk.get("document_id") or "sin_documento")
         groups.setdefault(document_id, []).append(chunk)
+
+    for group_chunks in groups.values():
+        group_chunks.sort(key=lambda c: int(c.get("chunk_index", 0) or 0))
+
     return groups
+
+
+def _split_oversized_groups(
+    groups: dict[str, list[dict[str, Any]]], *, max_chunks_per_call: int
+) -> list[tuple[str, list[dict[str, Any]]]]:
+    """Parte cada grupo de `_group_chunks_by_document` en sub-lotes de a lo
+    sumo `max_chunks_per_call` chunks (mismo `document_id`, varias llamadas).
+
+    FIX (2026-09-11): el map-reduce por documento (2026-08-21) reduce
+    cuánto texto compite por atención en un mismo llamado al LLM -- pero
+    solo si el pliego tiene VARIOS documentos. Un pliego de un solo
+    documento (el caso más común: municipios, organismos chicos) sigue
+    mandando todo el `top_k` de la categoría (hasta 35 chunks en garantías)
+    en un único llamado, exactamente el escenario "lost in the middle" que
+    el map-reduce quiso evitar. Partir también DENTRO de un documento
+    generaliza el mismo fix al caso de un solo documento. Los chunks ya
+    vienen ordenados por `chunk_index` (ver `_group_chunks_by_document`),
+    así que cada sub-lote es un tramo contiguo del documento, no una
+    mezcla salteada. `max_chunks_per_call <= 0` desactiva el split
+    (comportamiento previo: un llamado por documento, sin importar el
+    tamaño)."""
+    if max_chunks_per_call <= 0:
+        return list(groups.items())
+
+    batches: list[tuple[str, list[dict[str, Any]]]] = []
+    for document_id, group_chunks in groups.items():
+        if len(group_chunks) <= max_chunks_per_call:
+            batches.append((document_id, group_chunks))
+            continue
+        for start in range(0, len(group_chunks), max_chunks_per_call):
+            batches.append((document_id, group_chunks[start : start + max_chunks_per_call]))
+    return batches
