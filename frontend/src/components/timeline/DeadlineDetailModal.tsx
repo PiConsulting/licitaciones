@@ -75,7 +75,6 @@ export function DeadlineDetailModal({
         <h2 className="text-xl font-semibold text-gray-900">Detalle del plazo</h2>
 
         <div className="mt-6 space-y-6">
-          {/* Estructura del Plazo */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
             <div className="flex items-center justify-center gap-4 text-base">
               <div className="text-center flex-1">
@@ -109,7 +108,6 @@ export function DeadlineDetailModal({
             </div>
           </div>
 
-          {/* Estado del Cálculo */}
           <div>
             <h4 className="text-sm font-semibold text-gray-700 mb-2">Estado del cálculo</h4>
             <div className="flex items-center gap-2">
@@ -120,7 +118,6 @@ export function DeadlineDetailModal({
             </div>
           </div>
 
-          {/* Error de Cálculo */}
           {hasError && deadline.calculation_error && (
             <div className="bg-error-light border border-error rounded-lg p-3 flex items-start gap-2">
               <svg
@@ -143,7 +140,6 @@ export function DeadlineDetailModal({
             </div>
           )}
 
-          {/* Fuente Verificable */}
           {hasSource && (
             <SourceReference
               documentId={deadline.source_document_id!}
@@ -154,7 +150,6 @@ export function DeadlineDetailModal({
           )}
         </div>
 
-        {/* Acciones */}
         <div className="flex justify-end pt-6 border-t mt-6">
           <Button variant="secondary" onClick={onClose}>
             Cerrar

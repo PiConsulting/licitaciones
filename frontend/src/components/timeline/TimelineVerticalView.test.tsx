@@ -61,8 +61,6 @@ describe("TimelineVerticalView", () => {
     expect(screen.getByText("Adjudicación")).toBeInTheDocument();
     expect(screen.getByText(/^HOY/)).toBeInTheDocument();
 
-    // El marcador HOY tiene que quedar entre el pasado y el futuro, no antes
-    // ni después de todos los eventos.
     const items = screen.getAllByRole("listitem");
     const labels = items.map((li) => li.textContent);
     const pastIdx = labels.findIndex((t) => t?.includes("Apertura de ofertas"));

@@ -20,12 +20,7 @@ http_bearer = HTTPBearer(auto_error=False)
 
 
 def _raise_auth_backend_unavailable(exc: Exception) -> NoReturn:
-    # Mismo criterio que tenía el camino Cosmos (auditoría 2026-08-12):
-    # un fallo de conexión al backend de auth no es lo mismo que "no hay
-    # usuario" -- acá sería tratar cualquier sesión válida como inválida
-    # (401 falso) durante un outage de Postgres. Se distingue y se propaga
-    # como 503 para que quede claro que el problema es de disponibilidad,
-    # no de la sesión del usuario.
+    # Distingue falla de conexión (503) de "no hay usuario" para no dar 401 falso en un outage.
     logger.warning("auth_backend_connection_failed", error=str(exc)[:200])
     raise HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

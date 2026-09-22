@@ -4,8 +4,7 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Resolve .env from project root (repo/.env) regardless of CWD.
-# Keep backend/.env as a fallback for backward compatibility.
+# Project-root .env takes precedence; backend/.env kept as fallback for backward compatibility.
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _ENV_FILES = (
@@ -62,11 +61,7 @@ class Settings(BaseSettings):
     )
     azure_openai_retry_attempts: int = Field(default=3, alias="AZURE_OPENAI_RETRY_ATTEMPTS")
 
-    # Extraction configuration
-    # Defaults subidos 2026-09-10 tras medir (Paso 6.1 del plan de latencia +
-    # cronómetro sobre `santa_fe`, 5 docs): baseline 4/0/1 → fase 1 ~102 s;
-    # 7/8/3 → ~72 s (−29 % en multi-doc, −12,6 % en 1 doc). Los 429 aparecen
-    # con y sin la subida (ruido de cuota de Azure) y tenacity los reintenta.
+    # Concurrency defaults raised 2026-09-10 after measuring: 4/0/1 baseline ~102s -> 7/8/3 ~72s (-29% multi-doc).
     extraction_max_concurrency: int = Field(
         default=7,
         alias="EXTRACTION_MAX_CONCURRENCY",
@@ -181,7 +176,6 @@ class Settings(BaseSettings):
         ),
     )
 
-    # Chunking configuration
     chunking_max_table_tokens: int = Field(
         default=500,
         alias="CHUNKING_MAX_TABLE_TOKENS",
@@ -257,15 +251,12 @@ class Settings(BaseSettings):
         ),
     )
 
-    # Highlight configuration
     highlight_citation_min_length: int = Field(
         default=3,
         alias="HIGHLIGHT_CITATION_MIN_LENGTH",
         description="Longitud mínima de citation para calcular highlights (caracteres)",
     )
 
-    # Reranking semántico local con cross-encoder, entre la fusión híbrida
-    # y el corte final top_k de retrieval.
     rag_reranking_enabled: bool = Field(
         default=False,
         alias="RAG_RERANKING_ENABLED",
@@ -308,9 +299,6 @@ class Settings(BaseSettings):
         ),
     )
 
-    # FIX: Dead code eliminado (#1, #2, #3) - campos legacy de adaptadores locales:
-    # - cohere_api_key, cohere_model (solo para CohereAdapter local)
-    # - sentence_transformers_model, chroma_persist_directory (solo para Chroma local)
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     azure_sdk_log_level: str = Field(default="WARNING", alias="AZURE_SDK_LOG_LEVEL")
 

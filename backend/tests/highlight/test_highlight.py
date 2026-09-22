@@ -32,7 +32,7 @@ def test_compute_highlight_regions_citation_too_short():
     regions = compute_highlight_regions(
         pdf_path="/fake/path.pdf",
         page_number=1,
-        citation="10%",  # Muy corto
+        citation="10%",
         correlation_id="test",
     )
     assert regions == []
@@ -75,7 +75,6 @@ def test_compute_highlights_for_sources_missing_pdf():
         }
     ]
 
-    # Sin mapeo de PDF
     document_id_to_blob_path = {}
 
     enriched = compute_highlights_for_sources(
@@ -96,7 +95,7 @@ def test_compute_highlights_for_sources_preserves_other_fields():
             "document_id": "doc-1",
             "page_number": 5,
             "citation": "Esta es una citation de prueba.",
-            "unverified": True,  # Campo adicional
+            "unverified": True,
         }
     ]
 
@@ -154,11 +153,7 @@ def test_sin_pdf_no_se_emite_el_bbox_del_parrafo():
         chunks_by_doc_page=chunks_by_doc_page,
     )
 
-    # FIX (2026-08-14): sin PDF no hay coordenadas. Este test afirmaba que se
-    # emitía el bbox del bloque de Azure DI, que es el del PÁRRAFO completo --
-    # el "resaltado por párrafo" que reportó la usuaria. Pintar un párrafo
-    # entero le dice a la persona que la evidencia es todo eso, y no le deja
-    # ninguna señal de que el sistema no supo ubicar la cita.
+    # FIX (2026-08-14): sin PDF no hay coordenadas; antes se emitía el bbox del párrafo completo de Azure DI (el "resaltado por párrafo" que reportó la usuaria).
     assert len(enriched) == 1
     assert enriched[0]["highlight_regions"] == []
 
@@ -282,8 +277,7 @@ class TestLiveSearchFirst:
 
         assert calls[0][0] == "/tmp/fake.pdf"
         assert calls[0][1] == 3
-        # Sin chunk que aporte `section_path`, el hint cae al nombre de la
-        # categoría, como antes.
+        # sin chunk que aporte `section_path`, el hint cae al nombre de la categoría
         assert calls[0][3] == "garantia oferta"
         assert enriched[0]["highlight_regions"] == [
             {"x": 10.0, "y": 20.0, "width": 300.0, "height": 15.0}

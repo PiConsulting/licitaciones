@@ -32,6 +32,8 @@ export function PreviewCriterionCard({
   const isMuted = safeResumen === "No informado" || safeResumen === "—";
   const Icon = PREVIEW_CRITERION_ICONS[title] ?? Info;
   const detailText = splitLabelAndValue(bulletItem.text)?.value ?? bulletItem.text;
+  // Algunos criterios (ej. "Multas o penalidades") arman `detailText` con un salto de línea por hecho real (ver `_project_multas_penalidades` en preview_criterios.py); con más de una línea se renderiza como lista.
+  const detailLines = detailText.split("\n").filter((line) => line.trim().length > 0);
 
   const handleViewSource = () => {
     if (!onViewSource || sources.length === 0) {
@@ -86,7 +88,17 @@ export function PreviewCriterionCard({
 
       {expanded ? (
         <div id={resolvedContentId} className="mt-2 rounded-md bg-gray-50 p-2" data-testid="preview-criterion-detail">
-          <p className="break-words text-xs leading-relaxed text-gray-600">{detailText}</p>
+          {detailLines.length > 1 ? (
+            <ul className="list-disc space-y-1 pl-4 text-xs leading-relaxed text-gray-600" data-testid="preview-criterion-detail-list">
+              {detailLines.map((line, index) => (
+                <li key={index} className="break-words">
+                  {line}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="break-words text-xs leading-relaxed text-gray-600">{detailText}</p>
+          )}
           {sources.length > 0 ? (
             <div className="mt-1.5 flex justify-start">
               <SourceEyeButton pages={sources.map((source) => source.page)} onClick={handleViewSource} />

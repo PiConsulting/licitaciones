@@ -22,17 +22,10 @@ logger = structlog.get_logger(__name__)
 
 _MD_PAGE_BREAK = "<!-- PageBreak -->"
 _MD_COMMENT_RE = re.compile(r"^<!--.*-->$")
-# Document Intelligence marca explicitamente el membrete/pie que detecta en el
-# margen de la pagina con este comentario -- pero lo hace de forma inconsistente:
-# el MISMO texto puede venir como `PageHeader` en una pagina y, unas paginas mas
-# adelante, como un heading real (`#`/`##`) en el markdown (caso real: Nucleoelectrica,
-# "NUCLEOELECTRICA ARGENTINA S.A. HOJA DE ESPECIFICACIONES TECNICAS DE COMPRA").
-# `_detect_repeated_heading_boilerplate` (headings.py) descarta un heading repetido
-# por FRECUENCIA, pero si la enorme mayoria de las repeticiones quedan invisibles
-# (se tiran como comentario antes de llegar a heading) nunca cruza el umbral. Por
-# eso se captura el texto de estos comentarios: es la propia DI confirmando, en
-# otra pagina del mismo documento, que ese texto es membrete -- sin importar
-# cuantas veces se cuele como heading.
+# DI marca el membrete/pie con este comentario de forma inconsistente: el MISMO
+# texto puede venir como `PageHeader` en una página y como heading real en otra
+# (caso real: Nucleoelectrica) -- se captura para que la detección de boilerplate
+# por frecuencia no dependa de que DI lo marque siempre igual.
 _MD_PAGE_HEADER_FOOTER_RE = re.compile(r'^<!--\s*Page(?:Header|Footer)\s*=\s*"(.*)"\s*-->$')
 _MD_HEADING_RE = re.compile(r"^(#+)\s+(.+)$")
 _MD_TABLE_START_RE = re.compile(r"^<table\b")

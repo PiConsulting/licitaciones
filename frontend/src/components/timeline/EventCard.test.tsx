@@ -6,9 +6,7 @@ import { Deadline } from "../../types/timeline";
 import { ToastProvider } from "../ToastContainer";
 import * as timelineApi from "../../api/timeline";
 
-// Mock del API: EventCard solo llama directamente a setEventHidden (el
-// resto de las mutaciones -- editar fecha, borrar -- viven en los modales
-// que abre, que no se montan salvo que se les haga click).
+// EventCard solo llama setEventHidden directo; editar/borrar viven en modales que no se montan sin click.
 vi.mock("../../api/timeline", () => ({
   setEventHidden: vi.fn(),
 }));
@@ -251,7 +249,6 @@ describe("EventCard", () => {
       { wrapper: createWrapper() }
     );
 
-    // Debería mostrar error, no dependencia
     expect(screen.getByText("No se pudo calcular:")).toBeInTheDocument();
     expect(screen.queryByText(/días corridos desde/)).not.toBeInTheDocument();
   });

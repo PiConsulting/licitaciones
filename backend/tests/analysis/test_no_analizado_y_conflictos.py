@@ -23,11 +23,6 @@ from analysis.extraction.schemas import NOT_ANALYZED_STATUS, ExtractedData
 from analysis.extraction.synthesis.prompt_and_serialization import _conflict_block
 
 
-# ---------------------------------------------------------------------------
-# CTX-03
-# ---------------------------------------------------------------------------
-
-
 def test_las_categorias_sin_extractor_no_dicen_no_encontrado() -> None:
     data = ExtractedData()
 
@@ -59,11 +54,6 @@ def test_las_categorias_que_si_se_analizan_conservan_sus_estados() -> None:
 
     assert data.garantias_extraction_status == "unknown"
     assert data.plazos_clave_extraction_status == "unknown"
-
-
-# ---------------------------------------------------------------------------
-# CTX-04
-# ---------------------------------------------------------------------------
 
 
 def _conflicto_de_garantias() -> dict[str, Any]:

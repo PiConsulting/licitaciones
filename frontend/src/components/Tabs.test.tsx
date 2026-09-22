@@ -42,14 +42,11 @@ describe("Tabs", () => {
     const tab1 = screen.getByText("Tab 1");
     const tab2 = screen.getByText("Tab 2");
 
-    // Tab 1 should be active initially
     expect(tab1).toHaveAttribute("aria-current", "page");
     expect(tab2).not.toHaveAttribute("aria-current");
 
-    // Click Tab 2
     await user.click(tab2);
 
-    // Tab 2 should now be active
     expect(tab2).toHaveAttribute("aria-current", "page");
     expect(tab1).not.toHaveAttribute("aria-current");
   });

@@ -77,7 +77,7 @@ class TestAntiInvencionRiesgos:
                 "tipo": "operativo",
                 "subtipo": "operativo",
                 "valor": "Riesgo inventado",
-                "source_references": [],  # SIN FUENTES
+                "source_references": [],
                 "extraction_status": "success",
                 "confidence": 0.8,
             },
@@ -159,7 +159,6 @@ class TestAntiInvencionRiesgos:
 
         cleaned = _enforce_citation_contract(items)
 
-        # La cita muy corta debería descartarse
         assert (
             len(cleaned[0]["source_references"]) == 0
             or len(cleaned[0]["source_references"][0].get("citation", "")) >= 12

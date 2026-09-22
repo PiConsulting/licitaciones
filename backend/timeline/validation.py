@@ -83,7 +83,6 @@ def validate_deadline_for_calculation(
     
     logger.debug(f"Validando deadline {deadline.deadline_id} para cálculo")
     
-    # 1. Validar que trigger_event existe y tiene fecha (AC1)
     trigger_event = service.get_event(deadline.trigger_event_id, analysis_id, user_id)
     
     if not trigger_event:
@@ -100,7 +99,6 @@ def validate_deadline_for_calculation(
         errors.append(error_msg)
         logger.warning(error_msg)
     
-    # 2. Validar que target_event existe (AC1)
     target_event = service.get_event(deadline.target_event_id, analysis_id, user_id)
     
     if not target_event:
@@ -110,7 +108,6 @@ def validate_deadline_for_calculation(
         errors.append(error_msg)
         logger.warning(error_msg)
     
-    # 3. Validar duración (AC1)
     if deadline.duration <= 0:
         error_msg = (
             f"Duración debe ser positiva, recibido: {deadline.duration}. "
@@ -119,12 +116,7 @@ def validate_deadline_for_calculation(
         errors.append(error_msg)
         logger.error(error_msg)
     
-    # 4. Validar unidad (AC1). "días" sigue siendo la más común, pero
-    # "horas", "meses" y "años" también son unidades válidas del schema de
-    # extracción (PlazoRelativoExtracted / DurationUnit) -- add_business_days
-    # ya sabe convertirlas a fecha (horas: redondeo hacia arriba a días
-    # completos; meses/años: aritmética calendario). day_type no aplica a
-    # estas tres, se salta la validación 6 para ellas.
+    # horas/meses/años también son unidades válidas; day_type no les aplica y se las salta abajo.
     if deadline.unit not in {"días", "horas", "meses", "años"}:
         error_msg = (
             f"Unidad '{deadline.unit}' no soportada. "
@@ -133,15 +125,7 @@ def validate_deadline_for_calculation(
         errors.append(error_msg)
         logger.error(error_msg)
     
-    # 5. Validar dirección (2026-09-01): el motor de cálculo solo sabe
-    # sumar días hacia adelante desde el trigger. "antes_de"/"hasta"
-    # implicarían calcular hacia atrás -- `add_business_days` no lo soporta
-    # (rechaza días negativos a propósito). El Deadline SÍ se materializa
-    # para estas direcciones (ver `_VALID_DIRECTIONS` en
-    # `timeline/materializer.py` -- antes se descartaba el plazo entero, lo
-    # que hacía perder la relación completa cuando el LLM etiquetaba mal la
-    # dirección entre corridas), pero acá se frena ANTES de calcular una
-    # fecha hacia adelante que sería incorrecta para un plazo hacia atrás.
+    # hasta/antes_de necesitan calcular hacia atrás (no soportado); el Deadline se materializa igual (ver materializer._VALID_DIRECTIONS) pero el cálculo se frena acá.
     if deadline.direccion in {"hasta", "antes_de"}:
         target_name = target_event.name if target_event else deadline.name
         error_msg = (
@@ -152,10 +136,7 @@ def validate_deadline_for_calculation(
         errors.append(error_msg)
         logger.info(error_msg)
 
-    # 6. Validar day_type (AC1, AC3). Solo aplica cuando unit="días" -- para
-    # "horas"/"meses" el day_type es irrelevante (el pliego no distingue
-    # "horas hábiles" ni "meses corridos" en este dominio) y no debe bloquear
-    # el cálculo.
+    # Solo aplica a unit="días" -- el pliego nunca distingue "horas hábiles"/"meses corridos".
     if deadline.unit == "días":
         if deadline.day_type == "no_especificado":
             error_msg = (
@@ -172,7 +153,6 @@ def validate_deadline_for_calculation(
             errors.append(error_msg)
             logger.error(error_msg)
     
-    # Warnings (no impiden cálculo pero son informativos)
     if deadline.calculation_status == "error":
         warning_msg = (
             f"Este deadline tiene un error previo de cálculo: {deadline.calculation_error}"
@@ -180,7 +160,6 @@ def validate_deadline_for_calculation(
         warnings.append(warning_msg)
         logger.info(warning_msg)
     
-    # Resultado (AC2)
     is_valid = len(errors) == 0
     
     if is_valid:

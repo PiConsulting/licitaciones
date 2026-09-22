@@ -39,8 +39,7 @@ from typing import Any
 from indexing.chunking.block_merging import _to_intermediate_blocks
 from indexing.document_intelligence.markdown_parsing import _MD_HEADING_RE, _parse_markdown_blocks
 
-# Fragmento fiel al PET de Bancor: el salto de 6 a 7 almohadillas ocurre en
-# medio de la jerarquía, no al principio.
+# Fragmento fiel al PET de Bancor: el salto de 6->7 almohadillas ocurre en medio de la jerarquía
 MARKDOWN_BANCOR = """# PLIEGO DE ESPECIFICACIONES TÉCNICAS
 
 ## 3. Especificaciones técnicas
@@ -81,9 +80,7 @@ def _path_de(intermedios: list[dict[str, Any]], fragmento: str) -> list[str]:
     raise AssertionError(f"no hay ningún bloque que contenga {fragmento!r}")
 
 
-# ---------------------------------------------------------------------------
 # El caso del hallazgo
-# ---------------------------------------------------------------------------
 
 
 def test_siete_almohadillas_son_un_encabezado() -> None:
@@ -131,9 +128,7 @@ def test_la_profundidad_real_se_conserva_no_se_recorta_a_seis() -> None:
     assert 8 in niveles.values()
 
 
-# ---------------------------------------------------------------------------
 # La consecuencia que importa: el section_path
-# ---------------------------------------------------------------------------
 
 
 def test_el_cuerpo_de_3_3_1_cuelga_de_3_3() -> None:
@@ -173,9 +168,7 @@ def test_la_raiz_del_documento_se_conserva() -> None:
     assert path[0] == "PLIEGO DE ESPECIFICACIONES TÉCNICAS"
 
 
-# ---------------------------------------------------------------------------
 # Guardas: lo que NO es un encabezado sigue sin serlo
-# ---------------------------------------------------------------------------
 
 
 def test_los_niveles_de_uno_a_seis_no_cambian() -> None:

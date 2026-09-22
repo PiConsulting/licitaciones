@@ -6,7 +6,6 @@ Valida que RiesgoItem y ExtractedData cumplen el contrato definido en R3.1.
 import sys
 from pathlib import Path
 
-# Asegurar que el backend esté en el path
 backend_dir = Path(__file__).parent
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
@@ -25,7 +24,6 @@ def test_riesgo_item_campos_obligatorios():
     """Verifica que RiesgoItem valida campos obligatorios (AC1)."""
     print("\n✅ Test 1: RiesgoItem - Campos obligatorios")
 
-    # Item válido mínimo
     riesgo = RiesgoItem(
         tipo=TipoRiesgo.PENALIZACION,
         subtipo=SubtipoRiesgo.ECONOMICO,
@@ -53,7 +51,6 @@ def test_riesgo_item_subtipo_default():
     """Verifica que subtipo tiene valor por defecto."""
     print("\n✅ Test 2: RiesgoItem - Subtipo con default")
 
-    # Crear sin especificar subtipo
     riesgo = RiesgoItem(
         tipo=TipoRiesgo.OTRO,
         valor="Algún riesgo sin subtipo específico",
@@ -64,7 +61,6 @@ def test_riesgo_item_subtipo_default():
         ],
     )
 
-    # Debe tener el valor por defecto
     assert riesgo.subtipo == SubtipoRiesgo.OTRO_EXPLICITO
     print(f"   ✓ Subtipo default aplicado: {riesgo.subtipo}")
 
@@ -107,7 +103,6 @@ def test_extracted_data_campos_riesgos():
     """Verifica que ExtractedData tiene los campos de riesgos (AC1, AC2)."""
     print("\n✅ Test 5: ExtractedData - Campos de riesgos")
 
-    # ExtractedData con riesgos
     data = ExtractedData(
         riesgos=[
             RiesgoItem(
@@ -142,7 +137,6 @@ def test_extracted_data_sin_riesgos():
     """Verifica que ExtractedData funciona sin riesgos (AC2)."""
     print("\n✅ Test 6: ExtractedData - Sin riesgos (AC2)")
 
-    # ExtractedData sin riesgos
     data = ExtractedData(riesgos=[], riesgos_extraction_status="not_found")
 
     assert len(data.riesgos) == 0
@@ -177,7 +171,6 @@ def test_riesgo_item_metadata_opcional():
     """Verifica que metadata es opcional y tiene default."""
     print("\n✅ Test 8: RiesgoItem - Metadata opcional")
 
-    # Sin metadata explícito
     riesgo = RiesgoItem(
         tipo=TipoRiesgo.OPERATIVO,
         subtipo=SubtipoRiesgo.OPERATIVO,
@@ -218,10 +211,9 @@ def test_riesgo_item_serializacion():
         metadata={"severidad": "alta"},
     )
 
-    # Serializar a dict
     riesgo_dict = riesgo.model_dump()
 
-    assert riesgo_dict["tipo"] == "penalizacion"  # Valor del enum, no el nombre
+    assert riesgo_dict["tipo"] == "penalizacion"  # valor del enum, no el nombre
     assert riesgo_dict["subtipo"] == "incumplimiento"
     assert riesgo_dict["valor"] == "Rescisión por incumplimiento grave"
     assert len(riesgo_dict["source_references"]) == 1

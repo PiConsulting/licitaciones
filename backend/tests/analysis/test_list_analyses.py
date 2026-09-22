@@ -273,7 +273,7 @@ def test_list_analyses_pagination_returns_page_window(client: TestClient, auth_t
             created_at=base - timedelta(minutes=i),
         )
 
-    # Probar con per_page=10 explícito (ahora es el default)
+    # per_page=10 explícito aunque ya es el default
     response = client.get("/api/v1/analyses?page=2&per_page=10", headers=_auth_headers(auth_token))
 
     assert response.status_code == 200
@@ -281,7 +281,7 @@ def test_list_analyses_pagination_returns_page_window(client: TestClient, auth_t
     assert payload["page"] == 2
     assert payload["per_page"] == 10
     assert payload["total"] == 25
-    assert payload["total_pages"] == 3  # 25 items / 10 per page = 3 pages
+    assert payload["total_pages"] == 3
     assert len(payload["items"]) == 10
 
 
@@ -354,7 +354,6 @@ def test_list_analyses_default_pagination_is_10_items(client: TestClient, auth_t
     assert user is not None
     db.close()
 
-    # Crear 15 análisis para verificar que solo se muestran 10 por defecto
     base = datetime.now(UTC)
     for i in range(15):
         _create_analysis(
@@ -364,7 +363,6 @@ def test_list_analyses_default_pagination_is_10_items(client: TestClient, auth_t
             created_at=base - timedelta(minutes=i),
         )
 
-    # Request sin especificar per_page - debe usar el default
     response = client.get("/api/v1/analyses", headers=_auth_headers(auth_token))
 
     assert response.status_code == 200

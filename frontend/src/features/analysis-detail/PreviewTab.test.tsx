@@ -578,6 +578,46 @@ describe("PreviewTab", () => {
     }
   });
 
+  test("multas o penalidades con varias filas se renderiza como lista, no un párrafo", async () => {
+    const user = userEvent.setup();
+    const analysis = makeAnalysis({ previewCriterios: makeCategoryData([]) });
+
+    analysis.current_version.extracted_data.preview_criterios = {
+      ...analysis.current_version.extracted_data.preview_criterios,
+      narrative: {
+        blocks: [
+          {
+            type: "bullet_list",
+            items: [
+              {
+                text:
+                  "Multas o penalidades: 0,5% del abono mensual por hora.\n" +
+                  "0,5% del monto total por día corrido de demora.\n" +
+                  "0,25% del monto total por día hábil de demora.",
+                resumen: "Varias tasas",
+                confidence_level: "high",
+                source_ids: [0],
+              },
+            ],
+          },
+        ],
+        sources: [{ id: 0, document_id: "doc-1", document_name: "Pliego.pdf", page: 41, text: "0,5% del abono mensual por hora." }],
+      },
+    };
+
+    render(<PreviewTab analysis={analysis} />);
+
+    const card = screen.getByTestId("preview-criterion-card");
+    await user.click(within(card).getByRole("button", { name: /Expandir detalle/i }));
+
+    const list = within(card).getByTestId("preview-criterion-detail-list");
+    const items = within(list).getAllByRole("listitem");
+    expect(items).toHaveLength(3);
+    expect(items[0]).toHaveTextContent("0,5% del abono mensual por hora.");
+    expect(items[1]).toHaveTextContent("0,5% del monto total por día corrido de demora.");
+    expect(items[2]).toHaveTextContent("0,25% del monto total por día hábil de demora.");
+  });
+
   test("no pierde criterios ni fuentes respecto del bullet_list plano pre-epic-p5", async () => {
     const user = userEvent.setup();
     const analysis = makeAnalysis({ previewCriterios: makeCategoryData([]) });

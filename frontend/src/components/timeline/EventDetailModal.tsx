@@ -35,7 +35,7 @@ export function EventDetailModal({
 
   const config = DATE_SOURCE_CONFIG[event.date_source];
   const hasSource = typeof event.source_document_id === 'string' && typeof event.source_page === 'number';
-  const canEdit = true; // Todos los eventos pueden editarse
+  const canEdit = true;
   const canDelete = event.date_source === "user_input"; // Solo los creados manualmente
 
   const handleViewSource = () => {
@@ -81,7 +81,6 @@ export function EventDetailModal({
           <h2 className="text-xl font-semibold text-gray-900">{event.name}</h2>
 
           <div className="mt-6 space-y-6">
-            {/* Información Principal */}
             <div>
               <div className="flex items-center gap-3">
                 <span className="text-lg font-medium text-gray-900">
@@ -91,7 +90,6 @@ export function EventDetailModal({
               </div>
             </div>
 
-            {/* Plazos Dependientes */}
             {deadlines.length > 0 && (
               <div>
                 <h4 className="text-sm font-semibold text-gray-700 mb-3">
@@ -114,7 +112,6 @@ export function EventDetailModal({
               </div>
             )}
 
-            {/* Fuente Verificable */}
             {hasSource && (
               <SourceReference
                 documentId={event.source_document_id!}
@@ -124,7 +121,6 @@ export function EventDetailModal({
               />
             )}
 
-            {/* Sin plazos dependientes ni fuente */}
             {deadlines.length === 0 && !hasSource && (
               <div className="text-sm text-gray-500 italic">
                 Este evento no tiene plazos dependientes ni fuente verificable en el documento.
@@ -132,7 +128,6 @@ export function EventDetailModal({
             )}
           </div>
 
-          {/* Acciones */}
           <div className="flex justify-between items-center pt-6 border-t mt-6">
             <div className="flex gap-2">
               {canEdit && (

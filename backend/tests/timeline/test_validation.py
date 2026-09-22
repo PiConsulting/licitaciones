@@ -16,8 +16,7 @@ class TestDeadlineValidation:
     def test_validate_deadline_all_valid(self):
         """AC1: Deadline válido pasa validación"""
         mock_service = Mock()
-        
-        # Trigger con fecha
+
         trigger = Event(
             analysis_id="analysis-1",
             partition_key="analysis-1",
@@ -26,16 +25,14 @@ class TestDeadlineValidation:
             event_date=date(2026, 9, 10),
             date_source="user_input"
         )
-        
-        # Target event
+
         target = Event(
             analysis_id="analysis-1",
             partition_key="analysis-1",
             event_id="target-1",
             name="Entrega"
         )
-        
-        # Deadline válido
+
         deadline = Deadline(
             analysis_id="analysis-1",
             partition_key="analysis-1",
@@ -47,20 +44,17 @@ class TestDeadlineValidation:
             unit="días",
             day_type="corridos"
         )
-        
-        # Mock responses
+
         def get_event_side_effect(event_id, analysis_id, user_id=None):
             if event_id == "trigger-1":
                 return trigger
             elif event_id == "target-1":
                 return target
-        
+
         mock_service.get_event.side_effect = get_event_side_effect
-        
-        # Execute
+
         result = validate_deadline_for_calculation(mock_service, "analysis-1", deadline)
-        
-        # Assert (AC2)
+
         assert isinstance(result, ValidationResult)
         assert result.is_valid is True
         assert len(result.errors) == 0
@@ -68,14 +62,13 @@ class TestDeadlineValidation:
     def test_validate_deadline_trigger_without_date(self):
         """AC1 y AC3: Falla si evento trigger no tiene fecha"""
         mock_service = Mock()
-        
-        # Trigger SIN fecha
+
         trigger = Event(
             analysis_id="analysis-1",
             partition_key="analysis-1",
             event_id="trigger-1",
             name="Adjudicación",
-            event_date=None,  # Sin fecha
+            event_date=None,
             date_source="pending"
         )
         
@@ -104,11 +97,9 @@ class TestDeadlineValidation:
                 return target
         
         mock_service.get_event.side_effect = get_event_side_effect
-        
-        # Execute
+
         result = validate_deadline_for_calculation(mock_service, "analysis-1", deadline)
-        
-        # Assert
+
         assert result.is_valid is False
         assert len(result.errors) > 0
         assert any("no tiene fecha" in e.lower() for e in result.errors)
@@ -133,7 +124,6 @@ class TestDeadlineValidation:
             name="Entrega"
         )
         
-        # day_type no especificado
         deadline = Deadline(
             analysis_id="analysis-1",
             partition_key="analysis-1",
@@ -142,7 +132,7 @@ class TestDeadlineValidation:
             trigger_event_id="trigger-1",
             target_event_id="target-1",
             duration=45,
-            day_type="no_especificado"  # Inválido
+            day_type="no_especificado"
         )
         
         def get_event_side_effect(event_id, analysis_id, user_id=None):
@@ -152,11 +142,9 @@ class TestDeadlineValidation:
                 return target
         
         mock_service.get_event.side_effect = get_event_side_effect
-        
-        # Execute
+
         result = validate_deadline_for_calculation(mock_service, "analysis-1", deadline)
-        
-        # Assert
+
         assert result.is_valid is False
         assert any("no especificado" in e.lower() for e in result.errors)
 
@@ -180,7 +168,6 @@ class TestDeadlineValidation:
             name="Entrega"
         )
         
-        # Unidad no soportada
         deadline = Deadline(
             analysis_id="analysis-1",
             partition_key="analysis-1",
@@ -200,11 +187,9 @@ class TestDeadlineValidation:
                 return target
         
         mock_service.get_event.side_effect = get_event_side_effect
-        
-        # Execute
+
         result = validate_deadline_for_calculation(mock_service, "analysis-1", deadline)
-        
-        # Assert
+
         assert result.is_valid is False
         assert any("no soportada" in e.lower() for e in result.errors)
 
@@ -308,8 +293,7 @@ class TestDeadlineValidation:
     def test_validate_deadline_multiple_errors(self):
         """AC3: Debe recolectar múltiples errores"""
         mock_service = Mock()
-        
-        # Trigger sin fecha
+
         trigger = Event(
             analysis_id="analysis-1",
             partition_key="analysis-1",
@@ -318,15 +302,14 @@ class TestDeadlineValidation:
             event_date=None,  # Error 1
             date_source="pending"
         )
-        
+
         target = Event(
             analysis_id="analysis-1",
             partition_key="analysis-1",
             event_id="target-1",
             name="Entrega"
         )
-        
-        # Multiple problemas: sin fecha + day_type no especificado
+
         deadline = Deadline(
             analysis_id="analysis-1",
             partition_key="analysis-1",
@@ -345,10 +328,8 @@ class TestDeadlineValidation:
                 return target
         
         mock_service.get_event.side_effect = get_event_side_effect
-        
-        # Execute
+
         result = validate_deadline_for_calculation(mock_service, "analysis-1", deadline)
-        
-        # Assert - debe detectar AMBOS errores
+
         assert result.is_valid is False
         assert len(result.errors) >= 2

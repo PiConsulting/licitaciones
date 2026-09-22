@@ -44,8 +44,7 @@ CATEGORIAS = [
 ]
 
 _CITATION_RE = re.compile(r'"citation"\s*:\s*"((?:[^"\\]|\\.)*)"')
-# Las citas de tabla tienen su propio formato y su propia verificación
-# (`_citation_verified_in_table_chunk`): no son texto corrido del pliego.
+# Citas de tabla: formato propio, verificado aparte (`_citation_verified_in_table_chunk`).
 _FORMATO_TABLA = "Encabezado:"
 
 

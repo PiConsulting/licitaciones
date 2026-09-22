@@ -15,8 +15,7 @@ from timeline.models import DireccionTemporal, Event, Deadline
 
 logger = logging.getLogger(__name__)
 
-# Límite de iteraciones para evitar loops infinitos en cascada.
-# 100 iteraciones debería ser suficiente para cadenas profundas sin ciclos.
+# Avoids infinite loops in cascade; 100 should cover deep chains without cycles.
 MAX_ITERATIONS = 100
 
 
@@ -67,11 +66,9 @@ def calcular_dias_corridos(
     if direccion not in ["desde", "hasta", "antes_de", "después_de"]:
         raise ValidationError(f"Dirección temporal inválida: {direccion}")
     
-    # Direcciones hacia adelante: suma días
     if direccion in ["desde", "hasta", "después_de"]:
         return fecha_base + timedelta(days=duracion)
-    
-    # Dirección hacia atrás: resta días
+
     else:  # antes_de
         return fecha_base - timedelta(days=duracion)
 
@@ -120,24 +117,20 @@ def calcular_dias_habiles(
     if direccion not in ["desde", "hasta", "antes_de", "después_de"]:
         raise ValidationError(f"Dirección temporal inválida: {direccion}")
     
-    # Determinar si vamos hacia adelante o atrás
     hacia_adelante = direccion in ["desde", "hasta", "después_de"]
-    
-    # Ajustar fecha base si cae en fin de semana
+
     fecha_actual = _ajustar_a_dia_habil(fecha_base, hacia_adelante)
-    
-    # Si duración es 0, ya tenemos la respuesta
+
     if duracion == 0:
         return fecha_actual
-    
-    # Contar días hábiles
+
     dias_contados = 0
     incremento = 1 if hacia_adelante else -1
-    
+
     while dias_contados < duracion:
         fecha_actual += timedelta(days=incremento)
-        
-        # Solo contar si es día hábil (lunes=0 a viernes=4)
+
+        # weekday(): lunes=0 a viernes=4
         if fecha_actual.weekday() < 5:
             dias_contados += 1
     
@@ -157,20 +150,16 @@ def _ajustar_a_dia_habil(fecha: date, hacia_adelante: bool) -> date:
         Fecha ajustada (o la misma si ya es día hábil)
     """
     dia_semana = fecha.weekday()  # 0=lunes, 6=domingo
-    
-    # Si ya es día hábil, retornar sin cambios
+
     if dia_semana < 5:  # lunes a viernes
         return fecha
-    
-    # Fin de semana: ajustar según dirección
+
     if hacia_adelante:
-        # Sábado (5) -> +2 días = Lunes
-        # Domingo (6) -> +1 día = Lunes
+        # Sáb(5)->+2, Dom(6)->+1 días para llegar al lunes.
         dias_hasta_lunes = 7 - dia_semana + 0  # 0 es lunes
         return fecha + timedelta(days=dias_hasta_lunes)
     else:
-        # Sábado (5) -> -1 día = Viernes
-        # Domingo (6) -> -2 días = Viernes
+        # Sáb(5)->-1, Dom(6)->-2 días para llegar al viernes.
         dias_hasta_viernes = dia_semana - 4  # 4 es viernes
         return fecha - timedelta(days=dias_hasta_viernes)
 
@@ -253,11 +242,9 @@ def calcular_fechas_cascada(
     except Exception as e:
         raise ValidationError(f"Error copiando modelos: {e}")
     
-    # Construir grafo de dependencias para detectar ciclos
     grafo = {}  # event_id -> [event_ids que dependen de él]
     for plazo in plazos_dict.values():
         if plazo.trigger_event_id and plazo.target_event_id:
-            # Detectar self-loops
             if plazo.trigger_event_id == plazo.target_event_id:
                 raise CircularDependencyError(
                     f"Auto-referencia detectada en plazo {plazo.deadline_id}: "
@@ -268,7 +255,6 @@ def calcular_fechas_cascada(
                 grafo[plazo.trigger_event_id] = []
             grafo[plazo.trigger_event_id].append(plazo.target_event_id)
     
-    # Detectar ciclos con DFS
     visitados = set()
     en_pila = set()
     
@@ -294,44 +280,37 @@ def calcular_fechas_cascada(
                 f"Dependencia circular detectada en el grafo de eventos/plazos"
             )
     
-    # Procesar plazos iterativamente hasta convergencia
-    # Capturar timestamp una sola vez para consistencia
+    # Timestamp capturado una sola vez para consistencia entre todos los cambios de esta cascada.
     timestamp_calculo = datetime.now(UTC)
     errores_validacion = 0
     plazos_sin_trigger_fecha = 0
     
     for iteracion in range(MAX_ITERATIONS):
         hubo_cambios = False
-        
-        # Dict para acumular fechas candidatas por evento target en esta iteración
+
         fechas_candidatas = {}  # target_event_id -> [fechas calculadas]
-        
+
         for plazo in plazos_dict.values():
-            # Si ya está calculado, skip
             if plazo.calculation_status == "calculated":
                 continue
-            
+
             try:
-                # Validar plazo
                 validar_plazo_antes_calculo(plazo, eventos_dict)
-                
-                # Obtener evento trigger
+
                 trigger_event = eventos_dict.get(plazo.trigger_event_id)
                 if not trigger_event:
                     plazo.calculation_status = "error"
                     plazo.calculation_error = f"Evento trigger {plazo.trigger_event_id} no encontrado"
                     errores_validacion += 1
                     continue
-                
-                # Si el trigger no tiene fecha, no podemos calcular
+
                 if trigger_event.event_date is None:
-                    # No es error, solo pendiente
+                    # No es error, solo pendiente.
                     plazo.calculation_status = "pending"
                     plazo.calculation_error = "Evento disparador sin fecha asignada"
                     plazos_sin_trigger_fecha += 1
                     continue
                 
-                # Calcular fecha del deadline según tipo de día
                 if plazo.day_type == "hábiles":
                     fecha_calculada = calcular_dias_habiles(
                         trigger_event.event_date,
@@ -345,14 +324,12 @@ def calcular_fechas_cascada(
                         plazo.direccion or "desde"
                     )
                 
-                # Actualizar deadline
                 plazo.deadline_date = fecha_calculada
                 plazo.calculation_status = "calculated"
                 plazo.calculation_error = None
                 plazo.updated_at = timestamp_calculo
                 hubo_cambios = True
-                
-                # Si tiene target_event_id, validar que existe y acumular fecha candidata
+
                 if plazo.target_event_id:
                     if plazo.target_event_id not in eventos_dict:
                         plazo.calculation_status = "error"
@@ -368,11 +345,10 @@ def calcular_fechas_cascada(
                 plazo.calculation_error = str(e)
                 errores_validacion += 1
         
-        # Asignar fechas a eventos target (la más temprana si hay múltiples)
+        # Asigna la fecha más temprana cuando varios plazos apuntan al mismo evento target.
         for target_id, fechas in fechas_candidatas.items():
             if target_id in eventos_dict:
                 evento_target = eventos_dict[target_id]
-                # Solo actualizar si el evento está pendiente
                 if evento_target.event_date is None:
                     evento_target.event_date = min(fechas)
                     evento_target.date_source = "calculated"
@@ -380,18 +356,15 @@ def calcular_fechas_cascada(
                     evento_target.updated_at = timestamp_calculo
                     hubo_cambios = True
         
-        # Si no hubo cambios en esta iteración, convergimos
         if not hubo_cambios:
             break
-    
-    # Warning si alcanzamos MAX_ITERATIONS sin convergencia completa
+
     if iteracion == MAX_ITERATIONS - 1 and hubo_cambios:
         logger.warning(
             f"MAX_ITERATIONS ({MAX_ITERATIONS}) alcanzado sin convergencia completa. "
             f"Errores: {errores_validacion}, Plazos pendientes: {plazos_sin_trigger_fecha}"
         )
-    
-    # Log summary si hubo errores
+
     if errores_validacion > 0 or plazos_sin_trigger_fecha > 0:
         logger.info(
             f"Cascada completada con {errores_validacion} errores y "

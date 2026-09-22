@@ -10,9 +10,7 @@ describe("isPartOfCitation", () => {
   });
 
   test("no marca match para stopwords de 3-5 letras muy frecuentes (ruido)", () => {
-    // Antes el piso era 3 caracteres: "los", "las", "del", "por", "con", "una"
-    // matcheaban casi cualquier cita y resaltaban palabras sueltas por toda la
-    // página, sin relación real con el fragmento citado.
+    // Antes el piso era 3 caracteres y matcheaba palabras sueltas sin relación con la cita.
     const citation = "Los oferentes deberán presentar la garantía dentro del plazo establecido";
     expect(isPartOfCitation("los", [citation])).toBe(false);
     expect(isPartOfCitation("del", [citation])).toBe(false);

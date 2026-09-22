@@ -288,12 +288,37 @@ export function PDFViewer({
     focusDoneRef.current = null;
   }, [activeDocumentId, zoomMode, containerWidth]);
 
-  /** Y de la primera línea del resaltado, en puntos de la página sin escalar. */
+  /** Y de la primera línea del resaltado, en puntos de la página sin escalar.
+   *
+   * FIX (2026-09-17): `activeSources` incluye TODAS las citas del ítem que
+   * caen en la misma página (ver FIX 2026-09-03 arriba) para poder pintarlas
+   * juntas -- correcto para el resaltado, pero acá se usaba ese mismo
+   * conjunto ampliado para elegir a QUÉ Y hacer scroll, con `Math.min` sobre
+   * todas. Un ítem de "Plazos Clave" con dos citas en la misma página (ej. el
+   * plazo en sí + el lugar de entrega) donde la cita clickeada es la de MÁS
+   * ABAJO terminaba haciendo scroll a la de arriba -- se pintaba el
+   * resaltado correcto, pero quedaba fuera de la vista, y visualmente parecía
+   * que no había fuente. Ahora se prioriza el/los renglón(es) de la cita
+   * puntual que el usuario enfocó (`activeCitationInDocument`); solo si esa
+   * cita puntual no matchea ningún source (fallback de robustez ya existente
+   * en `activeSources`) se vuelve al mínimo sobre el conjunto ampliado. */
   const activeRegionTop = useMemo(() => {
     if (!activeCitationInDocument || activeCitationInDocument.page !== currentPage) {
       return null;
     }
-    const tops = activeSources.flatMap((source) =>
+    const ownSources = activeSources.filter((source) =>
+      isSameCitation(
+        {
+          document_id: source.document_id,
+          page: source.page,
+          text: source.text,
+          document_name: source.document_name,
+        },
+        activeCitationInDocument,
+      ),
+    );
+    const sourcesForTop = ownSources.length > 0 ? ownSources : activeSources;
+    const tops = sourcesForTop.flatMap((source) =>
       (source.highlight_regions ?? []).map((region) => region.y),
     );
     return tops.length > 0 ? Math.min(...tops) : null;

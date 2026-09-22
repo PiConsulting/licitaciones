@@ -73,8 +73,7 @@ def test_el_bbox_convertido_queda_en_la_misma_escala_que_pymupdf() -> None:
     scales = _page_unit_scales(_A4_INCHES)
     bbox = _extract_bounding_boxes(_Item([_Region(1, _POLYGON_INCHES)]), scales)[0]
 
-    # Una página A4 mide 841.9 pt de alto. Un bloque que en pulgadas estaba a
-    # 2.12 (de 11.69) tiene que caer alrededor del 18% de la altura.
+    # A4 mide 841.9pt de alto; un bloque que en pulgadas estaba a 2.12 (de 11.69) cae ~18%.
     assert 0.15 < bbox["y"] / 841.9 < 0.22
     # Y en la escala vieja daba 2.12, que sobre 841.9 es el 0.25%: invisible.
     assert bbox["y"] > 100
@@ -111,9 +110,7 @@ def test_paginas_con_unidades_distintas_se_convierten_por_separado() -> None:
     assert page2["x"] == pytest.approx(1.0)
 
 
-# ---------------------------------------------------------------------------
 # Validación de límites contra el tamaño real de la página
-# ---------------------------------------------------------------------------
 
 
 def test_page_sizes_se_calculan_en_puntos() -> None:
@@ -125,11 +122,7 @@ def test_page_sizes_se_calculan_en_puntos() -> None:
     assert height == pytest.approx(841.7, abs=1.0)
 
 
-# El índice que produce `_build_para_id_index` es
-# `{(pagina, indice): {"bbox": [...], "content": "..."}}`. Estos tests lo
-# construyen a mano, así que tienen que usar ESA forma: con la forma vieja (una
-# lista de bbox pelada) pasaban vacíos y no verificaban nada -- la misma trampa
-# que dejó pasar ING-06.
+# El índice de `_build_para_id_index` es `{(pagina, indice): {"bbox": [...], "content": "..."}}`; con la forma vieja (bbox pelada) estos tests pasaban vacíos sin verificar nada, la misma trampa de ING-06.
 def test_un_bbox_fuera_de_la_hoja_se_descarta() -> None:
     from indexing.document_intelligence.markdown_parsing import _enrich_blocks_with_para_id
 

@@ -90,8 +90,7 @@ describe("categorías de ítems: un ojo por ítem", () => {
     expect(onViewSource).toHaveBeenCalledTimes(1);
     const payload = onViewSource.mock.calls[0][0];
     expect(payload.citation.page).toBe(7);
-    // La navegación anterior/siguiente del visor no puede pasearse por las
-    // citas de los otros bullets: se verifica ESTA afirmación.
+    // La navegación anterior/siguiente del visor no puede pasearse por las citas de los otros bullets.
     expect(payload.citations).toHaveLength(1);
     expect(payload.sources).toHaveLength(1);
   });

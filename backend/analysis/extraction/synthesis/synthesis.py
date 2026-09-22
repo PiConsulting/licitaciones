@@ -161,10 +161,28 @@ CATEGORY_OUTPUT_CONTRACTS = {
 NARRATIVE_CATEGORIES = tuple(CATEGORY_LABELS)
 
 
+# FIX (2026-09-18, causa real de que multas_penalidades/requisitos_tecnicos_excluyentes
+# nunca mostraran el valor verbatim pese al fix de "forced bullet" de abajo):
+# los items de `preview_criterios` extraídos DIRECTO por el LLM (no los
+# `_project_*` de preview_criterios.py, que arman el dict a mano con `tipo`
+# como string literal) llegan a esta función con `tipo` todavía como
+# instancia viva de `TipoCriterioPreview` (el enum), no como string -- recién
+# se convierte a string plano al persistir en la base (JSON). `str(tipo)`
+# sobre un Enum sin `__str__` propio da `"TipoCriterioPreview.X"`, no el
+# valor ("x") -- así que TODA comparación contra un string plano (acá, y en
+# `_build_forced_preview_bullet`) fallaba siempre que se llamaba en la MISMA
+# corrida que extrajo el item (nunca en una corrida posterior que releyera
+# la base, donde ya es string) -- el peor tipo de bug para diagnosticar,
+# porque una lectura aislada desde la base para depurar "funciona bien".
+def _tipo_value(raw_tipo: Any) -> str:
+    value = getattr(raw_tipo, "value", raw_tipo)
+    return str(value or "").strip()
+
+
 def _preview_tipo_from_item_refs(item_refs: list[int], items: list[dict[str, Any]]) -> str | None:
     for ref in item_refs:
         if 0 <= ref < len(items):
-            tipo = str(items[ref].get("tipo") or "").strip()
+            tipo = _tipo_value(items[ref].get("tipo"))
             if tipo:
                 return tipo
     return None
@@ -174,6 +192,54 @@ def _preview_body_without_label(text: str) -> str:
     if ":" in text:
         return text.split(":", 1)[1].strip()
     return text.strip()
+
+
+# FIX (2026-09-18, bug real encontrado tras el fix anterior: la síntesis a
+# veces -- de forma no determinística -- no incluye `item_refs` en el bullet
+# que arma para un criterio, o los incluye vacíos/incorrectos. Cuando eso
+# pasa, `_preview_tipo_from_item_refs`/`_preview_valor_from_item_refs` no
+# tienen nada que resolver: el bullet queda SIN título canónico y con la
+# paráfrasis del LLM en vez del `valor` verbatim -- exactamente el bug que
+# el fix anterior creía resuelto, pero dependía por completo de que la
+# síntesis referenciara bien el item, cosa que no garantiza (mismo patrón de
+# no-determinismo ya documentado repetidas veces en esta memoria). Para
+# `multas_penalidades`/`requisitos_tecnicos_excluyentes` -- los dos únicos
+# criterios de preview cuyo `valor` YA viene armado como texto final
+# verbatim -- el bullet se construye DIRECTO desde `items` por `tipo`, sin
+# pasar por lo que la síntesis haya hecho con `item_refs`. Es determinístico:
+# siempre va a estar bien, sin importar si la síntesis lo referenció o no.
+_PREVIEW_FORCED_VERBATIM_TIPOS = ("multas_penalidades", "requisitos_tecnicos_excluyentes")
+
+
+def _build_forced_preview_bullet(tipo: str, items: list[dict[str, Any]]) -> dict[str, Any] | None:
+    matching = [item for item in items if _tipo_value(item.get("tipo")) == tipo]
+    if not matching:
+        return None
+
+    title = _PREVIEW_CANONICAL_TITLE_BY_TIPO.get(tipo, tipo)
+    usable = [
+        item
+        for item in matching
+        if str(item.get("extraction_status", "")).strip().lower() not in ("not_found", "failed")
+        and item.get("valor")
+    ]
+    if not usable:
+        return {
+            "text": f"{title}: No se encontró información.",
+            "resumen": "No informado",
+            "confidence_level": "baja",
+            "item_refs": [],
+        }
+
+    valores = [str(item.get("valor")) for item in usable]
+    body = "\n".join(dict.fromkeys(valores))
+    refs = [idx for idx, item in enumerate(items) if item in usable]
+    return {
+        "text": f"{title}: {body}",
+        "resumen": title,
+        "confidence_level": "alta",
+        "item_refs": refs,
+    }
 
 
 def _normalize_preview_raw_narrative(
@@ -189,6 +255,7 @@ def _normalize_preview_raw_narrative(
             continue
 
         decorated: list[tuple[int, int, dict[str, Any]]] = []
+        tipos_forzados_ya_resueltos: set[str] = set()
         for index, bullet in enumerate(block.items):
             bullet_data = bullet.model_dump()
             tipo = _preview_tipo_from_item_refs(bullet.item_refs, items)
@@ -200,6 +267,17 @@ def _normalize_preview_raw_narrative(
             if statuses and statuses.issubset({"not_found", "failed"}):
                 bullet_data["resumen"] = "No informado"
 
+            if tipo in _PREVIEW_FORCED_VERBATIM_TIPOS:
+                # Se reemplaza por completo por el bullet forzado (ver arriba)
+                # -- este bullet del LLM se descarta, no se usa ni su texto ni
+                # su resumen, para no arriesgar la paráfrasis si el LLM sí
+                # referenció bien el item pero igual resumió de más.
+                forced = _build_forced_preview_bullet(tipo, items)
+                if forced is not None:
+                    tipos_forzados_ya_resueltos.add(tipo)
+                    decorated.append((_PREVIEW_ORDER_INDEX.get(tipo, 10_000), index, forced))
+                    continue
+
             if tipo in _PREVIEW_CANONICAL_TITLE_BY_TIPO:
                 title = _PREVIEW_CANONICAL_TITLE_BY_TIPO[tipo]
                 body = _preview_body_without_label(bullet.text)
@@ -209,6 +287,17 @@ def _normalize_preview_raw_narrative(
                 order = 10_000
 
             decorated.append((order, index, bullet_data))
+
+        # Si la síntesis nunca generó (o generó sin `item_refs` resolubles)
+        # un bullet para multas_penalidades/requisitos_tecnicos_excluyentes,
+        # igual hay que insertarlo -- si no, el criterio directamente
+        # desaparece de la vista previa en vez de mostrar el dato real.
+        for tipo in _PREVIEW_FORCED_VERBATIM_TIPOS:
+            if tipo in tipos_forzados_ya_resueltos:
+                continue
+            forced = _build_forced_preview_bullet(tipo, items)
+            if forced is not None:
+                decorated.append((_PREVIEW_ORDER_INDEX.get(tipo, 10_000), len(block.items), forced))
 
         decorated.sort(key=lambda entry: (entry[0], entry[1]))
         blocks_data.append({"type": "bullet_list", "items": [entry[2] for entry in decorated]})

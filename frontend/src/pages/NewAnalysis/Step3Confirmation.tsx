@@ -49,8 +49,7 @@ export function Step3Confirmation({ files, primaryIndex, onBack, onContinueToSta
       });
       setWarnings(response.warnings);
 
-      // Se detectan duplicados apenas se sube el archivo (ya está en blob y
-      // hasheado en este punto) — no hay que esperar al paso 4 para avisar.
+      // Duplicados se detectan al subir (ya hasheado); no hace falta esperar al paso 4.
       if (response.requires_resolution) {
         setDuplicates(response.duplicates);
         setPendingAnalysisId(response.id);

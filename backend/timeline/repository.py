@@ -14,8 +14,6 @@ from sqlalchemy.orm.exc import NoResultFound
 from timeline.models import Deadline, Event
 from timeline.models_orm import DeadlineORM, EventORM
 
-# ==================== EVENTS ====================
-
 
 def _event_to_pydantic(row: EventORM) -> Event:
     return Event(
@@ -111,9 +109,6 @@ def list_events(
     if limit is not None:
         query = query.limit(limit)
     return [_event_to_pydantic(row) for row in query.all()]
-
-
-# ==================== DEADLINES ====================
 
 
 def _deadline_to_pydantic(row: DeadlineORM) -> Deadline:

@@ -1,11 +1,4 @@
-# Regresión (2026-09-11, bug encontrado auditando garantías/dell):
-# `_canonical_garantia_tipo` se escribió con solo 3 ramas (cumplimiento
-# contrato / anticipo / mantenimiento_oferta) y nunca se actualizó cuando
-# `TipoGarantia` (schemas.py) se amplió con contragarantia/impugnacion/
-# fondo_reparo/por_vicios_ocultos/buen_uso_anticipo -- cualquier ítem que el
-# LLM etiquetara correctamente con uno de esos 5 tipos se pisaba con "otra"
-# en cada corrida, y de paso rompía el dedup entre un ítem "contragarantia" y
-# su gemelo "anticipo" del mismo hecho (dedup agrupa por `tipo`).
+# Regresión (2026-09-11): `_canonical_garantia_tipo` no cubría los 5 tipos agregados a `TipoGarantia`, pisándolos con "otra" y rompiendo el dedup por `tipo`.
 from __future__ import annotations
 
 import pytest

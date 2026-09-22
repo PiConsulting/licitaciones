@@ -1,10 +1,4 @@
-# Regresión (2026-09-14, P1-3 de la auditoría RAG, mismo patrón que
-# `_canonical_garantia_tipo`): `_canonical_causal_tipo` y
-# `_canonical_riesgo_subtipo` no tenían chequeo de match exacto contra su
-# enum -- un valor ya válido devuelto por el LLM podía pisarse con el default
-# ("otra"/"otro_explicito") solo porque el texto no calzaba con ninguna
-# palabra clave de las ramas de fallback. `_canonical_causal_tipo` además ni
-# siquiera cubría los 6 valores de `TipoCausal` (faltaba "etica").
+# Regresión (2026-09-14): faltaba chequeo de match exacto contra el enum antes de caer al default por keyword, pisando valores ya válidos; también faltaba "etica" en TipoCausal.
 from __future__ import annotations
 
 import pytest

@@ -1,10 +1,4 @@
-# Regresión (auditoría RAG, 2026-09-16): `monto_porcentaje` tenía `le=100.0`,
-# que descartaba silenciosamente (vía `graph/validation.py::_keep_schema_valid_items`)
-# contragarantías reales por encima del 100% -- caso real medido: santa_fe,
-# contragarantía del 150% del anticipo financiero (práctica legítima de
-# sobre-colateralización, no un error de redacción del pliego). El porcentaje
-# siempre está atado a una cita verificada, así que el límite superior es solo
-# para atajar errores de unidad grotescos, no para acotar el dominio real.
+# Regresión (2026-09-16): `monto_porcentaje` con `le=100.0` descartaba contragarantías reales >100% (caso real: santa_fe, 150% de sobre-colateralización legítima).
 from __future__ import annotations
 
 import pytest

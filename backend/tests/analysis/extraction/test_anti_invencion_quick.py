@@ -6,7 +6,6 @@ Bypasea fixtures de DB para evitar errores de bcrypt.
 import sys
 from pathlib import Path
 
-# Asegurar que el backend esté en el path
 backend_dir = Path(__file__).parent
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
@@ -104,7 +103,7 @@ def test_mezcla_con_y_sin_fuentes():
             "tipo": "operativo",
             "subtipo": "operativo",
             "valor": "Riesgo inventado",
-            "source_references": [],  # SIN FUENTES
+            "source_references": [],
             "extraction_status": "success",
             "confidence": 0.8,
         },
@@ -187,14 +186,12 @@ def test_enforce_citation_contract():
 
     cleaned = _enforce_citation_contract(items)
 
-    # Primera cita debe conservarse
     assert len(cleaned[0]["source_references"]) > 0
     assert len(cleaned[0]["source_references"][0]["citation"]) >= 12
     print(
         f"   ✓ Cita válida conservada: {len(cleaned[0]['source_references'][0]['citation'])} caracteres"
     )
 
-    # Segunda cita muy corta debe descartarse o limpiarse
     if len(cleaned[1]["source_references"]) > 0:
         assert len(cleaned[1]["source_references"][0].get("citation", "")) >= 12
     print(f"   ✓ Cita corta procesada correctamente")

@@ -54,9 +54,8 @@ class TestDehyphenation:
 
     def test_real_hyphen_preserved(self):
         """Guiones reales de palabras compuestas deben preservarse."""
-        text = "auto-\nbús"  # palabra compuesta real
-        # Este caso es ambiguo, pero nuestro regex lo unirá
-        # En la práctica, "autobús" sin guion es correcto
+        text = "auto-\nbús"
+        # Ambiguo, pero el regex lo une; en la práctica "autobús" sin guion es correcto
         result = _dehyphenate(text)
         assert result == "autobús"
 
@@ -81,7 +80,7 @@ class TestMarkdownHeadingDetection:
         line = "# TÍTULO PRINCIPAL"
         match = _MD_HEADING_RE.match(line)
         assert match is not None
-        assert len(match.group(1)) == 1  # nivel 1
+        assert len(match.group(1)) == 1
         assert match.group(2) == "TÍTULO PRINCIPAL"
 
     def test_h2_h3_detection(self):
@@ -106,15 +105,15 @@ class TestMarkdownHeadingDetection:
 
     def test_bold_text_not_detected_as_heading(self):
         """Texto en negrita NO debe ser detectado como heading si no tiene #."""
-        line = "**ARTÍCULO 10**"  # negrita markdown pero sin #
+        line = "**ARTÍCULO 10**"
         match = _MD_HEADING_RE.match(line)
-        assert match is None  # ESPERADO: no se detecta sin #
+        assert match is None
 
     def test_all_caps_not_detected_as_heading(self):
         """Texto en mayúsculas NO debe ser detectado como heading sin #."""
         line = "ARTÍCULO 10: GARANTÍAS"
         match = _MD_HEADING_RE.match(line)
-        assert match is None  # ESPERADO: Azure DI debe marcar con #
+        assert match is None  # se asume que Azure DI ya marca headings con #
 
 
 class TestMarkdownParsing:
@@ -129,12 +128,12 @@ Párrafo 1
 Párrafo 2"""
         blocks, heading_levels, table_positions = _parse_markdown_blocks(markdown)
 
-        assert len(blocks) == 4  # 2 headings + 2 párrafos
-        assert len(heading_levels) == 2  # 2 headings
-        assert 0 in heading_levels  # primer heading en source_order 0
-        assert heading_levels[0] == 1  # nivel 1
-        assert 2 in heading_levels  # segundo heading en source_order 2
-        assert heading_levels[2] == 2  # nivel 2
+        assert len(blocks) == 4
+        assert len(heading_levels) == 2
+        assert 0 in heading_levels
+        assert heading_levels[0] == 1
+        assert 2 in heading_levels
+        assert heading_levels[2] == 2
 
     def test_page_breaks(self):
         """Tracking de páginas con PageBreak."""
@@ -148,8 +147,8 @@ Contenido página 2"""
         page_1_blocks = [b for b in blocks if b["page_number"] == 1]
         page_2_blocks = [b for b in blocks if b["page_number"] == 2]
 
-        assert len(page_1_blocks) == 2  # título + contenido
-        assert len(page_2_blocks) == 2  # título + contenido
+        assert len(page_1_blocks) == 2
+        assert len(page_2_blocks) == 2
 
     def test_table_position_tracking(self):
         """Tablas deben registrar su posición en el flujo."""
@@ -161,10 +160,10 @@ Párrafo antes de tabla
 Párrafo después de tabla"""
         blocks, _, table_positions = _parse_markdown_blocks(markdown)
 
-        assert len(table_positions) == 1  # una tabla detectada
+        assert len(table_positions) == 1
         page, source_order = table_positions[0]
         assert page == 1
-        assert source_order == 2  # después de título y párrafo
+        assert source_order == 2
 
     def test_figure_content_discarded(self):
         """Contenido dentro de <figure> debe ser descartado."""
@@ -177,9 +176,8 @@ Pie de figura
 Texto después"""
         blocks, _, _ = _parse_markdown_blocks(markdown)
 
-        # Solo debe haber 3 bloques: título, texto antes, texto después
         assert len(blocks) == 3
-        assert "logo" not in str(blocks)  # contenido de figura no presente
+        assert "logo" not in str(blocks)
         assert "Pie de figura" not in str(blocks)
 
     def test_empty_markdown(self):
@@ -198,7 +196,6 @@ Contenido
 <!-- PageFooter="Página 1" -->"""
         blocks, _, _ = _parse_markdown_blocks(markdown)
 
-        # Solo título y contenido
         assert len(blocks) == 2
         assert "PageNumber" not in str(blocks)
         assert "PageHeader" not in str(blocks)
@@ -229,14 +226,11 @@ Segundo párrafo del cuerpo con contenido B."""
         assert len(blocks) == 3
         assert 0 in heading_levels
 
-        # `heading_levels` mapea source_order -> nivel para los bloques que son
-        # headings; los bloques de cuerpo son los que NO aparecen ahí.
+        # heading_levels mapea source_order->nivel; los bloques de cuerpo no aparecen ahí
         body_blocks = [b for b in blocks if b["source_order"] not in heading_levels]
         assert len(body_blocks) == 2
         assert body_blocks[0]["content"].strip() == "Primer párrafo del cuerpo con contenido A."
         assert body_blocks[1]["content"].strip() == "Segundo párrafo del cuerpo con contenido B."
-        # Ningún bloque de cuerpo debe contener el separador interno "\n\n":
-        # cada uno es ya un único párrafo real.
         assert "\n\n" not in body_blocks[0]["content"]
         assert "\n\n" not in body_blocks[1]["content"]
 
@@ -269,7 +263,7 @@ Final"""
 
         assert len(table_positions) == 1
         page, source_order = table_positions[0]
-        assert source_order == 2  # después de título (0) e intro (1)
+        assert source_order == 2
 
     def test_multiple_tables_in_order(self):
         """Múltiples tablas deben mantener orden."""
@@ -285,7 +279,7 @@ Texto intermedio
         assert len(table_positions) == 2
         _, order_1 = table_positions[0]
         _, order_2 = table_positions[1]
-        assert order_1 < order_2  # orden preservado
+        assert order_1 < order_2
 
     def test_nested_tables_not_supported(self):
         """Tablas anidadas: solo se detecta la primera apertura."""
@@ -294,9 +288,8 @@ Texto intermedio
 </table>"""
         blocks, _, table_positions = _parse_markdown_blocks(markdown)
 
-        # Implementación actual: no soporta anidamiento correctamente
-        # pero tampoco debería crashear
-        assert len(table_positions) >= 1  # al menos la tabla exterior
+        # anidamiento no soportado correctamente, pero no debe crashear
+        assert len(table_positions) >= 1
 
 
 @pytest.mark.parametrize(

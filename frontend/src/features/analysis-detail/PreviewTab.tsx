@@ -208,11 +208,7 @@ export function PreviewTab({ analysis, onViewSource }: PreviewTabProps) {
   const hasPreviewCategory = previewCriterios !== undefined;
 
   const objetoNarrative = categoryNarrativeOrFallback(objetoAlcance, "objeto_alcance");
-  // "criterios_evaluacion" es un placeholder: preview_criterios no es un
-  // CategoryId real (no tiene su propia sección en Categorías), pero
-  // buildNarrativeBlocks necesita alguno para el texto de fallback y la
-  // decisión lista-vs-párrafo. No afecta el resultado salvo cuando faltan
-  // datos y el backend tampoco mandó narrative.
+  // "criterios_evaluacion" es un placeholder: preview_criterios no es un CategoryId real, pero buildNarrativeBlocks necesita alguno para el fallback.
   const previewNarrative = normalizePreviewNarrative(
     categoryNarrativeOrFallback(previewCriterios, "criterios_evaluacion", {
       forceList: true,

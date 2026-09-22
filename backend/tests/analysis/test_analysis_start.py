@@ -992,10 +992,12 @@ def test_reanalyze_categories_preserves_non_selected_categories(monkeypatch) -> 
 
 
 def test_reanalyze_preview_criterios_alone_seeds_source_categories(monkeypatch) -> None:
-    """Regresión (2026-09-11): reanalizar `preview_criterios` solo, sin sus 4
+    """Regresión (2026-09-11): reanalizar `preview_criterios` solo, sin sus 3
     categorías fuente en el mismo batch, no debe perder `garantias`/`plazos`/
-    `requisitos_admisibilidad`/`riesgos` -- ver comentario en
-    `_PREVIEW_CRITERIOS_SOURCE_STATE_KEYS` de `analysis/service/lifecycle.py`."""
+    `requisitos_admisibilidad` -- ver comentario en
+    `_PREVIEW_CRITERIOS_SOURCE_STATE_KEYS` de `analysis/service/lifecycle.py`.
+    `riesgos` salió de esta lista 2026-09-18 (rediseño: preview ya no depende
+    de riesgos en absoluto, ver `prompt-audit-2026-09-18` en memoria)."""
     db = SessionLocal()
     user = db.query(User).filter(User.email == "test@cedia.com").first()
     assert user is not None
@@ -1058,7 +1060,68 @@ def test_reanalyze_preview_criterios_alone_seeds_source_categories(monkeypatch) 
         }
     ]
     assert captured_state.get("requisitos_admisibilidad") == [{"valor": "ISO 9001"}]
-    assert captured_state.get("riesgos") == [{"valor": "riesgo cambiario"}]
+    assert captured_state.get("riesgos") is None
+
+    db.close()
+
+
+def test_reanalyze_riesgos_alone_seeds_source_categories(monkeypatch) -> None:
+    """Rediseño 2026-09-18: `riesgos` ya no scanea chunks crudos, sintetiza
+    desde garantias/plazos/requisitos_admisibilidad/causales/criterios ya
+    extraídos. Si se reanaliza SOLO "riesgos" (mini-grafo aislado), esas 5
+    fuentes tienen que sembrarse desde lo ya persistido -- ver
+    `_RIESGOS_SOURCE_STATE_KEYS` en `analysis/service/lifecycle.py`."""
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == "test@cedia.com").first()
+    assert user is not None
+
+    analysis = Analysis(created_by=user.id, status="analyzed", correlation_id=str(uuid4()))
+    db.add(analysis)
+    db.flush()
+
+    source = AnalysisVersion(
+        analysis_id=analysis.id,
+        version_number=1,
+        extracted_data={
+            "garantias": [{"tipo": "cumplimiento_contrato", "valor": "10% del contrato"}],
+            "plazos": [{"referencia": "Entrega", "texto_original": "45 dias corridos"}],
+            "requisitos_admisibilidad": [{"valor": "Antigüedad 10 años"}],
+            "causales_rechazo": [{"valor": "No presentar DDJJ"}],
+            "criterios_evaluacion": [{"valor": "Menor precio evaluado"}],
+            "riesgos": [],
+        },
+        conflicts=[],
+        created_by=user.id,
+    )
+    db.add(source)
+    db.flush()
+    analysis.current_version_id = source.id
+    db.commit()
+    analysis_id = analysis.id
+
+    captured_state: dict = {}
+
+    class _FakeGraph:
+        def invoke(self, state, config=None):
+            captured_state.update(state)
+            return {"extracted_data": {}, "conflicts": [], "extraction_metadata": {}}
+
+    def _fake_build_single_category_graph(node_name: str, extractor_fn) -> _FakeGraph:
+        assert node_name == "extract_riesgos"
+        return _FakeGraph()
+
+    monkeypatch.setattr(
+        "analysis.service.lifecycle._build_single_category_graph",
+        _fake_build_single_category_graph,
+    )
+
+    _run_selected_categories_reanalysis(analysis_id, ["riesgos"])
+
+    assert captured_state.get("garantias") == [{"tipo": "cumplimiento_contrato", "valor": "10% del contrato"}]
+    assert captured_state.get("plazos") == [{"referencia": "Entrega", "texto_original": "45 dias corridos"}]
+    assert captured_state.get("requisitos_admisibilidad") == [{"valor": "Antigüedad 10 años"}]
+    assert captured_state.get("causales") == [{"valor": "No presentar DDJJ"}]
+    assert captured_state.get("criterios") == [{"valor": "Menor precio evaluado"}]
 
     db.close()
 

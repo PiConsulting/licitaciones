@@ -43,9 +43,7 @@ def _chunk(content: str) -> dict[str, Any]:
     return {"id": "an-1--doc-1--7", "content": content, "block_type": "paragraph"}
 
 
-# ---------------------------------------------------------------------------
 # El caso del hallazgo
-# ---------------------------------------------------------------------------
 
 
 def test_la_cita_ensanchada_conserva_lo_que_el_modelo_cito() -> None:
@@ -93,9 +91,7 @@ def test_el_ensanchado_llega_al_minimo_legible() -> None:
     assert len(ensanchada) <= CITATION_MAX_CHARS
 
 
-# ---------------------------------------------------------------------------
 # Guardas: lo que el fix no puede romper
-# ---------------------------------------------------------------------------
 
 
 def test_una_cita_que_ya_es_legible_no_se_toca() -> None:
@@ -120,9 +116,7 @@ def test_las_tablas_no_ensanchan() -> None:
     assert _widen_citation_with_chunk_context(corta, [tabla]) == corta
 
 
-# ---------------------------------------------------------------------------
 # `_build_context_citation` directo: el invariante, no el caso
-# ---------------------------------------------------------------------------
 
 
 def test_el_nucleo_sobrevive_este_donde_este_en_el_parrafo() -> None:

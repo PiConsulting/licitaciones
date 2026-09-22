@@ -6,7 +6,6 @@ Demuestra el flujo completo: extracción → descarte por falta de evidencia →
 import sys
 from pathlib import Path
 
-# Asegurar que el backend esté en el path
 backend_dir = Path(__file__).parent
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
@@ -28,14 +27,13 @@ def test_flujo_completo_sin_evidencia():
     print("\n✅ Test E2E: Flujo completo de anti-invención")
     print("   Escenario: LLM extrae riesgos pero sin evidencia verificable\n")
 
-    # 1. Riesgos extraídos (posiblemente inventados)
     print("   [1] Extractor genera riesgos:")
     extracted_items = [
         {
             "tipo": "descalificacion",
             "subtipo": "plazos",
             "valor": "Riesgo de descalificación por entrega tardía",
-            "source_references": [],  # SIN EVIDENCIA
+            "source_references": [],
             "extraction_status": "success",
             "confidence": 0.8,
         },
@@ -43,7 +41,7 @@ def test_flujo_completo_sin_evidencia():
             "tipo": "economico",
             "subtipo": "economico",
             "valor": "Posible multa por incumplimiento",
-            "source_references": [],  # SIN EVIDENCIA
+            "source_references": [],
             "extraction_status": "success",
             "confidence": 0.7,
         },
@@ -52,7 +50,6 @@ def test_flujo_completo_sin_evidencia():
     for item in extracted_items:
         print(f"       • {item['valor']} [{item['tipo']}/{item['subtipo']}]")
 
-    # 2. merge_node aplica regla de evidencia
     print("\n   [2] merge_node aplica regla anti-invención:")
     quality = {}
     filtered_items, status = _drop_items_without_sources(
@@ -62,13 +59,11 @@ def test_flujo_completo_sin_evidencia():
     print(f"       • Items descartados: {quality['riesgos'].get('descartados_sin_evidencia', 0)}")
     print(f"       • Status final: {status}")
 
-    # FIX 2026-09-03: ítems con `valor` sustantivo pero sin cita verificable
-    # se CONSERVAN (flag, sin botón de fuente), no se descartan.
+    # FIX 2026-09-03: ítems con `valor` sustantivo pero sin cita verificable se conservan (flag), no se descartan.
     assert len(filtered_items) == 2
     assert quality["riesgos"]["conservados_sin_evidencia_verificable"] == 2
 
-    # El mensaje canónico de "categoría vacía" sigue existiendo para cuando NO
-    # queda ningún ítem.
+    # El mensaje canónico de "categoría vacía" sigue existiendo para cuando no queda ningún ítem.
     category_label = CATEGORY_LABELS["riesgos"]
     narrative = _empty_category_narrative(category_label)
     assert len(narrative.blocks) == 1
@@ -90,7 +85,6 @@ def test_flujo_completo_con_evidencia():
     print("\n✅ Test E2E: Flujo con evidencia verificable")
     print("   Escenario: LLM extrae riesgos respaldados por evidencia\n")
 
-    # 1. Riesgos con evidencia
     print("   [1] Extractor genera riesgos con evidencia:")
     extracted_items = [
         {
@@ -114,7 +108,6 @@ def test_flujo_completo_con_evidencia():
         f"       • Con evidencia: página {extracted_items[0]['source_references'][0]['page_number']}"
     )
 
-    # 2. merge_node conserva items con evidencia
     print("\n   [2] merge_node conserva items con evidencia:")
     quality = {}
     filtered_items, status = _drop_items_without_sources(
@@ -124,7 +117,6 @@ def test_flujo_completo_con_evidencia():
     print(f"       • Items descartados: {quality['riesgos'].get('descartados_sin_evidencia', 0)}")
     print(f"       • Status final: {status}")
 
-    # Verificaciones
     assert len(filtered_items) == 1, "Item con evidencia debe conservarse"
     assert status == "success", "Status debe mantenerse como success"
     assert quality["riesgos"]["conservados"] == 1
@@ -160,7 +152,7 @@ def test_flujo_mixto():
             "tipo": "operativo",
             "subtipo": "operativo",
             "valor": "Riesgo inventado sin evidencia",
-            "source_references": [],  # SIN EVIDENCIA
+            "source_references": [],
             "extraction_status": "success",
             "confidence": 0.7,
         },

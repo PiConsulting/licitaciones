@@ -170,8 +170,7 @@ class TestMaterializeFromPlazosRelativos:
             ],
         )
 
-        # El target matcheó por tokens con el evento existente -- solo se
-        # crea el trigger nuevo, no un target duplicado.
+        # El target matcheó por tokens con el existente; solo se creó el trigger nuevo.
         assert result.events_created == 1
         events = {e.name: e for e in repository.list_events(db_session, analysis_id)}
         assert "Adjudicación" in events
@@ -228,8 +227,7 @@ class TestMaterializeFromPlazosRelativos:
             ],
         )
 
-        # Solo se crea el target nuevo -- el trigger matcheó por substring
-        # con el evento ya existente.
+        # El trigger matcheó por substring con el existente; solo se creó el target nuevo.
         assert result.events_created == 1
         deadlines = repository.list_deadlines(db_session, analysis_id)
         assert deadlines[0].trigger_event_id == existing.event_id
@@ -462,7 +460,6 @@ class TestMaterializeFromPlazosRelativos:
         trigger.date_source = "user_input"
         repository.update_event(db_session, trigger)
 
-        # Se vuelve a correr la extracción (mismos datos).
         result = materialize_timeline_from_extraction(
             db_session,
             analysis_id,
@@ -541,14 +538,10 @@ class TestMaterializeCascade:
         target = events["Plazo de entrega de equipamiento"]
         assert target.event_date.isoformat() == "2026-09-25"  # 2026-09-10 + 15 corridos
 
-        # El usuario mueve la fecha de entrega a mano (ej. porque en la
-        # práctica se corrió el cronograma).
         target.event_date = __import__("datetime").date(2026, 10, 1)
         target.date_source = "user_input"
         repository.update_event(db_session, target)
 
-        # El trigger (adjudicación) también se corrige -- esto dispara la
-        # cascada de nuevo desde `materialize_timeline_from_extraction`.
         trigger = events["Fecha de adjudicación"]
         trigger.event_date = __import__("datetime").date(2026, 9, 15)
         trigger.date_source = "user_input"
@@ -561,13 +554,246 @@ class TestMaterializeCascade:
         recalculate_dependent_dates(service, analysis_id, trigger.event_id, TEST_USER_ID)
 
         refetched_target = repository.get_event(db_session, target.event_id, analysis_id)
-        # Sigue en la fecha que el usuario cargó a mano, NO en
-        # 2026-09-15 + 15 = 2026-09-30 (lo que hubiera calculado la cascada).
+        # Sigue en la fecha cargada a mano, NO en 2026-09-15+15=2026-09-30 (lo que daría la cascada).
         assert refetched_target.date_source == "user_input"
         assert refetched_target.event_date.isoformat() == "2026-10-01"
 
         deadlines = repository.list_deadlines(db_session, analysis_id)
-        # El deadline queda "calculated" pero reflejando la fecha REAL del
-        # evento (la del usuario), no la que hubiera dado la fórmula.
+        # "calculated" pero reflejando la fecha real del evento (la del usuario), no la fórmula.
         assert deadlines[0].calculation_status == "calculated"
         assert deadlines[0].deadline_date.isoformat() == "2026-10-01"
+
+
+class TestMaterializeReconciliation:
+    """Reproduce el bug real reportado por la usuaria: reanálisis sucesivos
+    del pliego (prompt distinto, o simplemente no-determinismo del LLM) iban
+    ACUMULANDO `Event`/`Deadline` de corridas anteriores sin límite, porque
+    `materialize_timeline_from_extraction` solo sabía agregar -- nunca
+    reconciliar contra lo que la corrida actual ya no menciona. Confirmado
+    contra la base real: los 8 pliegos golden de este repo tenían entre 12 y
+    30 filas "fantasma" por pliego, con `created_at` de corridas de casi dos
+    semanas de reanálisis manuales durante esta sesión."""
+
+    def test_second_run_with_unrelated_items_prunes_stale_events_and_deadlines(
+        self, db_session, analysis_id
+    ):
+        first = materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[_evento_temporal("Hito viejo del prompt anterior")],
+            plazos_relativos=[
+                _plazo_relativo("Plazo viejo de entrega", "Fecha de adjudicación vieja")
+            ],
+        )
+        assert first.events_created == 3
+        assert first.deadlines_created == 1
+
+        second = materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[_evento_temporal("Hito nuevo del prompt corregido")],
+            plazos_relativos=[],
+        )
+
+        assert second.events_created == 1
+        # Los 3 eventos de la corrida anterior (ninguno confirmado ni a mano) y su deadline se podan.
+        assert second.events_pruned == 3
+        assert second.deadlines_pruned == 1
+
+        remaining = {e.name for e in repository.list_events(db_session, analysis_id)}
+        assert remaining == {"Hito nuevo del prompt corregido"}
+        assert repository.list_deadlines(db_session, analysis_id) == []
+
+        # Nada desapareció de verdad -- sigue en la base como soft-delete.
+        all_events = repository.list_events(db_session, analysis_id, include_deleted=True)
+        assert len(all_events) == 4
+
+    def test_reconciliation_never_prunes_confirmed_or_user_input_events(
+        self, db_session, analysis_id
+    ):
+        materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[
+                _evento_temporal("Hito confirmado a mano"),
+                _evento_temporal("Hito con fecha cargada por el usuario"),
+                _evento_temporal("Hito que sí debería podarse"),
+            ],
+            plazos_relativos=[],
+        )
+
+        events = {e.name: e for e in repository.list_events(db_session, analysis_id)}
+
+        confirmed = events["Hito confirmado a mano"]
+        confirmed.status = "confirmed"
+        repository.update_event(db_session, confirmed)
+
+        user_loaded = events["Hito con fecha cargada por el usuario"]
+        user_loaded.event_date = __import__("datetime").date(2026, 11, 1)
+        user_loaded.date_source = "user_input"
+        repository.update_event(db_session, user_loaded)
+
+        # La corrida siguiente (prompt nuevo) ya no menciona ninguno de los tres hitos anteriores.
+        result = materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[_evento_temporal("Hito totalmente distinto")],
+            plazos_relativos=[],
+        )
+
+        # Solo se podó el que ni estaba confirmado ni tenía fecha de usuario.
+        assert result.events_pruned == 1
+
+        remaining = {e.name for e in repository.list_events(db_session, analysis_id)}
+        assert remaining == {
+            "Hito confirmado a mano",
+            "Hito con fecha cargada por el usuario",
+            "Hito totalmente distinto",
+        }
+
+    def test_rerun_with_identical_items_prunes_nothing(self, db_session, analysis_id):
+        """La idempotencia documentada en el módulo sigue valiendo: correr
+        la MISMA extracción dos veces no debe podar nada, porque cada ítem
+        de la segunda corrida matchea (tier 1, nombre exacto) contra el
+        evento que ya existía."""
+        items = [_evento_temporal("Hito estable")]
+        materialize_timeline_from_extraction(
+            db_session, analysis_id, TEST_USER_ID, eventos_temporales=items, plazos_relativos=[]
+        )
+        result = materialize_timeline_from_extraction(
+            db_session, analysis_id, TEST_USER_ID, eventos_temporales=items, plazos_relativos=[]
+        )
+
+        assert result.events_created == 0
+        assert result.events_pruned == 0
+        assert len(repository.list_events(db_session, analysis_id)) == 1
+
+
+class TestMaterializeSourceRefresh:
+    """Reproduce el bug real reportado por la usuaria en Santa Fe: el evento
+    "Retiro de las Muestras de Ofertas No Adjudicadas" tenía `source_page=12`
+    grabado desde la primera extracción (2026-09-14), pese a 13 reanálisis
+    posteriores en los que la extracción ya traía `fuente_pagina=11` (la
+    página correcta, confirmada contra los chunks reales del pliego) --
+    `_find_or_create_event` devolvía el evento existente TAL CUAL en un match
+    por nombre, sin refrescar su cita. El botón "ver fuente" del Timeline
+    navegaba a la página equivocada y el highlight nunca encontraba el texto
+    ahí. Ver `_refresh_stale_source` en `timeline/materializer.py`."""
+
+    def test_second_run_with_different_citation_refreshes_source(
+        self, db_session, analysis_id
+    ):
+        materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[
+                _evento_temporal(
+                    "Retiro de las Muestras de Ofertas No Adjudicadas",
+                    fuente_documento_id="doc-1",
+                    fuente_pagina=12,
+                    fuente_fragmento="cita vieja, página equivocada",
+                )
+            ],
+            plazos_relativos=[],
+        )
+
+        materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[
+                _evento_temporal(
+                    "Retiro de las Muestras de Ofertas No Adjudicadas",
+                    fuente_documento_id="doc-1",
+                    fuente_pagina=11,
+                    fuente_fragmento="Las muestras de ofertas no adjudicadas... dentro de los treinta (30) días.",
+                )
+            ],
+            plazos_relativos=[],
+        )
+
+        [event] = repository.list_events(db_session, analysis_id)
+        assert event.source_page == 11
+        assert "no adjudicadas" in event.source_fragment
+
+    def test_refresh_never_touches_confirmed_event(self, db_session, analysis_id):
+        materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[
+                _evento_temporal("Hito confirmado", fuente_pagina=12)
+            ],
+            plazos_relativos=[],
+        )
+
+        [event] = repository.list_events(db_session, analysis_id)
+        event.status = "confirmed"
+        repository.update_event(db_session, event)
+
+        materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[
+                _evento_temporal("Hito confirmado", fuente_pagina=99)
+            ],
+            plazos_relativos=[],
+        )
+
+        [event] = repository.list_events(db_session, analysis_id)
+        assert event.source_page == 12
+
+    def test_refresh_never_touches_event_with_user_input_date(
+        self, db_session, analysis_id
+    ):
+        import datetime as _dt
+
+        materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[_evento_temporal("Hito con fecha manual", fuente_pagina=12)],
+            plazos_relativos=[],
+        )
+
+        [event] = repository.list_events(db_session, analysis_id)
+        event.event_date = _dt.date(2026, 11, 1)
+        event.date_source = "user_input"
+        repository.update_event(db_session, event)
+
+        materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[_evento_temporal("Hito con fecha manual", fuente_pagina=99)],
+            plazos_relativos=[],
+        )
+
+        [event] = repository.list_events(db_session, analysis_id)
+        assert event.source_page == 12
+
+    def test_rerun_with_same_citation_does_not_bump_updated_at(
+        self, db_session, analysis_id
+    ):
+        """No refrescar cuando no hay nada distinto -- evita escrituras
+        (y bumps de `updated_at`) innecesarias en el caso común (misma
+        extracción, corrida de nuevo)."""
+        items = [_evento_temporal("Hito estable", fuente_pagina=5)]
+        materialize_timeline_from_extraction(
+            db_session, analysis_id, TEST_USER_ID, eventos_temporales=items, plazos_relativos=[]
+        )
+        [before] = repository.list_events(db_session, analysis_id)
+
+        materialize_timeline_from_extraction(
+            db_session, analysis_id, TEST_USER_ID, eventos_temporales=items, plazos_relativos=[]
+        )
+        [after] = repository.list_events(db_session, analysis_id)
+
+        assert after.updated_at == before.updated_at
+        assert after.source_page == 5

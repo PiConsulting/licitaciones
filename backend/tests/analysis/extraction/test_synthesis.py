@@ -266,8 +266,7 @@ def test_run_synthesis_descarta_item_refs_fuera_de_rango(monkeypatch: pytest.Mon
     assert result is not None
     narrative, _token_usage = result
 
-    # El bloque invalido se descarta -> narrative queda vacia -> cae al
-    # mensaje canonico armado en Python, nunca al texto que trajo el LLM.
+    # El bloque invalido se descarta -> narrative vacia -> cae al mensaje canonico de Python, nunca al texto del LLM.
     assert narrative.sources == []
     assert len(narrative.blocks) == 1
     assert "Afirmacion sin evidencia real." not in narrative.blocks[0].text
@@ -360,11 +359,173 @@ def test_run_synthesis_preview_normaliza_titulos_y_orden_canonico(
         "Licitación en pesos o dólares: x",
         "Tipo de cambio: x",
         "Garantías o cauciones: x",
-        "Multas o penalidades: x",
+        # FIX (2026-09-17/18): estos dos tipos usan el `valor` verbatim (no la paráfrasis "x" mockeada) para no colapsar una lista de items reales en una sola oración.
+        "Multas o penalidades: valor 6",
         "Anticipo financiero requerido: x",
-        "Requisitos técnicos o certificaciones excluyentes: x",
+        "Requisitos técnicos o certificaciones excluyentes: valor 8",
         "Responsabilidad por costos logísticos o de instalación: x",
     ]
+
+
+def test_run_synthesis_preview_multas_penalidades_preserva_lista_multilinea(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bug reportado: la card de "Multas o penalidades" mostraba una sola
+    oración editorial en vez de listar cada penalidad real del pliego. El
+    LLM de síntesis, aunque devuelva una paráfrasis corta (como cualquier
+    otro criterio), NO debe pisar el `valor` de multas_penalidades -- ese
+    valor ya viene armado línea por línea (una por fila de tabla de tasas)
+    en `_project_multas_penalidades` (preview_criterios.py)."""
+    multilinea = "0,5% del abono mensual por hora.\n0,25% del monto total por día hábil de demora."
+
+    def fake_call_llm(*, messages, correlation_id):
+        return (
+            {
+                "blocks": [
+                    {
+                        "type": "bullet_list",
+                        "items": [
+                            {
+                                "text": "Multas o penalidades: hay penalidades varias",
+                                "confidence_level": "alta",
+                                "item_refs": [0],
+                            }
+                        ],
+                    }
+                ]
+            },
+            {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        )
+
+    monkeypatch.setattr("analysis.extraction.engine.base._call_llm", fake_call_llm)
+
+    items = [
+        {
+            "tipo": "multas_penalidades",
+            "valor": multilinea,
+            "confidence": 0.9,
+            "source_references": [
+                {
+                    "document_id": "doc-1",
+                    "page_number": 41,
+                    "citation": "Cita suficientemente larga para validar evidencia.",
+                }
+            ],
+            "extraction_status": "success",
+        }
+    ]
+
+    result = run_synthesis(category_key="preview_criterios", items=items, correlation_id="corr-multas")
+    assert result is not None
+    narrative, _token_usage = result
+
+    text = narrative.blocks[0].items[0].text
+    assert text == f"Multas o penalidades: {multilinea}"
+    assert "\n" in text
+
+
+def test_run_synthesis_preview_forced_bullet_funciona_con_tipo_como_enum_vivo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bug real (2026-09-18): los items que arma `run_extractor` a partir del
+    JSON del LLM traen `tipo` como instancia VIVA de `TipoCriterioPreview`
+    (el enum), no como string -- recién se aplana a string plano al persistir
+    en la base. Como `TipoCriterioPreview(str, Enum)` no sobreescribe
+    `__str__`, `str(tipo_enum)` da `"TipoCriterioPreview.X"`, no `"x"` -- así
+    que la comparación contra el string plano fallaba SIEMPRE que la síntesis
+    corría en la MISMA invocación de grafo que extrajo el item (nunca se veía
+    en un test que releyera datos ya persistidos desde la base, porque ahí el
+    round-trip por JSON ya lo había aplanado a string). Reproduce el bug
+    real: los bullets de multas_penalidades/requisitos_tecnicos_excluyentes
+    nunca mostraban el valor verbatim en un reanálisis real de un solo
+    categoría, pese a que el mismo código sí funcionaba andando bien en
+    pruebas contra datos ya guardados."""
+    from analysis.extraction.schemas import TipoCriterioPreview
+
+    multilinea = "Certificación ISO 9001.\nCertificación ISO/IEC 27001."
+
+    def fake_call_llm(*, messages, correlation_id):
+        return (
+            {
+                "blocks": [
+                    {
+                        "type": "bullet_list",
+                        "items": [
+                            {
+                                "text": "Requisitos técnicos: se piden certificaciones ISO",
+                                "confidence_level": "alta",
+                                "item_refs": [0],
+                            }
+                        ],
+                    }
+                ]
+            },
+            {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        )
+
+    monkeypatch.setattr("analysis.extraction.engine.base._call_llm", fake_call_llm)
+
+    items = [
+        {
+            "tipo": TipoCriterioPreview.REQUISITOS_TECNICOS_EXCLUYENTES,
+            "valor": multilinea,
+            "confidence": 0.9,
+            "source_references": [
+                {
+                    "document_id": "doc-1",
+                    "page_number": 12,
+                    "citation": "Cita suficientemente larga para validar evidencia.",
+                }
+            ],
+            "extraction_status": "success",
+        }
+    ]
+
+    result = run_synthesis(category_key="preview_criterios", items=items, correlation_id="corr-enum-tipo")
+    assert result is not None
+    narrative, _token_usage = result
+
+    text = narrative.blocks[0].items[0].text
+    assert text == f"Requisitos técnicos o certificaciones excluyentes: {multilinea}"
+
+
+def test_run_synthesis_preview_multas_penalidades_not_found_no_usa_valor() -> None:
+    """Si el ítem es `not_found`/`failed`, seguir mostrando el mensaje
+    explícito de ausencia -- no hay `valor` real que mostrar verbatim."""
+    from analysis.extraction.synthesis.synthesis import _normalize_preview_raw_narrative
+    from analysis.extraction.schemas import RawCategoryNarrative
+
+    raw = RawCategoryNarrative.model_validate(
+        {
+            "blocks": [
+                {
+                    "type": "bullet_list",
+                    "items": [
+                        {
+                            "text": "Multas o penalidades: no se encontraron penalidades",
+                            "confidence_level": "baja",
+                            "item_refs": [0],
+                        }
+                    ],
+                }
+            ],
+            "evidence": [],
+        }
+    )
+    items = [
+        {
+            "tipo": "multas_penalidades",
+            "valor": None,
+            "confidence": 0.0,
+            "source_references": [],
+            "extraction_status": "not_found",
+        }
+    ]
+
+    normalized = _normalize_preview_raw_narrative(raw, items)
+
+    text = normalized.blocks[0].items[0].text
+    assert "No se encontró información" in text or "no se encontraron" in text.lower()
 
 
 def test_run_synthesis_preview_propaga_resumen_hasta_narrative_final(

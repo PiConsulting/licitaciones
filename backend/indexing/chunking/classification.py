@@ -64,15 +64,9 @@ CATEGORY_HEADING_PATTERNS = {
         "causal",
         "motivos de rechazo",
     ],
-    # "anexo" a secas describe DÓNDE vive el párrafo (dentro de un archivo/
-    # sección llamada "Anexo N"), no de qué trata -- un documento anexo puede
-    # tener cláusulas de garantías, riesgos, objeto/alcance, requisitos...
-    # de cualquier categoría. Por eso "anexo" está marcado como patrón DÉBIL
-    # (ver `_HEADING_WEAK_PATTERNS` más abajo): el contenido real puede
-    # ganarle el PRIMARY, pero -- clasificación multi-label -- el chunk sigue
-    # llevando `anexos_obligatorios` como secondary, porque igual pertenece a
-    # un anexo y hace falta para que la extracción pueda resumir qué anexos
-    # tiene el pliego y qué hay que completar en cada uno.
+    # "anexo" a secas dice DÓNDE vive el párrafo, no de qué trata -- marcado
+    # como patrón DÉBIL (ver `_HEADING_WEAK_PATTERNS`); el contenido real puede
+    # ganarle el primary, pero se conserva como secondary.
     "anexos_obligatorios": [
         "anexo",
         "anexos obligatorios",
@@ -87,48 +81,41 @@ CATEGORY_HEADING_PATTERNS = {
         "procedimiento",
         "licitacion",
     ],
-    # FASE 2 (plan RAG v2, 2026-08-24): faltaba por completo -- "riesgos" es
-    # una categoría de extracción real (ver analysis/extraction/prompts/
-    # riesgos.txt) pero nunca podía ganar por heading match, porque no había
-    # ninguna entrada acá. Un chunk bajo un encabezado literal "Riesgos" caía
-    # directo a clasificación por keywords (más débil) o quedaba sin
-    # categoría. Términos genéricos de encabezado, no vocabulario de un
-    # pliego puntual -- mismo criterio que las demás categorías de esta
-    # tabla.
+    # "riesgos" faltaba por completo (Fase 2, plan RAG v2, 2026-08-24): un
+    # chunk bajo un heading literal "Riesgos" nunca ganaba por heading match.
+    # FIX (Bancor): "penalidad"/"multa" tampoco estaban -- sin ellos, un heading
+    # de penalidades subía hasta un ancestro que matcheaba `garantias` por
+    # casualidad, repartiendo la sección entre `garantias`/`plazos_clave`.
     "riesgos": [
         "riesgo",
         "riesgos para el oferente",
         "consideraciones comerciales",
         "aspectos a considerar",
+        "penalidad",
+        "penalidades",
+        "multa",
+        "multas",
+        "regimen de penalidades",
     ],
 }
 
 
-# Un match por uno de estos términos, SOLO, es señal débil: dice DÓNDE vive
-# el contenido (o una noción genérica), no DE QUÉ trata. Se puede anular si el
-# título trae además un calificador de los de abajo (antipatrón), y además
-# -- a diferencia de un match fuerte -- se deja competir con la clasificación
-# por contenido real del párrafo en vez de ganar automáticamente (ver
-# `classify_chunk_categories`).
+# Un match por SOLO uno de estos términos es señal débil (dice DÓNDE vive el
+# contenido, no DE QUÉ trata): compite con la clasificación por contenido real
+# en vez de ganar automáticamente (ver `classify_chunk_categories`).
 _HEADING_WEAK_PATTERNS = {
     "requisitos_admisibilidad": {"requisito", "documentacion"},
-    "anexos_obligatorios": {"anexo"},
-    # FIX (auditoría de chunking, hallazgo real: PLIEGO_5443-26): "licitacion"
-    # matchea el TÍTULO del documento ("Licitación Privada Nº 94/26"), que
-    # Document Intelligence pone como ancestro de TODO el heading_path -- no
-    # describe de qué trata un chunk puntual, describe qué ES el documento
-    # entero. Sin esto, cualquier chunk cuyo heading intermedio no matcheara
-    # nada terminaba en identificacion_procedimiento por herencia del título
-    # (specs técnicas, requisitos de personal, stock de repuestos... quedaban
-    # mal clasificados). Multi-label: el contenido real puede ganar el
-    # primary, pero identificacion_procedimiento se conserva como secondary.
+    # FIX (Bancor Nube): "modelo" a secas matchea headings técnicos sin relación
+    # con anexos/formularios (ej. "modelo de despliegue" de una nube privada).
+    "anexos_obligatorios": {"anexo", "modelo"},
+    # FIX (PLIEGO_5443-26): "licitacion" matchea el TÍTULO del documento, que DI
+    # pone como ancestro de TODO heading_path -- sin esto, cualquier chunk sin
+    # match propio heredaba identificacion_procedimiento por el título.
     "identificacion_procedimiento": {"licitacion"},
 }
-# "Requisitos técnicos / funcionales / de rendimiento" es la ficha del bien
-# ofertado (objeto/alcance), no la documentación habilitante del oferente.
-# Medido (mono_label_audit): 42/42 chunks etiquetados `requisitos_admisibilidad`
-# por heading eran spec-sheet técnico, ~10% en gold. Si la categoría matcheó
-# SOLO por un término débil y el título trae uno de estos, se descarta el match.
+# "Requisitos técnicos/funcionales/de rendimiento" es la ficha del bien ofertado,
+# no documentación habilitante del oferente. Medido: 42/42 chunks
+# `requisitos_admisibilidad` por heading eran spec-sheet técnico (mono_label_audit).
 _HEADING_ANTIPATTERNS = {
     "requisitos_admisibilidad": (
         "tecnic", "funcional", "rendimiento", "prestacion", "hardware",
@@ -235,9 +222,8 @@ def _load_glossary() -> dict[str, dict]:
     from pathlib import Path
     import json
 
-    # parents[2]: este módulo vive en indexing/chunking/ (un nivel más
-    # profundo que el indexing/chunking.py original) -- parents[2] sigue
-    # apuntando a backend/.
+    # parents[2]: este módulo está un nivel más profundo que el indexing/chunking.py
+    # original, pero parents[2] sigue apuntando a backend/.
     glossary_path = (
         Path(__file__).resolve().parents[2] / "analysis" / "extraction" / "glossary.json"
     )
@@ -445,58 +431,15 @@ def _classify_by_keywords(content: str, glossary: dict) -> dict[str, float]:
     return scores
 
 
-# ----------------------------------------------------------------------------
-# Clasificación MULTI-LABEL con vector de score (plan rag-plan-latencia-2026-09-09,
-# reindex C). Devuelve `{primary_category, category_scores}` donde
-# category_scores es {categoria: score 0-1} = max de tres señales sin veto:
-#   - heading: 1.0 si la hoja del heading_path matchea la categoría, 0.55 si
-#     lo hace un ancestro.
-#   - keyword density SUAVIZADA: blend de cobertura de términos y densidad, en
-#     vez del producto (que castiga fuerte a la prosa larga). Absorbe el
-#     "test 3" del plan.
-#   - similitud semántica: coseno(embedding del chunk, embedding de la
-#     definición de la categoría), reescalado de [MIN,MAX] observados a [0,1].
-# `primary = argmax` si supera `_MULTILABEL_PRIMARY_FLOOR`, si no None.
-# ----------------------------------------------------------------------------
+# Clasificación multi-label (reindex C): category_scores = max sin veto de heading/keyword/semántico; primary = argmax sobre `_MULTILABEL_PRIMARY_FLOOR`.
 _MULTILABEL_PRIMARY_FLOOR = 0.30
 _MULTILABEL_SECONDARY_FLOOR = 0.40
 _MULTILABEL_MAX_SECONDARY = 3
-# El semántico es señal de apoyo: no puede dominar por sí solo un heading o
-# keyword claro. Se pondera por debajo de 1 y solo importa cuando esas dos
-# están calladas.
+# Señal de apoyo: solo importa cuando heading y keyword están calladas.
 _SEMANTIC_WEIGHT = 0.75
-# Piso ABSOLUTO de coseno crudo (2026-09-09, revisión manual de bancor_nube):
-# el reescalado relativo `(cos-mean)/span` fuerza el argmax de CADA chunk a
-# 1.0 -> con `_SEMANTIC_WEIGHT` daba `X: 0.75` para categorías al azar en
-# cientos de chunks técnicos que no son de ninguna (Kubernetes, cifrado, HA
-# → `garantias: 0.75`). Si el mejor coseno crudo no llega a este piso, el
-# chunk NO es semánticamente de ninguna categoría en particular -> sin señal
-# semántica. Medido: los 19/19 gold de `requisitos_admisibilidad` tienen
-# cos >= 0.45 (pasan); los 13 chunks de ruido de bancor_nube 3.1.8 tienen
-# cos 0.28-0.41 (caen). Es un piso ABSOLUTO, sin chequeo de margen top1-top2
-# (ese chequeo mató gold de requisitos en un intento anterior).
+# Piso ABSOLUTO de coseno crudo: el reescalado relativo infla a 1.0 el argmax de chunks técnicos sin categoría real (bancor_nube); por debajo, sin señal semántica.
 _SEMANTIC_COS_FLOOR = 0.44
-# NOTA: probado además reemplazar el reescalado relativo `(cos-media)/span`
-# (que fuerza el argmax de cada chunk a 1.0) por un span FIJO. Reduce el
-# `X: 0.75` inflado en chunks con cos 0.44-0.50, pero DESTRUYE el gold de
-# `nucleoelectrica_requisitos` (1.0 -> 0.0): su gold real es procedural
-# genérico con separación de coseno chica. Es el 4º intento de endurecer el
-# semántico que rompe esa categoría -> el fix completo necesita ser
-# per-categoría. Se queda solo el piso absoluto 0.44 (limpia la sección
-# técnica, deja intactos garantias/requisitos).
-# HALLAZGO 2026-09-09 (pliego bancor_seguridad, sin estructura de headings):
-# el reescalado relativo `(cos - media) / (max - media)` AMPLIFICA el ruido
-# cuando los cosenos crudos están apiñados. Una cláusula procedural genérica
-# ("La sola presentación de la Oferta importa la aceptación de la
-# jurisdicción") tiene coseno ~igual contra TODAS las definiciones (banda de
-# 0.02-0.04) y el reescalado la lleva a s=1.0 para su argmax → cs=0.75 para
-# 3 categorías → falsos positivos al top de garantias/requisitos/anexos.
-# Un gate de margen (probado: `margin>=0.03` + `cos>=0.42`) mata esos falsos
-# positivos y sube `garantias` +0.024, PERO baja `requisitos_admisibilidad`
-# -0.042 porque parte de su gold real ES procedural genérico (documentación
-# a presentar) con cosenos igualmente planos. Necesidades opuestas → el fix
-# tiene que ser per-categoría (mismo patrón que query_expansion/graded),
-# no global. Pendiente de tanda propia.
+# Un span FIJO reduce ese inflado pero rompe el gold de nucleoelectrica_requisitos; un gate de margen mejora garantias pero empeora requisitos_admisibilidad -- fix per-categoría pendiente, se queda solo el piso absoluto.
 
 
 _PSEUDO_HEADING_ARTICULO_RE = re.compile(
@@ -526,7 +469,6 @@ def _pseudo_heading_from_content(content: str) -> str | None:
         m = rx.match(first_line)
         if m:
             return m.group(1).strip() or None
-    # Línea íntegramente en MAYÚSCULAS con >=2 palabras (título de sección).
     letters = [c for c in first_line if c.isalpha()]
     if len(letters) >= 6 and all(c.isupper() for c in letters) and len(first_line.split()) >= 2:
         return first_line
@@ -539,9 +481,7 @@ def _heading_score_by_category(
     scores: dict[str, float] = {}
     levels = [str(h) for h in (heading_path or [])]
     if pseudo_heading:
-        # El pseudo-heading (título de cláusula dentro del content) actúa como
-        # hoja: es lo más específico que tenemos cuando el PDF no dejó
-        # estructura de secciones.
+        # Actúa como hoja: la señal más específica cuando el PDF no tiene estructura de secciones.
         levels = [*levels, pseudo_heading]
     if not levels:
         return scores
@@ -591,8 +531,7 @@ def _semantic_score_by_category(chunk_embedding: list[float] | None) -> dict[str
     span = max_cos - mean_cos
     if span <= 1e-6:
         return {}
-    # Piso absoluto: si ni la mejor categoría llega, el chunk no es
-    # semánticamente de ninguna en particular -> sin señal semántica.
+    # Piso absoluto: si ni la mejor categoría llega, sin señal semántica.
     if max_cos < _SEMANTIC_COS_FLOOR:
         return {}
     return {
@@ -669,18 +608,8 @@ def classify_chunk_categories(chunk: dict) -> dict:
 
     heading_category, heading_is_weak = _classify_by_heading_detailed(heading_path)
 
-    # FIX (auditoría de chunking): una fila de tabla no tiene `heading_path`
-    # propio salvo el de la sección genérica que la envuelve (ej. "Monedas de
-    # Cotización" en un formulario tipo SIGAF/Comprar) -- pero SÍ suele traer
-    # `table_context`, el párrafo/label que la introduce (ver
-    # `_preceding_table_context` en `block_merging.py`), que muchas veces
-    # nombra la categoría con la misma claridad que un heading real (ej.
-    # "Períodos de Renovación de Mantenimiento de Oferta" matchea el patrón
-    # de `garantias`). Sin esto, esa etiqueta quedaba diluida en el scoring
-    # por keywords de TODO el contenido de la tabla -- que en un formulario
-    # puede mezclar varios campos no relacionados en una sola región visual
-    # (ese mismo chunk real también trae "Metodología y Criterios de
-    # Evaluación") -- y perdía contra otra categoría por volumen de texto.
+    # Una fila de tabla no tiene heading_path propio, pero su table_context
+    # (el párrafo que la introduce) suele nombrar la categoría igual de claro.
     if not heading_category and chunk.get("table_context"):
         heading_category, heading_is_weak = _classify_single_heading_detailed(
             str(chunk["table_context"])
@@ -688,26 +617,13 @@ def classify_chunk_categories(chunk: dict) -> dict:
 
     keyword_scores = _classify_by_keywords(content, glossary)
 
-    # FIX (auditoría de chunking, generalizado a cualquier pliego): un heading
-    # que matcheó SOLO por un patrón débil (ej. "anexo", que dice dónde vive
-    # el párrafo, no de qué trata -- ver `_HEADING_WEAK_PATTERNS`) no gana
-    # automáticamente. Se lo deja compitiendo con la clasificación por
-    # contenido real de este mismo párrafo (abajo); solo se usa como último
-    # recurso si el contenido tampoco aporta una categoría con score
-    # suficiente. Un heading con match FUERTE (la inmensa mayoría de los
-    # casos) sigue ganando de inmediato, sin cambios de comportamiento.
+    # Un heading que matcheó SOLO por un patrón débil no gana automáticamente:
+    # compite con la clasificación por contenido real (abajo).
     primary_category = heading_category if not heading_is_weak else None
 
     if not primary_category and keyword_scores:
-        # El umbral que el contenido tiene que superar depende de a QUÉ se
-        # está enfrentando. Si no hay heading en absoluto, tiene que alcanzar
-        # el umbral de `primary` (sin cambios: mismo comportamiento de
-        # siempre). Pero si lo que está desplazando es un heading DÉBIL
-        # (`heading_category` no None, `heading_is_weak` True) -- una etiqueta
-        # que ya sabemos que no dice nada específico -- alcanza con superar
-        # el umbral de `secondary`, ya calibrado por categoría: no hace falta
-        # que el contenido sea un candidato fuerte en soledad, alcanza con que
-        # le gane a un rival que de por sí es débil.
+        # Umbral más bajo (secondary) cuando el contenido solo tiene que superar
+        # a un heading ya sabido DÉBIL, en vez de no tener heading en absoluto.
         threshold_key = "secondary" if heading_category else "primary"
         default_threshold = _DEFAULT_SECONDARY_THRESHOLD if heading_category else _DEFAULT_PRIMARY_THRESHOLD
 
@@ -738,21 +654,11 @@ def classify_chunk_categories(chunk: dict) -> dict:
                         heading_path=" > ".join(heading_path) if heading_path else None,
                     )
 
-    # Si el contenido tampoco aportó nada, el heading débil (ej. "anexo") es
-    # mejor que nada -- se usa como último recurso, igual que antes de este
-    # fix cuando era la única señal disponible.
+    # Si el contenido tampoco aportó nada, el heading débil es mejor que nada.
     if not primary_category and heading_category:
         primary_category = heading_category
 
-    # FASE 2 (plan RAG v2, 2026-08-24, sección 4.3): si ni el heading ni las
-    # keywords del glosario encontraron una categoría primaria, el chunk
-    # probablemente usa vocabulario que el glosario no contempla -- que es
-    # justo la debilidad que motivó esta fase. Se intenta un fallback
-    # semántico (similitud coseno contra la definición de cada categoría)
-    # ANTES de resolver secondary_categories, para que el resultado semántico
-    # también pueda participar como primary. Detrás de un flag (default
-    # False): sin activarlo, este bloque nunca corre y el comportamiento es
-    # idéntico al de antes de esta fase.
+    # Fase 2: fallback semántico cuando ni heading ni keywords dieron primary; detrás de un flag default False.
     semantic_scores: dict[str, float] = {}
     if not primary_category and _semantic_classification_enabled():
         semantic_scores = _classify_by_semantic_similarity(content)
@@ -782,7 +688,7 @@ def classify_chunk_categories(chunk: dict) -> dict:
     secondary_categories = []
     for cat, score in keyword_scores.items():
         if cat == primary_category:
-            continue  # No incluir la primary en secondary
+            continue
 
         entry = glossary.get(cat, {})
         thresholds = entry.get("thresholds", {}) if isinstance(entry, dict) else {}
@@ -795,7 +701,7 @@ def classify_chunk_categories(chunk: dict) -> dict:
         definitions = _load_category_definitions()
         for cat, score in semantic_scores.items():
             if cat == primary_category or cat in secondary_categories:
-                continue  # No duplicar la primary ni lo que keywords ya agregó
+                continue
 
             entry = definitions.get(cat, {})
             thresholds = entry.get("thresholds", {}) if isinstance(entry, dict) else {}
@@ -805,9 +711,7 @@ def classify_chunk_categories(chunk: dict) -> dict:
             if score >= secondary_threshold:
                 secondary_categories.append(cat)
 
-    # El heading débil que el contenido desplazó de primary sigue siendo
-    # información real (el párrafo SÍ vive dentro de ese anexo/sección) --
-    # se conserva como secondary en vez de perderse.
+    # El heading débil desplazado de primary sigue siendo información real: se conserva como secondary.
     if (
         heading_category
         and heading_category != primary_category

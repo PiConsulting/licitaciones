@@ -78,9 +78,7 @@ def _sources(narrative) -> list[Any]:
     return list(narrative.sources)
 
 
-# ---------------------------------------------------------------------------
 # SYN-04: la fuente no puede venir de otro item
-# ---------------------------------------------------------------------------
 
 
 def test_una_evidencia_copiada_de_otro_item_no_puede_ser_la_fuente() -> None:
@@ -159,9 +157,7 @@ def test_una_evidencia_sin_item_valido_no_produce_fuente() -> None:
     assert narrative.blocks == []
 
 
-# ---------------------------------------------------------------------------
 # SYN-01: la transcripción deja de decidir qué se muestra
-# ---------------------------------------------------------------------------
 
 
 def test_una_transcripcion_inexacta_degrada_la_precision_pero_no_pierde_el_dato() -> None:
@@ -261,9 +257,7 @@ def test_el_camino_evidence_ya_no_necesita_los_chunks() -> None:
     assert _sources(con_chunks)[0].chunk_id == "chunk-b"
 
 
-# ---------------------------------------------------------------------------
 # Consistencia interna
-# ---------------------------------------------------------------------------
 
 
 def test_los_source_ids_del_bloque_coinciden_con_las_fuentes_construidas() -> None:

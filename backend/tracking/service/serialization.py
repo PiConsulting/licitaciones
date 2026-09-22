@@ -10,8 +10,7 @@ from tracking.service.utils import TRACKING_CATEGORY_KEYS
 
 
 def _to_tracking_payload(db: Session, tracking: Tracking) -> dict:
-    # Import diferido: comments importa de categories, que a su vez importa
-    # de este módulo; importar acá arriba crearía un ciclo.
+    # Import diferido para evitar ciclo: comments -> categories -> este módulo.
     from tracking.service.comments import _query_comments
 
     comments = _query_comments(db, tracking.analysis_id)

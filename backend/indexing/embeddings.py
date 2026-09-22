@@ -103,11 +103,11 @@ def _embed_query_cached(query_id: str, normalized_text: str) -> tuple[float, ...
     """
     logger.debug(
         "embed_query_cache_miss",
-        query_id=query_id[:16],  # Primeros 16 caracteres del hash
+        query_id=query_id[:16],
         query_preview=normalized_text[:60],
     )
     embedding = _build_adapter().generate_embeddings([normalized_text])[0]
-    return tuple(embedding)  # Tuple es hashable y más eficiente para cache
+    return tuple(embedding)
 
 
 def embed_query(
@@ -134,9 +134,9 @@ def embed_query(
         - Cache size: 128 queries (eviction automática LRU)
     """
     normalized_text = _normalize_query(text)
-    query_id = _build_query_id(analysis_id, category, normalized_text)  # Usar normalized
+    query_id = _build_query_id(analysis_id, category, normalized_text)
     embedding_tuple = _embed_query_cached(query_id, normalized_text)
-    return list(embedding_tuple)  # Convertir tuple → list para API consistency
+    return list(embedding_tuple)
 
 
 def _calculate_dynamic_batch_size(chunks: list[dict], max_tokens_per_batch: int = 20000) -> int:
@@ -153,7 +153,7 @@ def _calculate_dynamic_batch_size(chunks: list[dict], max_tokens_per_batch: int 
         Batch size óptimo (mínimo 1, máximo configurado)
     """
     if not chunks:
-        return 16  # Default si no hay chunks
+        return 16
     sample = chunks[: min(len(chunks), 100)]
     avg_tokens = sum(c.get("token_count", 700) for c in sample) / len(sample)
     dynamic_size = max(1, int(max_tokens_per_batch / avg_tokens))
@@ -161,18 +161,12 @@ def _calculate_dynamic_batch_size(chunks: list[dict], max_tokens_per_batch: int 
     return min(dynamic_size, settings.azure_openai_embeddings_batch_size)
 
 
-# Cuántos niveles ANCESTROS del heading (además de la hoja, que siempre se
-# incluye) se anteponen al contenido antes de embeber. La hoja casi siempre
-# es la señal útil ("ANEXO I", "DECLARACIÓN JURADA ..."); los ancestros son
-# hit-or-miss y a menudo boilerplate administrativo -- por eso se filtran.
+# Niveles ancestros del heading (además de la hoja) antepuestos al contenido
+# antes de embeber; los ancestros son hit-or-miss y a menudo boilerplate.
 _EMBED_HEADING_ANCESTORS = 2
 _EMBED_HEADING_MAX_CHARS = 220
 
-# Niveles de heading que son puro ruido para el retrieval.
-# - PREFIX: el nivel ARRANCA con boilerplate administrativo (referencia a la
-#   norma que aprueba el pliego, nº de expediente, etc.).
-# - FULL: el nivel es solo numeración/código sin palabras, o un "Artículo N"
-#   pelado sin título.
+# Heading levels puro ruido: PREFIX arranca con boilerplate administrativo, FULL es solo numeración/código sin título.
 _HEADING_NOISE_PREFIX_RE = re.compile(
     r"^\s*(texto\s+aprobado\s+por|visto\s+el\s+expediente|disposici[oó]n\s+(di|n)|"
     r"resoluci[oó]n\s+(n|r)|expediente\s+(n|electr)|ex-\d)",
@@ -199,16 +193,8 @@ def _embedding_context(chunk: dict) -> str:
     repeticiones consecutivas (los pliegos repiten el nombre del organismo).
     Sin `heading_path`, cae a `title` (comportamiento previo).
     """
-    # NOTA (2026-09-09): probado (reindex A) anteponer 2-3 niveles del
-    # heading_path al contenido embebido. Medido sobre 76 casos: net +0.007
-    # overall pero con 4 regresiones -- ayuda a categorías con secciones bien
-    # rotuladas (`requisitos_admisibilidad` +0.125, `garantias` +0.044) y
-    # PERJUDICA a las que tienen contenido bajo headings genéricos
-    # ("Artículo X"): `causales_rechazo` −0.042, `riesgos` −0.031. Es un
-    # trade-off real, no ruido (filtrar boilerplate no lo arregló). Con la
-    # barra de 0 regresiones queda descartado para el vector. El heading SÍ
-    # entra al BM25 vía `content_tsv` (migración 20260909_0012), que es señal
-    # secundaria en la fusión RRF y no dominó ninguna categoría.
+    # Probado (reindex A) anteponer 2-3 niveles de heading_path: net +0.007 pero
+    # con 4 regresiones -- descartado para el vector; el heading sigue llegando al BM25 vía content_tsv.
     title = chunk.get("title")
     return " ".join(str(title).split()).strip() if title else ""
 
@@ -262,12 +248,7 @@ def generate_embeddings(
                 for chunk, embedding in zip(batch, embeddings, strict=True):
                     chunk_copy = chunk.copy()
                     chunk_copy["embedding"] = embedding
-                    # Vector multi-label {categoria: score} para el retrieval
-                    # graduado (reindex C+D). Se calcula acá, no en
-                    # `create_chunks`, porque necesita el embedding del chunk
-                    # como señal semántica y en `create_chunks` todavía no
-                    # existe. NO pisa `primary_category`/`secondary_categories`
-                    # (los deja el clasificador mono-label de `create_chunks`).
+                    # Se calcula acá (no en create_chunks) porque necesita el embedding, que ahí no existe todavía.
                     try:
                         from indexing.chunking.classification import (
                             classify_chunk_multilabel,
@@ -327,9 +308,7 @@ def generate_embeddings(
                     ) from exc
                 sleep(backoff_seconds[min(attempt - 1, len(backoff_seconds) - 1)])
             except RuntimeError:
-                # Mismatch de dimensiones u otro error de validacion: no es
-                # transitorio, reintentar no cambia el resultado. Propagar
-                # directo en vez de envolver en TransientExtractionError.
+                # No es transitorio (mismatch de dimensiones/validación): reintentar no ayuda.
                 raise
             except Exception as exc:
                 logger.error(

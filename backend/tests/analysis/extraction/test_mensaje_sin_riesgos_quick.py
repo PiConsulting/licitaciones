@@ -6,7 +6,6 @@ Verifica que cuando no hay riesgos con evidencia, se muestra mensaje apropiado.
 import sys
 from pathlib import Path
 
-# Asegurar que el backend esté en el path
 backend_dir = Path(__file__).parent
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
@@ -23,12 +22,10 @@ def test_mensaje_sin_riesgos():
     category_label = CATEGORY_LABELS["riesgos"]
     narrative = _empty_category_narrative(category_label)
 
-    # Verificar estructura
     assert narrative.blocks is not None, "Debe tener blocks"
     assert len(narrative.blocks) == 1, "Debe tener exactamente 1 block"
     assert narrative.blocks[0].type == "paragraph", "Block debe ser de tipo paragraph"
 
-    # Verificar mensaje
     expected_text = (
         f"No se encontró información sobre {category_label} en los documentos del pliego."
     )
@@ -36,12 +33,10 @@ def test_mensaje_sin_riesgos():
         f"Mensaje incorrecto: {narrative.blocks[0].text}"
     )
 
-    # Verificar confianza
     assert narrative.blocks[0].confidence_level == CONFIDENCE_NO_EVIDENCE, (
         "Confianza debe ser CONFIDENCE_NO_EVIDENCE"
     )
 
-    # Verificar fuentes vacías
     assert narrative.blocks[0].source_ids == [], "source_ids debe estar vacío"
     assert narrative.sources == [], "sources debe estar vacío"
 
@@ -57,7 +52,6 @@ def test_formato_mensaje_todas_categorias():
     for category_key, category_label in CATEGORY_LABELS.items():
         narrative = _empty_category_narrative(category_label)
 
-        # Verificar que sigue el patrón estándar
         assert "No se encontró información sobre" in narrative.blocks[0].text
         assert category_label in narrative.blocks[0].text
         assert "en los documentos del pliego" in narrative.blocks[0].text

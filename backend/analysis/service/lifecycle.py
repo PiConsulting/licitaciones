@@ -49,32 +49,59 @@ _PHASE1_CATEGORY_IDS = [
     "requisitos_admisibilidad",
     "plazos_clave",
     "garantias",
-    "riesgos",
 ]
 
+# FIX (2026-09-18, rediseño de `riesgos`): movido de fase 1 a fase 2 -- ya no
+# scanea chunks crudos, sintetiza desde garantias/plazos/requisitos (fase 1) +
+# causales/criterios (fase 2, recién calculados en la misma fase).
 _PHASE2_CATEGORY_IDS = [
     "causales_rechazo",
     "anexos_obligatorios",
     "criterios_evaluacion",
     "eventos_temporales",
     "plazos_relativos",
+    "riesgos",
 ]
 
-# `extractor_preview_criterios` no vuelve a llamar al LLM para estos 4 tipos
+# `extractor_preview_criterios` no vuelve a llamar al LLM para estos 3 tipos
 # de preview -- los PROYECTA leyendo `state["garantias"]`/`state["plazos"]`/
-# `state["requisitos_admisibilidad"]`/`state["riesgos"]` ya calculados (ver
+# `state["requisitos_admisibilidad"]` ya calculados (ver
 # `analysis/extraction/extractors/preview_criterios.py`). Si `preview_criterios`
-# se reanaliza solo (sin esas 4 categorías en el mismo batch), el grafo de una
+# se reanaliza solo (sin esas 3 categorías en el mismo batch), el grafo de una
 # sola categoria arranca con un `GraphState` vacío y esos `state.get(...)`
 # devuelven `[]`, así que la proyección da `not_found` para items que en
 # realidad SÍ están extraídos y persistidos en la versión -- pisando el
 # preview bueno que ya existía (bug reportado 2026-09-11: "mantenimiento de
 # oferta" aparecía y desaparecía entre reanálisis sin que cambiara el pliego).
+# `riesgos` salió de esta lista 2026-09-18: `multas_penalidades` (lo único que
+# preview necesitaba de riesgos) pasó a extracción directa en
+# `preview_criterios.txt` -- preview ya no depende de riesgos en absoluto.
 _PREVIEW_CRITERIOS_SOURCE_STATE_KEYS = [
     "garantias",
     "plazos",
     "requisitos_admisibilidad",
-    "riesgos",
+]
+
+# FIX (2026-09-18, mismo rediseño): `riesgos` ahora sintetiza desde estas 5
+# categorías ya extraídas en vez de escanear chunks crudos -- si se reanaliza
+# SOLO "riesgos" (mini-grafo aislado, ver `_build_single_category_graph`), hay
+# que sembrar `initial_state` con lo ya persistido en la versión, igual que ya
+# se hace arriba para `preview_criterios`. Sin esto, `extractor_riesgos`
+# arrancaría con las 5 fuentes vacías y no tendría nada para sintetizar.
+#
+# Mapa (nombre del campo en `GraphState` -> clave con la que se persiste en
+# `AnalysisVersion.extracted_data`): para garantias/plazos/requisitos_
+# admisibilidad son el mismo string, pero `causales`/`criterios` (nombres de
+# `state_field` en sus extractores) se persisten como `causales_rechazo`/
+# `criterios_evaluacion` (ver `_CATEGORY_TO_DATA_KEYS` debajo) -- sembrar con
+# el nombre equivocado dejaría `state["causales"]`/`state["criterios"]`
+# siempre vacíos sin que ningún test lo notara si no se distingue esto.
+_RIESGOS_SOURCE_STATE_KEYS: list[tuple[str, str]] = [
+    ("garantias", "garantias"),
+    ("plazos", "plazos"),
+    ("requisitos_admisibilidad", "requisitos_admisibilidad"),
+    ("causales", "causales_rechazo"),
+    ("criterios", "criterios_evaluacion"),
 ]
 
 _CATEGORY_TO_DATA_KEYS = {
@@ -354,6 +381,10 @@ def _run_selected_categories_reanalysis(analysis_id: str, selected_categories: l
                 current_data = version.extracted_data or {}
                 for source_key in _PREVIEW_CRITERIOS_SOURCE_STATE_KEYS:
                     initial_state[source_key] = current_data.get(source_key, [])
+            if category == "riesgos":
+                current_data = version.extracted_data or {}
+                for state_key, data_key in _RIESGOS_SOURCE_STATE_KEYS:
+                    initial_state[state_key] = current_data.get(data_key, [])
             result = graph.invoke(initial_state, config={"max_concurrency": 1})
 
             fresh_data = dict(result.get("extracted_data") or {})

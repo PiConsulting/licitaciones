@@ -49,9 +49,7 @@ def _para_ids(chunk: dict[str, Any]) -> set[str]:
     return {str(block.get("para_id")) for block in blocks if block.get("para_id")}
 
 
-# ---------------------------------------------------------------------------
 # CHK-02: las piezas de un bloque partido
-# ---------------------------------------------------------------------------
 
 
 def test_cada_pieza_declara_solo_los_parrafos_que_contiene() -> None:
@@ -72,7 +70,6 @@ def test_cada_pieza_declara_solo_los_parrafos_que_contiene() -> None:
         for block in (chunk.get("source") or {}).get("blocks") or []:
             contenido = str(block.get("content", ""))
             if contenido:
-                # Cada bloque declarado tiene que estar en el texto del chunk.
                 assert contenido.split()[0] in chunk["content"], (
                     f"el chunk declara el bloque {block.get('para_id')} pero no contiene su texto"
                 )
@@ -104,13 +101,10 @@ def test_un_solo_parrafo_conserva_su_trazabilidad() -> None:
     assert _para_ids(chunks[0]) == {"para_1"}
 
 
-# ---------------------------------------------------------------------------
 # CHK-03: los children de un artículo con incisos
-# ---------------------------------------------------------------------------
 
 
-# Cada inciso tiene que superar `_INCISO_MIN_SUBSTANTIVE_CHARS` (100) y el
-# artículo entero `_PARENT_CHILD_MIN_CHARS` para que se generen los children.
+# Cada inciso tiene que superar `_INCISO_MIN_SUBSTANTIVE_CHARS` (100) y el artículo entero `_PARENT_CHILD_MIN_CHARS` para que se generen los children.
 ARTICULO_CON_INCISOS = (
     "Artículo 14. Documentación a presentar junto con la oferta económica en el sobre cerrado.\n"
     "a) Constancia de inscripción en el Registro Único de Proveedores de la Municipalidad, "
@@ -125,10 +119,7 @@ ARTICULO_CON_INCISOS = (
 )
 
 
-# Azure Document Intelligence devuelve un párrafo por inciso, cada uno con su
-# propio `para_id` y su propio bbox. `_merge_intermediate_blocks` los fusiona en
-# un solo bloque bajo el mismo encabezado, y ahí es donde `merged_blocks` pasa a
-# tener cuatro entradas: es el caso en el que el filtro por pieza importa.
+# Azure DI devuelve un párrafo por inciso, cada uno con su propio para_id/bbox; al fusionarse en un solo bloque, `merged_blocks` pasa a tener cuatro entradas: es el caso en que el filtro por pieza importa.
 INTRO, INCISO_A, INCISO_B, INCISO_C = [
     parte.strip() for parte in ARTICULO_CON_INCISOS.strip().split("\n")
 ]
@@ -162,8 +153,6 @@ def test_el_child_declara_bloques_acotados_a_su_inciso() -> None:
 
     assert children, "el artículo de prueba tiene que producir children"
 
-    # Cada inciso vino como su propio párrafo, así que cada child tiene que
-    # declarar SU párrafo -- no los cuatro del artículo.
     por_titulo = {child["title"]: _para_ids(child) for child in children}
 
     assert por_titulo["Artículo 14.a"] == {"para_12"}
@@ -180,5 +169,4 @@ def test_el_parent_sigue_declarando_el_articulo_completo() -> None:
 
     assert "Constancia de inscripción" in parent["content"]
     assert "Declaración jurada" in parent["content"]
-    # El parent sí declara los cuatro párrafos: es el chunk de contexto completo.
     assert _para_ids(parent) == {"para_11", "para_12", "para_13", "para_14"}

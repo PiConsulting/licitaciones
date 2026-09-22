@@ -22,7 +22,7 @@ class TestDynamicBatchSize:
         batch_size = _calculate_dynamic_batch_size(chunks, max_tokens_per_batch=20000)
 
         # 20000 / 700 ≈ 28, pero limitado por configured max (16)
-        assert batch_size == 16  # Limitado por config
+        assert batch_size == 16
 
     def test_reduced_batch_size_for_large_chunks(self):
         """Chunks grandes (>1500 tokens) reducen batch size automáticamente."""
@@ -43,19 +43,17 @@ class TestDynamicBatchSize:
 
     def test_uses_sample_for_large_datasets(self):
         """Usa solo primeros 100 chunks para estimar promedio."""
-        # Primeros 100: 700 tokens, resto: 2000 tokens
         chunks = [{"token_count": 700} for _ in range(100)]
         chunks.extend([{"token_count": 2000} for _ in range(400)])
 
         batch_size = _calculate_dynamic_batch_size(chunks, max_tokens_per_batch=20000)
 
-        # Debe usar promedio de primeros 100 (700), no de todos
         # 20000 / 700 ≈ 28 → limitado a 16
         assert batch_size == 16
 
     def test_handles_missing_token_count(self):
         """Si falta token_count, usa default 700."""
-        chunks = [{"content": "text"} for _ in range(50)]  # Sin token_count
+        chunks = [{"content": "text"} for _ in range(50)]
 
         batch_size = _calculate_dynamic_batch_size(chunks, max_tokens_per_batch=20000)
 
@@ -78,7 +76,6 @@ class TestEmbeddingGeneration:
     @patch("indexing.embeddings.get_settings")
     def test_generates_embeddings_for_all_chunks(self, mock_settings, mock_adapter):
         """Todos los chunks reciben embeddings."""
-        # Setup
         mock_settings.return_value.azure_openai_retry_attempts = 3
         mock_settings.return_value.azure_openai_embeddings_batch_size = 16
         mock_settings.return_value.embedding_dimensions = 3072
@@ -92,10 +89,8 @@ class TestEmbeddingGeneration:
             {"content": "Chunk 2", "chunk_index": 1, "token_count": 600},
         ]
 
-        # Execute
         result = generate_embeddings(chunks, correlation_id="test-123")
 
-        # Verify
         assert len(result) == 2
         assert "embedding" in result[0]
         assert "embedding" in result[1]
@@ -112,12 +107,10 @@ class TestEmbeddingGeneration:
         mock_settings.return_value.is_development = False
         mock_adapter_instance = Mock()
         mock_adapter.return_value = mock_adapter_instance
-        # Generar embedding con dimensiones incorrectas
         mock_adapter_instance.generate_embeddings.return_value = [[0.1] * 1536]  # Wrong dims!
 
         chunks = [{"content": "Chunk 1", "chunk_index": 0, "token_count": 500}]
 
-        # Debe elevar RuntimeError por dimension mismatch
         with pytest.raises(RuntimeError, match="Embedding dimension mismatch"):
             generate_embeddings(chunks, correlation_id="test-123")
 
@@ -131,17 +124,15 @@ class TestEmbeddingGeneration:
         mock_settings.return_value.is_development = False
         mock_adapter_instance = Mock()
         mock_adapter.return_value = mock_adapter_instance
-        # Cada llamada genera embeddings para 2 chunks
         mock_adapter_instance.generate_embeddings.side_effect = [
-            [[0.1] * 3072, [0.2] * 3072],  # Batch 1
-            [[0.3] * 3072],  # Batch 2 (solo 1 chunk)
+            [[0.1] * 3072, [0.2] * 3072],
+            [[0.3] * 3072],
         ]
 
         chunks = [{"content": f"Chunk {i}", "chunk_index": i, "token_count": 500} for i in range(3)]
 
         result = generate_embeddings(chunks, correlation_id="test-123")
 
-        # Verifica que se llamó 2 veces (2 batches)
         assert mock_adapter_instance.generate_embeddings.call_count == 2
         assert len(result) == 3
 
@@ -172,13 +163,11 @@ class TestEmbeddingGeneration:
 
         result = generate_embeddings(chunks, correlation_id="test-123")
 
-        # Todos los campos originales deben estar presentes
         assert result[0]["chunk_index"] == 0
         assert result[0]["document_id"] == "doc-123"
         assert result[0]["page_number"] == 5
         assert result[0]["heading_path"] == ["TÍTULO"]
         assert result[0]["primary_category"] == "garantias"
-        # Y el nuevo campo embedding
         assert "embedding" in result[0]
 
 
@@ -194,9 +183,7 @@ class TestEmbedQuery:
 
         result = embed_query("búsqueda de garantías")
 
-        # Verifica llamada con lista de 1 elemento
         mock_adapter_instance.generate_embeddings.assert_called_once_with(["búsqueda de garantías"])
-        # Retorna solo el primer embedding
         assert len(result) == 3072
         assert result[0] == 0.5
 
@@ -209,7 +196,6 @@ class TestEmbedQuery:
 
         embed_query("test")
 
-        # Debe usar _build_adapter (misma fuente que chunks)
         mock_adapter.assert_called_once()
 
     def test_embed_query_determinism(self):
@@ -228,7 +214,6 @@ class TestEmbedQuery:
             norm_b = sqrt(sum(b * b for b in vec_b))
             return dot_product / (norm_a * norm_b) if norm_a > 0 and norm_b > 0 else 0.0
         
-        # Test 1: Misma query retorna embedding idéntico (determinismo)
         query_1 = "garantías de cumplimiento de contrato"
         embed_1_first = embed_query(query_1)
         embed_1_second = embed_query(query_1)
@@ -239,7 +224,6 @@ class TestEmbedQuery:
             f"pero obtuvo {similarity_same}"
         )
         
-        # Test 2: Queries distintas retornan embeddings distintos
         query_2 = "plazos de presentación de ofertas"
         embed_2 = embed_query(query_2)
         

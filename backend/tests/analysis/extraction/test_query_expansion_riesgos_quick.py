@@ -6,7 +6,6 @@ Valida que los términos del glossary se cargan y aplican correctamente.
 import sys
 from pathlib import Path
 
-# Asegurar que el backend esté en el path
 backend_dir = Path(__file__).parent
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))

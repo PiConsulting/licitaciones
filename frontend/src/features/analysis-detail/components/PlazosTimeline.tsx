@@ -320,13 +320,7 @@ export function PlazosTimeline({ items, narrativeSources = [], onViewSource }: P
     if (!primary || !onViewSource) {
       return;
     }
-    // FIX (2026-08-14): acá se mandaba `sources: []` a propósito, con el
-    // argumento de que esta vista usa el flujo legado por-campo y "no tiene
-    // NarrativeSources con highlight_regions". Pero la categoría SÍ tiene
-    // narrativa con sus coordenadas ya calculadas -- `CategorySection` la arma
-    // y hasta ahora la descartaba al enrutar plazos a este componente. Con el
-    // array vacío, Plazos Clave quedaba condenada al resaltado heurístico por
-    // texto, pasara lo que pasara en el backend.
+    // La categoría SÍ tiene narrativa con coordenadas ya calculadas (`CategorySection`); no mandar `sources: []` aunque esta vista use el flujo legado por-campo.
     const matched = matchSources(narrativeSources, item.citations);
     onViewSource({ citation: primary, citations: item.citations, sources: matched });
   };

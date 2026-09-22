@@ -33,8 +33,7 @@ _OLD_EXPR = "to_tsvector('spanish', coalesce(title, '') || ' ' || content)"
 
 
 def _swap_content_tsv(expr: str) -> None:
-    # La columna generada no se puede ALTER en su expresion -> drop + re-add.
-    # El indice GIN cuelga de la columna, se recrea despues.
+    # Generated columns can't ALTER their expression -> drop+re-add; the GIN index depends on it so it's recreated after.
     op.drop_index("ix_chunks_content_tsv", table_name="chunks")
     op.drop_column("chunks", "content_tsv")
     op.add_column(

@@ -31,7 +31,7 @@ export function AddEventModal({ analysisId, open, onClose }: AddEventModalProps)
     }) => createEvent(analysisId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["timeline", analysisId] });
-      addToast("success", "Evento agregado correctamente"); // F4 fix
+      addToast("success", "Evento agregado correctamente");
       onClose();
       resetForm();
     },
@@ -51,13 +51,11 @@ export function AddEventModal({ analysisId, open, onClose }: AddEventModalProps)
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validación
     const newErrors: Record<string, string> = {};
     if (!name.trim()) {
       newErrors.name = "El nombre del evento es obligatorio";
     }
 
-    // F8 fix: Validar longitud de source_fragment
     if (notes && notes.length > 500) {
       newErrors.notes = "Las observaciones no pueden exceder 500 caracteres";
     }

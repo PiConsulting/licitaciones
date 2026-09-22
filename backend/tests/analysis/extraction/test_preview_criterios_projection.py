@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import pytest
-
 from analysis.extraction.extractors.preview_criterios import (
+    _apply_content_guards,
     _project_plazos_clave,
-    _project_preview_llm_fields_from_riesgos,
     _project_requisitos_tecnicos,
 )
 
@@ -187,151 +185,132 @@ def test_project_plazos_clave_no_falso_positivo_con_mantener_no_relacionado() ->
     assert mantenimiento["extraction_status"] == "not_found"
 
 
-def test_project_preview_llm_fields_from_riesgos_detecta_moneda_y_logistica() -> None:
-    riesgos = [
+def _preview_item(tipo: str, valor: str | None, citation: str) -> dict:
+    return {
+        "tipo": tipo,
+        "valor": valor,
+        "metadata": {},
+        "confidence": 0.8,
+        "source_references": [{"document_id": "doc-1", "page_number": 6, "citation": citation}],
+        "extraction_status": "success" if valor else "not_found",
+    }
+
+
+def test_apply_content_guards_reemplaza_modalidad_por_snippet_de_costos() -> None:
+    """Bug real (Bancor): la extracción directa de preview_criterios.txt
+    devolvía "llave en mano" como responsabilidad_costos_logisticos -- la
+    modalidad de contratación, no quién paga los costos puntuales -- aunque
+    la cita adjunta SÍ tenía la frase real."""
+    items = [
+        _preview_item(
+            "responsabilidad_costos_logisticos",
+            "llave en mano",
+            "El proveedor asumirá todos los gastos en concepto de transportes, inspecciones y pruebas.",
+        )
+    ]
+
+    guarded = _apply_content_guards(items)
+
+    assert guarded[0]["extraction_status"] == "success"
+    assert "llave en mano" not in str(guarded[0]["valor"]).lower()
+    assert "asumirá" in str(guarded[0]["valor"]).lower()
+
+
+def test_apply_content_guards_a_not_found_si_no_hay_snippet_de_costos() -> None:
+    items = [
+        _preview_item(
+            "responsabilidad_costos_logisticos",
+            "provisión e instalación integral",
+            "El proyecto se ejecuta bajo modalidad de provisión e instalación integral.",
+        )
+    ]
+
+    guarded = _apply_content_guards(items)
+
+    assert guarded[0]["extraction_status"] == "not_found"
+    assert guarded[0]["valor"] is None
+
+
+def test_apply_content_guards_no_toca_responsabilidad_costos_ya_correcta() -> None:
+    items = [
+        _preview_item(
+            "responsabilidad_costos_logisticos",
+            "El adjudicatario debe correr con los gastos de flete, seguro y acarreo.",
+            "El adjudicatario debe correr con los gastos de flete, seguro y acarreo.",
+        )
+    ]
+
+    guarded = _apply_content_guards(items)
+
+    assert guarded[0]["valor"] == "El adjudicatario debe correr con los gastos de flete, seguro y acarreo."
+
+
+def test_apply_content_guards_moneda_sin_nombre_de_moneda_busca_snippet() -> None:
+    """Bug real (Santa Fe): "moneda" terminaba con el mismo texto que
+    "tipo_cambio" (ajuste de garantías por variación cambiaria) porque
+    ningún otro ítem compitió por esa etiqueta esa corrida."""
+    items = [
+        _preview_item(
+            "moneda",
+            "Si se aceptan cotizaciones en moneda extranjera, las garantías se ajustan si sube más de 10%.",
+            "Todos los precios deberán cotizarse en dólares estadounidenses (USD) sin IVA.",
+        )
+    ]
+
+    guarded = _apply_content_guards(items)
+
+    assert "d" in str(guarded[0]["valor"]).lower()  # "dólares"/"USD" del snippet
+    assert "ajustan" not in str(guarded[0]["valor"]).lower()
+
+
+def test_apply_content_guards_moneda_con_nombre_de_moneda_no_se_toca() -> None:
+    items = [_preview_item("moneda", "dólares estadounidenses (USD)", "cotizar en dólares estadounidenses (USD)")]
+
+    guarded = _apply_content_guards(items)
+
+    assert guarded[0]["valor"] == "dólares estadounidenses (USD)"
+
+
+def test_apply_content_guards_funciona_con_tipo_como_enum_vivo() -> None:
+    """Bug real (2026-09-18): los items que arma `run_extractor` a partir del
+    JSON del LLM traen `tipo` como instancia VIVA de `TipoCriterioPreview`
+    (el enum), no como string -- recién se aplana a string plano al
+    persistir en la base. `TipoCriterioPreview(str, Enum)` no sobreescribe
+    `__str__`, así que la comparación `str(item.get("tipo")) == "..."` que
+    usaba antes esta función NUNCA disparaba sobre un item recién extraído
+    en la MISMA corrida -- el bug de "llave en mano" en Santa Fe/Bancor
+    aparentaba corregido en estos tests (que siempre usan strings planos)
+    pero seguía roto contra datos reales de un solo reanálisis."""
+    from analysis.extraction.schemas import TipoCriterioPreview
+
+    items = [
         {
-            "tipo": "financiero",
-            "subtipo": "otro_explicito",
-            "valor": "Todos los precios deberán cotizarse en dólares estadounidenses (USD) sin IVA.",
+            "tipo": TipoCriterioPreview.RESPONSABILIDAD_COSTOS_LOGISTICOS,
+            "valor": "llave en mano",
+            "metadata": {},
             "confidence": 0.8,
             "source_references": [
                 {
                     "document_id": "doc-1",
-                    "page_number": 44,
-                    "citation": "Todos los precios deberán cotizarse en dólares estadounidenses (USD) sin IVA.",
-                }
-            ],
-            "extraction_status": "success",
-        },
-        {
-            "tipo": "operativo",
-            "subtipo": "operativo",
-            "valor": "El proveedor adjudicatario asume transporte, entrega, desembalaje y seguros.",
-            "confidence": 0.75,
-            "source_references": [
-                {
-                    "document_id": "doc-1",
-                    "page_number": 34,
-                    "citation": "Todos los servicios de transporte, entrega y desembalaje estarán a cargo del proveedor.",
-                }
-            ],
-            "extraction_status": "success",
-        },
-    ]
-
-    projected = _project_preview_llm_fields_from_riesgos(riesgos)
-    by_tipo = {item["tipo"]: item for item in projected}
-
-    assert by_tipo["moneda"]["extraction_status"] == "success"
-    assert "usd" in str(by_tipo["moneda"]["valor"]).lower()
-
-    assert by_tipo["responsabilidad_costos_logisticos"]["extraction_status"] == "success"
-    assert "transporte" in str(by_tipo["responsabilidad_costos_logisticos"]["valor"]).lower()
-
-
-def test_project_preview_llm_fields_from_riesgos_sin_evidencia_emite_not_found() -> None:
-    riesgos = [
-        {
-            "tipo": "financiero",
-            "subtipo": "otro_explicito",
-            "valor": "La adjudicación depende de menor precio evaluado.",
-            "confidence": 0.7,
-            "source_references": [
-                {
-                    "document_id": "doc-1",
-                    "page_number": 44,
-                    "citation": "La adjudicación recaerá sobre la oferta de menor precio total evaluado.",
+                    "page_number": 6,
+                    "citation": "El proveedor asumirá todos los gastos en concepto de transportes, inspecciones y pruebas.",
                 }
             ],
             "extraction_status": "success",
         }
     ]
 
-    projected = _project_preview_llm_fields_from_riesgos(riesgos)
-    by_tipo = {item["tipo"]: item for item in projected}
+    guarded = _apply_content_guards(items)
 
-    assert by_tipo["forma_pago"]["extraction_status"] == "not_found"
-    assert by_tipo["tipo_cambio"]["extraction_status"] == "not_found"
-    assert by_tipo["anticipo_financiero"]["extraction_status"] == "not_found"
+    assert "llave en mano" not in str(guarded[0]["valor"]).lower()
+    assert "asumirá" in str(guarded[0]["valor"]).lower()
 
 
-def test_project_preview_llm_fields_union_llm_regex(monkeypatch: pytest.MonkeyPatch) -> None:
-    riesgos = [
-        {
-            "tipo": "financiero",
-            "subtipo": "otro_explicito",
-            "valor": "La moneda de cotización será USD.",
-            "confidence": 0.8,
-            "source_references": [{"citation": "Moneda: USD"}],
-            "extraction_status": "success",
-        },
-        {
-            "tipo": "financiero",
-            "subtipo": "otro_explicito",
-            "valor": "Se admite anticipo financiero con contragarantía.",
-            "confidence": 0.82,
-            "source_references": [{"citation": "anticipo financiero"}],
-            "extraction_status": "success",
-        },
-    ]
+def test_apply_content_guards_not_found_pasa_intacto() -> None:
+    items = [_preview_item("forma_pago", None, "")]
+    items[0]["extraction_status"] = "not_found"
 
-    def fake_call_llm(_messages, correlation_id):
-        assert "preview-projection" in correlation_id
-        return ({"classifications": [{"index": 1, "tipos": ["anticipo_financiero"]}]}, {})
+    guarded = _apply_content_guards(items)
 
-    monkeypatch.setattr("analysis.extraction.extractors.preview_criterios._call_llm", fake_call_llm)
-
-    projected = _project_preview_llm_fields_from_riesgos(riesgos, correlation_id="corr-1")
-    by_tipo = {item["tipo"]: item for item in projected}
-
-    assert by_tipo["moneda"]["extraction_status"] == "success"
-    assert by_tipo["anticipo_financiero"]["extraction_status"] == "success"
-    assert by_tipo["anticipo_financiero"]["metadata"].get("_projection_source") == "llm_union_regex"
-
-
-def test_project_preview_llm_fields_fallback_on_exception(monkeypatch: pytest.MonkeyPatch) -> None:
-    riesgos = [
-        {
-            "tipo": "operativo",
-            "subtipo": "operativo",
-            "valor": "Todos los servicios de transporte estarán a cargo del proveedor.",
-            "confidence": 0.75,
-            "source_references": [{"citation": "transporte a cargo del proveedor"}],
-            "extraction_status": "success",
-        }
-    ]
-
-    def fake_call_llm(_messages, _correlation_id):
-        raise RuntimeError("llm unavailable")
-
-    monkeypatch.setattr("analysis.extraction.extractors.preview_criterios._call_llm", fake_call_llm)
-
-    projected = _project_preview_llm_fields_from_riesgos(riesgos, correlation_id="corr-2")
-    by_tipo = {item["tipo"]: item for item in projected}
-
-    assert by_tipo["responsabilidad_costos_logisticos"]["extraction_status"] == "success"
-    assert by_tipo["responsabilidad_costos_logisticos"]["metadata"].get("_projection_source") == "regex_fallback"
-
-
-def test_project_preview_llm_fields_fallback_on_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    riesgos = [
-        {
-            "tipo": "financiero",
-            "subtipo": "otro_explicito",
-            "valor": "Forma de pago: contra entrega.",
-            "confidence": 0.7,
-            "source_references": [{"citation": "contra entrega"}],
-            "extraction_status": "success",
-        }
-    ]
-
-    def fake_call_llm(_messages, _correlation_id):
-        raise TimeoutError("timeout")
-
-    monkeypatch.setattr("analysis.extraction.extractors.preview_criterios._call_llm", fake_call_llm)
-
-    projected = _project_preview_llm_fields_from_riesgos(riesgos, correlation_id="corr-3")
-    by_tipo = {item["tipo"]: item for item in projected}
-
-    assert by_tipo["forma_pago"]["extraction_status"] == "success"
-    assert by_tipo["forma_pago"]["metadata"].get("_projection_source") == "regex_fallback"
+    assert guarded[0]["extraction_status"] == "not_found"
+    assert guarded[0]["valor"] is None

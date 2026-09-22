@@ -41,9 +41,7 @@ def _ref(citation: str, page: int = 4) -> dict[str, Any]:
     return {"document_id": "doc-1", "page_number": page, "citation": citation}
 
 
-# ---------------------------------------------------------------------------
 # ATR-02: procedencia de la cita
-# ---------------------------------------------------------------------------
 
 
 def test_una_cita_del_modelo_que_verifica_queda_marcada_como_del_modelo() -> None:
@@ -126,9 +124,7 @@ def test_el_rescate_conserva_el_dato_en_vez_de_tirarlo() -> None:
     assert item["source_references"][0]["citation"] in contenido
 
 
-# ---------------------------------------------------------------------------
 # SYN-05: la confianza que ve la persona
-# ---------------------------------------------------------------------------
 
 
 def test_la_autoevaluacion_del_modelo_no_es_la_confianza_que_se_muestra() -> None:

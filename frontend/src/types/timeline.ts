@@ -10,7 +10,7 @@ export interface EventResponse {
   event_id: string;
   analysis_id: string;
   name: string;
-  event_date: string | null; // ISO date or null
+  event_date: string | null;
   date_source: DateSource;
   status: EventStatus;
   source_document_id?: string;
@@ -18,9 +18,7 @@ export interface EventResponse {
   source_fragment?: string;
   source_reference?: Record<string, unknown>;
   deleted: boolean;
-  // Opcional (con default false a nivel backend) para no romper mocks de
-  // tests existentes que construyen un EventResponse sin este campo -- ver
-  // timeline/schemas.py::EventResponse.hidden (2026-09-01).
+  // Opcional (default false en backend) para no romper mocks de tests viejos sin este campo -- ver EventResponse.hidden.
   hidden?: boolean;
   created_at: string;
   updated_at: string;

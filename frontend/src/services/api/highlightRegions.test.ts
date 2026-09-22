@@ -1,21 +1,4 @@
-/**
- * El mapper de la API tiene que conservar `highlight_regions`.
- *
- * `toNarrativeSource` no las copiaba, y es el ÚNICO constructor de
- * `NarrativeSource` del frontend. O sea que `getCombinedHighlightRegions()`
- * devolvía siempre `[]`, `useCoordinateHighlight` era siempre `false`, y el
- * visor caía siempre al resaltado heurístico por texto — que marca spans
- * enteros y por eso se veía "resaltado por párrafo".
- *
- * El camino de coordenadas era código muerto en producción. Por eso varias
- * correcciones del cálculo de coordenadas en el backend no cambiaron nada de lo
- * que se veía en pantalla: los números llegaban bien hasta el borde de la API y
- * se descartaban en esta función.
- *
- * Ningún test lo detectaba: el del visor mockea la respuesta YA mapeada, y el
- * del overlay construye las regiones a mano. Este test cubre justo la costura
- * que quedaba sin cubrir — de la respuesta HTTP cruda al objeto tipado.
- */
+// El mapper de la API debe conservar highlight_regions; antes toNarrativeSource no las copiaba y el resaltado por coordenadas quedaba muerto en producción.
 
 import { beforeEach, describe, expect, test, vi } from "vitest";
 

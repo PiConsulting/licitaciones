@@ -1,10 +1,4 @@
-# Regresión (2026-09-14, Fase 2 de la auditoría RAG): en objeto_alcance,
-# `resumen_objeto`/`lugar_entrega`/etc. son tipos SINGLETON ("UN ítem X", ver
-# objeto_alcance.txt), pero el split de lotes dentro de un documento
-# (`_split_oversized_groups`) puede hacer que dos lotes distintos emitan cada
-# uno su propia versión -- una con dato real, otra con un placeholder "No
-# especificado" -- y el dedup por (tipo, valor exacto) no los detecta como
-# duplicados porque el valor difiere.
+# Regresión (2026-09-14): tipos SINGLETON de objeto_alcance pueden salir duplicados de lotes distintos (uno con dato real, otro placeholder) y el dedup por valor exacto no los detecta.
 from __future__ import annotations
 
 from analysis.extraction.engine.item_merging import _merge_singleton_tipo_duplicates

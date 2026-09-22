@@ -29,7 +29,6 @@ from analysis.extraction.highlight import (
     regiones_desde_renglones_ocr,
 )
 
-# Un párrafo de tres renglones, con la geometría que deja `_build_line_index`.
 # Anchos elegidos para que la aritmética proporcional dé números redondos.
 RENGLONES: list[dict[str, Any]] = [
     {"x": 100.0, "y": 200.0, "width": 100.0, "height": 10.0, "t": "AAAAAAAAAA"},
@@ -38,9 +37,7 @@ RENGLONES: list[dict[str, Any]] = [
 ]
 
 
-# ---------------------------------------------------------------------------
 # El matcher por renglones
-# ---------------------------------------------------------------------------
 
 
 def test_una_cita_de_un_solo_renglon_da_un_rectangulo_de_ese_renglon() -> None:
@@ -128,9 +125,7 @@ def test_un_renglon_con_geometria_corrupta_se_saltea() -> None:
     assert regiones_desde_renglones_ocr(renglones, "CCCCCCCCCC")
 
 
-# ---------------------------------------------------------------------------
 # De dónde salen los renglones
-# ---------------------------------------------------------------------------
 
 
 def _chunk_con_renglones(page: int = 1) -> dict[str, Any]:
@@ -173,9 +168,7 @@ def test_un_chunk_sin_geometria_devuelve_vacio() -> None:
     assert _renglones_del_chunk({}, 1) == []
 
 
-# ---------------------------------------------------------------------------
 # La compuerta: si el PDF tiene texto, este camino no existe
-# ---------------------------------------------------------------------------
 
 
 def _pdf(tmp_path: Any, con_texto: bool) -> str:
@@ -211,9 +204,7 @@ def test_ante_la_duda_dice_que_tiene_texto(tmp_path: Any) -> None:
     assert pagina_sin_capa_de_texto(_pdf(tmp_path, con_texto=False), 0) is False
 
 
-# ---------------------------------------------------------------------------
 # Punta a punta, con el cableado real
-# ---------------------------------------------------------------------------
 
 
 def _fuente(page: int = 1) -> dict[str, Any]:

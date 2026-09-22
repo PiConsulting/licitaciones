@@ -162,14 +162,14 @@ def _serialize_table_rows(
                 "page_number": table_page,
                 "block_type": "table",
                 "role": "tableRow",
-                "content": "\n".join(content_fragments),  # Formato limpio, una línea por campo
+                "content": "\n".join(content_fragments),
                 "source_order": table_order + row_index,
                 "table_ref": {
                     "table_id": table_id,
                     "row_index": row_index + 1,
                     "headers": citation_headers,
                 },
-                "bbox": bboxes_by_row.get(row_index, []),  # Bbox de todas las celdas de esta fila
+                "bbox": bboxes_by_row.get(row_index, []),
             }
         )
 

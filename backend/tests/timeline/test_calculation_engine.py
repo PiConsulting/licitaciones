@@ -15,10 +15,8 @@ class TestCalculationEngine:
 
     def test_recalculate_simple_dependency(self):
         """AC1: Recalcular dependencia simple A→B (síncrono para simplicidad)"""
-        # Setup: Mock del service
         mock_service = Mock()
-        
-        # Evento Adjudicación con fecha
+
         event_adj = Event(
             analysis_id="analysis-1",
             partition_key="analysis-1",
@@ -28,7 +26,6 @@ class TestCalculationEngine:
             date_source="user_input"
         )
         
-        # Evento Entrega sin fecha
         event_entrega = Event(
             analysis_id="analysis-1",
             partition_key="analysis-1",
@@ -38,7 +35,6 @@ class TestCalculationEngine:
             date_source="pending"
         )
         
-        # Deadline: 45 días corridos desde Adjudicación
         deadline = Deadline(
             analysis_id="analysis-1",
             partition_key="analysis-1",
@@ -51,24 +47,19 @@ class TestCalculationEngine:
             calculation_status="pending"
         )
         
-        # Mock responses
         mock_service.get_event.return_value = event_adj
         mock_service.list_deadlines.return_value = [deadline]
-        
-        # Execute
+
         result = recalculate_dependent_dates(mock_service, "analysis-1", "adj-1")
-        
-        # Assert
+
         assert result.events_updated == 1
         assert len(result.errors) == 0
-        
-        # Verificar que se llamó update_deadline con fecha calculada
+
         mock_service.update_deadline.assert_called_once()
         updated_deadline = mock_service.update_deadline.call_args[0][0]
         assert updated_deadline.deadline_date == date(2026, 10, 25)
         assert updated_deadline.calculation_status == "calculated"
-        
-        # Verificar que se llamó update_event para el target
+
         mock_service.update_event.assert_called_once()
         updated_event = mock_service.update_event.call_args[0][0]
         assert updated_event.event_date == date(2026, 10, 25)
@@ -95,22 +86,19 @@ class TestCalculationEngine:
             trigger_event_id="adj-1",
             target_event_id="entrega-1",
             duration=45,
-            day_type="no_especificado",  # No especificado
+            day_type="no_especificado",
             calculation_status="pending"
         )
-        
+
         mock_service.get_event.return_value = event_adj
         mock_service.list_deadlines.return_value = [deadline]
-        
-        # Execute
+
         result = recalculate_dependent_dates(mock_service, "analysis-1", "adj-1")
-        
-        # Assert
+
         assert result.events_updated == 0
         assert len(result.errors) == 1
         assert "tipo de día no especificado" in result.errors[0].lower()
-        
-        # Verificar que se marcó como error
+
         updated_deadline = mock_service.update_deadline.call_args[0][0]
         assert updated_deadline.calculation_status == "error"
         assert "no especificado" in updated_deadline.calculation_error.lower()
@@ -119,7 +107,6 @@ class TestCalculationEngine:
         """AC3: Evento trigger sin fecha debe mantener pending"""
         mock_service = Mock()
         
-        # Evento trigger SIN fecha
         event_pending = Event(
             analysis_id="analysis-1",
             partition_key="analysis-1",
@@ -130,13 +117,11 @@ class TestCalculationEngine:
         )
         
         mock_service.get_event.return_value = event_pending
-        # PATCH: Mockear list_deadlines porque ahora se llama cuando trigger sin fecha
+        # se llama list_deadlines incluso sin fecha en el trigger
         mock_service.list_deadlines.return_value = []
-        
-        # Execute
+
         result = recalculate_dependent_dates(mock_service, "analysis-1", "pending-1")
-        
-        # Assert
+
         assert result.events_updated == 0
         assert len(result.errors) == 1
         assert "no tiene fecha asignada" in result.errors[0]
@@ -154,15 +139,13 @@ class TestCalculationEngine:
             date_source="user_input"
         )
         
-        # Execute con ciclo simulado (visited ya contiene 'a')
         result = recalculate_dependent_dates(
-            mock_service, 
-            "analysis-1", 
+            mock_service,
+            "analysis-1",
             "a",
             visited={"a"}  # Simula que ya visitamos 'a'
         )
-        
-        # Assert
+
         assert result.events_updated == 0
         assert len(result.errors) > 0
         assert "ciclo" in result.errors[0].lower()
@@ -170,7 +153,7 @@ class TestCalculationEngine:
     def test_recalculate_cascades_to_dependent(self):
         """Recálculo debe propagarse en cascada A→B→C"""
         mock_service = Mock()
-        
+
         # A → B (10 días) → C (5 días)
         event_a = Event(
             analysis_id="analysis-1",
@@ -230,17 +213,12 @@ class TestCalculationEngine:
                 return event_c
         
         def list_deadlines_side_effect(analysis_id, user_id=None):
-            # Simulamos que el sistema retorna deadlines según estado actual
-            # Primera llamada (desde 'a'): retorna deadline_ab
-            # Segunda llamada recursiva (desde 'b'): retorna deadline_bc
             return [deadline_ab, deadline_bc]
-        
+
         mock_service.get_event.side_effect = get_event_side_effect
         mock_service.list_deadlines.return_value = [deadline_ab]
-        
-        # Execute
+
         result = recalculate_dependent_dates(mock_service, "analysis-1", "a")
-        
-        # Assert - debe actualizar al menos B
+
         assert result.events_updated >= 1
         assert len(result.errors) == 0

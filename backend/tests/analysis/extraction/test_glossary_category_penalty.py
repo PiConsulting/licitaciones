@@ -26,9 +26,7 @@ def test_get_category_penalty_usa_default_si_la_categoria_no_tiene_override() ->
     """Categorías sin `category_penalty` en su entrada de glossary.json
     (todavía sin evidencia que justifique bajarlo) siguen usando el default
     de producción de `_retrieve_with_category_priority` (0.30)."""
-    # `garantias`, `requisitos_admisibilidad` y `eventos_temporales` no tienen
-    # `category_penalty` en glossary.json (varias otras sí lo tienen desde el
-    # experimento penalty=0.15 de 2026-09-09).
+    # Estas categorías no tienen override en glossary.json (a diferencia de otras, desde el experimento penalty=0.15 de 2026-09-09).
     assert get_category_penalty("garantias", default=0.30) == 0.30
     assert get_category_penalty("requisitos_admisibilidad", default=0.30) == 0.30
 
@@ -38,8 +36,7 @@ def test_get_category_penalty_usa_default_si_la_categoria_no_existe() -> None:
 
 
 def test_get_category_penalty_acepta_int_y_string_numerico() -> None:
-    # No hay ninguna categoría real con estos formatos hoy, pero la función
-    # debe tolerarlos igual que get_category_top_k tolera top_k como string.
+    # Ninguna categoría real usa estos formatos hoy, pero debe tolerarlos igual que get_category_top_k tolera top_k como string.
     from analysis.extraction import glossary as glossary_module
 
     original_load = glossary_module._load_glossary
@@ -53,8 +50,7 @@ def test_get_category_penalty_acepta_int_y_string_numerico() -> None:
         }
         assert get_category_penalty("cat_int", default=0.30) == 0.0
         assert get_category_penalty("cat_str", default=0.30) == 0.15
-        # bool es subclase de int en Python -- se descarta explícitamente
-        # para no interpretar True/False como 1.0/0.0 por accidente.
+        # bool es subclase de int en Python -- se descarta para no interpretar True/False como 1.0/0.0.
         assert get_category_penalty("cat_bool", default=0.30) == 0.30
         assert get_category_penalty("cat_invalid", default=0.30) == 0.30
     finally:

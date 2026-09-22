@@ -107,8 +107,7 @@ class TrackingItem(Base):
         Index("ix_tracking_items_category_id", "tracking_category_id"),
     )
 
-    # Hash determinista (sha256, 24 hex) -- ver categories.py::_build_tracking_item_id.
-    # Se conserva la misma generación que Cosmos para no cambiar comportamiento.
+    # Hash determinista generado en categories.py (_build_tracking_item_id); igual que Cosmos.
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     tracking_category_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("tracking_categories.id", ondelete="CASCADE"), nullable=False

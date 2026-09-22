@@ -119,9 +119,7 @@ export function AnalysisDetailHeader({
     primaryDocument?.filename,
     analysis.id,
   );
-  // Sin tipo/número/denominación, `buildShortTitle` cae al organismo como
-  // título -- en ese caso no lo repetimos en el subtítulo (se veía el mismo
-  // texto dos veces seguidas).
+  // Sin tipo/número/denominación, `buildShortTitle` cae al organismo -- no lo repetimos en el subtítulo.
   const titleUsesOrganismo = !tipoProcedimiento && !procedimiento && !denominacion && Boolean(organismo);
   const subtitle = (titleUsesOrganismo ? [expediente] : [organismo, expediente]).filter(Boolean).join(" · ");
   const breadcrumbLabel = analysis.analysis_name ?? primaryDocument?.filename ?? expediente ?? analysis.id;

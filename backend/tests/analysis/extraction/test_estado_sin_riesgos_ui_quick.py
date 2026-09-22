@@ -6,7 +6,6 @@ Valida que el mensaje explícito se muestra cuando no hay evidencia de riesgos.
 import sys
 from pathlib import Path
 
-# Asegurar que el backend esté en el path
 backend_dir = Path(__file__).parent
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
@@ -21,16 +20,13 @@ def test_mensaje_canonico_sin_riesgos():
     print("\n✅ Test 1: Mensaje canónico sin riesgos")
 
     try:
-        # Generar narrative vacía
         narrative = _empty_category_narrative("Riesgos")
 
-        # Verificar estructura
         assert isinstance(narrative, CategoryNarrative)
         assert len(narrative.blocks) == 1
         assert narrative.blocks[0].type == "paragraph"
         assert narrative.blocks[0].confidence_level == "baja"  # CONFIDENCE_NO_EVIDENCE
 
-        # Verificar texto del mensaje
         texto = narrative.blocks[0].text
         assert "No se encontró información sobre Riesgos" in texto
         assert "documentos del pliego" in texto
@@ -39,7 +35,6 @@ def test_mensaje_canonico_sin_riesgos():
         print(f"   ✓ Confianza: {narrative.blocks[0].confidence_level}")
         print(f"   ✓ Fuentes: {len(narrative.sources)} fuentes")
 
-        # Verificar que no hay fuentes
         assert len(narrative.sources) == 0
         print("   ✓ Sin fuentes (no hay evidencia)")
     except Exception as e:
@@ -56,7 +51,6 @@ def test_no_bullets_vacios():
 
     narrative = _empty_category_narrative("Riesgos")
 
-    # Debe ser un párrafo, no una lista
     assert narrative.blocks[0].type == "paragraph"
     assert narrative.blocks[0].type != "bullet_list"
 
@@ -68,11 +62,9 @@ def test_diferencia_con_not_analyzed():
     """Verifica que el mensaje no colisiona con 'not_analyzed' (Dev Notes)."""
     print("\n✅ Test 3: Diferencia entre sin riesgos vs no analizado")
 
-    # Mensaje sin riesgos (after analysis)
     narrative_sin_riesgos = _empty_category_narrative("Riesgos")
     texto_sin_riesgos = narrative_sin_riesgos.blocks[0].text
 
-    # El mensaje debe indicar claramente que SÍ se buscó pero NO se encontró
     assert "No se encontró" in texto_sin_riesgos
     assert "información" in texto_sin_riesgos
 
@@ -100,7 +92,6 @@ def test_consistencia_mensaje_todas_categorias():
         narrative = _empty_category_narrative(categoria)
         texto = narrative.blocks[0].text
 
-        # Verificar formato consistente
         assert f"No se encontró información sobre {categoria}" in texto
         assert "documentos del pliego" in texto
         assert narrative.blocks[0].confidence_level == "baja"  # CONFIDENCE_NO_EVIDENCE
@@ -117,10 +108,8 @@ def test_serializacion_para_frontend():
 
     narrative = _empty_category_narrative("Riesgos")
 
-    # Serializar a dict (como lo haría la API)
     narrative_dict = narrative.model_dump()
 
-    # Verificar estructura JSON
     assert "blocks" in narrative_dict
     assert "sources" in narrative_dict
     assert len(narrative_dict["blocks"]) == 1
@@ -142,10 +131,9 @@ def test_no_confusion_con_estado_vacio():
     narrative = _empty_category_narrative("Riesgos")
     texto = narrative.blocks[0].text
 
-    # El mensaje debe ser explícito, no ambiguo
-    assert len(texto) > 20  # No puede ser vacío ni muy corto
-    assert "No se encontró" in texto  # Debe decir explícitamente que no hay
-    assert "Riesgos" in texto  # Debe mencionar la categoría específica
+    assert len(texto) > 20  # no puede ser vacío ni muy corto
+    assert "No se encontró" in texto
+    assert "Riesgos" in texto
 
     print(f"   ✓ Mensaje explícito ({len(texto)} caracteres)")
     print(f"   ✓ No ambiguo: dice claramente que no hay riesgos")

@@ -6,7 +6,6 @@ Valida cobertura completa de casos: explícitos, implícitos, sin riesgos.
 import sys
 from pathlib import Path
 
-# Asegurar que el backend esté en el path
 backend_dir = Path(__file__).parent
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
@@ -234,17 +233,13 @@ if __name__ == "__main__":
     print("=" * 70)
 
     try:
-        # Inventario
         tests_backend = inventario_tests_backend()
         tests_frontend = inventario_tests_frontend()
 
-        # Validación de cobertura
         casos = validar_cobertura_casos()
 
-        # No-regresión
         validar_no_regresion()
 
-        # Checklist manual
         checklist_verificacion_manual()
 
         print("\n" + "=" * 70)

@@ -49,9 +49,7 @@ const STATE_BADGES: Record<
     tone: "info",
     icon: null,
   },
-  // CTX-03: la categoría existe en el contrato pero ningún extractor la
-  // completa. Decir "no encontrado" acá es afirmar algo sobre el pliego que el
-  // sistema nunca verificó.
+  // CTX-03: "no encontrado" afirmaría algo sobre el pliego que el sistema nunca verificó -- acá ningún extractor corrió todavía.
   no_analizada: {
     text: "NO ANALIZADA",
     tone: "neutral",

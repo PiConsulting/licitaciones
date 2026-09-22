@@ -89,8 +89,7 @@ export function dedupeNarrativeSources(sources: NarrativeSource[]): DedupedNarra
     const kept = result[matchIndex];
     if (source.text.trim().length > kept.text.trim().length) {
       result[matchIndex] = source;
-      // Todo id que ya apuntaba a la fuente conservada anterior ahora tiene
-      // que apuntar a la nueva (más larga), no quedarse huérfano.
+      // Todo id que apuntaba a la fuente conservada anterior debe apuntar a la nueva (más larga), no quedar huérfano.
       for (const [originalId, mappedId] of idMapping) {
         if (mappedId === kept.id) {
           idMapping.set(originalId, source.id);

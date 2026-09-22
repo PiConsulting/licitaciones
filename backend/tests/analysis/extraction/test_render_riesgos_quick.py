@@ -6,7 +6,6 @@ Valida que el frontend renderiza bullet_list correctamente desde narrativas del 
 import sys
 from pathlib import Path
 
-# Asegurar que el backend esté en el path
 backend_dir = Path(__file__).parent
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
@@ -22,7 +21,6 @@ def test_riesgos_output_contract_definido():
 
     contract = CATEGORY_OUTPUT_CONTRACTS["riesgos"]
 
-    # Verificar que el contrato favorece bullet_list
     assert "Listar" in contract
     assert "riesgos identificables" in contract
     assert "bullet_list" in contract
@@ -32,10 +30,9 @@ def test_riesgos_output_contract_definido():
     print(f"   ✓ Favorece formato: bullet_list")
     print(f"   ✓ Instrucciones claras para el LLM")
 
-    # Preview del contract
     lines = contract.split("\n")
     print("\n   Contract preview:")
-    for line in lines[:4]:  # Primeras 4 líneas
+    for line in lines[:4]:
         print(f"     {line}")
 
 
@@ -56,7 +53,6 @@ def test_output_contract_estructura():
 
     contract = CATEGORY_OUTPUT_CONTRACTS["riesgos"]
 
-    # Verificar instrucciones clave
     instrucciones_clave = [
         "Listar riesgos identificables",
         "participación o ejecución del contrato",
@@ -80,7 +76,6 @@ def test_diferenciacion_categorias_relacionadas():
 
     contract = CATEGORY_OUTPUT_CONTRACTS["riesgos"]
 
-    # Debe mencionar que NO duplicar causales ni requisitos
     assert "No duplicar causales" in contract or "causales de rechazo" in contract.lower()
 
     print("   ✓ Menciona diferenciación con causales de rechazo")
@@ -90,9 +85,6 @@ def test_diferenciacion_categorias_relacionadas():
 def test_formato_bullet_esperado():
     """Simula lo que el LLM generaría según el contract."""
     print("\n✅ Test 5: Formato bullet esperado del LLM")
-
-    # El contract pide bullet_list con descripción clara y concisa
-    # El LLM debería generar algo como:
 
     expected_structure = {
         "type": "bullet_list",
@@ -126,7 +118,6 @@ def test_consistencia_con_otras_categorias():
     """Compara el contract de riesgos con otros similares."""
     print("\n✅ Test 6: Consistencia con otras categorías")
 
-    # Verificar que riesgos tiene un contract definido como otras categorías
     categorias_similares = ["causales_rechazo", "requisitos_admisibilidad", "garantias"]
 
     for cat in categorias_similares:
@@ -136,7 +127,6 @@ def test_consistencia_con_otras_categorias():
     riesgos_len = len(CATEGORY_OUTPUT_CONTRACTS["riesgos"])
     print(f"   ✓ riesgos: {riesgos_len} caracteres")
 
-    # Todas las categorías deben tener contracts razonables (> 50 chars)
     assert riesgos_len > 50
     print("\n   ✓ Contract de longitud razonable para guiar al LLM")
 

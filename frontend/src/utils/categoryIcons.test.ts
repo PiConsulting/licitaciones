@@ -48,13 +48,10 @@ describe("categoryIcons", () => {
     });
 
     it("NO debe afectar el orden visual (es solo para criticidad)", () => {
-      // Las categorías críticas pueden aparecer en cualquier posición del CATEGORY_ORDER
-      // Este test verifica que la criticidad no está acoplada al orden
       const criticalIndices = Array.from(CRITICAL_CATEGORIES).map((cat) =>
         CATEGORY_ORDER.indexOf(cat),
       );
 
-      // Verificar que las categorías críticas NO están todas al inicio
       const areAllAtStart = criticalIndices.every((idx) => idx < 3);
       expect(areAllAtStart).toBe(false);
     });

@@ -24,19 +24,12 @@ interface TimelineTabProps {
 export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedEventForDate, setSelectedEventForDate] = useState<EventResponse | null>(null);
-  // 2026-09-01: "Mostrar ocultos" -- por default los eventos ocultados a
-  // mano (ej. "Notificación de fuerza mayor") no se muestran ni influyen en
-  // nada; este toggle los trae de vuelta a la vista (atenuados) para poder
-  // revisarlos/reactivarlos sin perder la trazabilidad.
+  // Por default los eventos ocultados a mano no se muestran ni influyen en nada; este toggle los trae de vuelta atenuados, sin perder trazabilidad.
   const [showHidden, setShowHidden] = useState(false);
-  // 2026-09-01: "Lista" (el detalle de siempre: fórmulas, ocultar, ver
-  // fuente) vs. "Línea de tiempo" (una vista vertical cronológica de solo
-  // lectura, con HOY marcado en su posición -- ver TimelineVerticalView).
+  // "Lista" es el detalle de siempre; "Línea de tiempo" es una vista vertical cronológica de solo lectura, con HOY marcado (ver TimelineVerticalView).
   const [viewMode, setViewMode] = useState<ViewMode>("list");
 
-  // Se pide siempre con include_hidden para tener los eventos ocultos
-  // disponibles en memoria (y poder togglear su visibilidad al instante):
-  // el filtrado real pasa del lado del cliente, ver `displayEvents` más abajo.
+  // Se pide siempre con include_hidden para togglear visibilidad al instante; el filtrado real pasa del lado del cliente (ver `displayEvents`).
   const { data: events, isLoading: eventsLoading, isError: eventsError } = useQuery({
     queryKey: ["timeline", analysisId],
     queryFn: () => getTimelineEvents(analysisId, { includeHidden: true }),
@@ -61,8 +54,7 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
     }
   };
 
-  // Helper: obtener deadline y trigger event para un evento dado
-  // Nota: Si un evento tiene múltiples deadlines, solo retorna el primero encontrado
+  // Si un evento tiene múltiples deadlines, solo retorna el primero encontrado.
   const getEventDependency = (eventId: string) => {
     if (!deadlines) return null;
     
@@ -73,7 +65,6 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
     return { deadline, triggerEvent };
   };
 
-  // Helper: verificar si un evento es trigger de algún deadline
   const hasEventDependents = (eventId: string): boolean => {
     if (!deadlines) return false;
     return deadlines.some(
@@ -81,7 +72,6 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
     );
   };
 
-  // Helper: obtener todos los deadlines que dependen de un evento (Story 20-1)
   const getDependentDeadlines = (eventId: string) => {
     if (!deadlines) return [];
     return deadlines.filter(
@@ -89,34 +79,24 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
     );
   };
 
-  // Helper: nombres de los eventos que dependen de este (los que lo usan
-  // como evento_disparador), para mostrar en chiquito "Usado por: X, Y" en
-  // vez de un genérico "otros eventos dependen de esto".
+  // Nombres de los eventos que usan este como evento_disparador, para mostrar "Usado por: X, Y" en vez de un genérico "otros eventos dependen de esto".
   const getDependentEventNames = (eventId: string): string[] =>
     getDependentDeadlines(eventId)
       .map((d) => events?.find((e) => e.event_id === d.target_event_id)?.name?.trim())
       .filter((name): name is string => Boolean(name));
 
-  // Evento "inferido": el pliego no lo menciona por sí mismo, se creó solo
-  // porque otro evento lo necesita como disparador (ver mencion_propia).
-  // Estos van primero en cada sección para que el usuario los vea y
-  // verifique/corrija antes que el resto.
+  // Evento "inferido": el pliego no lo menciona, se creó porque otro evento lo necesita como disparador (ver mencion_propia); van primero para que el usuario los verifique.
   const isInferred = (e: EventResponse): boolean => e.source_reference?.mencion_propia === false;
   const byInferredFirst = (a: EventResponse, b: EventResponse) =>
     (isInferred(a) ? 0 : 1) - (isInferred(b) ? 0 : 1);
 
-  // Eventos activos (no borrados, no ocultos): la base de las estadísticas
-  // del timeline, que NUNCA cuentan un evento oculto, se muestre o no en la
-  // lista de abajo (ver "Mostrar ocultos").
+  // Base de las estadísticas del timeline: NUNCA cuentan un evento oculto, se muestre o no en la lista (ver "Mostrar ocultos").
   const activeEvents = events?.filter((e) => !e.deleted && !e.hidden) || [];
   const hiddenEvents = events?.filter((e) => !e.deleted && e.hidden) || [];
 
-  // Eventos a renderizar: los activos, más los ocultos si el usuario pidió
-  // verlos (atenuados, ver EventCard/PendingEventCard/AnchorDatesPanel).
   const displayEvents = showHidden ? [...activeEvents, ...hiddenEvents] : activeEvents;
 
-  // Filtrar eventos con fecha, priorizar los inferidos y ordenar el resto
-  // cronológicamente.
+  // Prioriza los inferidos, ordena el resto cronológicamente.
   const eventsWithDate = displayEvents
     .filter((e) => e.event_date !== null)
     .sort((a, b) => {
@@ -125,26 +105,18 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
       return new Date(a.event_date!).getTime() - new Date(b.event_date!).getTime();
     });
 
-  // Mismos eventos con fecha, pero en orden puramente cronológico (sin
-  // prioridad de inferidos) -- la vista de línea de tiempo necesita el
-  // orden real para que "HOY" se inserte en el lugar correcto.
+  // Orden puramente cronológico (sin prioridad de inferidos): la línea de tiempo necesita el orden real para insertar "HOY" en el lugar correcto.
   const chronologicalEventsWithDate = [...eventsWithDate].sort(
     (a, b) => new Date(a.event_date!).getTime() - new Date(b.event_date!).getTime(),
   );
 
-  // Filtrar eventos sin fecha (pendientes)
   const pendingEvents = displayEvents.filter((e) => e.event_date === null);
 
-  // Estadísticas: siempre sobre `activeEvents`, sin importar si "Mostrar
-  // ocultos" está prendido -- un evento oculto no debe influir en el estado
-  // general del timeline aunque el usuario lo esté mirando en este momento.
+  // Siempre sobre `activeEvents`: un evento oculto no debe influir en el estado general del timeline aunque el usuario lo esté mirando.
   const statsWithDateCount = activeEvents.filter((e) => e.event_date !== null).length;
   const statsPendingCount = activeEvents.filter((e) => e.event_date === null).length;
 
-  // Eventos "ancla": pendientes y de los que depende al menos un plazo. Son
-  // las únicas fechas que hace falta cargar a mano -- van al panel
-  // compacto, no como card grande, para no repetir la misma acción dos
-  // veces en pantalla. Los inferidos primero, mismo criterio que el resto.
+  // Eventos "ancla": pendientes de los que depende al menos un plazo; van al panel compacto (no card grande) para no repetir la misma acción dos veces.
   const anchorEvents = pendingEvents
     .filter((e) => hasEventDependents(e.event_id))
     .sort(byInferredFirst);
@@ -160,15 +132,12 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
     dependentEventNamesByEventId[anchor.event_id] = getDependentEventNames(anchor.event_id);
   }
 
-  // "Hay eventos" para decidir entre la sección de contenido y el estado
-  // vacío: cuenta los ocultos también, porque un análisis con solo eventos
-  // ocultos no está "vacío" -- solo hace falta prender "Mostrar ocultos".
+  // Cuenta los ocultos también: un análisis con solo eventos ocultos no está "vacío", solo hace falta prender "Mostrar ocultos".
   const hasAnyEvents = activeEvents.length > 0 || hiddenEvents.length > 0;
   const hasVisibleEvents = eventsWithDate.length > 0 || pendingEvents.length > 0;
 
   return (
     <div className="timeline-tab">
-      {/* Header */}
       <div className="mb-6">
         <div className="flex items-start justify-between gap-2">
           <div>
@@ -181,10 +150,7 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
           </Button>
         </div>
 
-        {/* 2026-09-01: fila propia para los controles de "qué ver", separada
-            del título y de "Agregar evento" (que es la acción principal y
-            queda arriba a la derecha). Vista y "Mostrar ocultos" se agrupan
-            juntos acá porque ambos deciden qué se muestra, no una acción. */}
+        {/* Fila propia para "qué ver", separada de "Agregar evento" (la acción principal, arriba a la derecha). */}
         {(activeEvents.length > 0 || hiddenEvents.length > 0) && (
           <div className="mt-3 flex items-center gap-2">
             {activeEvents.length > 0 ? (
@@ -238,7 +204,6 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
         )}
       </div>
 
-      {/* Timeline Stats - solo si hay eventos activos (nunca cuenta ocultos) */}
       {activeEvents.length > 0 && (
         <TimelineStats
           totalEvents={activeEvents.length}
@@ -247,7 +212,6 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
         />
       )}
 
-      {/* Content Area */}
       {isLoading ? (
         <div className="min-h-[200px] flex items-center justify-center">
           <p className="text-sm text-gray-500">Cargando eventos...</p>
@@ -274,10 +238,7 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
           </Button>
         </div>
       ) : viewMode === "timeline" ? (
-        // 2026-09-01: la línea de tiempo muestra SOLO los eventos
-        // confirmados (son los únicos con fecha) -- nada de fechas ancla
-        // por cargar ni eventos pendientes, para no mezclar una vista
-        // cronológica con cosas que todavía no tienen dónde ubicarse.
+        // La línea de tiempo muestra SOLO eventos confirmados (con fecha) -- nada de anclas por cargar ni pendientes, para no mezclar con lo que no tiene dónde ubicarse.
         eventsWithDate.length > 0 ? (
           <TimelineVerticalView
             events={chronologicalEventsWithDate as ConfirmedEvent[]}
@@ -294,7 +255,6 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
         )
       ) : (
         <div className="space-y-8">
-          {/* Fechas ancla por cargar -- panel compacto, una fila por evento */}
           <AnchorDatesPanel
             analysisId={analysisId}
             anchorEvents={anchorEvents}
@@ -303,7 +263,6 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
             onViewSource={onViewSource}
           />
 
-          {/* Eventos Confirmados */}
           {eventsWithDate.length > 0 ? (
             <section>
               <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-600">
@@ -332,10 +291,7 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
             </section>
           ) : null}
 
-          {/* Eventos Pendientes: los que ya son targets de un plazo muestran
-              la fórmula de cálculo en vez de un genérico "Fecha pendiente".
-              Los eventos ancla (con dependientes) no se repiten acá -- ya
-              están arriba, en el panel compacto. */}
+          {/* Los que ya son targets de un plazo muestran la fórmula de cálculo; los ancla no se repiten acá, ya están arriba en el panel compacto. */}
           {otherPendingEvents.length > 0 ? (
             <section>
               <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-600">
@@ -364,14 +320,12 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
         </div>
       )}
 
-      {/* Modal Agregar Evento */}
       <AddEventModal
         analysisId={analysisId}
         open={showAddModal}
         onClose={() => setShowAddModal(false)}
       />
 
-      {/* Modal Agregar Fecha */}
       {selectedEventForDate && (
         <AddDateModal
           event={selectedEventForDate}

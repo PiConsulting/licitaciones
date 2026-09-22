@@ -218,8 +218,7 @@ def mock_llm(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_phase_graphs_expose_expected_extractors() -> None:
-    # Tras el refactor de fases, garantias/plazos/requisitos/riesgos se
-    # promovieron a fase 1 (para que la preview no dependa de fase 2).
+    # garantias/plazos/requisitos están en fase 1 (preview no depende de fase 2); riesgos se movió a fase 2 (2026-09-18, sintetiza desde ellas + causales/criterios).
     assert set(extractor_nodes_phase1) == {
         "extract_preview_criterios",
         "extract_objeto_alcance",
@@ -227,13 +226,13 @@ def test_phase_graphs_expose_expected_extractors() -> None:
         "extract_garantias",
         "extract_plazos",
         "extract_requisitos",
-        "extract_riesgos",
     }
     assert set(extractor_nodes_phase2) == {
         "extract_causales",
         "extract_anexos",
         "extract_criterios",
         "extract_eventos_temporales",
+        "extract_riesgos",
     }
     assert not set(extractor_nodes_phase1) & set(extractor_nodes_phase2)
 
@@ -268,8 +267,7 @@ def test_setup_node_no_pisa_campos_ya_sembrados(monkeypatch: pytest.MonkeyPatch)
         "db_session": None,
         "plazos": sembrado_plazos,
         "garantias": sembrado_garantias,
-        # `requisitos_admisibilidad` NO se siembra a propósito -- debe caer
-        # al default `[]` normal, igual que siempre.
+        # `requisitos_admisibilidad` no se siembra a propósito -- debe caer al default `[]` normal.
     }
     result = setup_node(state)
 
@@ -277,9 +275,7 @@ def test_setup_node_no_pisa_campos_ya_sembrados(monkeypatch: pytest.MonkeyPatch)
     assert result["garantias"] == sembrado_garantias
     assert result["requisitos_admisibilidad"] == []
     assert result["requisitos_admisibilidad_status"] == "pending"
-    # Campos que setup_node SIEMPRE resetea (no estaban sembrados en este
-    # test) siguen inicializándose normalmente -- no es que el fix los deje
-    # de tocar del todo, solo que no pisa lo que YA vino con datos.
+    # Campos no sembrados siguen inicializándose normalmente -- el fix solo evita pisar lo que YA vino con datos.
     assert result["preview_criterios"] == []
     assert result["objeto_alcance"] == []
 
@@ -317,9 +313,7 @@ def test_document_mapping_fluye_de_setup_a_synthesize_para_highlights(
         return kwargs["narrative"]
 
     monkeypatch.setattr(graph_module, "enrich_narrative_with_highlights", _fake_enrich)
-    # SYN-03: `_build_chunks_by_id_index` se unificó en `_build_chunk_indexes`,
-    # que enumera una sola vez y devuelve los DOS índices (por chunk_id y por
-    # (document_id, página)).
+    # SYN-03: `_build_chunks_by_id_index` se unificó en `_build_chunk_indexes`, que enumera una sola vez y devuelve ambos índices.
     monkeypatch.setattr(graph_module, "_build_chunk_indexes", lambda *_a, **_kw: ({}, {}))
 
     from analysis.extraction.schemas import CategoryNarrative
@@ -342,12 +336,7 @@ def test_document_mapping_fluye_de_setup_a_synthesize_para_highlights(
 
 
 def test_graph_execution_all_success(mock_state: dict, mock_search: None, mock_llm: None) -> None:
-    # `conftest.py` fija APP_ENV=production para toda la suite, y
-    # `_fetch_analysis_documents` (graph.py) exige `db_session` en producción
-    # -- guardrail intencional (antes degradaba en silencio a "sin
-    # documentos" en cualquier entorno). `mock_state` no trae sesión de BD
-    # real, así que se simula una vacía: mismo comportamiento que "el
-    # análisis no tiene documentos", sin tocar el guardrail.
+    # APP_ENV=production (conftest.py) exige db_session real; se simula una vacía en vez de tocar ese guardrail.
     mock_db_session = Mock()
     mock_db_session.query.return_value.filter.return_value.all.return_value = []
     state = dict(mock_state)
@@ -592,9 +581,7 @@ def test_json_contract_allows_not_applicable_status() -> None:
     payload = {
         "plazos": [
             {
-                # FIX (2026-08-22): el enum `TipoPlazo` se eliminó del schema
-                # (ver PlazoItem en schemas.py) -- `referencia` es texto libre,
-                # no un valor canónico de un enum.
+                # FIX (2026-08-22): `TipoPlazo` se eliminó del schema -- `referencia` es texto libre, no un enum.
                 "referencia": "Mantenimiento de oferta",
                 "fecha": None,
                 "texto_original": "No se exige plazo de mantenimiento de oferta.",
@@ -1033,12 +1020,7 @@ def test_esquema_de_cada_prompt_usa_result_key_como_raiz() -> None:
     for category_key, prompt_file_name in CANONICAL_CATEGORY_PROMPT_MAP.items():
         contenido = (base / prompt_file_name).read_text(encoding="utf-8")
 
-        # Algunos prompts (ej. riesgos.txt) no hardcodean la clave raiz:
-        # usan el placeholder `{root_key}`, que `base.py` reemplaza en
-        # runtime por `result_key` (ver `.replace("{root_key}", root_key)`).
-        # Con ese patron la clave raiz NUNCA puede desacoplarse de
-        # `result_key` por construccion -- no hace falta (ni se puede)
-        # comparar un valor literal.
+        # Algunos prompts (ej. riesgos.txt) usan el placeholder `{root_key}`, que base.py reemplaza en runtime -- no puede desacoplarse de result_key.
         if re.search(r'^\s*"\{root_key\}":\s*\[', contenido, re.MULTILINE):
             continue
 
@@ -1379,15 +1361,7 @@ def test_merge_ordena_items_por_documento_primario_y_filename() -> None:
     ]
 
 
-# ---------------------------------------------------------------------------
-# REGRESIÓN SYN-03 (auditoría 2026-08-13): una sola enumeración por análisis.
-#
-# `synthesize_node` llamaba a `_build_chunks_by_id_index` una vez Y, dentro del
-# loop de las 7 categorías narrativas, `enrich_narrative_with_highlights`
-# reconstruía su propio índice con `_build_chunks_index_from_search`. Total: 8
-# enumeraciones del índice completo por análisis, cada una con su llamada de
-# embedding, su búsqueda con top=3000 y sus get_document() de expansión.
-# ---------------------------------------------------------------------------
+# REGRESIÓN SYN-03: `synthesize_node` + cada una de las 7 categorías narrativas reconstruían su propio índice (8 enumeraciones por análisis); ahora se enumera una sola vez.
 
 
 def test_synthesize_node_enumera_el_indice_una_sola_vez(monkeypatch) -> None:

@@ -15,20 +15,8 @@ from infra.ports.pgvector_search import search_hybrid
 
 logger = structlog.get_logger(__name__)
 
-# FIX (2026-09-08): costo de inferencia del cross-encoder de reranking,
-# medido en este entorno (CPU, cross-encoder/mmarco-mMiniLMv2-L12-H384-v1).
-# Aislado (thread principal, modelo cargado, sin nada más corriendo) escala
-# lineal a ~0.045s/par. Pero a través del ThreadPoolExecutor que usa
-# `rerank_chunks` en la práctica, con contención real (varios workers de
-# `EXTRACTION_MAX_CONCURRENCY` rerankeando en simultáneo), se midieron
-# tiempos bastante más altos y variables para el mismo trabajo (hasta ~2x).
-# Se usa un valor conservador -- calculado con margen, no el número de
-# laboratorio limpio -- para no repetir el problema original (un guardrail
-# calibrado contra condiciones ideales que en la práctica salta casi
-# siempre). Se usa para calcular cuántos candidatos entran de forma segura
-# en `rag_reranking_timeout_seconds` -- ver el guardrail de
-# `rerank_skip_threshold` más abajo.
-_RERANK_SECONDS_PER_PAIR = 0.09  # ~2x el 0.045s/par aislado, con margen para contención real
+# Medido ~0.045s/par aislado, pero con contención real (varios workers rerankeando a la vez) sube hasta ~2x; se usa el valor con margen para no repetir un guardrail calibrado en condiciones ideales.
+_RERANK_SECONDS_PER_PAIR = 0.09
 
 
 def _chunk_identity(chunk: dict[str, Any]) -> tuple[str, int]:
@@ -41,8 +29,7 @@ _NEIGHBOR_MAX_ADDED = 12  # tope duro de chunks rescatados por consulta
 
 def _heading_key(chunk: dict[str, Any]) -> tuple[str, ...] | None:
     hp = chunk.get("heading_path") or []
-    # se exige >=2 niveles: el nivel 1 suele ser el título del documento y lo
-    # comparten decenas de chunks -- expandir por ahí traería medio pliego.
+    # >=2 niveles: el nivel 1 es el título del documento, compartido por decenas de chunks.
     if len(hp) < 2:
         return None
     return (str(chunk.get("document_id", "")), *[str(h) for h in hp])
@@ -156,17 +143,11 @@ def _score_chunks_for_category(
         (scored_chunks ordenados desc, category_match_count, category_mismatch_count)
     """
     BOOST_FACTOR = 1.0 + category_boost  # 0.50 → 1.50
-    # `secondary_categories` (clasificador mono-label) se puebla con densidad
-    # de keywords >= 0.12 -- umbral bajísimo, muy propenso a falsos positivos
-    # (un chunk que menciona "oferta"/"presentación" una vez queda con
-    # `anexos` en secondary y, con el boost binario, saltaba al puesto #1).
-    # El match SECUNDARIO recibe un boost menor que el primario.
+    # secondary_categories usa umbral bajísimo (>=0.12 densidad de keywords), muy propenso a falsos positivos; el match secundario recibe boost menor que el primario.
     SECONDARY_BOOST_FACTOR = 1.0 + 0.4 * category_boost  # 0.50 → 1.20
     PENALTY_FACTOR = 1.0 - category_penalty  # 0.30 → 0.70
 
-    # Boost graduado desde `category_scores` (reindex C+D). Opt-in por
-    # categoría en glossary.json (`graded_category_scores: true`) -- medido:
-    # ayuda a categorías con gold disperso, perjudica a las de gold limpio.
+    # Opt-in por categoría (graded_category_scores): medido, ayuda a gold disperso pero perjudica a gold limpio.
     from analysis.extraction.glossary import (
         get_category_graded_scores,
         get_category_rank_fusion,
@@ -175,13 +156,8 @@ def _score_chunks_for_category(
     use_graded_scores = get_category_graded_scores(category)
     use_rank_fusion = get_category_rank_fusion(category)
 
-    # --- Rank-fusion (Causa 2 de la auditoría de ranking, 2026-09-09) -------
-    # Los scores RRF crudos están comprimidos (0.0164 → 0.0091 en 50 chunks);
-    # un boost multiplicativo sobre ese campo plano no separa un gold con
-    # señal de categoría clara de un chunk-ruido con RRF apenas mayor. La
-    # rank-fusion le da a la señal de categoría su PROPIO ranking y lo fusiona
-    # por posición (RRF, scale-free) con el ranking híbrido:
-    #   final = 1/(K + rank_híbrido) + W · 1/(K + rank_categoría)
+    # Rank-fusion: scores RRF crudos están comprimidos y un boost multiplicativo no separa
+    # bien gold de ruido; se fusiona por posición: final = 1/(K+rank_híbrido) + W/(K+rank_categoría).
     if use_rank_fusion:
         RRF_K = 60
         W_CAT = 1.0
@@ -216,7 +192,6 @@ def _score_chunks_for_category(
             scored_chunks.append((fused, chunk))
         scored_chunks.sort(key=lambda x: x[0], reverse=True)
         return scored_chunks, cat_matches, 0
-    # ---------------------------------------------------------------------
 
     scored_chunks: list[tuple[float, dict]] = []
     category_match_count = 0
@@ -240,14 +215,11 @@ def _score_chunks_for_category(
             graded_score = float(category_scores.get(category, 0.0) or 0.0)
             graded_factor = 1.0 + category_boost * graded_score  # 1.0 → 1.50
             if matches:
-                # Match limpio: no se diluye el boost binario (primario o
-                # secundario según corresponda).
+                # Match limpio: no se diluye el boost binario.
                 adjusted_score = base_score * max(match_factor, graded_factor)
                 category_match_count += 1
             elif graded_score >= 0.1:
-                # Chunk multi-categoría con señal parcial -> lift graduado,
-                # sin penalty. Recupera gold que el clasificador mono-label
-                # mandó a otra categoría.
+                # Señal parcial -> lift graduado sin penalty; recupera gold que el clasificador mono-label mandó a otra categoría.
                 adjusted_score = base_score * graded_factor
                 if graded_score >= 0.3:
                     category_match_count += 1
@@ -265,9 +237,7 @@ def _score_chunks_for_category(
         else:
             adjusted_score = base_score
 
-        # Se persiste el score ajustado para que los pasos posteriores
-        # (corte por relevancia, telemetría, debugging) no pierdan la señal
-        # de priorización por categoría.
+        # Se persiste para que los pasos posteriores no pierdan la señal de priorización.
         chunk["retrieval_score"] = adjusted_score
         scored_chunks.append((adjusted_score, chunk))
 
@@ -295,9 +265,9 @@ def _retrieve_with_category_priority(
     keyword_query: str | None,
     category: str,
     correlation_id: str,
-    category_boost: float = 0.50,  # Aumentado de 0.20 a 0.50 (50% boost)
-    category_penalty: float = 0.30,  # NUEVO: penalty para chunks de otras categorías
-    global_candidates: list[dict[str, Any]] | None = None,  # FASE 3 (4.2)
+    category_boost: float = 0.50,
+    category_penalty: float = 0.30,
+    global_candidates: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Recupera chunks relevantes usando SCORING HÍBRIDO con boost Y penalty por categoría.
 
@@ -358,7 +328,7 @@ def _retrieve_with_category_priority(
 
     over_fetch_k = top_k * 3
 
-    # ÉPICA 11: Pasar category para caché determinista de embeddings
+    # Pasar category para caché determinista de embeddings.
     all_candidates = search_hybrid(
         query=query,
         analysis_id=analysis_id,
@@ -369,10 +339,7 @@ def _retrieve_with_category_priority(
 
     if not all_candidates:
         if use_shared_pool and pool_scored:
-            # Sin candidatos de la query específica (falla puntual, o el
-            # análisis ya se enumeró completo antes) -- mejor devolver lo que
-            # el pool compartido trajo, aunque no llegara al umbral de
-            # pureza, que devolver una lista vacía.
+            # Mejor devolver el pool compartido (aunque no llegue al umbral de pureza) que una lista vacía.
             fallback_chunks = [chunk for _score, chunk in pool_scored[:top_k]]
             logger.warning(
                 "retrieval_no_candidates_using_shared_pool_fallback",
@@ -396,12 +363,7 @@ def _retrieve_with_category_priority(
     )
 
     if use_shared_pool and pool_scored and settings.shared_candidate_pool_augment_on_roundtrip:
-        # Fusionar con el pool compartido: dedup por chunk id, quedándose con
-        # el mejor score de las dos fuentes (pueden diferir si el mismo chunk
-        # aparece en ambos con distinto rank/score de origen).
-        # NOTA (2026-09-10): esta fusión cuesta ~-0.021 de recall efectivo sin
-        # ahorrar el roundtrip -- con `shared_candidate_pool_augment_on_roundtrip`
-        # en false se salta y el pool solo aporta cuando reemplaza la query.
+        # Dedup por chunk id, mejor score de las dos fuentes. Medido: cuesta ~-0.021 de recall sin ahorrar el roundtrip; por eso este flag existe para saltarlo.
         combined: dict[str, tuple[float, dict]] = {}
         for score, chunk in [*pool_scored, *scored_chunks]:
             chunk_id = chunk.get("id")
@@ -429,9 +391,7 @@ def _retrieve_with_category_priority(
             pool_after=len(ranked_chunks),
         )
 
-    # Experimental (2026-09-10): reranking por LLM-as-judge. Toma precedencia
-    # sobre el cross-encoder (son experimentos mutuamente excluyentes). Fallback
-    # seguro al orden RRF dentro de `llm_judge_rerank`.
+    # Experimental: LLM-as-judge, precedencia sobre cross-encoder (mutuamente excluyentes); fallback seguro a orden RRF dentro de `llm_judge_rerank`.
     if settings.rag_llm_judge_enabled:
         w = min(len(ranked_chunks), settings.rag_llm_judge_window)
         judged = llm_judge_rerank(
@@ -439,26 +399,11 @@ def _retrieve_with_category_priority(
         )
         ranked_chunks = [*judged, *ranked_chunks[w:]]
 
-    # Historia 22.5: insertar reranking semántico real entre el scoring
-    # híbrido actual y el corte final top_k. Se limita la ventana para que
-    # el costo de CPU sea acotado en categorías con over-fetch alto.
+    # Ventana limitada para acotar costo de CPU en categorías con over-fetch alto.
     rerank_window = min(len(ranked_chunks), top_k * 2)
 
-    # Historia 23.4: guardrail para evitar timeouts del cross-encoder en
-    # ventanas muy grandes -- prioriza estabilidad/latencia sobre intentar un
-    # reranking condenado a expirar, y conserva el orden RRF ya scoreado por
-    # categoría en ese caso.
-    # FIX (2026-09-08): el guardrail original comparaba `len(ranked_chunks)`
-    # -- el pool CRUDO, hasta `over_fetch_k = top_k * 3` -- contra un umbral
-    # derivado de ese mismo pool, en vez de comparar contra `rerank_window`
-    # (arriba), que es lo que en realidad se le manda al cross-encoder. Con
-    # top_k=35 (la mayoría de las categorías tras la auditoría de retrieval
-    # de esta sesión) el pool crudo llega habitualmente a 105 y el umbral
-    # viejo daba 63, así que el reranking se salteaba casi siempre aunque
-    # `rerank_window` (70 para top_k=35) estuviera muy por debajo de lo que
-    # el modelo soporta. El umbral ahora se deriva del presupuesto real de
-    # `rag_reranking_timeout_seconds` y del costo medido de
-    # `_RERANK_SECONDS_PER_PAIR`, y se compara contra `rerank_window`.
+    # FIX 2026-09-08: el guardrail comparaba contra el pool crudo (hasta top_k*3), no contra
+    # `rerank_window` (lo que realmente se manda al cross-encoder) -- se salteaba casi siempre.
     rerank_skip_threshold = max(
         top_k, int(settings.rag_reranking_timeout_seconds / _RERANK_SECONDS_PER_PAIR)
     )

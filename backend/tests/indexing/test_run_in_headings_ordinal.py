@@ -1,13 +1,4 @@
-# Regresión (2026-09-14, Fase 1 de auditoría RAG, finding P0-1): las
-# cláusulas numeradas con notación ordinal argentina ("7º.- GARANTÍAS",
-# "10º.- MANTENIMIENTO DE OFERTA") no se reconocían como run-in heading
-# porque `_RUN_IN_HEADING_RE` solo aceptaba dígitos pelados ("7", "10").
-# Consecuencia real confirmada en un pliego real (Dell): la cláusula de
-# garantías y las 4 cláusulas numeradas siguientes quedaban en el MISMO
-# bloque, y `_detect_incisos` (que corta el último inciso hasta el final del
-# bloque sin más límite) terminaba metiendo el contenido de esas cláusulas
-# ajenas dentro del último inciso -- el LLM citó ese chunk contaminado para
-# un dato de garantías que en realidad hablaba de otra cosa.
+# Regresión (2026-09-14, auditoría RAG, P0-1): cláusulas con ordinal argentino ("7º.-") no se reconocían como run-in heading porque `_RUN_IN_HEADING_RE` solo aceptaba dígitos pelados, mezclando cláusulas ajenas en el mismo bloque (Dell).
 from __future__ import annotations
 
 from indexing.chunking.headings import _promote_run_in_headings
@@ -68,9 +59,7 @@ def test_dos_clausulas_ordinales_consecutivas_quedan_en_bloques_separados() -> N
         for i, b in enumerate(promoted)
         if b.get("heading_level") == 2 and "I.V.A" in b["content"]
     )
-    # Todo lo que quedó ANTES del heading de IVA (incluida la cláusula de
-    # garantías con sus incisos) no debe mencionar IVA -- si el fix no
-    # funcionara, "8º.- I.V.A..." seguiría pegado al cuerpo de garantías.
+    # si el fix no funcionara, "8º.- I.V.A..." seguiría pegado al cuerpo de garantías
     contenido_previo = "\n\n".join(
         str(b.get("content", "")) for b in promoted[:iva_heading_index]
     )
@@ -88,12 +77,7 @@ def test_articulo_con_texto_no_numerado_sigue_funcionando() -> None:
     assert len(headings) == 1
 
 
-# ---------------------------------------------------------------------------
-# Auditoría de chunking (Rosario, real): el `title_bare` no-greedy se
-# conforma con el mínimo de letras mayúsculas que ya satisface
-# `_looks_like_section_title` -- corta el título mucho antes de que
-# terminen las mayúsculas reales del pliego.
-# ---------------------------------------------------------------------------
+# Auditoría de chunking (Rosario, real): el `title_bare` no-greedy se conforma con el mínimo de mayúsculas que ya satisface `_looks_like_section_title`, cortando el título antes de tiempo.
 
 
 def test_titulo_sin_dos_puntos_propio_no_se_corta_antes_de_tiempo() -> None:

@@ -1,8 +1,4 @@
-# Regresión (2026-09-14, Fase 2 de la auditoría RAG): el golden de varios
-# pliegos pedía datos de contacto/consulta (domicilio electrónico, correo de
-# consultas, dónde retirar el pliego) que no tenían dónde ir en
-# `TipoIdentificacion` -- se agregaron `canal_consultas` y
-# `lugar_consulta_pliego`.
+# Regresión (2026-09-14): el golden pedía datos de contacto/consulta sin tipo canónico -- se agregaron `canal_consultas` y `lugar_consulta_pliego`.
 from __future__ import annotations
 
 import pytest
