@@ -5,7 +5,6 @@ import { ToastProvider } from "../ToastContainer";
 import { AddEventModal } from "./AddEventModal";
 import * as timelineApi from "../../api/timeline";
 
-// Mock del API
 vi.mock("../../api/timeline", () => ({
   createEvent: vi.fn(),
 }));
@@ -41,15 +40,12 @@ describe("AddEventModal", () => {
       { wrapper: createWrapper() }
     );
 
-    // Verificar título
     expect(screen.getByText("Agregar evento")).toBeInTheDocument();
 
-    // Verificar campos
     expect(screen.getByLabelText(/Nombre del evento/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Fecha \(opcional\)/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Observación \(opcional\)/i)).toBeInTheDocument();
 
-    // Verificar botones
     expect(screen.getByRole("button", { name: /Cancelar/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Guardar/i })).toBeInTheDocument();
   });
@@ -63,14 +59,12 @@ describe("AddEventModal", () => {
     const submitButton = screen.getByRole("button", { name: /Guardar/i });
     fireEvent.click(submitButton);
 
-    // Verificar mensaje de error
     await waitFor(() => {
       expect(
         screen.getByText(/El nombre del evento es obligatorio/i)
       ).toBeInTheDocument();
     });
 
-    // Verificar que NO se llamó a la API
     expect(timelineApi.createEvent).not.toHaveBeenCalled();
   });
 
@@ -94,15 +88,12 @@ describe("AddEventModal", () => {
       { wrapper: createWrapper() }
     );
 
-    // Llenar solo el nombre
     const nameInput = screen.getByLabelText(/Nombre del evento/i);
     fireEvent.change(nameInput, { target: { value: "Apertura de sobres" } });
 
-    // Enviar formulario
     const submitButton = screen.getByRole("button", { name: /Guardar/i });
     fireEvent.click(submitButton);
 
-    // Verificar llamada a la API
     await waitFor(() => {
       expect(mockCreateEvent).toHaveBeenCalledWith(analysisId, {
         name: "Apertura de sobres",
@@ -113,7 +104,6 @@ describe("AddEventModal", () => {
       });
     });
 
-    // Verificar que se cerró el modal
     await waitFor(() => {
       expect(mockOnClose).toHaveBeenCalled();
     });
@@ -139,7 +129,6 @@ describe("AddEventModal", () => {
       { wrapper: createWrapper() }
     );
 
-    // Llenar nombre y fecha
     fireEvent.change(screen.getByLabelText(/Nombre del evento/i), {
       target: { value: "Adjudicación" },
     });
@@ -147,10 +136,8 @@ describe("AddEventModal", () => {
       target: { value: "2026-09-10" },
     });
 
-    // Enviar formulario
     fireEvent.click(screen.getByRole("button", { name: /Guardar/i }));
 
-    // Verificar llamada a la API con date_source="user_input"
     await waitFor(() => {
       expect(mockCreateEvent).toHaveBeenCalledWith(analysisId, {
         name: "Adjudicación",
@@ -182,7 +169,6 @@ describe("AddEventModal", () => {
       { wrapper: createWrapper() }
     );
 
-    // Llenar nombre y observación
     fireEvent.change(screen.getByLabelText(/Nombre del evento/i), {
       target: { value: "Firma de contrato" },
     });
@@ -190,10 +176,8 @@ describe("AddEventModal", () => {
       target: { value: "Requiere presencia del representante legal" },
     });
 
-    // Enviar formulario
     fireEvent.click(screen.getByRole("button", { name: /Guardar/i }));
 
-    // Verificar llamada a la API
     await waitFor(() => {
       expect(mockCreateEvent).toHaveBeenCalledWith(analysisId, {
         name: "Firma de contrato",
@@ -236,16 +220,14 @@ describe("AddEventModal", () => {
     fireEvent.change(screen.getByLabelText(/Nombre del evento/i), {
       target: { value: "Test Event" },
     });
-    
+
     const submitButton = screen.getByRole("button", { name: /Guardar/i });
     fireEvent.click(submitButton);
 
-    // Esperar a que el botón esté disabled (estado de loading)
     await waitFor(() => {
       expect(submitButton).toBeDisabled();
     });
 
-    // Resolver la promesa
     resolveCreate({
       id: "evt-4",
       event_id: "evt-4",
@@ -280,7 +262,6 @@ describe("AddEventModal", () => {
       { wrapper: createWrapper() }
     );
 
-    // Llenar formulario
     fireEvent.change(screen.getByLabelText(/Nombre del evento/i), {
       target: { value: "Evento Test" },
     });
@@ -288,20 +269,17 @@ describe("AddEventModal", () => {
       target: { value: "2026-09-15" },
     });
 
-    // Submit
     fireEvent.click(screen.getByRole("button", { name: /Guardar/i }));
 
     await waitFor(() => {
       expect(mockOnClose).toHaveBeenCalled();
     });
 
-    // Reabrir modal
     mockOnClose.mockClear();
     rerender(
       <AddEventModal analysisId={analysisId} open={true} onClose={mockOnClose} />
     );
 
-    // Verificar que los campos estén vacíos
     expect(screen.getByLabelText(/Nombre del evento/i)).toHaveValue("");
     expect(screen.getByLabelText(/Fecha \(opcional\)/i)).toHaveValue("");
   });

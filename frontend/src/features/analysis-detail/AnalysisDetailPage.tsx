@@ -122,11 +122,7 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
     const shouldRedirectToCategories = polledStatus === "analyzed" && redirectToCategoriesOnAnalyze;
     setRedirectToCategoriesOnAnalyze(false);
 
-    // Se espera a que termine el refetch del detalle antes de apagar el
-    // polling: si se desmonta el panel de progreso (gateado por
-    // `statusPollingEnabled`) antes de que llegue la data nueva, el usuario ve
-    // un parpadeo (el panel desaparece y, un instante después, el resto de la
-    // página vuelve a moverse cuando el detalle finalmente llega).
+    // Se espera el refetch antes de apagar el polling para evitar el parpadeo de desmontar el panel de progreso antes de que llegue la data nueva.
     void query.refetch().then(() => {
       if (cancelled) {
         return;
@@ -175,9 +171,7 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
     current_version: selectedVersion,
   };
 
-  // Categorías que fase 1 (Preview) todavía no corrió -- se muestran entre
-  // paréntesis en el aviso de "Iniciar análisis de categorías" para que quede
-  // claro que NO es todo el checklist de nuevo, sólo lo que falta.
+  // Categorías que fase 1 todavía no corrió; se listan en el aviso para aclarar que falta solo eso, no todo el checklist.
   const remainingCategoryNames = CATEGORY_ORDER.filter((categoryId) => {
     const category = query.data?.current_version.extracted_data[categoryId];
     return !category || category.extraction_status === "not_analyzed";
@@ -241,7 +235,6 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
   const isResumeTracking = query.data.tracking?.status === "completed";
   const isTrackingActive = query.data.tracking?.status === "active";
 
-  // Tabs configuration
   const tabs: Tab[] = [
     {
       id: "preview",
@@ -310,9 +303,7 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
           onViewSource={(documentId, page, fragment) => {
             setSelectedDocumentId(documentId);
             setSelectedCitation({
-              // `fragment` es el `source_fragment` del evento/plazo (el texto
-              // del pliego del que salió) -- sin esto el PDFViewer navega a
-              // la página pero no tiene qué texto buscar para resaltar.
+              // Sin `fragment` (el `source_fragment` del evento/plazo), el PDFViewer navega a la página pero no tiene qué texto resaltar.
               text: fragment ?? "",
               page,
               document_id: documentId,

@@ -85,7 +85,7 @@ def add_business_days(
         >>> add_business_days(date(2026, 1, 31), 1, "no_especificado", unit="meses")
         datetime.date(2026, 2, 28)
     """
-    # Validación: la cantidad no puede ser negativa (PATCH: infinite loop)
+    # Negative days would loop forever counting hábiles below.
     if days < 0:
         raise ValueError(
             f"days debe ser no-negativo, recibido: {days}. "
@@ -97,42 +97,34 @@ def add_business_days(
             f"unit inválida: '{unit}'. Valores válidos: {sorted(_VALID_UNITS)}"
         )
 
-    # Caso especial: 0 de cualquier unidad retorna la fecha original
     if days == 0:
         return start_date
 
-    # Horas: el Event solo guarda fecha (sin hora), así que se redondea
-    # hacia arriba a días de calendario completos. day_type no aplica.
     if unit == "horas":
         equivalent_days = math.ceil(days / 24)
         return start_date + timedelta(days=equivalent_days)
 
-    # Meses: aritmética calendario pura, day_type no aplica.
     if unit == "meses":
         return _add_months(start_date, days)
 
-    # Años: mismo mecanismo que meses (12 meses por año), day_type no aplica.
+    # "años" no está en la docstring de arriba: se resuelve como meses*12, mismo mecanismo.
     if unit == "años":
         return _add_months(start_date, days * 12)
 
     # unit == "días": el comportamiento de siempre, gobernado por day_type.
 
-    # Validación: day_type no puede ser "no_especificado" (PATCH: mover antes de return early)
+    # Movida antes de los branches de corridos/hábiles -- antes vivía después de un return temprano y podía no ejecutarse.
     if day_type == "no_especificado":
         raise ValueError(
             "No se puede calcular fecha con day_type='no_especificado'. "
             "El tipo de día debe estar explícito en el documento."
         )
 
-    # Cálculo de días corridos
     if day_type == "corridos":
-        # Días corridos = días calendario consecutivos
-        # No excluye fines de semana ni feriados
         return start_date + timedelta(days=days)
 
-    # Cálculo de días hábiles (implementado en story 17-2)
     elif day_type == "hábiles":
-        # Log de limitación (AR4) - PATCH: cambiar a DEBUG para evitar flood
+        # DEBUG (no INFO) para evitar flood de logs; feriados no implementados (AR4).
         logger.debug(
             f"Calculando {days} días hábiles desde {start_date}. "
             "NOTA: Solo excluye fines de semana, feriados NO implementados (AR4)."
@@ -143,14 +135,12 @@ def add_business_days(
 
         while days_added < days:
             current += timedelta(days=1)
-            # Excluir sábado (5) y domingo (6)
-            # weekday(): Lunes=0, Martes=1, ..., Viernes=4, Sábado=5, Domingo=6
-            if current.weekday() < 5:  # Lunes a Viernes
+            # weekday(): Lunes=0..Viernes=4, Sábado=5, Domingo=6 -- excluye fin de semana.
+            if current.weekday() < 5:
                 days_added += 1
 
         return current
 
-    # Valor inválido
     else:
         raise ValueError(
             f"day_type inválido: '{day_type}'. "

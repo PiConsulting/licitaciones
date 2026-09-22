@@ -10,12 +10,29 @@ Convierte lo que el LLM extrae en las ramas `eventos_temporales` y
 (`timeline/calculation_engine.py`) tenga algo para propagar.
 
 Se llama una vez por corrida de extracción, desde
-`analysis/extraction/runner.py::extract_categories`, después de que el grafo
-termina. NO usa LLM para resolver a qué evento se refiere cada
+`analysis/extraction/runner.py::extract_categories` y desde cada reanálisis
+de una sola categoría (`analysis/service/lifecycle.py`), después de que el
+grafo termina. NO usa LLM para resolver a qué evento se refiere cada
 `evento_disparador` -- usa normalización de texto + heurísticas simples
 (ver `_find_matching_event`). Es intencionalmente conservador: nunca pisa un
 evento existente (para no perder una fecha ya cargada por el usuario), y es
 idempotente si se vuelve a llamar con la misma extracción.
+
+BUG real (encontrado 2026-09-18): esa idempotencia solo cubre el caso "misma
+extracción, corrida de nuevo" -- si una corrida posterior extrae hitos DISTINTOS
+(porque se ajustó el prompt, o el LLM no es determinístico), los `Event`/
+`Deadline` de la corrida anterior NUNCA se limpiaban, porque esta función solo
+sabía agregar. Con reanálisis repetidos (algo que pasa en producción, no solo
+en testing) los pliegos golden de este repo acumularon entre 12 y 30 filas
+"fantasma" por pliego, con `created_at` esparcidos en corridas de casi dos
+semanas -- exactamente el síntoma reportado por la usuaria como "se están
+mezclando con versiones anteriores". El bloque de reconciliación al final de
+`materialize_timeline_from_extraction` (`touched_event_ids`) resuelve esto:
+después de procesar la extracción actual, cualquier `Event`/`Deadline`
+preexistente que NO fue tocado por ningún ítem de esta corrida se soft-elimina
+(`deleted=True`), salvo que el usuario ya lo haya confirmado o cargado a mano
+(`status="confirmed"` o `date_source="user_input"`) -- eso sigue siendo
+intocable, igual que antes.
 
 IMPORTANTE: al igual que `timeline/calculation_engine.py`, este módulo NO usa
 LLM ni inventa fechas -- solo texto determinístico y llamadas a
@@ -27,7 +44,7 @@ import difflib
 import logging
 import re
 import unicodedata
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -40,54 +57,23 @@ from timeline.service import TimelineService
 
 logger = logging.getLogger(__name__)
 
-# Umbral de similaridad para el fallback difuso de `_find_matching_event`.
-# Deliberadamente alto -- solo para variantes de redacción cercanas
-# ("12 meses" vs "doce meses"), no para sinónimos o abreviaturas distintas
-# (ese caso, ej. "F.A.D." vs "Aceptación Definitiva", queda documentado como
-# limitación conocida: sin LLM no se puede resolver de forma confiable).
+# Deliberadamente alto: solo variantes de redacción cercanas (ej. "12 meses" vs "doce meses"), no sinónimos/abreviaturas.
 _FUZZY_MATCH_THRESHOLD = 0.82
 
-# Palabras sin valor discriminante para el matching por tokens (tier 3, ver
-# `_token_overlap_ratio`). No es una lista exhaustiva de stopwords del
-# español -- solo las suficientes para que "del", "de la", "para el", etc.
-# no infeccionen la comparación de palabras clave.
+# No es una lista exhaustiva de stopwords del español, solo las suficientes para el tier 3 de _find_matching_event.
 _STOPWORDS = {
     "de", "del", "la", "el", "los", "las", "en", "y", "o", "u", "a", "al",
     "un", "una", "unos", "unas", "para", "por", "con", "su", "sus", "que",
     "cada", "se", "es", "the", "of",
 }
 
-# Largo mínimo para que un token cuente como "significativo" en el
-# matching por tokens -- descarta ruido corto como "n", "nº", etc.
+# Descarta ruido corto como "n"/"nº" del matching por tokens (tier 3).
 _MIN_TOKEN_LEN = 3
 
-# Umbral de superposición de tokens significativos (ver
-# `_token_overlap_ratio`): qué fracción del conjunto más chico tiene que
-# aparecer en el más grande para considerarlo el mismo hito. Ej. "Kick-Off
-# Del Proyecto" (tokens: kick, off, proyecto) vs "Presentación del equipo
-# técnico para kick-off" (contiene kick, off) -> 2/3 no alcanza; hace falta
-# que casi todas las palabras clave del nombre corto estén en el largo.
+# Fracción del conjunto de tokens más chico que debe estar en el más grande para considerarlo el mismo hito.
 _TOKEN_OVERLAP_THRESHOLD = 0.75
 
-# Direcciones válidas del schema (`DireccionTemporal` en
-# `analysis/extraction/schemas.py`). TODAS se materializan -- el motor de
-# cálculo (`timeline/calculation_engine.py`) hoy solo sabe sumar días hacia
-# adelante desde el trigger ("desde"/"después_de"); "antes_de"/"hasta"
-# quedan con el Deadline creado pero sin poder calcularse todavía (marca
-# `calculation_status="error"` con un mensaje claro -- ver
-# `validate_deadline_for_calculation`), en vez de descartar el plazo entero.
-#
-# Antes esto se resolvía saltando la creación completa del Deadline para
-# "antes_de"/"hasta" -- bug real (2026-09-01, pliego Banco de Córdoba): un
-# plazo genuinamente hacia adelante ("Soporte de Migraciones... tomando
-# como fecha inicial el inicio de la tercera etapa") salió con
-# `direccion="hasta"` en una corrida y `"desde"` en otra -- la misma
-# oración, dos direcciones distintas según el LLM. Descartar el plazo
-# entero cuando la dirección no calzaba con el motor actual hacía que la
-# relación completa (a veces real, a veces solo mal etiquetada por el LLM)
-# desapareciera del Timeline sin dejar rastro. Ahora el plazo SIEMPRE queda
-# visible -- calculable o no -- y un humano puede corregir la dirección o
-# cargar la fecha a mano en vez de perder la información.
+# Las 4 direcciones se materializan aunque el motor solo calcule hacia adelante -- descartar el Deadline en vez de dejarlo pendiente perdía el plazo cuando el LLM etiquetaba mal la dirección entre corridas (bug real, Banco de Córdoba).
 _VALID_DIRECTIONS = {"desde", "después_de", "hasta", "antes_de"}
 
 _DIRECTION_CUE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
@@ -198,9 +184,7 @@ def _infer_structural_dependency_direction(
     if any(pattern.search(normalized_fragment) for pattern in _SEQUENCE_RELATION_PATTERNS):
         return "desde"
 
-    # Fallback final: si la extracción ya afirmó una relación temporal entre
-    # dos hitos (target/trigger) pero omitió dirección y duración, persistimos
-    # la dependencia como `desde` con duración 0 para no perder el vínculo.
+    # Fallback final: relación ya afirmada sin dirección/duración se persiste como "desde" duración 0.
     return "desde"
 
 
@@ -209,6 +193,8 @@ class MaterializeResult(BaseModel):
 
     events_created: int = 0
     deadlines_created: int = 0
+    events_pruned: int = 0
+    deadlines_pruned: int = 0
     skipped: list[str] = []
 
 
@@ -358,6 +344,58 @@ def _parse_iso_date(value: str | None) -> date | None:
         return None
 
 
+def _refresh_stale_source(
+    db: Session,
+    event: Event,
+    *,
+    source_document_id: str | None,
+    source_page: int | None,
+    source_fragment: str | None,
+) -> None:
+    """
+    BUG real (Santa Fe, encontrado 2026-09-21): un evento que ya existe
+    (match por nombre) puede venir de una extracción vieja cuya
+    `fuente_pagina`/`fuente_fragmento` ya no corresponde a la extracción
+    actual -- el map-reduce de `eventos_temporales` no es determinístico
+    entre corridas, y el mismo hito puede terminar citando otro chunk/página
+    la próxima vez. Como `_find_or_create_event` nunca creaba un evento
+    nuevo para un nombre que ya existía, la cita quedaba CONGELADA en la
+    primera corrida para siempre: el evento "Retiro de las Muestras de
+    Ofertas No Adjudicadas" tenía `source_page=12` desde 2026-09-14 pese a
+    13 reanálisis posteriores, cuando la cita real siempre estuvo en la
+    página 11 -- el botón "ver fuente" del Timeline navegaba a la página
+    equivocada y el highlight nunca encontraba el texto ahí.
+
+    Se refresca siempre que el evento no esté protegido -- misma protección
+    que la reconciliación de soft-delete de este módulo (`status="confirmed"`
+    o `date_source="user_input"` quedan intocables, porque ahí ya hay una
+    decisión humana de por medio). El resto de los campos (`event_date`,
+    `date_source`, `name`) sigue sin tocarse acá, a propósito.
+    """
+    if event.status == "confirmed" or event.date_source == "user_input":
+        return
+
+    trimmed_fragment = source_fragment[:500] if source_fragment else None
+    changed = (
+        bool(source_document_id) and event.source_document_id != source_document_id
+    ) or (
+        source_page is not None and event.source_page != source_page
+    ) or (
+        bool(trimmed_fragment) and event.source_fragment != trimmed_fragment
+    )
+    if not changed:
+        return
+
+    if source_document_id:
+        event.source_document_id = source_document_id
+    if source_page is not None:
+        event.source_page = source_page
+    if trimmed_fragment:
+        event.source_fragment = trimmed_fragment
+    event.updated_at = datetime.now(UTC)
+    repository.update_event(db, event)
+
+
 def _find_or_create_event(
     db: Session,
     analysis_id: str,
@@ -374,10 +412,13 @@ def _find_or_create_event(
 ) -> Event:
     """
     Busca `name` en `index` (eventos ya existentes + creados en esta
-    corrida). Si hay match, lo devuelve TAL CUAL -- nunca pisa
-    `event_date`/`date_source` de un evento existente, para no perder una
-    fecha ya cargada por el usuario, y para que la función sea idempotente
-    si se vuelve a llamar con la misma extracción.
+    corrida). Si hay match, nunca pisa `event_date`/`date_source` de un
+    evento existente, para no perder una fecha ya cargada por el usuario --
+    pero SÍ refresca `source_document_id`/`source_page`/`source_fragment` si
+    la extracción actual trae una cita distinta (ver `_refresh_stale_source`)
+    salvo que el evento ya esté confirmado o con fecha manual. La función
+    sigue siendo idempotente si se vuelve a llamar con la misma extracción
+    (no hay cambio real, `_refresh_stale_source` no escribe nada).
 
     `fuzzy_candidates` (default: `index`) es el subconjunto contra el que
     se permite matchear por substring/tokens/difflib (tiers 2-4 de
@@ -401,6 +442,13 @@ def _find_or_create_event(
     """
     match = _find_matching_event(name, index, fuzzy_candidates=fuzzy_candidates)
     if match is not None:
+        _refresh_stale_source(
+            db,
+            match,
+            source_document_id=source_document_id,
+            source_page=source_page,
+            source_fragment=source_fragment,
+        )
         return match
 
     parsed_date = _parse_iso_date(fecha_explicita)
@@ -464,19 +512,14 @@ def materialize_timeline_from_extraction(
     """
     result = MaterializeResult()
 
-    # `pre_existing` es la FOTO de la base antes de tocar nada -- se pasa
-    # como `fuzzy_candidates` a cada `_find_or_create_event` para que el
-    # matching por substring/tokens/difflib (tiers 2-4) solo reconcilie
-    # contra corridas anteriores, nunca contra un evento recién creado más
-    # temprano en este mismo `for`. `index` sí sigue creciendo con cada
-    # evento nuevo -- el match EXACTO (tier 1) necesita verlos, porque un
-    # `evento_disparador`/`descripcion` que reutiliza el `nombre` de otro
-    # ítem de la misma extracción es justamente cómo el LLM señala "esto es
-    # el mismo hito" (regla 2 del prompt). Ver docstring de
-    # `_find_matching_event` para el bug real que esto corrige.
+    # Foto de la base antes de tocar nada: los tiers 2-4 de matching solo reconcilian contra corridas anteriores, nunca contra un evento creado en este mismo `for`.
     pre_existing: list[Event] = list(repository.list_events(db, analysis_id))
     index: list[Event] = list(pre_existing)
     existing_deadlines: list[Deadline] = list(repository.list_deadlines(db, analysis_id))
+    pre_existing_deadlines: list[Deadline] = list(existing_deadlines)
+
+    # Eventos que esta corrida usó (creados o reconciliados); consumido por la reconciliación al final.
+    touched_event_ids: set[str] = set()
 
     logger.info(
         "timeline_materialization_started",
@@ -494,7 +537,7 @@ def materialize_timeline_from_extraction(
         nombre = str(item.get("nombre") or "").strip()
         if not nombre:
             continue
-        _find_or_create_event(
+        event = _find_or_create_event(
             db,
             analysis_id,
             nombre,
@@ -507,6 +550,7 @@ def materialize_timeline_from_extraction(
             result=result,
             mencion_propia=bool(item.get("mencion_propia", True)),
         )
+        touched_event_ids.add(event.event_id)
 
     # 2. Plazos relativos: target + trigger + el Deadline que los conecta.
     triggers_with_date: set[str] = set()
@@ -535,11 +579,7 @@ def materialize_timeline_from_extraction(
                 item=item,
             )
         if direccion not in _VALID_DIRECTIONS:
-            # Acá sí se descarta -- pero solo porque no sabemos la dirección
-            # en absoluto (None, vacío, o un valor que no es ninguno de los
-            # 4 que define el schema), no porque el motor no la calcule
-            # todavía. Ese caso (direccion="hasta"/"antes_de") se persiste
-            # igual más abajo -- ver comentario de `_VALID_DIRECTIONS`.
+            # Se descarta solo porque la dirección es desconocida, no porque el motor no la calcule (ver _VALID_DIRECTIONS).
             result.skipped.append(
                 f"'{descripcion}': dirección '{direccion}' desconocida o ausente -- "
                 "no se puede crear el plazo sin saber la relación temporal con el "
@@ -572,13 +612,11 @@ def materialize_timeline_from_extraction(
             source_page=source_page,
             source_fragment=source_fragment,
             result=result,
-            # Si llegamos hasta acá SIN match, es porque el disparador no
-            # estaba entre los eventos_temporales ya procesados en el paso 1
-            # (el LLM no siguió la regla 2 de crearle su propio ítem) -- se
-            # crea igual para no perder el plazo, pero honestamente no hay
-            # ninguna mención propia conocida de este hito en el pliego.
+            # Sin match acá: el LLM no le dio su propio ítem en eventos_temporales; se crea igual sin mención propia conocida.
             mencion_propia=False,
         )
+        touched_event_ids.add(target.event_id)
+        touched_event_ids.add(trigger.event_id)
 
         if trigger.event_id == target.event_id:
             result.skipped.append(
@@ -623,9 +661,33 @@ def materialize_timeline_from_extraction(
         existing_deadlines.append(created_deadline)
         result.deadlines_created += 1
 
-    # 3. Si algún disparador ya tiene fecha (propia, o cargada en una corrida
-    # anterior), correr la cascada ahora en vez de esperar a que el usuario
-    # toque algo -- mismo motor que usa el frontend al guardar una fecha.
+    # 3. Reconciliación: lo no vuelto a mencionar se soft-elimina (salvo confirmado/user_input) para que el reanálisis no solo acumule filas (bug real, ver docstring del módulo).
+    stale_event_ids: set[str] = set()
+    for event in pre_existing:
+        if event.event_id in touched_event_ids:
+            continue
+        if event.status == "confirmed" or event.date_source == "user_input":
+            continue
+        pruned_event = event.model_copy(
+            update={"deleted": True, "updated_at": datetime.now(UTC)}
+        )
+        repository.update_event(db, pruned_event)
+        stale_event_ids.add(event.event_id)
+        result.events_pruned += 1
+
+    if stale_event_ids:
+        for deadline in pre_existing_deadlines:
+            if (
+                deadline.trigger_event_id in stale_event_ids
+                or deadline.target_event_id in stale_event_ids
+            ):
+                pruned_deadline = deadline.model_copy(
+                    update={"deleted": True, "updated_at": datetime.now(UTC)}
+                )
+                repository.update_deadline(db, pruned_deadline)
+                result.deadlines_pruned += 1
+
+    # 4. Corre la cascada ahora para triggers con fecha, en vez de esperar una acción del usuario.
     if triggers_with_date:
         service = TimelineService(db)
         for trigger_event_id in triggers_with_date:
@@ -641,6 +703,8 @@ def materialize_timeline_from_extraction(
             "analysis_id": analysis_id,
             "events_created": result.events_created,
             "deadlines_created": result.deadlines_created,
+            "events_pruned": result.events_pruned,
+            "deadlines_pruned": result.deadlines_pruned,
             "skipped_count": len(result.skipped),
         },
     )

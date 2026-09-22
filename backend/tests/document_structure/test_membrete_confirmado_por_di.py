@@ -54,9 +54,7 @@ def _markdown_con_membrete_inconsistente() -> str:
     return "\n\n".join(partes)
 
 
-# ---------------------------------------------------------------------------
 # `_collect_page_header_footer_texts` / `is_confirmed_page_furniture`
-# ---------------------------------------------------------------------------
 
 
 def test_collect_page_header_footer_texts_junta_el_texto_normalizado() -> None:
@@ -100,9 +98,7 @@ def test_heading_sin_pageheader_previo_no_se_marca() -> None:
     assert "is_confirmed_page_furniture" not in headings[0]
 
 
-# ---------------------------------------------------------------------------
 # `_detect_repeated_heading_boilerplate`: la señal confirmada no depende de frecuencia
-# ---------------------------------------------------------------------------
 
 
 def test_heading_confirmado_se_descarta_aunque_aparezca_una_sola_vez() -> None:
@@ -138,9 +134,7 @@ def test_heading_repetido_de_verdad_sigue_funcionando_sin_la_señal_confirmada()
     assert membrete_rosario in boilerplate
 
 
-# ---------------------------------------------------------------------------
 # Pipeline completo: el membrete no queda como heading_path de ningún chunk
-# ---------------------------------------------------------------------------
 
 
 def test_pipeline_completo_descarta_el_membrete_inconsistente() -> None:
@@ -158,9 +152,7 @@ def test_pipeline_completo_descarta_el_membrete_inconsistente() -> None:
         assert chunk["content"].strip() != MEMBRETE
 
 
-# ---------------------------------------------------------------------------
 # `_drop_page_counters`
-# ---------------------------------------------------------------------------
 
 
 def test_hoja_n_de_m_se_descarta_sin_importar_el_numero() -> None:

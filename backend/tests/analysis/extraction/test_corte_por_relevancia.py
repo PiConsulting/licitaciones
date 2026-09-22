@@ -50,9 +50,7 @@ def _cola_larga(cantidad: int = 30) -> list[dict[str, Any]]:
     return fuertes + debiles
 
 
-# ---------------------------------------------------------------------------
 # El caso del hallazgo
-# ---------------------------------------------------------------------------
 
 
 def test_la_cola_irrelevante_no_llega_al_prompt() -> None:
@@ -75,9 +73,7 @@ def test_el_orden_de_relevancia_se_conserva() -> None:
     assert [c["id"] for c in resultado] == [f"chunk-{i}" for i in range(_RELEVANCE_MIN_CHUNKS)]
 
 
-# ---------------------------------------------------------------------------
 # Guardas: el piso
-# ---------------------------------------------------------------------------
 
 
 def test_nunca_se_baja_del_piso_de_chunks() -> None:

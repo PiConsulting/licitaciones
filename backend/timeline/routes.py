@@ -53,7 +53,6 @@ def get_timeline_events(
         include_hidden=include_hidden,
     )
 
-    # Mapeo manual a formato que espera frontend
     return [
         {
             "id": event.id,
@@ -102,7 +101,6 @@ def get_timeline_deadlines(
     service = TimelineService(db)
     deadlines = service.list_deadlines(analysis_id, current_user.id, include_deleted=include_deleted)
 
-    # Mapeo manual a formato que espera frontend
     return [
         {
             "id": deadline.id,
@@ -151,7 +149,6 @@ def create_timeline_event(
     current_user = get_current_user(credentials, None)
     service = TimelineService(db)
 
-    # Construir modelo de dominio Event
     event = Event(
         partition_key=analysis_id,
         analysis_id=analysis_id,
@@ -165,10 +162,8 @@ def create_timeline_event(
         source_reference=event_data.source_reference,
     )
 
-    # Persistir
     created_event = service.create_event(event, current_user.id)
 
-    # Mapeo a formato que espera frontend
     return {
         "id": created_event.id,
         "event_id": created_event.event_id,
@@ -215,7 +210,6 @@ def update_timeline_event(
     current_user = get_current_user(credentials, None)
     service = TimelineService(db)
 
-    # Obtener evento existente
     existing_event = service.get_event(event_id, analysis_id, current_user.id)
     if not existing_event:
         raise HTTPException(
@@ -223,7 +217,6 @@ def update_timeline_event(
             detail=f"Evento {event_id} no encontrado"
         )
 
-    # Actualizar campos proporcionados
     if event_data.name is not None:
         existing_event.name = event_data.name
     if event_data.event_date is not None:
@@ -241,10 +234,8 @@ def update_timeline_event(
     if event_data.source_reference is not None:
         existing_event.source_reference = event_data.source_reference
 
-    # Persistir actualización
     updated_event = service.update_event(existing_event, current_user.id)
 
-    # Mapeo a formato que espera frontend
     return {
         "id": updated_event.id,
         "event_id": updated_event.event_id,
@@ -355,7 +346,6 @@ def recalculate_event_dependents(
     current_user = get_current_user(credentials, None)
     service = TimelineService(db)
 
-    # Ejecutar recálculo en cascada
     result = recalculate_dependent_dates(
         service=service,
         analysis_id=analysis_id,
@@ -363,7 +353,6 @@ def recalculate_event_dependents(
         user_id=current_user.id
     )
 
-    # F5 fix: Return 207 Multi-Status if there are partial errors
     from fastapi.responses import JSONResponse
     
     response_data = {
@@ -405,7 +394,6 @@ def delete_timeline_event(
     current_user = get_current_user(credentials, None)
     service = TimelineService(db)
 
-    # Ejecutar soft-delete
     success = service.delete_event(
         event_id=event_id,
         analysis_id=analysis_id,

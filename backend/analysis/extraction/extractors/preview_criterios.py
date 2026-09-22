@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 import unicodedata
 from typing import Any
@@ -8,25 +7,13 @@ from typing import Any
 import structlog
 
 from analysis.extraction.engine.base import run_extractor
-from analysis.extraction.engine.llm_client import _call_llm
 from analysis.extraction.engine.normalization import _aggregate_status
 from analysis.extraction.schemas import TipoCriterioPreview
 from analysis.extraction.state import GraphState
 
 logger = structlog.get_logger(__name__)
 
-# FIX (2026-09-03, pedido de reducir redundancia entre preview y categorias):
-# de los 10 criterios de preview, 5 se solapaban con categorias que ya tienen
-# su propio extractor completo (garantias, plazos_clave, requisitos_admisibilidad,
-# riesgos) -- volver a preguntarselos al LLM con un query genérico diluido
-# producía peor recall que la categoria dedicada Y corría el riesgo de que
-# preview dijera algo distinto de lo que decía la categoria completa para el
-# mismo hecho. Ahora esos 5 se PROYECTAN desde los resultados ya calculados
-# de esas categorias (que corren antes en el mismo grafo de fase 1 -- ver
-# `analysis/extraction/graph/nodes.py`), sin volver a llamar al LLM ni a
-# retrieval. El LLM de esta categoria solo cubre lo que ninguna categoria
-# extrae hoy: forma de pago, moneda, tipo de cambio, anticipo financiero y
-# responsabilidad por costos logísticos.
+# 5 de los 10 criterios se PROYECTAN desde categorías ya extraídas (fase 1, no se re-preguntan al LLM); el LLM de esta categoría solo cubre lo que ninguna otra extrae.
 _QUERY = (
     "Extraer condiciones comerciales rápidas de decisión que no estén "
     "cubiertas por otras categorías: forma de pago, moneda de cotización, "
@@ -51,6 +38,12 @@ def _not_found_item(tipo: str) -> dict:
         "source_references": [],
         "extraction_status": "not_found",
     }
+
+
+# `tipo` es una instancia viva del enum en la misma corrida (no string); `str(enum)` da "Clase.X", no el value -- por esto las guardias de contenido no disparaban. Mismo bug espejado en synthesis.py::_tipo_value.
+def _tipo_value(raw_tipo: Any) -> str:
+    value = getattr(raw_tipo, "value", raw_tipo)
+    return str(value or "").strip()
 
 
 def _normalize(text: str | None) -> str:
@@ -92,7 +85,7 @@ def _project_item(source_item: dict, tipo: str, *, valor: str | None = None, sou
 _MERGE_MATCHES_MAX_ITEMS = 3
 
 
-def _merge_matches(matches: list[dict], tipo: str) -> dict:
+def _merge_matches(matches: list[dict], tipo: str, *, separator: str = "; ", max_items: int | None = None) -> dict:
     """Combina varios items de la categoría fuente que matchean el mismo
     criterio de preview en uno solo (valor concatenado, fuentes unidas), en
     vez de perder información quedándose solo con el primero.
@@ -111,11 +104,12 @@ def _merge_matches(matches: list[dict], tipo: str) -> dict:
     quedaron afuera -- el dato completo sigue disponible en
     requisitos_admisibilidad/riesgos, esta categoría solo resume."""
     ordered = sorted(matches, key=lambda item: item.get("confidence", 0.0) or 0.0, reverse=True)
-    kept = ordered[:_MERGE_MATCHES_MAX_ITEMS]
+    limit = max_items if max_items is not None else _MERGE_MATCHES_MAX_ITEMS
+    kept = ordered[:limit]
     omitted = len(ordered) - len(kept)
 
     valores = [m.get("valor") for m in kept if m.get("valor")]
-    valor = "; ".join(dict.fromkeys(valores))
+    valor = separator.join(dict.fromkeys(valores))
     if omitted > 0:
         valor = f"{valor} (+{omitted} más, ver detalle completo en la categoría correspondiente)"
 
@@ -133,32 +127,18 @@ def _project_garantias_cauciones(garantias: list[dict]) -> list[dict]:
     return [_project_item(best, "garantias_cauciones")]
 
 
-# Heurística de texto libre: `referencia`/`texto_original` de PlazoItem no
-# tienen taxonomía cerrada (ver docstring de PlazoItem en schemas.py), así
-# que el match es por palabras clave. Puede no encontrar nada en pliegos con
-# redacción muy distinta -- si no hay match, el criterio se emite igual como
-# item "not_found" (no se inventa un valor, pero tampoco se omite el tipo).
+# Heurística de palabras clave sobre texto libre (PlazoItem no tiene taxonomía cerrada); sin match cae a "not_found".
+# Incluye "ejecución"/"realización" de obra, no solo "entrega": pliegos de obra/servicios describen el mismo concepto sin la palabra "entrega" (bug real: Nucleoeléctrica).
 _ENTREGA_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bplazo\s+de\s+entrega\b"),
     re.compile(r"\bentrega\s+(?:del?|de\s+las?)\s+(?:equipamiento|bienes|servicios|insumos|mercaderia)s?\b"),
     re.compile(r"\bentrega\s+total\b"),
     re.compile(r"\b(?:plazo|termino)\s+de\s+provision\b"),
+    re.compile(r"\b(?:plazo|termino)\s+de\s+ejecucion\b"),
+    re.compile(r"\bejecucion\s+(?:completa\s+)?de\s+(?:la\s+obra|los\s+trabajos|el\s+contrato|la\s+prestacion)\b"),
+    re.compile(r"\brealizacion\s+de\s+la\s+obra\b"),
 )
-# FIX (2026-09-03, bug reportado: "Mantenimiento de oferta" en un pliego real
-# quedaba como not_found en preview pese a estar bien extraído en
-# plazos_clave): `las?` NO es "artículo opcional" -- es "la palabra 'la', con
-# la 's' final opcional", así que el patrón viejo exigía literalmente la
-# palabra "la"/"las" entre "de" y "oferta". Pliegos que titulan el ítem sin
-# artículo ("Mantenimiento de oferta") o que solo lo mencionan con el verbo
-# ("los oferentes deberán mantener sus propuestas por el plazo de...", que
-# ademas usa "propuestas" en vez de "ofertas") no matcheaban con nada. Se
-# amplía a: artículo opcional real (grupo `(?:la\s+|las\s+)?`, no `las?`),
-# "propuesta(s)" como sinónimo de "oferta(s)", y la forma verbal "mantener
-# (sus/su/la/las) oferta(s)/propuesta(s)". Sigue siendo una heurística de
-# texto libre (no reemplaza una clasificación semántica real -- ver plan de
-# fixes de RAG), así que puede seguir sin matchear redacciones muy distintas;
-# si eso vuelve a pasar, la solución de fondo es la Fase 3.2 del plan
-# (clasificación LLM sobre los ítems ya extraídos), no otro patrón más acá.
+# FIX 2026-09-03: `las?` exigía literalmente "la"/"las"; ahora cubre artículo opcional real, "propuesta(s)" como sinónimo, y la forma verbal "mantener oferta/propuesta". Heurística de texto libre, no clasificación semántica.
 _MANTENIMIENTO_OFERTA_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bmantenimiento\s+de\s+(?:la\s+|las\s+)?ofertas?\b"),
     re.compile(r"\bmantenimiento\s+de\s+(?:la\s+|las\s+)?propuestas?\b"),
@@ -168,17 +148,7 @@ _MANTENIMIENTO_OFERTA_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 
-# FIX (2026-09-16, bug reportado: preview mostraba "Plazo de mantenimiento de
-# las ofertas." sin ningún número, mientras plazos_clave SÍ tenía "Plazo de
-# Mantenimiento de la Oferta: 30 días corridos..." -- caso real: santa_fe,
-# análisis multi-documento donde el pliego MARCO solo nombra el concepto
-# ("Plazo de mantenimiento de las ofertas.") y el pliego PARTICULAR trae el
-# número real. `mantenimiento_matches[0]`/`entrega_matches[0]` tomaba el
-# primer match en el orden en que aparece en `plazos` -- que no tiene por qué
-# ser el más completo. El fix es genérico (no depende de qué pliego/documento
-# sea "el marco"): entre los matches, preferir el/los que tengan una duración
-# concreta (un número + día/mes/año, o `expresion_relativa` ya estructurada)
-# sobre uno que solo menciona el concepto sin cifra.
+# FIX 2026-09-16 (Santa Fe, multi-documento): tomar el primer match perdía el que tenía cifra real cuando el pliego marco solo nombraba el concepto sin número; ahora se prefiere el match con duración concreta.
 _DURATION_PATTERN = re.compile(r"\d+\s*\(?[a-z]*\)?\s*(?:dias?|meses|mes|anos?|horas?)\b")
 
 
@@ -268,18 +238,10 @@ def _project_plazos_clave(plazos: list[dict]) -> list[dict]:
     return projected
 
 
-# Camino primario: el extractor de `requisitos_admisibilidad` ahora auto-etiqueta
-# los ítems con `tipo` = `certificacion` / `requisito_tecnico_excluyente` (ver
-# schemas.py::TipoRequisito y el prompt). Se filtra por ese tag, que es un juicio
-# del LLM sobre el fragmento real -- más confiable que adivinar por vocabulario.
+# Camino primario: filtra por el tag que el LLM ya asigna (más confiable que adivinar por vocabulario).
 _TECNICO_EXCLUYENTE_TIPOS = {"certificacion", "requisito_tecnico_excluyente"}
 
-# Fallback por palabras clave sobre el `valor`, solo si no hay ningún ítem
-# etiquetado (pliego analizado antes de este cambio, o el LLM no taggeó). No
-# reemplaza un juicio experto -- puede dejar afuera requisitos técnicos con
-# vocabulario que no matchea (ej. "compatibilidad GNU/Linux"), o incluir alguno
-# límite. Pensado para dar una señal rápida en preview, no como sustituto de la
-# categoría completa (`requisitos_admisibilidad`), que tiene el detalle completo.
+# Fallback por keywords solo si ningún ítem viene etiquetado (pliego pre-cambio); señal rápida, no sustituye la categoría completa.
 _TECNICO_EXCLUYENTE_KEYWORDS = [
     "iso", "certificacion", "certificado", "partner", "membresia",
     "vmware", "microsoft", "broadcom", "tecnico", "tecnica", "seguridad",
@@ -287,8 +249,11 @@ _TECNICO_EXCLUYENTE_KEYWORDS = [
 ]
 
 
+_REQUISITOS_TECNICOS_MAX_ITEMS = 8
+
+
 def _project_requisitos_tecnicos(requisitos: list[dict]) -> list[dict]:
-    tagged = [r for r in requisitos if str(r.get("tipo") or "") in _TECNICO_EXCLUYENTE_TIPOS]
+    tagged = [r for r in requisitos if _tipo_value(r.get("tipo")) in _TECNICO_EXCLUYENTE_TIPOS]
     matches = tagged or [
         r for r in requisitos
         if (r.get("metadata") or {}).get("obligatorio") == "si"
@@ -296,225 +261,94 @@ def _project_requisitos_tecnicos(requisitos: list[dict]) -> list[dict]:
     ]
     if not matches:
         return [_not_found_item("requisitos_tecnicos_excluyentes")]
-    return [_merge_matches(matches, "requisitos_tecnicos_excluyentes")]
+    # Separador "\n" (no "; "): el frontend renderiza `valor` multilínea como lista de items.
+    return [_merge_matches(matches, "requisitos_tecnicos_excluyentes", separator="\n", max_items=_REQUISITOS_TECNICOS_MAX_ITEMS)]
 
 
-# Riesgos financieros/operativos que mencionan multas o penalidades -- mismo
-# tipo de heurística por palabras clave que las anteriores.
-_MULTAS_KEYWORDS = ["multa", "penalidad", "penaliza"]
-
-
-def _project_multas_penalidades(riesgos: list[dict]) -> list[dict]:
-    matches = [r for r in riesgos if _has_any(r.get("valor"), _MULTAS_KEYWORDS)]
-    if not matches:
-        return [_not_found_item("multas_penalidades")]
-    return [_merge_matches(matches, "multas_penalidades")]
-
-
-_MONEDA_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\b(?:usd|u\$s|ars|dolares?|dolares?\s+estadounidenses?)\b"),
-    re.compile(r"\bmoneda\s+de\s+cotizacion\b"),
-    re.compile(r"\bcotizar(?:se|an|a)?\s+en\s+"),
+# Guardia determinística (bug real: Bancor mostraba "llave en mano" como responsabilidad de costos): si el valor es solo la modalidad de contratación, buscar en las citas una frase que sí diga quién paga.
+_MODALIDAD_MENTION_RE = re.compile(
+    r"llave\s+en\s+mano|provisi[oó]n\s+(?:e\s+instalaci[oó]n\s+)?integral",
+    re.IGNORECASE,
 )
-_TIPO_CAMBIO_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\btipo\s+de\s+cambio\b"),
-    re.compile(r"\bcotizacion\s+del\s+dolar\b"),
-)
-_FORMA_PAGO_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\bforma\s+de\s+pago\b"),
-    re.compile(r"\bcontra\s+entrega\b"),
-    re.compile(r"\bpago\s+a\s+\d+"),
-    re.compile(r"\bfactura(?:s)?\b"),
-)
-_ANTICIPO_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\banticipo\b"),
-    re.compile(r"\badelanto\s+financiero\b"),
-)
-_COSTOS_LOGISTICOS_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\bcostos?\s+logisticos?\b"),
-    re.compile(r"\btransporte\b"),
-    re.compile(r"\bdesembalaje\b"),
-    re.compile(r"\bflete\b"),
-    re.compile(r"\bseguros?\b"),
-    re.compile(r"\b(?:a\s+cargo\s+del\s+proveedor|por\s+cuenta\s+del\s+proveedor)\b"),
-    re.compile(r"\bjaula\s+interior\b"),
-)
-
-_PREVIEW_RIESGO_TYPES: tuple[str, ...] = (
-    "forma_pago",
-    "moneda",
-    "tipo_cambio",
-    "anticipo_financiero",
-    "responsabilidad_costos_logisticos",
+_COSTO_RESPONSABLE_SNIPPET_RE = re.compile(
+    r"(?:a\s+cargo\s+(?:del|de\s+la)|por\s+cuenta\s+(?:del|de\s+la))\s+"
+    r"(?:proveedor|oferente|adjudicatario|contratista)[^.;\n]{0,80}"
+    r"|(?:el|la)\s+(?:proveedor|oferente|adjudicatario|contratista)\s+"
+    r"(?:asumir[aá]|asume|deber[aá]\s+asumir|correr[aá]\s+con)[^.;\n]{0,80}",
+    re.IGNORECASE,
 )
 
 
-def _item_text_with_citations(item: dict) -> str:
-    parts = [str(item.get("valor") or "")]
+# Guardia de contenido (Santa Fe): `moneda` debe nombrar una moneda concreta o cae a not_found; NO acepta "moneda nacional/extranjera" (frases genéricas de cláusulas de ajuste cambiario, no un nombre real).
+_MONEDA_NOMBRE_RE = re.compile(
+    r"\b(?:pesos?(?:\s+argentinos?)?|d[oó]lares?(?:\s+estadounidenses?)?|usd|u\$s|ars)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_currency_name(valor: str | None) -> bool:
+    return bool(valor) and bool(_MONEDA_NOMBRE_RE.search(str(valor)))
+
+
+def _currency_name_snippet(item: dict) -> str | None:
     for ref in item.get("source_references") or []:
-        parts.append(str(ref.get("citation") or ""))
-    return " ".join(parts)
+        text = str(ref.get("citation_llm") or ref.get("citation") or "")
+        match = _MONEDA_NOMBRE_RE.search(text)
+        if match:
+            start = max(0, match.start() - 40)
+            end = min(len(text), match.end() + 40)
+            return text[start:end].strip()
+    return None
 
 
-def _regex_matches_for_preview_types(riesgos: list[dict]) -> dict[str, list[dict]]:
-    if not riesgos:
-        return {tipo: [] for tipo in _PREVIEW_RIESGO_TYPES}
-
-    def _matches(patterns: tuple[re.Pattern[str], ...]) -> list[dict]:
-        return [
-            item
-            for item in riesgos
-            if _has_pattern(_item_text_with_citations(item), patterns)
-        ]
-
-    mapping: tuple[tuple[str, tuple[re.Pattern[str], ...]], ...] = (
-        ("forma_pago", _FORMA_PAGO_PATTERNS),
-        ("moneda", _MONEDA_PATTERNS),
-        ("tipo_cambio", _TIPO_CAMBIO_PATTERNS),
-        ("anticipo_financiero", _ANTICIPO_PATTERNS),
-        ("responsabilidad_costos_logisticos", _COSTOS_LOGISTICOS_PATTERNS),
+def _is_modalidad_only(valor: str | None) -> bool:
+    """True si el valor menciona la MODALIDAD de contratación (llave en mano/
+    provisión integral) pero no aporta ya, en el mismo texto, quién asume los
+    costos puntuales -- señal de que el valor describe el ALCANCE general, no
+    la responsabilidad de costos que pide este criterio de preview."""
+    if not valor:
+        return False
+    text = str(valor)
+    return bool(_MODALIDAD_MENTION_RE.search(text)) and not bool(
+        _COSTO_RESPONSABLE_SNIPPET_RE.search(text)
     )
-    return {tipo: _matches(patterns) for tipo, patterns in mapping}
 
 
-def _normalize_preview_type_label(label: str) -> str | None:
-    normalized = _normalize(label).replace("-", "_").replace(" ", "_")
-    aliases = {
-        "forma_pago": "forma_pago",
-        "moneda": "moneda",
-        "tipo_cambio": "tipo_cambio",
-        "anticipo": "anticipo_financiero",
-        "anticipo_financiero": "anticipo_financiero",
-        "costos_logisticos": "responsabilidad_costos_logisticos",
-        "responsabilidad_costos_logisticos": "responsabilidad_costos_logisticos",
-    }
-    return aliases.get(normalized)
+def _cost_responsibility_snippet(item: dict) -> str | None:
+    for ref in item.get("source_references") or []:
+        text = str(ref.get("citation_llm") or ref.get("citation") or "")
+        match = _COSTO_RESPONSABLE_SNIPPET_RE.search(text)
+        if match:
+            return match.group(0).strip()
+    return None
 
 
-def _dedupe_matches(items: list[dict]) -> list[dict]:
-    unique: list[dict] = []
-    seen: set[tuple[str, str]] = set()
+def _apply_content_guards(items: list[dict]) -> list[dict]:
+    """Guardias de contenido determinísticas para `forma_pago`/`moneda`/
+    `responsabilidad_costos_logisticos`, aplicadas al resultado final sin
+    importar si el item vino de la extracción directa de `preview_criterios.txt`
+    o del fallback de `riesgos` -- ambas fuentes pueden, de forma no
+    determinística, devolver un `valor` que describe la MODALIDAD de
+    contratación en vez de responder la pregunta puntual del criterio."""
+    result = []
     for item in items:
-        citation_text = " ".join(
-            str(ref.get("citation") or "") for ref in item.get("source_references") or []
-        )
-        signature = (str(item.get("valor") or ""), citation_text)
-        if signature in seen:
-            continue
-        seen.add(signature)
-        unique.append(item)
-    return unique
-
-
-def _classify_preview_fields_via_llm(
-    riesgos: list[dict], *, correlation_id: str
-) -> dict[str, list[dict]] | None:
-    if not riesgos:
-        return {tipo: [] for tipo in _PREVIEW_RIESGO_TYPES}
-
-    payload = [
-        {
-            "index": idx,
-            "texto": _item_text_with_citations(item)[:1800],
-        }
-        for idx, item in enumerate(riesgos)
-    ]
-
-    messages = [
-        (
-            "system",
-            "Clasificas evidencias de riesgos en etiquetas de preview_criterios. "
-            "Devuelve solo JSON válido con key 'classifications'.",
-        ),
-        (
-            "human",
-            (
-                "Para cada item, devuelve una lista multi-etiqueta en 'tipos' usando "
-                "solo: forma_pago, moneda, tipo_cambio, anticipo_financiero, "
-                "responsabilidad_costos_logisticos. Si no aplica, devuelve lista vacía. "
-                "Formato: {'classifications':[{'index':0,'tipos':['moneda']}, ...]}. "
-                f"Items: {json.dumps(payload, ensure_ascii=False)}"
-            ),
-        ),
-    ]
-
-    try:
-        parsed, _usage = _call_llm(messages, correlation_id=f"{correlation_id}-preview-projection")
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "preview_projection_llm_failed_fallback_to_regex",
-            correlation_id=correlation_id,
-            error=str(exc)[:200],
-            candidates=len(riesgos),
-        )
-        return None
-
-    matches: dict[str, list[dict]] = {tipo: [] for tipo in _PREVIEW_RIESGO_TYPES}
-    rows = parsed.get("classifications") or []
-    if not isinstance(rows, list):
-        rows = []
-
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        raw_index = row.get("index")
-        if not isinstance(raw_index, int) or raw_index < 0 or raw_index >= len(riesgos):
-            continue
-        tipos = row.get("tipos") or []
-        if not isinstance(tipos, list):
-            continue
-        for raw_tipo in tipos:
-            if not isinstance(raw_tipo, str):
-                continue
-            normalized_tipo = _normalize_preview_type_label(raw_tipo)
-            if normalized_tipo is None:
-                continue
-            matches[normalized_tipo].append(riesgos[raw_index])
-
-    logger.info(
-        "preview_projection_llm_applied",
-        correlation_id=correlation_id,
-        candidates=len(riesgos),
-        matched_types=sum(1 for tipo in _PREVIEW_RIESGO_TYPES if matches[tipo]),
-    )
-    return matches
-
-
-def _project_preview_llm_fields_from_riesgos(
-    riesgos: list[dict], *, correlation_id: str | None = None
-) -> list[dict]:
-    """Fallback de preview para criterios comerciales/logísticos.
-
-    Si la evidencia ya aparece en `riesgos`, se proyecta al criterio preview
-    correspondiente para evitar depender únicamente de un llamado LLM diluido
-    sobre 5 tipos en simultáneo.
-    """
-    regex_matches = _regex_matches_for_preview_types(riesgos)
-    llm_matches = _classify_preview_fields_via_llm(
-        riesgos,
-        correlation_id=correlation_id or "preview_criterios",
-    )
-
-    projections: list[dict] = []
-    for tipo in _PREVIEW_RIESGO_TYPES:
-        merged = list(regex_matches[tipo])
-        if llm_matches is not None:
-            merged.extend(llm_matches.get(tipo, []))
-        merged = _dedupe_matches(merged)
-
-        if not merged:
-            item = _not_found_item(tipo)
-        else:
-            item = _merge_matches(merged, tipo)
-
-        metadata = dict(item.get("metadata") or {})
-        metadata["_projection_source"] = (
-            "llm_union_regex" if llm_matches is not None else "regex_fallback"
-        )
-        item["metadata"] = metadata
-        projections.append(item)
-
-    return projections
+        tipo = _tipo_value(item.get("tipo"))
+        if tipo == "responsabilidad_costos_logisticos" and _is_modalidad_only(item.get("valor")):
+            snippet = _cost_responsibility_snippet(item)
+            if snippet:
+                item = dict(item)
+                item["valor"] = snippet
+            else:
+                item = _not_found_item(tipo)
+        elif tipo == "moneda" and item.get("valor") and not _has_currency_name(item.get("valor")):
+            snippet = _currency_name_snippet(item)
+            if snippet:
+                item = dict(item)
+                item["valor"] = snippet
+            else:
+                item = _not_found_item(tipo)
+        result.append(item)
+    return result
 
 
 def extractor_preview_criterios(state: GraphState) -> GraphState:
@@ -527,38 +361,24 @@ def extractor_preview_criterios(state: GraphState) -> GraphState:
         query=_QUERY,
     )
 
+    # 6 campos ahora se extraen directo del prompt, no se proyectan desde `riesgos`: la doble fuente causaba una carrera no determinística por dedup (causa real de textos de otra categoría en estas cards).
     llm_items = list(delta.get("preview_criterios") or [])
 
     projected: list[dict] = []
     projected += _project_garantias_cauciones(state.get("garantias", []))
     projected += _project_plazos_clave(state.get("plazos", []))
     projected += _project_requisitos_tecnicos(state.get("requisitos_admisibilidad", []))
-    projected += _project_multas_penalidades(state.get("riesgos", []))
-    projected += _project_preview_llm_fields_from_riesgos(
-        state.get("riesgos", []),
-        correlation_id=str(state.get("correlation_id", "preview_criterios")),
-    )
 
-    combined = [*llm_items, *projected]
+    combined = _apply_content_guards([*llm_items, *projected])
 
-    # Red de seguridad genérica (2026-09-03): pase lo que pase con el LLM y
-    # las proyecciones de arriba, los 10 tipos de `TipoCriterioPreview`
-    # siempre terminan representados -- si el LLM no emitió item para un tipo
-    # que le corresponde (a pesar de que el prompt ya le pide un item
-    # "not_found" en vez de omitirlo), se completa acá. Evita que el
-    # checklist de preview vuelva a mostrar menos de 10 criterios por un
-    # incumplimiento puntual del LLM.
-    tipos_presentes = {str(item.get("tipo")) for item in combined}
+    # Red de seguridad: garantiza que los 10 tipos de TipoCriterioPreview siempre estén representados, aunque el LLM omita alguno.
+    tipos_presentes = {_tipo_value(item.get("tipo")) for item in combined}
     for tipo in TipoCriterioPreview:
         if tipo.value not in tipos_presentes:
             combined.append(_not_found_item(tipo.value))
 
     delta["preview_criterios"] = combined
-    # El status que devuelve run_extractor solo contempla los items del LLM
-    # (5 de los 10 criterios) -- se recalcula acá con la lista completa,
-    # incluyendo lo proyectado. merge_node lo puede seguir ajustando después
-    # (ver `_drop_items_without_sources`/`_keep_schema_valid_items`), este es
-    # solo el punto de partida.
+    # run_extractor solo contempla los items del LLM; se recalcula con la lista completa (incluye lo proyectado).
     delta["preview_criterios_status"] = _aggregate_status(combined)
 
     return delta

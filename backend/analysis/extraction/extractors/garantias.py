@@ -5,7 +5,7 @@ from analysis.extraction.state import GraphState
 
 _QUERY = (
     "Garantías exigidas: mantenimiento de oferta, cumplimiento de contrato, anticipo, "
-    "impugnación — montos o porcentajes, forma de constitución (póliza, cau ción, "
+    "impugnación — montos o porcentajes, forma de constitución (póliza, caución, "
     "aval bancario, depósito), plazos de vigencia."
 )
 

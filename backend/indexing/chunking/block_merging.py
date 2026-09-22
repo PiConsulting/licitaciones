@@ -158,9 +158,7 @@ def _to_intermediate_blocks(blocks: list[dict]) -> list[dict]:
                 continue
 
             if _is_bullet_marker_heading(normalized):
-                # DI marco una vineta / "ITEM N" / "col_x" como encabezado: no es
-                # un titulo de seccion. No se apila (contaminaria el heading_path
-                # de todo lo que cuelga debajo); cae al bloque de cuerpo de abajo.
+                # No se apila: contaminaria el heading_path de todo lo que cuelga debajo.
                 logger.debug(
                     "heading_demoted_bullet_marker", page=last_page, text=normalized[:80]
                 )
@@ -191,21 +189,16 @@ def _to_intermediate_blocks(blocks: list[dict]) -> list[dict]:
                 "table_ref": block.get("table_ref"),
                 "heading_path": current_path(),
                 "is_heading": False,
-                "para_id": block.get("para_id"),  # DEFINITIVO V2: Propagar para_id
+                "para_id": block.get("para_id"),
                 "bbox": block.get("bbox", []),
                 **({"lines": block["lines"]} if block.get("lines") else {}),
             }
         )
 
     pop_to_level(0, last_page)
-    # FIX (auditoría de chunking, hallazgo real: PLIEGO_5443-26, segunda
-    # vuelta): "V 1.13" llega con `heading_level` puesto por DI, así que el
-    # primer `_drop_page_counters` (arriba, antes del loop) lo salta -- su
-    # guarda excluye headings a propósito, porque en ESE punto todavía no se
-    # sabe que es un artefacto y no un heading real (`_is_bullet_marker_heading`
-    # recién lo demuve a párrafo DENTRO del loop de arriba). Se vuelve a
-    # correr acá, sobre los bloques ya demovidos, para sacarlo antes de que
-    # sobreviva como su propio chunk huérfano.
+    # Re-corrido: un artefacto como "V 1.13" llega con heading_level puesto por
+    # DI y el primer _drop_page_counters (antes del loop) lo salta a propósito;
+    # se saca acá recién, ya demovido a párrafo, para que no quede huérfano.
     return _drop_page_counters(intermediate)
 
 
@@ -281,17 +274,9 @@ def _merge_intermediate_blocks(blocks: list[dict]) -> list[dict]:
             context = _preceding_table_context(merged, block)
             if context:
                 block["table_context"] = context
-                # FIX (auditoria de chunking, generalizado): si el bloque previo
-                # es un parrafo (no otra fila de la MISMA tabla) y su contenido
-                # ENTERO -- no solo un fragmento -- se convirtio en el
-                # table_context, ese parrafo era pura etiqueta introductoria
-                # ("Facturacion y Pago", "Limbo", un bullet/checkbox suelto) y
-                # no aporta nada por si solo. Sin este pop queda duplicado: una
-                # vez como su propio chunk titulo-sin-cuerpo, y otra vez como
-                # contexto de la tabla que ya lo lleva. Si el parrafo previo
-                # tiene MAS contenido que la sola cola usada como contexto
-                # (`_introductory_tail` devuelve solo el ultimo "\n\n"-parrafo),
-                # no se toca: ese contenido adicional sigue siendo real.
+                # Si el parrafo previo se convirtio ENTERO en table_context (pura
+                # etiqueta introductoria), se lo saca para no duplicarlo como su
+                # propio chunk titulo-sin-cuerpo.
                 if merged and merged[-1].get("block_type") != "table":
                     previous_content = str(merged[-1].get("content", "")).strip()
                     if previous_content and previous_content == context.strip():
@@ -346,7 +331,7 @@ def _merge_intermediate_blocks(blocks: list[dict]) -> list[dict]:
                     if "table_ref" in previous and "row_index" in current_ref:
                         previous["table_ref"]["row_index"] = current_ref["row_index"]
 
-                    continue  # No agregar block actual, ya está mergeado
+                    continue
 
             if "merged_blocks" not in block:
                 block["merged_blocks"] = [
@@ -376,13 +361,8 @@ def _merge_intermediate_blocks(blocks: list[dict]) -> list[dict]:
                 previous.get("block_type") != "table"
                 and not previous.get("is_heading")
                 and same_heading
-                # FIX (auditoría de chunking): antes solo se fusionaba en la
-                # MISMA página. Un párrafo que Document Intelligence corta
-                # justo en el salto de página (ej. "...una du-" / "ración
-                # superior...") quedaba en dos chunks separados, sin overlap,
-                # aunque compartieran heading_path -- se fusiona también
-                # cuando cae en la página siguiente y el bloque anterior no
-                # terminaba en un límite real de oración.
+                # También fusiona a través de un salto de página cuando DI corta
+                # el párrafo a mitad de oración (ej. "...una du-" / "ración...").
                 and (same_page or (next_page and previous_looks_cut))
             )
             if can_merge:

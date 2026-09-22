@@ -126,16 +126,14 @@ def _is_non_procedural_temporal_hito(nombre: str, fragmento: str | None) -> bool
     normalized_fragment = _normalize_temporal_text(fragmento)
     combined = f"{normalized_name} {normalized_fragment}".strip()
 
-    # Duraciones de vigencia/licenciamiento son condiciones comerciales, no
-    # hitos operativos del proceso temporal del timeline.
+    # Duraciones de vigencia/licenciamiento son condición comercial, no hito operativo del timeline.
     if "vigencia de la licencia" in combined:
         return True
 
     if not _NON_PROCEDURAL_TEMPORAL_RE.search(combined):
         return False
 
-    # Si hay una señal procesal fuerte, no filtramos para evitar falsos
-    # negativos en eventos legítimos que mencionen pago en su contexto.
+    # Señal procesal fuerte anula el filtro, para no perder eventos legítimos que mencionen pago.
     return _PROCEDURAL_EVENT_HINT_RE.search(combined) is None
 
 
@@ -198,9 +196,7 @@ def _build_shared_candidate_pool(analysis_id: str, correlation_id: str) -> list[
         )
         return candidates
     except Exception as exc:  # noqa: BLE001
-        # No debe tumbar setup_node -- el pool compartido es una optimización,
-        # no un requisito. Cada rama hace su query específica igual si esto
-        # queda vacío.
+        # No debe tumbar setup_node: el pool compartido es una optimización, no un requisito.
         logger.warning(
             "shared_candidate_pool_build_failed",
             correlation_id=correlation_id,
@@ -250,21 +246,7 @@ def setup_node(state: GraphState) -> GraphState:
             candidates=len(global_candidates),
         )
 
-    # FIX (2026-09-16, bug reportado: preview mostraba datos viejos/vacíos de
-    # mantenimiento_oferta al reanalizar SOLO preview_criterios, pese a que el
-    # fix de 2026-09-11 ya sembraba `initial_state["plazos"/"garantias"/
-    # "requisitos_admisibilidad"]` con los datos reales ANTES de invocar el
-    # grafo -- ver `_PREVIEW_CRITERIOS_SOURCE_STATE_KEYS` en
-    # `analysis/service/lifecycle.py`). Causa real: `setup_node` corre
-    # SIEMPRE primero en cualquier grafo, incluido el mini-grafo de una sola
-    # categoría, y este bloque pisaba esos 3 campos sembrados con `[]`
-    # incondicionalmente -- volvía a colapsar el preview a `not_found` justo
-    # antes de que `extractor_preview_criterios` los necesitara. `riesgos`
-    # sobrevivía por no estar en esta lista (motivo por el cual solo
-    # `multas_penalidades`/los campos proyectados desde riesgos funcionaban
-    # bien, y el resto no). El fix real es genérico, no específico de
-    # preview_criterios: nunca pisar un campo que YA llegó con datos
-    # sembrados -- solo inicializar los que de verdad están vacíos/ausentes.
+    # FIX 2026-09-16: nunca pisar un campo ya sembrado con datos reales (setup_node corre siempre primero).
     defaults = {
         "preview_criterios": [],
         "preview_criterios_status": "pending",
@@ -340,15 +322,8 @@ def merge_node(state: GraphState) -> GraphState:
     riesgos = [
         _normalize_confidence(_penalize_unverifiable(item)) for item in state.get("riesgos", [])
     ]
-    
-    # Timeline: un solo extractor fusionado ("eventos_temporales") que ya
-    # decide él mismo, leyendo el pliego completo, qué es un hito con fecha
-    # propia y qué es un plazo relativo a otro hito -- ver
-    # `analysis/extraction/prompts/eventos_temporales.txt`. Para no tocar
-    # nada río abajo (materializer.py, frontend, tests), acá derivamos las
-    # DOS vistas legacy (`eventos_temporales`/`plazos_relativos`) de esa
-    # única lista fusionada, con la forma exacta que tenían cuando salían de
-    # dos extractores independientes.
+
+    # "eventos_temporales" es un extractor fusionado; derivamos las 2 vistas legacy de acá.
     hitos_temporales = state.get("eventos_temporales", [])
 
     eventos_temporales: list[dict] = []
@@ -376,11 +351,7 @@ def merge_node(state: GraphState) -> GraphState:
                     "nombre": nombre,
                     "fecha_explicita": h.get("fecha_explicita"),
                     "origen_fecha": h.get("origen_fecha"),
-                    # True salvo que el LLM marque explícitamente que este hito solo
-                    # se agregó para poder referenciarlo como evento_disparador de
-                    # otro ítem (regla 2/mencion_propia del prompt) -- default True
-                    # (no False) para no marcar como "inferido" a un hito real si el
-                    # LLM omitiera el campo en alguna corrida.
+                    # Default True: no marcar como "inferido" a un hito real si el LLM omite el campo.
                     "mencion_propia": h.get("mencion_propia", True),
                     "fuente_documento_id": h.get("fuente_documento_id"),
                     "fuente_pagina": h.get("fuente_pagina"),
@@ -419,11 +390,7 @@ def merge_node(state: GraphState) -> GraphState:
         seen_plazos.add(dedup_key)
         plazos_relativos.append(plazo_payload)
 
-    # Diagnóstico: si el LLM extrajo hitos pero NINGUNO tiene
-    # evento_disparador, es una señal fuerte de que se está saltando la
-    # mitad "plazo relativo" de la categoría (ver regla 0 del prompt) -- no
-    # bloquea nada, pero deja rastro en logs para no tener que adivinar la
-    # próxima vez que alguien reporte "no aparecen los plazos relativos".
+    # Diagnóstico: hitos sin ningún evento_disparador sugiere que el LLM se salta la mitad "plazo relativo".
     if hitos_temporales and not plazos_relativos:
         logger.warning(
             "eventos_temporales_sin_plazos_relativos",
@@ -432,10 +399,7 @@ def merge_node(state: GraphState) -> GraphState:
             hitos_extraidos=len(hitos_temporales),
         )
 
-    # FIX (2026-08-22): ya no se canonicaliza `tipo` (eliminado del schema,
-    # ver PlazoItem en `schemas.py`). El agrupamiento para dedup usa el valor
-    # del plazo (`_plazo_dedup_value`) solo -- sin combinarlo con un tipo, que
-    # ya no existe.
+    # `tipo` ya no existe en PlazoItem; dedup usa solo el valor del plazo.
     plazos = _merge_duplicate_items_by_key(plazos, lambda item: (_plazo_dedup_value(item),))
 
     for garantia in garantias:
@@ -444,15 +408,7 @@ def merge_node(state: GraphState) -> GraphState:
     objeto_alcance = _merge_duplicate_items_by_key(
         objeto_alcance, lambda item: (str(item.get("tipo", "")), _normalized_valor_key(item))
     )
-    # FIX (2026-09-14, Fase 2 de la auditoría RAG): el dedup de arriba solo
-    # fusiona duplicados con el MISMO valor -- no detecta dos ítems del mismo
-    # `tipo` SINGLETON ("UN ítem resumen_objeto", "UN ítem lugar_entrega",
-    # ver objeto_alcance.txt) con valores DISTINTOS, que el split de lotes
-    # dentro de un documento (`_split_oversized_groups`, `base.py`) puede
-    # producir -- cada lote ve un subconjunto de chunks distinto, y uno que no
-    # tiene el dato igual emite el ítem singleton con un placeholder mientras
-    # otro sí lo encuentra. `item` es el único tipo de esta categoría que
-    # puede repetirse legítimamente (uno por renglón/ítem licitado).
+    # Dedup por valor no detecta 2 ítems SINGLETON con valores distintos (split de lotes); `item` es repetible.
     objeto_alcance = _merge_singleton_tipo_duplicates(
         objeto_alcance,
         {tipo.value for tipo in TipoObjetoAlcance if tipo != TipoObjetoAlcance.ITEM},
@@ -676,9 +632,7 @@ def merge_node(state: GraphState) -> GraphState:
         "eventos_temporales": eventos_temporales,
         "eventos_temporales_extraction_status": state.get("eventos_temporales_status", "unknown"),
         "plazos_relativos": plazos_relativos,
-        # Ya no hay un extractor separado para plazos_relativos -- ambas
-        # vistas legacy se derivan de la misma extracción fusionada
-        # ("eventos_temporales"), así que comparten su status.
+        # Ambas vistas legacy derivan de la misma extracción fusionada, comparten status.
         "plazos_relativos_extraction_status": state.get("eventos_temporales_status", "unknown"),
         "documentos_requeridos": [],
         "documentos_extraction_status": NOT_ANALYZED_STATUS,
@@ -716,25 +670,8 @@ def merge_node(state: GraphState) -> GraphState:
                     ids.add(str(ref["document_id"]))
         return ids
 
-    # FIX (2026-09-11, pregunta: "¿se avisa si dos chunks se contradicen
-    # dentro del MISMO pliego?"): la detección de abajo agrupa por
-    # `referencia`/`tipo` y compara valores -- nunca miró `document_id`, así
-    # que YA avisaba igual si la contradicción era entre el cuerpo del
-    # pliego y su propio anexo (mismo documento) que si era entre dos
-    # documentos distintos. Lo único que estaba mal era el texto fijo
-    # "en distintos documentos", que mentía en el caso intra-documento y
-    # podía hacer pensar a quien revisa que el conflicto involucra un
-    # archivo aparte cuando en realidad está en dos secciones del mismo PDF.
-    # Ahora se verifica de verdad contra los `document_id` de las citas.
-
-    # FIX (2026-08-22): se agrupaba por `tipo` (enum de 17 valores + "otro").
-    # Como la enorme mayoría de los plazos caía en "otro" (ver
-    # `_normalized_referencia_key`), este bloque terminaba comparando fechas
-    # de plazos sin ninguna relación entre sí solo porque compartían el balde
-    # "otro" -- falsos conflictos. Ahora agrupa por `referencia` (texto libre
-    # que describe a qué plazo se refiere): dos ítems solo se comparan si el
-    # LLM los tituló igual, que es una señal mucho más fuerte de que hablan
-    # del mismo hito.
+    # FIX 2026-09-11: el texto de conflicto mentía "en distintos documentos"; ahora usa document_id real.
+    # FIX 2026-08-22: agrupar por `tipo` daba falsos conflictos (casi todo cae en "otro"); ahora agrupa por `referencia`.
     plazos_by_referencia: dict[str, list[dict]] = defaultdict(list)
     for plazo in plazos:
         clave = _normalized_referencia_key(plazo)
@@ -903,22 +840,13 @@ def synthesize_node(state: GraphState) -> GraphState:
         if result is None:
             return None
         narrative, token_usage = result
-        # Instrumentación (Paso 0.1): la síntesis es una 2da pasada al LLM por
-        # categoría -- se cuenta aparte para ver cuánto pesa en costo/latencia.
+        # Instrumentación: la síntesis es una 2da pasada al LLM, se mide costo/latencia aparte.
         if isinstance(token_usage, dict):
             token_usage.setdefault("llm_calls", 1 if token_usage.get("total_tokens") else 0)
             token_usage["wall_time_seconds"] = round(time.monotonic() - _syn_started, 2)
         return narrative, token_usage
 
-    # Paso 5 (plan rag-plan-latencia-2026-09-09): las 7-9 síntesis de categoría
-    # son llamadas al LLM independientes entre sí (cada una parte de los items
-    # YA mergeados de su categoría), así que se corren en paralelo con el mismo
-    # patrón que el map-reduce de extracción: pool acotado + ensamblado
-    # determinista recorriendo `NARRATIVE_CATEGORIES` en orden, con lo cual el
-    # `extracted_data` resultante es idéntico al del modo secuencial -- lo único
-    # que cambia es el wall-time. El tope real contra Azure lo pone el semáforo
-    # global de `_call_llm` (LLM_MAX_CONCURRENCY). `SYNTHESIS_MAX_CONCURRENCY<=1`
-    # = secuencial = comportamiento previo.
+    # Síntesis en paralelo + ensamblado determinista en orden de NARRATIVE_CATEGORIES (mismo resultado que secuencial).
     from infra.config import get_settings
 
     synthesis_workers = min(
@@ -978,11 +906,7 @@ def synthesize_node(state: GraphState) -> GraphState:
 
     _stampar_nombre_de_documento(extracted_data, state.get("document_labels") or {})
 
-    # `_sort_items_by_primary_document` ya corre en `merge_node`, pero ahí
-    # `filename`/`is_primary` todavía no existen en source_references --
-    # `_stampar_nombre_de_documento` recién los escribe acá arriba. Se
-    # reordena de nuevo con los datos ya completos para que el orden
-    # realmente refleje documento primario primero en el pipeline completo.
+    # Reordena de nuevo: en merge_node `filename`/`is_primary` todavía no existían.
     if extracted_data.get("requisitos_admisibilidad"):
         extracted_data["requisitos_admisibilidad"] = _sort_items_by_primary_document(
             extracted_data["requisitos_admisibilidad"]
@@ -1048,108 +972,15 @@ builder.add_edge("synthesize", END)
 graph = builder.compile()
 
 
-# FASE 1 ampliada (2026-09-03, pedido de reducir redundancia entre preview y
-# categorias): garantias, plazos_clave, requisitos_admisibilidad y riesgos se
-# promueven a fase 1 CON SU PROMPT COMPLETO de siempre -- no una version
-# liviana -- porque preview_criterios ahora proyecta 4 de sus 10 items desde
-# los resultados de estas 4 categorias (garantias_cauciones <- garantias,
-# tiempo_entrega/mantenimiento_oferta <- plazos_clave,
-# requisitos_tecnicos_excluyentes <- requisitos_admisibilidad filtrado,
-# multas_penalidades <- riesgos filtrado) en vez de volver a preguntarselo al
-# LLM con su propio query diluido. Fase 2 ya no las vuelve a correr -- ver
-# `_PHASE1_EXTRACTED_KEYS`/`_PHASE2_EXTRACTED_KEYS` en `analysis/extraction/runner.py`.
-#
-# `extract_preview_criterios` deja de depender solo de "setup": ahora depende
-# de que las 4 categorias fuente ya hayan terminado, porque su extractor lee
-# `state["garantias"]`, `state["plazos"]`, `state["requisitos_admisibilidad"]`
-# y `state["riesgos"]` para armar la proyeccion antes de llamar al LLM
-# (liviano) por los 6 campos que no tienen categoria propia.
-#
-# FIX (2026-09-03) -- intento 1, insuficiente: la primera version de este
-# grafo dejaba, ADEMAS de garantias/plazos/requisitos/riesgos ->
-# extract_preview_criterios, los edges ORIGINALES garantias/plazos/
-# requisitos/riesgos -> merge (diamante). Se saco ese camino directo, pero
-# el error `InvalidUpdateError: At key 'preview_criterios': Can receive only
-# one value per step` siguio pasando IDENTICO.
-#
-# FIX (2026-09-03) -- intento 2, tambien insuficiente: se encadenaron
-# garantias -> plazos -> requisitos -> riesgos -> extract_preview_criterios
-# en secuencia (un solo edge de entrada cada una) para sacarle a
-# extract_preview_criterios sus 4 edges de entrada. Elimino ESE error, pero
-# hizo aparecer el MISMO error en otra clave: `At key 'plazos'`. Log:
-# "merge_node_started"/"merge_node_completed" corrian EN PARALELO con
-# extract_plazos (arrancaba "plazos_clave" al mismo timestamp que
-# "merge_node_started") -- es decir, "merge" (con 3 edges de entrada:
-# objeto_alcance, identificacion, extract_preview_criterios) se disparaba en
-# cuanto objeto_alcance/identificacion terminaban, SIN esperar a que la
-# cadena secuencial (todavia en su segundo eslabon) llegara a
-# extract_preview_criterios. Esto prueba que un nodo con edges de entrada de
-# DISTINTA profundidad (algunos a 1 salto de "setup", otros a varios) NO
-# espera de forma confiable a todos en esta version de LangGraph -- el
-# patron que sí funciona ("merge" con 6-10 edges en el grafo completo,
-# `graph` mas abajo) solo funciona porque TODOS esos edges estan a la MISMA
-# profundidad (1 salto desde "setup"), no por una barrera real de "esperar a
-# todos".
-#
-# FIX (2026-09-03) -- intento 3 (DESCARTADO, no se llego a commitear): cadena
-# lineal de los 7 extractores, uno detras de otro, sin ningun fan-in. Sacaba
-# el error pero mataba el paralelismo -- el usuario freno esto explicitamente
-# ("las de categorias tienen que seguir como estaban antes en paralelo").
-#
-# CAUSA RAIZ REAL (encontrada leyendo el source de langgraph==1.2.10, no
-# adivinando): `StateGraph.add_edge(start, end)` se comporta DISTINTO segun
-# el tipo de `start`:
-#   - Si `start` es un solo string, cada llamada arma un writer que empuja a
-#     un canal `EphemeralValue(guard=False)` compartido por TODOS los edges
-#     que apunten al mismo `end` (langgraph/graph/state.py:_add_edge, canal
-#     "branch:to:<end>"). Ese canal es OR: `end` se agenda apenas CUALQUIERA
-#     de sus predecesores escribe ahi (ver `_triggers()` en
-#     langgraph/pregel/_algo.py -- itera los canales trigger del nodo y basta
-#     con que UNO este disponible/mas nuevo que lo ya visto). Por eso, cuando
-#     habiamos armado los fan-in con un `for nodo in lista: builder.add_edge(
-#     nodo, "merge")`, "merge"/"extract_preview_criterios" se disparaban en
-#     cuanto terminaba el PRIMER predecesor, sin esperar al resto.
-#   - Si `start` es una LISTA de nombres, `add_edge` arma un canal
-#     `NamedBarrierValue(names=set(starts))` (langgraph/channels/
-#     named_barrier_value.py): acumula en `seen` los nombres que ya
-#     escribieron, EN CUALQUIER superstep (no exige que lleguen en el mismo
-#     paso), y solo queda "disponible" cuando `seen == names`, es decir
-#     cuando escribieron TODOS. Esto es un join real, verdadero AND, y es
-#     agnostico a la profundidad de cada predecesor -- literal en el
-#     docstring de `add_edge`: "When multiple start nodes are provided, the
-#     graph will wait for ALL of the start nodes to complete before
-#     executing the end node."
-#
-# El "merge" del grafo completo (`graph` mas abajo, 10 extractores) nunca dio
-# este error de casualidad: usa el MISMO patron de loop (`for nodo in
-# extractor_nodes: builder.add_edge(nodo, "merge")`, canal OR), pero como los
-# 10 predecesores estan a la MISMA profundidad (1 salto de "setup"), Pregel
-# los corre a TODOS en el mismo superstep y no avanza al siguiente hasta que
-# terminen todos -- el join "funciona" por la barrera sincronica de Pregel
-# entre supersteps, no porque el canal realmente espere a todos. En fase 1,
-# como objeto_alcance/identificacion (1 salto) y preview_criterios (varios
-# saltos, via garantias/plazos/requisitos/riesgos) quedaban a profundidades
-# distintas, esa coincidencia se rompia.
-#
-# FIX real: usar `add_edge([...], end)` con LISTA en cada punto de fan-in.
-# Restaura el paralelismo original -- garantias/plazos/requisitos/riesgos
-# corren en paralelo (barrera real antes de preview_criterios), y
-# objeto_alcance/identificacion corren en paralelo entre si y con esas 4
-# (barrera real antes de merge, sin importar que preview_criterios termine
-# mas tarde por depender de las otras 4).
-
-# Nodos extractores de fase 1 (7). Simétrico con `extractor_nodes_phase2`:
-# tras el refactor de fases (garantias/plazos/requisitos/riesgos promovidos a
-# fase 1) esta lista no existía y el builder de abajo agregaba los nodos
-# inline. Se expone para tests y para tener el inventario de la fase en un
-# solo lugar.
+# Fase 1: garantias/plazos_clave/requisitos_admisibilidad corren completas porque preview_criterios proyecta desde ellas (ver runner.py).
+# CAUSA RAÍZ (langgraph==1.2.10): `add_edge(start, end)` con `start` string es un OR (dispara con el primer predecesor); con `start` lista es un AND real que espera a todos -- usar siempre lista en cada fan-in real.
+# riesgos se movió a fase 2 (sintetiza desde categorías ya extraídas); preview ya no depende de riesgos.
 extractor_nodes_phase1 = [
     "extract_objeto_alcance",
     "extract_identificacion",
     "extract_garantias",
     "extract_plazos",
     "extract_requisitos",
-    "extract_riesgos",
     "extract_preview_criterios",
 ]
 
@@ -1161,39 +992,27 @@ builder_phase1.add_node("extract_identificacion", extractor_identificacion_proce
 builder_phase1.add_node("extract_garantias", extractor_garantias)
 builder_phase1.add_node("extract_plazos", extractor_plazos)
 builder_phase1.add_node("extract_requisitos", extractor_requisitos_admisibilidad)
-builder_phase1.add_node("extract_riesgos", extractor_riesgos)
 builder_phase1.add_node("merge", merge_node)
 builder_phase1.add_node("synthesize", synthesize_node)
 builder_phase1.set_entry_point("setup")
 
-# objeto_alcance/identificacion arrancan apenas termina "setup", en paralelo
-# con la tanda de garantias/plazos/requisitos/riesgos (edges 1-a-1 desde un
-# solo nodo -- eso nunca fue el problema, el fan-in solo se rompe del lado
-# de las llegadas, no de las salidas).
 _MERGE_DIRECT_NODES = ["extract_objeto_alcance", "extract_identificacion"]
 for node in _MERGE_DIRECT_NODES:
     builder_phase1.add_edge("setup", node)
 
-# garantias/plazos/requisitos/riesgos: las 4 fuentes que preview_criterios
-# proyecta. Corren en paralelo entre si (todas cuelgan directo de "setup").
+# garantias/plazos/requisitos: las 3 fuentes que preview_criterios proyecta.
 _PREVIEW_SOURCE_NODES = [
     "extract_garantias",
     "extract_plazos",
     "extract_requisitos",
-    "extract_riesgos",
 ]
 for node in _PREVIEW_SOURCE_NODES:
     builder_phase1.add_edge("setup", node)
 
-# Fan-in real (lista en una sola llamada -> NamedBarrierValue): recien acá
-# se agenda extract_preview_criterios, cuando las 4 terminaron, sin importar
-# el orden en que vayan llegando.
+# Fan-in real (lista -> canal AND): espera a las 4 fuentes antes de agendar preview_criterios.
 builder_phase1.add_edge(_PREVIEW_SOURCE_NODES, "extract_preview_criterios")
 
-# Fan-in real hacia "merge": objeto_alcance, identificacion y
-# preview_criterios (que a su vez ya esperó a las 4 fuentes) tienen que
-# terminar los tres, sin importar que preview_criterios llegue varios
-# supersteps mas tarde que los otros dos.
+# Fan-in real: merge espera a los 3, aunque preview_criterios llegue varios supersteps después.
 builder_phase1.add_edge(
     [*_MERGE_DIRECT_NODES, "extract_preview_criterios"],
     "merge",
@@ -1205,16 +1024,17 @@ builder_phase1.add_edge("synthesize", END)
 graph_phase1 = builder_phase1.compile()
 
 
-# FASE 2: ya no corre garantias/plazos_clave/requisitos_admisibilidad/riesgos
-# -- se promovieron a fase 1 (ver comentario arriba). Solo quedan las
-# categorias que preview_criterios no necesita.
+# Fase 2 corre `riesgos`: sintetiza desde garantias/plazos/requisitos (sembrados en fase 1)
+# y causales/criterios (de esta fase), por eso espera a que esos dos terminen primero.
 extractor_nodes_phase2 = [
     "extract_causales",
     "extract_anexos",
     "extract_criterios",
     "extract_eventos_temporales",
+    "extract_riesgos",
 ]
 
+_RIESGOS_SOURCE_NODES_PHASE2 = ["extract_causales", "extract_criterios"]
 
 builder_phase2 = StateGraph(GraphState)
 builder_phase2.add_node("setup", setup_node)
@@ -1222,14 +1042,21 @@ builder_phase2.add_node("extract_causales", extractor_causales)
 builder_phase2.add_node("extract_anexos", extractor_anexos_obligatorios)
 builder_phase2.add_node("extract_criterios", extractor_criterios_evaluacion)
 builder_phase2.add_node("extract_eventos_temporales", extractor_eventos_temporales)
+builder_phase2.add_node("extract_riesgos", extractor_riesgos)
 builder_phase2.add_node("merge", merge_node)
 builder_phase2.add_node("synthesize", synthesize_node)
 builder_phase2.set_entry_point("setup")
 
-for node in extractor_nodes_phase2:
+_DIRECT_SOURCE_NODES_PHASE2 = ["extract_causales", "extract_anexos", "extract_criterios", "extract_eventos_temporales"]
+for node in _DIRECT_SOURCE_NODES_PHASE2:
     builder_phase2.add_edge("setup", node)
-for node in extractor_nodes_phase2:
+
+# Fan-in real: extract_riesgos espera a causales Y criterios (mismo patrón que fase 1).
+builder_phase2.add_edge(_RIESGOS_SOURCE_NODES_PHASE2, "extract_riesgos")
+
+for node in _DIRECT_SOURCE_NODES_PHASE2:
     builder_phase2.add_edge(node, "merge")
+builder_phase2.add_edge("extract_riesgos", "merge")
 
 builder_phase2.add_edge("merge", "synthesize")
 builder_phase2.add_edge("synthesize", END)

@@ -97,7 +97,7 @@ export function CategorySection({
       (trackingReadOnly || trackingCategory.status === "closed"),
   );
 
-  // DIAGNÓSTICO: contar elementos renderizables vs tracking items
+  // Usado para detectar tracking items "fantasma" que el backend manda pero la UI no renderiza (ver abajo).
   const renderableItemsCount = narrative.blocks.reduce((count, block) => {
     if (block.type === "bullet_list") {
       return count + block.items.length;
@@ -200,10 +200,7 @@ export function CategorySection({
       <QualityNotice quality={category.quality} />
 
       {state === "no_analizada" ? (
-        // Fase 2 todavía no corrió para esta categoría: mostrar el
-        // contenedor completo de "Respuesta" / "Sin evidencia clickeable..."
-        // sugiere que se buscó y no se encontró nada, cuando en realidad
-        // todavía no se buscó. Minimalista a propósito -- no es un hallazgo.
+        // Minimalista a propósito: "sin evidencia clickeable" afirmaría que se buscó y no se encontró nada, pero fase 2 todavía no corrió.
         <p className="mt-3 text-xs text-gray-500" data-testid="category-not-analyzed">
           Todavía no fue analizada. Se completa al iniciar el análisis de categorías restantes.
         </p>

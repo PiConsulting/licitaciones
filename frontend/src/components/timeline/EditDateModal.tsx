@@ -22,13 +22,11 @@ export function EditDateModal({ event, open, onClose }: EditDateModalProps) {
 
   const updateMutation = useMutation({
     mutationFn: async (newDate: string) => {
-      // 1. Actualizar evento (siempre cambiar a user_input)
       await updateEvent(event.analysis_id, event.event_id, {
         event_date: newDate,
         date_source: "user_input",
       });
 
-      // 2. Recalcular dependencias (F2 fix: separate try/catch)
       try {
         const stats = await recalculateDependentDates(event.analysis_id, event.event_id);
         return { stats, recalcFailed: false };
@@ -41,14 +39,12 @@ export function EditDateModal({ event, open, onClose }: EditDateModalProps) {
       queryClient.invalidateQueries({ queryKey: ["timeline", event.analysis_id] });
       queryClient.invalidateQueries({ queryKey: ["timeline-deadlines", event.analysis_id] });
 
-      // F2 fix: Show error if recalculation failed
       if (recalcFailed) {
         addToast("error", "Fecha actualizada pero el recálculo de dependencias falló. Intenta recargar la página.");
         onClose();
         return;
       }
 
-      // F7 fix: Check for partial errors
       if (stats.errors && stats.errors.length > 0) {
         addToast(
           "error",

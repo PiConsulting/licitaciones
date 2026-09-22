@@ -170,8 +170,7 @@ export function NarrativeBlocks({
   );
   const sourceById = new Map(verifiedSources.map((source) => [source.id, source]));
 
-  // Sólo la evidencia de los párrafos va al listado del pie. La de los ítems
-  // vive en el ojo de cada ítem.
+  // Sólo la evidencia de los párrafos va al listado del pie; la de los ítems vive en el ojo de cada ítem.
   const paragraphSources = verifiedSources.filter((source) => paragraphSourceIds.has(source.id));
   const paragraphCitations = paragraphSources.map(sourceToCitation);
 

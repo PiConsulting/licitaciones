@@ -86,12 +86,7 @@ def upgrade() -> None:
     op.create_index(
         "ix_chunks_content_tsv", "chunks", ["content_tsv"], postgresql_using="gin"
     )
-    # pgvector limita los índices HNSW/IVFFlat a 2000 dimensiones para el tipo `vector`
-    # (el límite de 4000 es de `halfvec`, media precisión). text-embedding-3-large produce
-    # 3072 dims, por encima del límite indexable de `vector` -- se indexa vía una expresión
-    # halfvec (precisión reducida solo para el índice ANN; la columna `embedding` guarda
-    # el vector completo sin pérdida). La query de la Historia 22.4 debe castear el
-    # query_vector a ::halfvec(3072) también para que el índice se use.
+    # pgvector's HNSW index caps `vector` at 2000 dims; embeddings are 3072-dim, so we index via a halfvec(3072) expression (queries must cast to ::halfvec(3072) too).
     op.execute(
         "CREATE INDEX ix_chunks_embedding_hnsw ON chunks "
         "USING hnsw ((embedding::halfvec(3072)) halfvec_cosine_ops)"

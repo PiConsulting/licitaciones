@@ -41,9 +41,7 @@ def _referencia(
     return {"document_id": document_id, "page_number": 1, "citation": citation}
 
 
-# ---------------------------------------------------------------------------
 # El caso del hallazgo, con la forma real de la salida de Santa Fe
-# ---------------------------------------------------------------------------
 
 
 def test_las_referencias_de_los_items_dicen_de_que_archivo_salen() -> None:
@@ -125,9 +123,7 @@ def test_el_presupuesto_es_un_objeto_y_no_una_lista() -> None:
     )
 
 
-# ---------------------------------------------------------------------------
 # Degradación
-# ---------------------------------------------------------------------------
 
 
 def test_sin_etiquetas_no_se_toca_nada() -> None:
@@ -193,9 +189,7 @@ def test_es_idempotente() -> None:
     assert datos["sources"][0] == primera
 
 
-# ---------------------------------------------------------------------------
 # El contrato: los campos tienen que estar declarados o pydantic los descarta
-# ---------------------------------------------------------------------------
 
 
 def test_source_reference_declara_los_campos() -> None:

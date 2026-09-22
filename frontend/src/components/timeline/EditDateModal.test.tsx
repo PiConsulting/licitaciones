@@ -6,7 +6,6 @@ import { EditDateModal } from "./EditDateModal";
 import * as timelineApi from "../../api/timeline";
 import type { EventResponse } from "../../types/timeline";
 
-// Mock del API
 vi.mock("../../api/timeline", () => ({
   updateEvent: vi.fn(),
   recalculateDependentDates: vi.fn(),
@@ -84,21 +83,18 @@ describe("EditDateModal", () => {
       { wrapper: createWrapper() }
     );
 
-    // Cambiar fecha
     const dateInput = screen.getByLabelText(/Fecha/i);
     fireEvent.change(dateInput, { target: { value: "2026-09-12" } });
 
-    // Submit
     fireEvent.click(screen.getByRole("button", { name: /Actualizar/i }));
 
-    // Verificar llamadas
     await waitFor(() => {
       expect(mockUpdate).toHaveBeenCalledWith(
         "analysis-123",
         "evt-1",
         expect.objectContaining({
           event_date: "2026-09-12",
-          date_source: "user_input", // Cambia a user_input siempre
+          date_source: "user_input",
         })
       );
       expect(mockRecalc).toHaveBeenCalledWith("analysis-123", "evt-1");
@@ -127,7 +123,6 @@ describe("EditDateModal", () => {
 
     expect(screen.queryByText(/se calculó automáticamente/i)).not.toBeInTheDocument();
 
-    // Rerender con user_input
     const eventUserInput = createEvent({ date_source: "user_input" });
     rerender(
       <EditDateModal event={eventUserInput} open={true} onClose={mockOnClose} />
@@ -173,11 +168,9 @@ describe("EditDateModal", () => {
       { wrapper: createWrapper() }
     );
 
-    // Limpiar fecha
     const dateInput = screen.getByLabelText(/Fecha/i);
     fireEvent.change(dateInput, { target: { value: "" } });
 
-    // Intentar submit
     fireEvent.click(screen.getByRole("button", { name: /Actualizar/i }));
 
     await waitFor(() => {

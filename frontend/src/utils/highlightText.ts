@@ -1,30 +1,9 @@
-// Resaltado de respaldo, sobre la capa de texto de react-pdf.
-//
-// Este camino sólo corre cuando el backend NO pudo calcular coordenadas para la
-// cita (ver `coordinateBasedHighlight.tsx` y `PDFPage.tsx`). Es una degradación
-// deliberada: marca el texto que react-pdf ya posicionó, así que nunca queda
-// desalineado, pero no puede recortar dentro de un span.
-//
-// FIX (2026-08-14): la versión anterior mantenía un BUFFER GLOBAL de los
-// últimos 20 spans y devolvía `true` en cuanto el 75% de las palabras de la
-// cita hubiera aparecido en ese buffer. Como todas las palabras de una cita
-// están, por construcción, en el mismo párrafo, el buffer se llenaba mientras
-// el párrafo se pintaba y a partir de ahí TODO span siguiente daba `true`.
-// Sumado a que `createCitationTextRenderer` envuelve el span ENTERO, el
-// resultado era el párrafo completo resaltado. Peor todavía: el buffer era de
-// módulo y el visor renderiza hasta 5 páginas a la vez, así que se contaminaba
-// entre páginas, y el reset era por tiempo (1 segundo), no por página.
-//
-// El contrato correcto -- el que los tests de este archivo ya describían -- es
-// mucho más chico: un span se marca sólo si su texto está literalmente dentro
-// de la cita, como palabra completa. Sin buffers, sin estado, sin porcentajes.
+// Fallback de resaltado (capa de texto react-pdf) cuando el backend no calculó coordenadas; marca solo palabra completa contenida en la cita, sin buffer ni estado global (evita bug 2026-08-14 de resaltar párrafos enteros).
 
-/** Mínimo de caracteres para que un fragmento sea discriminante. Por debajo de
- * esto son preposiciones y artículos que aparecen en cualquier cita. */
+/** Mínimo de caracteres discriminantes; por debajo son preposiciones/artículos comunes a cualquier cita. */
 const MIN_FRAGMENT_LENGTH = 4;
 
-/** Palabras de 4+ letras tan frecuentes en un pliego que marcarlas no señala
- * nada: aparecen en casi toda cita y en casi todo párrafo. */
+/** Palabras frecuentes en cualquier pliego; marcarlas no aporta señal. */
 const STOPWORDS = new Set([
   "para",
   "como",
@@ -129,11 +108,7 @@ export function isPartOfCitation(itemText: string, citationTexts: string[]): boo
   );
 }
 
-// Semitransparente (no opaco) para que el texto real, renderizado en el canvas
-// de abajo, se siga leyendo debajo de la marca. `box-decoration-break: clone`
-// hace que los distintos spans del text layer que caen en una misma línea se
-// vean como un único bloque continuo de resaltador, en vez de "chips" opacos
-// salteados con espacios entre palabras.
+// Semitransparente para no tapar el texto del canvas; box-decoration-break:clone une los spans de una misma línea en un solo bloque.
 const HIGHLIGHT_STYLE =
   "background-color:rgba(250,204,21,0.35);color:inherit;padding:0.05em 0;" +
   "box-decoration-break:clone;-webkit-box-decoration-break:clone;";

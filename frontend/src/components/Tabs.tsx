@@ -24,7 +24,6 @@ export function Tabs({ tabs, defaultTab, onChange }: TabsProps) {
 
   return (
     <div className="tabs-container">
-      {/* Tab Headers */}
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex space-x-8" aria-label="Tabs">
           {tabs.map((tab) => {
@@ -52,7 +51,6 @@ export function Tabs({ tabs, defaultTab, onChange }: TabsProps) {
         </nav>
       </div>
 
-      {/* Tab Content */}
       <div className="tab-content mt-6">{activeTabContent}</div>
     </div>
   );

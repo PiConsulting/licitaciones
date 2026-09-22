@@ -28,27 +28,27 @@ class TestCalculoDiasCorridos:
     
     def test_suma_dias_corridos_positivos(self):
         """Suma días corridos hacia adelante."""
-        fecha_base = date(2026, 1, 15)  # Miércoles
+        fecha_base = date(2026, 1, 15)
         resultado = calcular_dias_corridos(fecha_base, 10, "desde")
-        assert resultado == date(2026, 1, 25)  # 10 días después
+        assert resultado == date(2026, 1, 25)
     
     def test_suma_dias_corridos_atraviesa_mes(self):
         """Días corridos cruzan límite de mes."""
         fecha_base = date(2026, 1, 28)
         resultado = calcular_dias_corridos(fecha_base, 5, "desde")
-        assert resultado == date(2026, 2, 2)  # Cruza a febrero
+        assert resultado == date(2026, 2, 2)
     
     def test_suma_dias_corridos_atraviesa_anio(self):
         """Días corridos cruzan límite de año."""
         fecha_base = date(2025, 12, 28)
         resultado = calcular_dias_corridos(fecha_base, 10, "desde")
-        assert resultado == date(2026, 1, 7)  # Cruza a 2026
+        assert resultado == date(2026, 1, 7)
     
     def test_resta_dias_corridos_antes_de(self):
         """Resta días corridos hacia atrás (antes_de)."""
         fecha_base = date(2026, 1, 15)
         resultado = calcular_dias_corridos(fecha_base, 10, "antes_de")
-        assert resultado == date(2026, 1, 5)  # 10 días antes
+        assert resultado == date(2026, 1, 5)
     
     def test_cero_dias_corridos_retorna_misma_fecha(self):
         """Cero días retorna la fecha base sin cambios."""
@@ -90,44 +90,44 @@ class TestCalculoDiasHabiles:
         """Suma días hábiles sin atravesar fin de semana."""
         fecha_base = date(2026, 1, 5)  # Lunes
         resultado = calcular_dias_habiles(fecha_base, 3, "desde")
-        assert resultado == date(2026, 1, 8)  # Jueves (Lun +3 hábiles)
+        assert resultado == date(2026, 1, 8)
     
     def test_suma_dias_habiles_salta_fin_semana(self):
         """Días hábiles saltan sábado y domingo."""
         fecha_base = date(2026, 1, 9)  # Viernes
         resultado = calcular_dias_habiles(fecha_base, 1, "desde")
-        assert resultado == date(2026, 1, 12)  # Lunes siguiente
+        assert resultado == date(2026, 1, 12)
     
     def test_suma_dias_habiles_multiple_fines_semana(self):
         """Días hábiles atraviesan múltiples fines de semana."""
         fecha_base = date(2026, 1, 5)  # Lunes
         resultado = calcular_dias_habiles(fecha_base, 10, "desde")
-        # 5 días + fin semana + 5 días = 2 semanas
-        assert resultado == date(2026, 1, 19)  # Lunes 2 semanas después
+        # 10 hábiles desde un lunes cruza 2 fines de semana = 2 semanas calendario
+        assert resultado == date(2026, 1, 19)
     
     def test_inicio_en_sabado_comienza_lunes(self):
         """Si fecha base es sábado, comienza conteo desde lunes."""
         fecha_base = date(2026, 1, 10)  # Sábado
         resultado = calcular_dias_habiles(fecha_base, 1, "desde")
-        assert resultado == date(2026, 1, 13)  # Martes (Lun+1)
+        assert resultado == date(2026, 1, 13)
     
     def test_inicio_en_domingo_comienza_lunes(self):
         """Si fecha base es domingo, comienza conteo desde lunes."""
         fecha_base = date(2026, 1, 11)  # Domingo
         resultado = calcular_dias_habiles(fecha_base, 1, "desde")
-        assert resultado == date(2026, 1, 13)  # Martes (Lun+1)
+        assert resultado == date(2026, 1, 13)
     
     def test_resta_dias_habiles_antes_de(self):
         """Resta días hábiles hacia atrás (antes_de)."""
         fecha_base = date(2026, 1, 15)  # Jueves
         resultado = calcular_dias_habiles(fecha_base, 5, "antes_de")
-        assert resultado == date(2026, 1, 8)  # Jueves anterior
+        assert resultado == date(2026, 1, 8)
     
     def test_resta_dias_habiles_salta_fin_semana_atras(self):
         """Resta días hábiles salta fin de semana hacia atrás."""
         fecha_base = date(2026, 1, 12)  # Lunes
         resultado = calcular_dias_habiles(fecha_base, 1, "antes_de")
-        assert resultado == date(2026, 1, 9)  # Viernes anterior
+        assert resultado == date(2026, 1, 9)
     
     def test_cero_dias_habiles_retorna_misma_fecha_si_habil(self):
         """Cero días retorna la fecha base si es día hábil."""
@@ -139,7 +139,7 @@ class TestCalculoDiasHabiles:
         """Cero días desde fin de semana avanza a lunes."""
         fecha_base = date(2026, 1, 10)  # Sábado
         resultado = calcular_dias_habiles(fecha_base, 0, "desde")
-        assert resultado == date(2026, 1, 12)  # Lunes
+        assert resultado == date(2026, 1, 12)
     
     def test_duracion_negativa_invalida_habiles(self):
         """Duración negativa debe lanzar ValidationError."""
@@ -155,7 +155,6 @@ class TestValidacionPlazos:
         """Plazo bien formado pasa validación."""
         analysis_id = "analysis-123"
         
-        # Evento con fecha
         evento = Event(
             partition_key=analysis_id,
             analysis_id=analysis_id,
@@ -165,7 +164,6 @@ class TestValidacionPlazos:
             date_source="user_input"  # No requiere source_document_id
         )
         
-        # Plazo que depende del evento
         plazo = Deadline(
             partition_key=analysis_id,
             analysis_id=analysis_id,
@@ -178,7 +176,6 @@ class TestValidacionPlazos:
             direccion="desde"
         )
         
-        # No debe lanzar error
         validar_plazo_antes_calculo(plazo, {"event-1": evento})
     
     def test_plazo_sin_trigger_event_invalido(self):
@@ -254,7 +251,6 @@ class TestMotorRecalculoCascada:
         """Cascada lineal: E1 -> D1 -> E2 -> D2 -> E3."""
         analysis_id = "analysis-123"
         
-        # E1 tiene fecha conocida
         e1 = Event(
             partition_key=analysis_id,
             analysis_id=analysis_id,
@@ -264,7 +260,6 @@ class TestMotorRecalculoCascada:
             date_source="user_input"
         )
         
-        # E2 y E3 sin fecha
         e2 = Event(
             partition_key=analysis_id,
             analysis_id=analysis_id,
@@ -283,7 +278,6 @@ class TestMotorRecalculoCascada:
             date_source="pending"
         )
         
-        # D1: 10 días corridos desde E1 -> E2
         d1 = Deadline(
             partition_key=analysis_id,
             analysis_id=analysis_id,
@@ -297,7 +291,6 @@ class TestMotorRecalculoCascada:
             direccion="desde"
         )
         
-        # D2: 5 días hábiles desde E2 -> E3
         d2 = Deadline(
             partition_key=analysis_id,
             analysis_id=analysis_id,
@@ -316,24 +309,18 @@ class TestMotorRecalculoCascada:
             [d1, d2]
         )
         
-        # Verificar fechas calculadas
         eventos_dict = {e.event_id: e for e in eventos}
         deadlines_dict = {d.deadline_id: d for d in deadlines}
-        
-        # E1 mantiene su fecha
+
         assert eventos_dict["e1"].event_date == date(2026, 1, 15)
-        
-        # E2 = E1 + 10 días corridos = 2026-01-25
+
         assert eventos_dict["e2"].event_date == date(2026, 1, 25)
         assert eventos_dict["e2"].date_source == "calculated"
-        
-        # D1 debe tener fecha calculada
+
         assert deadlines_dict["d1"].deadline_date == date(2026, 1, 25)
         assert deadlines_dict["d1"].calculation_status == "calculated"
-        
-        # E3 = E2 + 5 días hábiles
-        # E2 es domingo 25 -> siguiente lunes 27 -> +5 hábiles
-        # Lunes 27 + (Mar 28, Mié 29, Jue 30, Vie 31, Lun 2) = 2 feb (lunes)
+
+        # E2 cae domingo 25 -> arranca lunes 27, +5 hábiles = 2 feb
         assert eventos_dict["e3"].event_date == date(2026, 2, 2)
         assert eventos_dict["e3"].date_source == "calculated"
     
@@ -368,7 +355,6 @@ class TestMotorRecalculoCascada:
             date_source="pending"
         )
         
-        # Dos plazos apuntan al mismo target E3
         d1 = Deadline(
             partition_key=analysis_id,
             analysis_id=analysis_id,
@@ -398,10 +384,7 @@ class TestMotorRecalculoCascada:
         eventos, deadlines = calcular_fechas_cascada([e1, e2, e3], [d1, d2])
         eventos_dict = {e.event_id: e for e in eventos}
         
-        # E3 debe tomar la fecha MÁS TEMPRANA de ambas opciones
-        # D1: 2026-01-15 + 15 = 2026-01-30
-        # D2: 2026-01-20 + 10 = 2026-01-30
-        # Ambas dan la misma fecha en este caso
+        # Caso límite del min(): ambas ramas dan la misma fecha (2026-01-30)
         assert eventos_dict["e3"].event_date == date(2026, 1, 30)
     
     def test_cascada_multiples_dependencias_diferentes_fechas(self):
@@ -435,7 +418,6 @@ class TestMotorRecalculoCascada:
             date_source="pending"
         )
         
-        # D1: E1 + 15 días = 2026-01-25
         d1 = Deadline(
             partition_key=analysis_id,
             analysis_id=analysis_id,
@@ -449,8 +431,7 @@ class TestMotorRecalculoCascada:
             direccion="desde"
         )
         
-        # D2: E2 + 5 días = 2026-01-25 (¡misma fecha!)
-        # Cambiamos para tener fechas DIFERENTES
+        # duration=15 (no 5) para no coincidir con la fecha de D1
         d2 = Deadline(
             partition_key=analysis_id,
             analysis_id=analysis_id,
@@ -458,7 +439,7 @@ class TestMotorRecalculoCascada:
             name="Desde B",
             trigger_event_id="e2",
             target_event_id="e3",
-            duration=15,  # E2 (20 ene) + 15 = 4 feb
+            duration=15,
             unit="días",
             day_type="corridos",
             direccion="desde"
@@ -467,10 +448,6 @@ class TestMotorRecalculoCascada:
         eventos, deadlines = calcular_fechas_cascada([e1, e2, e3], [d1, d2])
         eventos_dict = {e.event_id: e for e in eventos}
         
-        # E3 debe tomar la fecha MÁS TEMPRANA:
-        # D1: 2026-01-10 + 15 = 2026-01-25
-        # D2: 2026-01-20 + 15 = 2026-02-04
-        # min(25 ene, 4 feb) = 25 ene
         assert eventos_dict["e3"].event_date == date(2026, 1, 25)
         assert eventos_dict["e3"].date_source == "calculated"
     
@@ -487,18 +464,16 @@ class TestMotorRecalculoCascada:
             date_source="user_input"
         )
         
-        # E2 YA tiene fecha (user_input) - no debe cambiar
         e2 = Event(
             partition_key=analysis_id,
             analysis_id=analysis_id,
             event_id="e2",
             name="Target con fecha fija",
-            event_date=date(2026, 2, 1),  # Fecha existente
+            event_date=date(2026, 2, 1),
             date_source="user_input"
         )
-        
-        # D1 intentaría calcular E2 como 15 ene + 10 = 25 ene
-        # Pero E2 ya tiene fecha, así que no debe cambiar
+
+        # D1 daría 25 ene si se calculara, pero E2 ya tiene fecha fija y no debe cambiar
         d1 = Deadline(
             partition_key=analysis_id,
             analysis_id=analysis_id,
@@ -515,11 +490,9 @@ class TestMotorRecalculoCascada:
         eventos, deadlines = calcular_fechas_cascada([e1, e2], [d1])
         eventos_dict = {e.event_id: e for e in eventos}
         
-        # E2 debe mantener su fecha original (2026-02-01)
         assert eventos_dict["e2"].event_date == date(2026, 2, 1)
         assert eventos_dict["e2"].date_source == "user_input"
-        
-        # D1 se calcula correctamente pero no modifica E2
+
         deadlines_dict = {d.deadline_id: d for d in deadlines}
         assert deadlines_dict["d1"].deadline_date == date(2026, 1, 25)
         assert deadlines_dict["d1"].calculation_status == "calculated"
@@ -546,7 +519,6 @@ class TestMotorRecalculoCascada:
             date_source="pending"
         )
         
-        # D1: E1 -> E2
         d1 = Deadline(
             partition_key=analysis_id,
             analysis_id=analysis_id,
@@ -615,7 +587,6 @@ class TestMotorRecalculoCascada:
         eventos, deadlines = calcular_fechas_cascada([e1, e2], [d1])
         deadlines_dict = {d.deadline_id: d for d in deadlines}
         
-        # D1 debe quedar en status pending (no error, solo sin calcular)
         assert deadlines_dict["d1"].calculation_status == "pending"
         assert "evento disparador sin fecha" in deadlines_dict["d1"].calculation_error.lower()
     

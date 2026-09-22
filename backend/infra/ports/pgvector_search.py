@@ -10,24 +10,10 @@ from infra.database import _build_engine
 
 logger = structlog.get_logger(__name__)
 
-# Constante estándar de RRF (misma que usa Azure AI Search internamente en su
-# fusión nativa). No es un parámetro a calibrar -- es la convención del
-# algoritmo (Cormack et al. 2009).
+# Standard RRF constant (same as Azure AI Search's native fusion), not a tunable parameter (Cormack et al. 2009).
 RRF_K = 60
 
-# ÉPICA 22.4 -- recalibrado del `MIN_SCORE_SMALL_ANALYSIS = 0.032` de Azure
-# (pensado para su score coseno 0-1) al nuevo rango de scores RRF.
-#
-# Derivación: con `k=RRF_K=60`, el score de un chunk que aparece en SOLO una
-# de las dos señales (vector o texto) a la posición MEDIANA de una ventana de
-# `fetch_top=30` (el piso que usa `search_hybrid` para análisis chicos) es
-# `1/(60 + 15) = 0.0133`. Un chunk así -- señal única y mediocre, ni siquiera
-# entre los primeros puestos de una sola lista -- es justo el tipo de "ruido"
-# que el filtro de Azure buscaba cortar en corpus chicos. `0.01` queda
-# levemente por debajo de ese punto (conservador: prioriza no perder
-# información real sobre limpiar agresivo), consistente con el comentario
-# original de Azure ("mejor contexto de más que de menos"). Sin dataset real
-# de evaluación todavía (Historia 22.13) -- valor a revisar empíricamente ahí.
+# Recalibrated from Azure's cosine-based threshold (0.032) to the RRF score scale; set conservatively (median single-signal score at fetch_top=30) to avoid dropping real content over aggressive cleanup. Revisit empirically once a real eval dataset exists (Historia 22.13).
 MIN_SCORE_SMALL_ANALYSIS = 0.01
 _SMALL_ANALYSIS_THRESHOLD = 50
 
@@ -337,9 +323,7 @@ def search_hybrid(
 
         ranked_chunks = [_row_to_chunk(row) for row in raw_rows]
 
-        # ÉPICA 22.4 (paridad con Épica 10 de Azure): con análisis pequeños
-        # (< 50 chunks recuperados), la fusión RRF no discrimina bien -- ver
-        # derivación de MIN_SCORE_SMALL_ANALYSIS arriba.
+        # RRF fusion doesn't discriminate well below ~50 chunks (Épica 22.4); see MIN_SCORE_SMALL_ANALYSIS above.
         total_chunks_available = len(ranked_chunks)
         if total_chunks_available < _SMALL_ANALYSIS_THRESHOLD:
             logger.warning(
@@ -370,10 +354,7 @@ def search_hybrid(
     return expanded_chunks[:top_k]
 
 
-# Tope de seguridad para `fetch_all_analysis_chunks` -- protege contra un
-# analysis_id corrupto trayendo una tabla entera a memoria. A diferencia de
-# Azure, Postgres no tiene continuation tokens ni límite artificial de
-# paginación: esto es sólo una guarda defensiva, no una limitación del motor.
+# Safety cap against a corrupt analysis_id pulling an entire table into memory; Postgres has no continuation tokens like Azure, so this is a defensive guard, not an engine limitation.
 _MAX_ENUMERABLE_CHUNKS = 50_000
 _ENUMERATION_PAGE_SIZE = 1000
 

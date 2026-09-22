@@ -147,6 +147,37 @@ function renderizarConCitaEnLaPagina2() {
   );
 }
 
+/** Un ítem con DOS citas propias en la misma página (ej. un plazo de
+ * "Plazos Clave" con una cita para el plazo y otra para el lugar de entrega,
+ * caso real documentado en el FIX 2026-09-03 de `PDFViewer.tsx`) -- el
+ * usuario enfoca la SEGUNDA (más abajo en la página). El caso reportado:
+ * el visor scrolleaba a la PRIMERA (más arriba) sin importar cuál se había
+ * clickeado, porque el cálculo de la posición de scroll tomaba el mínimo
+ * entre las dos, no la de la cita realmente enfocada. */
+function renderizarConDosCitasEnLaMismaPagina() {
+  const citaArriba = { ...CITA, text: "El plazo de entrega será de noventa (90) días corridos" };
+  const citaAbajo = {
+    ...CITA,
+    text: "Las entregas se realizarán en el 3er piso del Palacio Municipal",
+  };
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <PDFViewer
+        documentId={DOC}
+        documentName="Pliego.pdf"
+        citations={[citaArriba, citaAbajo]}
+        documents={[{ id: DOC, filename: "Pliego.pdf", page_count: 10, file_size_bytes: 1, is_primary: true }]}
+        focusCitation={citaAbajo}
+        sources={[
+          { ...SOURCE, text: citaArriba.text, highlight_regions: [{ x: 57, y: 100, width: 480, height: 10 }] },
+          { ...SOURCE, text: citaAbajo.text, highlight_regions: [{ x: 57, y: 680, width: 480, height: 10 }] },
+        ]}
+      />
+    </QueryClientProvider>,
+  );
+}
+
 function contenedor(): HTMLElement {
   return screen.getByTestId("pdf-container");
 }
@@ -225,6 +256,17 @@ describe("enfoque de la cita en el visor", () => {
     [7, 8].forEach((page) => simularRender(page, rendered));
 
     expect(scrollCalls.length).toBe(total);
+  });
+
+  test("con dos citas propias en la misma página, enfoca la región de la cita clickeada, no el mínimo entre ambas", () => {
+    const rendered = prepararLayout();
+    renderizarConDosCitasEnLaMismaPagina();
+
+    [1, 2, 3, 4, 5, 6].forEach((page) => simularRender(page, rendered));
+
+    // 4500 (páginas de arriba) + 680 (y de la cita de ABAJO, la clickeada) - 90 = 5090.
+    // Antes del fix daba 4510 (usando el y=100 de la cita de ARRIBA, no clickeada).
+    expect(scrollCalls.at(-1)).toBe(5090);
   });
 
   test("nunca scrollea la ventana", () => {

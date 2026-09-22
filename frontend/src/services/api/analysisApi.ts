@@ -35,19 +35,7 @@ function toSourceReference(value: unknown): SourceReference | null {
   };
 }
 
-/** CTX-06: el nombre del archivo del que sale una cita.
- *
- * Este valor era la constante `"Documento"` en los tres mappers que construyen
- * fuentes, y es lo que la lista "Fuentes verificables" renderiza literalmente
- * (`NarrativeBlocks.tsx`). Con un solo documento no decía nada; desde que un
- * análisis acepta pliego + anexos, las cinco fuentes de una categoría se leen
- * `"Documento · pág. 1"` y no hay forma de saber cuál es cuál -- ni de notar
- * que "pág. 1" de dos archivos distintos son dos páginas distintas.
- *
- * El backend ahora lo resuelve y lo manda en `filename` (ver
- * `graph.py::_stampar_nombre_de_documento`). `document_name` se sigue aceptando
- * para no romper payloads ya normalizados, y el default se conserva porque una
- * fuente de un documento que ya no existe tiene que seguir mostrándose. */
+/** CTX-06: nombre de archivo de la cita; usa `filename` del backend con fallback a `document_name` legacy y "Documento" por defecto. */
 function toDocumentName(value: Record<string, unknown>): string {
   const fromBackend = String(value.filename ?? "").trim();
   if (fromBackend) {
@@ -75,19 +63,7 @@ function toSourceIds(value: unknown): number[] {
   return value.map((id) => Number(id)).filter((id) => Number.isFinite(id));
 }
 
-/** Las coordenadas de resaltado que calculó el backend, tal cual vienen.
- *
- * FIX (2026-08-14): este mapper NO copiaba `highlight_regions`, y es el único
- * constructor de `NarrativeSource` en todo el frontend. O sea que
- * `getCombinedHighlightRegions()` devolvía SIEMPRE `[]`, `useCoordinateHighlight`
- * era SIEMPRE `false`, y el visor caía SIEMPRE al resaltado heurístico por
- * texto. El camino de coordenadas era código muerto en producción.
- *
- * Eso explica por qué varias correcciones del cálculo de coordenadas en el
- * backend no cambiaron nada de lo que se veía: los números llegaban bien hasta
- * el borde de la API y se descartaban acá. Los tests no lo detectaban porque
- * mockean la respuesta ya mapeada o construyen las regiones a mano.
- */
+/** Coordenadas de resaltado del backend, tal cual. FIX 2026-08-14: antes no se copiaban y el resaltado por coordenadas quedaba muerto en producción. */
 function toHighlightRegions(value: unknown): HighlightRegion[] {
   if (!Array.isArray(value)) {
     return [];
@@ -125,9 +101,7 @@ function toNarrativeSource(value: unknown): NarrativeSource | null {
   };
 }
 
-/** Convierte un bloque crudo del backend (o de un narrative mal formado) a la
- * forma tipada. Devuelve null ante cualquier bloque irreconocible en vez de
- * lanzar — un bloque malformado nunca puede tumbar el resto de la respuesta. */
+/** Convierte un bloque crudo a forma tipada; devuelve null en vez de lanzar para no tumbar el resto de la respuesta. */
 function toNarrativeBlock(value: unknown): NarrativeBlockData | null {
   if (!isRecord(value)) {
     return null;
@@ -184,9 +158,7 @@ function toNarrativeBlock(value: unknown): NarrativeBlockData | null {
   return null;
 }
 
-/** Remapea los `source_ids` de un bloque ya tipado con el mapping que dejó la
- * deduplicación de fuentes, para que ningún bloque quede apuntando a un id
- * que la fusión de sources descartó. */
+/** Remapea source_ids con el mapping de la deduplicación de fuentes, para que ningún bloque apunte a un id descartado. */
 function remapNarrativeBlockSourceIds(block: NarrativeBlockData, idMapping: Map<number, number>): NarrativeBlockData {
   if (block.type === "paragraph") {
     return { ...block, source_ids: remapSourceIds(block.source_ids, idMapping) };
@@ -203,9 +175,7 @@ function remapNarrativeBlockSourceIds(block: NarrativeBlockData, idMapping: Map<
   };
 }
 
-/** Arma la CategoryNarrative del backend en la forma tipada del frontend. Es
- * defensivo a propósito: si la síntesis vino mal formada o vacía, devuelve
- * undefined y el llamador cae al fallback local en vez de romper la vista. */
+/** Arma CategoryNarrative; devuelve undefined si la síntesis vino mal formada para que el llamador caiga al fallback local. */
 function toCategoryNarrative(value: unknown): CategoryNarrative | undefined {
   if (!isRecord(value)) {
     return undefined;
@@ -229,9 +199,7 @@ function toCategoryNarrative(value: unknown): CategoryNarrative | undefined {
   return { blocks, sources };
 }
 
-/** Solo presente en ítems con forma de PlazoItem (mismo chequeo que usa
- * `backendItemValue` para reconocerlos). Se preserva sin aplanar para que la
- * timeline pueda ubicar fechas literales sin inventar ninguna. */
+/** Solo para PlazoItem; se preserva sin aplanar para que la timeline use fechas literales sin inventar. */
 function toPlazoRawFields(item: Record<string, unknown>): PlazoRawFields | undefined {
   if (!("fecha" in item) && !("expresion_relativa" in item) && !("texto_original" in item)) {
     return undefined;
@@ -287,18 +255,7 @@ function emptyCategoryData(): CategoryData {
   };
 }
 
-/**
- * El backend emite cada categoría como un array de ítems y el estado agregado en
- * una clave hermana, cuyo nombre no siempre coincide con el de la categoría.
- *
- * FIX: Migrado a campos canónicos (#4 auditoría RAG)
- * - anexos_obligatorios_extraction_status (NO anexos_extraction_status)
- * - criterios_evaluacion_extraction_status (NO criterios_extraction_status)
- * - causales_rechazo_extraction_status (NO causales_extraction_status)
- *
- * Los campos legacy siguen funcionando hasta Q2 2027, pero se recomienda
- * usar los canónicos para evitar problemas futuros.
- */
+/** El estado agregado viaja en clave hermana; campos legacy (anexos_/criterios_/causales_extraction_status) funcionan hasta Q2 2027, usar los canónicos. */
 const BACKEND_STATUS_KEY: Record<CategoryId, string> = {
   plazos_clave: "plazos_clave_extraction_status",
   garantias: "garantias_extraction_status",
@@ -452,12 +409,7 @@ function fromBackendItem(value: unknown): FieldItem | null {
   const shouldOverrideNotFound = (status === "not_found" || status === "failed") && (fieldValue != null || hasEvidence);
   const fieldState = shouldOverrideNotFound ? "extraido" : (STATE_BY_STATUS[status] ?? "extraido");
 
-  // FIX (2026-08-22): PlazoItem ya no tiene `tipo` (enum eliminado, ver
-  // schemas.py) -- ahora trae `referencia`, texto libre escrito por el LLM
-  // que ya es un título legible ("Plazo de entrega de bienes"), a diferencia
-  // de `tipo` que había que pasar por `humanizeTipo`/`FIELD_LABELS` para que
-  // se leyera bien. Se usa tal cual, sin ese mapeo. `value.tipo` se mantiene
-  // como fallback para análisis viejos guardados en Cosmos antes de este fix.
+  // FIX 2026-08-22: PlazoItem ya no tiene `tipo` (reemplazado por `referencia`, texto legible del LLM); `value.tipo` queda como fallback para análisis viejos en Cosmos.
   const referencia = value.referencia == null ? "" : String(value.referencia).trim();
 
   // Para RiesgoItem, incluir subtipo en el field_name para permitir agrupamiento
@@ -519,7 +471,6 @@ function fromBackendArray(
 ): CategoryData {
   const items = rawItems.map(fromBackendItem).filter((item): item is FieldItem => item !== null);
 
-  // Usar confidence de categoría del backend si existe; si no, fallback a promedio.
   let confidence = Number(categoryConfidenceFromSibling ?? 0);
   if (!Number.isFinite(confidence) || confidence <= 0) {
     const withConfidence = items.filter((item) => Number.isFinite(item.confidence) && item.confidence > 0);
@@ -560,13 +511,7 @@ function fromBackendArray(
   };
 }
 
-/**
- * `CATEGORY_ORDER` es solo el orden de las tarjetas de categoría visibles en la
- * UI y excluye a propósito `datos_procedimiento` (no tiene tarjeta propia, ver
- * `categoryIcons.tsx`). Para normalizar datos del backend hace falta la lista
- * completa de `CategoryId`, si no `datos_procedimiento` nunca se puebla y el
- * organismo/expediente del header del análisis quedan siempre vacíos.
- */
+/** Lista completa de CategoryId (a diferencia de CATEGORY_ORDER, que excluye datos_procedimiento) para que el header del análisis no quede vacío. */
 const NORMALIZE_CATEGORY_IDS: Array<CategoryId | "preview_criterios"> = [
   "preview_criterios",
   ...CATEGORY_ORDER,
@@ -607,25 +552,14 @@ function normalizeCategories(extractedData: unknown): Record<CategoryId, Categor
     return result;
   }
 
-  // FIX: Mapeo legacy solo para retrocompatibilidad (#4 auditoría RAG)
-  // El backend actual envía ambos nombres (canónico + legacy), pero versiones
-  // antiguas o análisis legacy pueden tener solo los nombres viejos.
-  // Este fallback se puede eliminar después de Q2 2027 cuando se deprecien
-  // completamente los campos legacy del backend.
+  // Mapeo legacy de retrocompatibilidad para análisis viejos con solo nombres antiguos; eliminar después de Q2 2027.
   const legacyToUiMap: Partial<Record<CategoryId | "preview_criterios", string[]>> = {
     plazos_clave: ["plazos"],
     requisitos_admisibilidad: ["documentos_requeridos", "restricciones_participacion"],
     datos_procedimiento: ["cronograma_proceso", "estimacion_presupuesto"],
   };
 
-  // FIX legibilidad (2026-08-21): `causales_rechazo` siempre llegó como array
-  // bajo el nombre canónico (no pasa por `legacyToUiMap`), pero su clave de
-  // estado hermana se llamaba `causales_extraction_status`, rota respecto del
-  // patrón `<categoria>_extraction_status`. El backend ahora también escribe
-  // `causales_rechazo_extraction_status`, pero análisis viejos guardados en
-  // Cosmos antes de este fix solo tienen el nombre viejo -- este fallback
-  // evita perder el estado de esos análisis. Retiro junto con el resto de los
-  // campos legacy (Q2 2027).
+  // causales_rechazo usaba la clave rota `causales_extraction_status`; fallback para análisis viejos en Cosmos, retirar junto al resto de legacy (Q2 2027).
   const legacyStatusKey: Partial<Record<CategoryId | "preview_criterios", string>> = {
     causales_rechazo: "causales_extraction_status",
   };
@@ -649,9 +583,7 @@ function normalizeCategories(extractedData: unknown): Record<CategoryId, Categor
   for (const categoryId of NORMALIZE_CATEGORY_IDS) {
     let rawCategory = extractedData[categoryId];
 
-    // Forma actual del backend: la categoría es un array de ítems, el estado
-    // agregado viaja en una clave hermana, y la narrativa de síntesis (cuando
-    // corrió) en `${categoryId}_narrative`.
+    // Forma actual del backend: categoría=array de ítems, estado en clave hermana, narrativa en `${categoryId}_narrative`.
     if (Array.isArray(rawCategory)) {
       result[categoryId] = fromBackendArray(
         rawCategory,

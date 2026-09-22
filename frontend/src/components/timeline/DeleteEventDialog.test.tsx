@@ -6,7 +6,6 @@ import { DeleteEventDialog } from "./DeleteEventDialog";
 import * as timelineApi from "../../api/timeline";
 import type { EventResponse } from "../../types/timeline";
 
-// Mock del API
 vi.mock("../../api/timeline", () => ({
   deleteEvent: vi.fn(),
 }));

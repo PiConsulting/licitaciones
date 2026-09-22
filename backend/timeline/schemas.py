@@ -20,8 +20,6 @@ from timeline.models import (
 )
 
 
-# ==================== EVENT SCHEMAS ====================
-
 class EventCreateRequest(BaseModel):
     """Request para crear un evento."""
     
@@ -111,8 +109,6 @@ class EventHideRequest(BaseModel):
 
     hidden: bool
 
-
-# ==================== DEADLINE SCHEMAS ====================
 
 class DeadlineCreateRequest(BaseModel):
     """Request para crear un deadline."""

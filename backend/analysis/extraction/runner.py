@@ -62,12 +62,12 @@ _PHASE1_EXTRACTED_KEYS = {
     "garantias_extraction_status",
     "garantias_narrative",
     "garantias_confidence",
-    "riesgos",
-    "riesgos_extraction_status",
-    "riesgos_narrative",
-    "riesgos_confidence",
 }
 
+# FIX (2026-09-18, rediseño de `riesgos`): movido de fase 1 a fase 2 -- ahora
+# sintetiza desde garantias/plazos/requisitos (fase 1, sembrados a mano en
+# `extract_categories_phase2`) + causales/criterios (fase 2, recién
+# calculados), así que su OUTPUT también se persiste como resultado de fase 2.
 _PHASE2_EXTRACTED_KEYS = {
     "calidad_por_categoria",
     "causales_rechazo",
@@ -87,6 +87,10 @@ _PHASE2_EXTRACTED_KEYS = {
     "eventos_temporales_extraction_status",
     "plazos_relativos",
     "plazos_relativos_extraction_status",
+    "riesgos",
+    "riesgos_extraction_status",
+    "riesgos_narrative",
+    "riesgos_confidence",
 }
 
 
@@ -462,6 +466,22 @@ def extract_categories_phase2(
         )
     if current_version is None:
         raise RuntimeError("No se encontró la AnalysisVersion de fase 1 para completar fase 2")
+
+    # FIX (2026-09-18, rediseño de `riesgos`): `riesgos` se movió a fase 2 para
+    # poder sintetizar a partir de HECHOS YA EXTRAÍDOS en vez de escanear
+    # chunks crudos (ver `extractor_riesgos`) -- necesita `garantias`/`plazos`/
+    # `requisitos_admisibilidad`, que son de fase 1 y no vuelven a correr acá.
+    # `_build_initial_state` no los precarga (solo trae `setup_cache`, la
+    # infraestructura de retrieval) -- se siembran a mano desde lo ya
+    # persistido en fase 1, mismo patrón que `_PREVIEW_CRITERIOS_SOURCE_STATE_KEYS`
+    # en `lifecycle.py` para el reanálisis de una sola categoría. `setup_node`
+    # (compartido por las 3 fases) ya solo inicializa un campo si está vacío
+    # -- no pisa estos valores sembrados (fix de Fase 2 de la sesión anterior).
+    _phase1_data = current_version.extracted_data or {}
+    for _key in ("garantias", "plazos", "requisitos_admisibilidad"):
+        _value = _phase1_data.get(_key)
+        if _value:
+            initial_state[_key] = _value
 
     update_stage_and_progress(
         db,

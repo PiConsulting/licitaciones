@@ -34,8 +34,7 @@ from indexing.chunking import create_chunks
 from indexing.chunking.classification import classify_chunk_categories
 from infra.ports.pgvector_search import SEARCH_CHUNK_COLUMNS
 
-# Texto real del pliego_04 (analisis A). La cita que el LLM devolvio para
-# objeto_alcance mide 343 caracteres y era descartada solo por eso.
+# Texto real del pliego_04 (analisis A): la cita para objeto_alcance mide 343 caracteres y era descartada solo por eso.
 OBJETO_PLIEGO_04 = (
     "La presente Licitación Pública tiene por objeto la contratación del servicio de "
     "vigilancia y seguridad privada, sin armas de fuego, para los edificios de la Agencia "
@@ -70,9 +69,7 @@ def _item(citation: str, **overrides: Any) -> dict[str, Any]:
     return base
 
 
-# ---------------------------------------------------------------------------
 # 1. El largo de la cita no decide si la evidencia vale
-# ---------------------------------------------------------------------------
 
 
 def test_cita_larga_verbatim_sobrevive_al_grounding() -> None:
@@ -155,9 +152,7 @@ def test_grounding_guarda_la_cita_dentro_del_limite_de_persistencia() -> None:
     ExtractedData(objeto_alcance=[items[0]])  # no debe levantar ValidationError
 
 
-# ---------------------------------------------------------------------------
 # 2. merge_node es un borde de contrato: degrada el dato, no tumba el analisis
-# ---------------------------------------------------------------------------
 
 
 def _merge_state(**overrides: Any) -> dict[str, Any]:
@@ -212,11 +207,7 @@ def test_una_cita_fuera_de_contrato_no_tumba_las_demas_categorias() -> None:
     result = merge_node(state)
     data = result["extracted_data"]
 
-    # FIX 2026-09-03: el ítem con `valor` sustantivo cuya cita no se pudo
-    # verificar YA NO se descarta -- se conserva con `source_references` vacío
-    # y status "partial" (el frontend no le ofrece "ver fuente"). Lo que este
-    # test cuida es que eso NO tire una ValidationError que se lleve puestas
-    # las otras 8 categorías.
+    # FIX 2026-09-03: un ítem sustantivo sin cita verificable se conserva (partial); este test cuida que eso no tumbe las otras 8 categorías con un ValidationError.
     assert len(data["objeto_alcance"]) == 1
     assert data["objeto_alcance"][0]["source_references"] == []
     assert data["objeto_alcance_extraction_status"] in {"partial", "success"}
@@ -237,9 +228,7 @@ def test_cita_demasiado_larga_se_recorta_en_vez_de_descartarse() -> None:
     assert citation in OBJETO_PLIEGO_04
 
 
-# ---------------------------------------------------------------------------
 # 3. merge_node completa los campos canonicos que consume el frontend
-# ---------------------------------------------------------------------------
 
 
 def test_merge_completa_campos_canonicos_y_no_solo_los_legacy() -> None:
@@ -318,9 +307,7 @@ def test_tipo_de_identificacion_fuera_del_enum_no_rompe_el_merge() -> None:
     assert len(data["datos_procedimiento"]) == 1, "el dato no se pierde: queda en el campo legacy"
 
 
-# ---------------------------------------------------------------------------
 # 4. La clasificacion de chunks tiene que llegar al indice y volver
-# ---------------------------------------------------------------------------
 
 
 def test_chunks_llevan_categoria_al_indice() -> None:
@@ -358,9 +345,7 @@ def test_chunks_llevan_categoria_al_indice() -> None:
             uploaded.extend(documents)
 
         def delete_analysis_chunks(self, analysis_id: str) -> int:
-            # IDX-03 (auditoría 2026-08-13): `upload_chunks` ahora limpia los
-            # chunks previos del análisis antes de subir los nuevos, así que
-            # este método SÍ se invoca en cada re-indexación.
+            # IDX-03: `upload_chunks` limpia los chunks previos antes de subir los nuevos, así que esto sí se invoca en cada re-indexación.
             self.deleted_analysis_ids.append(analysis_id)
             return 0
 
@@ -379,9 +364,7 @@ def test_retrieval_selecciona_los_campos_de_categoria() -> None:
     assert "secondary_categories" in SEARCH_CHUNK_COLUMNS
 
 
-# ---------------------------------------------------------------------------
 # 5. US-3.1: parent/child chunking tiene que llegar completo al indice
-# ---------------------------------------------------------------------------
 
 
 _ARTICULO_LARGO_CON_INCISOS = (
@@ -433,9 +416,7 @@ def test_upload_chunks_traduce_indices_de_parent_child_a_ids_completos() -> None
             uploaded.extend(documents)
 
         def delete_analysis_chunks(self, analysis_id: str) -> int:
-            # IDX-03 (auditoría 2026-08-13): `upload_chunks` ahora limpia los
-            # chunks previos del análisis antes de subir los nuevos, así que
-            # este método SÍ se invoca en cada re-indexación.
+            # IDX-03: `upload_chunks` limpia los chunks previos antes de subir los nuevos, así que esto sí se invoca en cada re-indexación.
             self.deleted_analysis_ids.append(analysis_id)
             return 0
 
@@ -491,9 +472,7 @@ def test_upload_chunks_marca_normal_los_chunks_sin_subdividir() -> None:
             uploaded.extend(documents)
 
         def delete_analysis_chunks(self, analysis_id: str) -> int:
-            # IDX-03 (auditoría 2026-08-13): `upload_chunks` ahora limpia los
-            # chunks previos del análisis antes de subir los nuevos, así que
-            # este método SÍ se invoca en cada re-indexación.
+            # IDX-03: `upload_chunks` limpia los chunks previos antes de subir los nuevos, así que esto sí se invoca en cada re-indexación.
             self.deleted_analysis_ids.append(analysis_id)
             return 0
 
@@ -554,14 +533,10 @@ def test_categorias_secundarias_no_dependen_del_tamano_del_glossary() -> None:
     assert "garantias" in result["secondary_categories"]
 
 
-# ---------------------------------------------------------------------------
 # 5. Secciones con el titulo corrido dentro del texto
-# ---------------------------------------------------------------------------
 
 
-# Forma real de la salida de Document Intelligence: `_parse_markdown_blocks` no
-# corta en lineas en blanco, asi que TODO el texto entre dos encabezados llega
-# como un unico bloque con "\n\n" internos.
+# Forma real de Document Intelligence: `_parse_markdown_blocks` no corta en líneas en blanco, así que todo el texto entre dos encabezados llega en un solo bloque.
 BLOQUE_ARTICULO_9_ROSARIO = (
     "Queda debidamente establecido a los fines de comparar las ofertas que se presenten, "
     "que se deberán convertir los precios cotizados a moneda de curso legal.\n\n"
@@ -692,9 +667,7 @@ def test_membrete_repetido_se_despega_aunque_una_pagina_lo_traiga_fusionado() ->
         assert chunk["section_path"] == "ANEXO II"
 
 
-# ---------------------------------------------------------------------------
 # 6. Respuesta del LLM: JSON con saltos de linea crudos en las citas
-# ---------------------------------------------------------------------------
 
 
 def test_cita_con_salto_de_linea_crudo_no_rompe_el_parseo() -> None:
@@ -763,9 +736,7 @@ def test_categoria_no_aplicable_no_se_agrega_como_not_found() -> None:
     assert data["garantias"][0].get("valor")
 
 
-# ---------------------------------------------------------------------------
 # 7. El filtro por categoria no puede bajar la recall
-# ---------------------------------------------------------------------------
 
 
 def test_la_categoria_prioriza_pero_no_recorta_el_presupuesto(monkeypatch) -> None:
@@ -785,8 +756,7 @@ def test_la_categoria_prioriza_pero_no_recorta_el_presupuesto(monkeypatch) -> No
     """
     from analysis.extraction.engine import chunk_retrieval
 
-    # El chunk clasificado en la categoría tiene un score PEOR que varios otros:
-    # sin el boost no quedaría primero.
+    # El chunk clasificado en la categoría tiene un score peor que varios otros: sin el boost no quedaría primero.
     candidatos = [
         _chunk(f"parrafo {i}", chunk_index=i, search_score=1.0 - i * 0.01) for i in range(10)
     ]
@@ -825,11 +795,7 @@ def test_la_categoria_prioriza_pero_no_recorta_el_presupuesto(monkeypatch) -> No
     assert len(indexes) == len(set(indexes)), "no se puede duplicar chunks"
 
 
-# ---------------------------------------------------------------------------
-# 8. La fuente mostrada en la sintesis respalda el elemento exacto, no la
-#    categoria entera (caso reportado: bullets de "Anexos" citando evidencia
-#    de otra seccion del pliego)
-# ---------------------------------------------------------------------------
+# 8. La fuente mostrada en la sintesis respalda el elemento exacto, no la categoria entera
 
 
 def _anexo_item(citation: str, valor: str) -> dict[str, Any]:
@@ -876,8 +842,7 @@ def test_bloque_con_item_ref_equivocado_no_contamina_la_sintesis_de_anexos(
                             {
                                 "text": "Presentar Anexo II: Declaración jurada de aptitud para contratar.",
                                 "confidence_level": "alta",
-                                # Indice fuera de rango: simula el defecto observado donde el
-                                # bloque queda "enganchado" con evidencia que no es la suya.
+                                # Indice fuera de rango: simula el bloque "enganchado" con evidencia que no es la suya.
                                 "item_refs": [99],
                             },
                         ],

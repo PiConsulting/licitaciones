@@ -25,6 +25,17 @@ Un ítem por anexo/formulario.
 - Referencias a "Anexo I", "Anexo II", "Planilla A", etc.
 - Menciones de declaraciones juradas a suscribir
 - Frases sobre formularios que "deberán completarse"
+- **Cualquier documento con NOMBRE PROPIO que el pliego pide presentar/adjuntar
+  junto con la oferta, aunque no esté numerado como "Anexo" ni se llame
+  "Declaración Jurada"** -- ej. "Detalle de Deuda Consolidada según el Artículo
+  5° de la Resolución X", "Certificación notarial de los documentos requeridos
+  para la calificación", "Nota de Presentación", "Constancia de Visita". La
+  señal es que el documento tiene un nombre/identidad propia y es ALGO QUE SE
+  ARMA/CONSIGUE Y SE ADJUNTA, no una condición abstracta ("tener 10 años de
+  antigüedad" no es un documento; "presentar el Detalle de Deuda Consolidada"
+  sí lo es). No dupliques el texto de la CONDICIÓN que ya se extrae en
+  `requisitos_admisibilidad` -- acá el `valor` es el nombre del documento en
+  sí, no la condición que ese documento acredita.
 
 **Frases típicas que indican anexos:**
 - "Forman parte del presente los siguientes anexos..."

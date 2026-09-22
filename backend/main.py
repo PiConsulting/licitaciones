@@ -64,7 +64,6 @@ def _run_health_checks() -> tuple[int, dict[str, Any]]:
 
     db_status, db_message = _database_health()
 
-    # FIX MEDIUM (#9): Validar PyMuPDF disponible
     pymupdf_status, pymupdf_message = _pymupdf_health()
 
     checks: dict[str, dict[str, Any]] = {
@@ -206,7 +205,7 @@ def create_app() -> FastAPI:
     app.include_router(timeline_router, prefix="/api/v1")
     app.include_router(documents_router, prefix="/api/v1")
 
-    # 🔧 DEBUG - quitar antes de commitear
+    # DEBUG - quitar antes de commitear a producción
     from debug.chunks_viewer import debug_router
 
     app.include_router(debug_router, prefix="/api/debug")

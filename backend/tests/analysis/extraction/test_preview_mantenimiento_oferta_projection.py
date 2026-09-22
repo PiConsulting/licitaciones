@@ -1,11 +1,4 @@
-# Regresión (2026-09-16, bug reportado por la usuaria): en un análisis
-# multi-documento (santa_fe, pliego marco + pliego particular), preview
-# mostraba "Plazo de mantenimiento de las ofertas." (sin número) para
-# mantenimiento_oferta, mientras que `plazos_clave` SÍ tenía el dato real
-# ("Plazo de Mantenimiento de la Oferta: 30 días corridos..."). Causa:
-# `_project_plazos_clave` tomaba `matches[0]` (el primero en el orden de la
-# lista), no el más completo. Test con la forma real de los datos (recortada)
-# del análisis 6a6dc70d-4d5d-4a4c-9067-56ab65ca48a2.
+# Regresión (2026-09-16): `_project_plazos_clave` tomaba `matches[0]` en vez del match más completo, mostrando el plazo sin el número real (caso santa_fe).
 from __future__ import annotations
 
 from analysis.extraction.extractors.preview_criterios import (

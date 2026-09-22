@@ -95,12 +95,11 @@ describe("AnalysisSummaryStrip", () => {
         criterios_evaluacion: category([field("e", "extraido")]),
         causales_rechazo: category([field("f", "extraido")]),
         anexos_obligatorios: category([field("g", "extraido")]),
-        datos_procedimiento: category([field("h", "extraido")]), // NO debe contarse
+        datos_procedimiento: category([field("h", "extraido")]),
       });
 
       render(<AnalysisSummaryStrip analysis={analysis} />);
 
-      // Debe mostrar 7/7, no 8/8
       expect(screen.getByText("7/7 categorías extraídas")).toBeInTheDocument();
     });
 

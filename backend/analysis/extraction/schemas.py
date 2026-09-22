@@ -84,23 +84,8 @@ class ExtractedItem(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
 
     confidence_llm: float | None = Field(default=None, ge=0.0, le=1.0)
-    # FIX (2026-09-03, bug reportado: preview mostraba solo 4/10 criterios):
-    # antes exigía min_length=1 -- cualquier item sin fuentes, sin importar la
-    # razón, era rechazado por pydantic en `_keep_schema_valid_items` (graph/
-    # validation.py), incluso si `graph/validation.py::_drop_items_without_sources`
-    # ya lo había dejado pasar a propósito (placeholder "not_found", o un
-    # hallazgo real cuya cita no pudo verificarse literalmente contra los
-    # chunks -- ver `_verify_citation_grounding` en engine/citation_grounding.py,
-    # que vacía `source_references` y baja el item a "partial" en vez de
-    # inventar una cita). Con min_length=1, esos items morían igual un par de
-    # líneas después, silenciosamente: el usuario veía el dato desaparecido
-    # por completo, indistinguible de "nunca se extrajo nada". El contrato de
-    # "al menos una fuente" lo sigue exigiendo `_drop_items_without_sources`
-    # para el caso general (items con status success/partial que SÍ tenían
-    # fuentes y las perdieron) -- acá solo se permite que un item sin fuentes
-    # sobreviva la validación de schema; qué hacer con él (descartarlo,
-    # conservarlo como placeholder, conservarlo sin evidencia clickeable) es
-    # una decisión de `_drop_items_without_sources`, no de este schema.
+    # FIX 2026-09-03: sin min_length=1 -- un item sin fuentes (placeholder "not_found", o
+    # cita no verificable) moría silenciosamente en pydantic antes de que `_drop_items_without_sources` pudiera decidir qué hacer con él.
     source_references: list[SourceReference] = Field(default_factory=list)
     extraction_status: ExtractionStatus = "success"
 
@@ -307,13 +292,7 @@ class GarantiaItem(ExtractedItem):
 
     tipo: TipoGarantia
     valor: str | None = None
-    # `le=100.0` original descartaba contragarantías reales (ej. 150% del
-    # anticipo financiero, práctica legítima de sobre-colateralización en
-    # licitaciones argentinas -- caso real medido: santa_fe). El porcentaje
-    # siempre está atado a una cita verificada del pliego (citation grounding),
-    # así que el techo acá es solo para atajar errores de unidad grotescos
-    # (ej. confundir monto_valor con monto_porcentaje), no para limitar el
-    # dominio real de negocio.
+    # le=100.0 original descartaba contragarantías reales (150%+ del anticipo, caso real Santa Fe); el techo es solo para errores de unidad, no para limitar el negocio.
     monto_porcentaje: float | None = Field(None, ge=0.0, le=1000.0)
     monto_valor: float | None = Field(None, ge=0.0)
     moneda: str | None = None
@@ -366,15 +345,9 @@ class TipoRequisito(str, Enum):
     CAPACIDAD_MINIMA = "capacidad_minima"
     EXPERIENCIA_MINIMA = "experiencia_minima"
     INSCRIPCION_REGISTRO = "inscripcion_registro"
-    # Certificación exigida para la admisibilidad de la oferta (ISO, partner
-    # del fabricante, habilitación de organismo técnico). NO la ficha técnica
-    # descriptiva del bien -- eso es objeto/alcance.
+    # Certificación exigida para admisibilidad (ISO, partner, organismo técnico); NO la ficha técnica descriptiva (eso es objeto/alcance).
     CERTIFICACION = "certificacion"
-    # Condición técnica mínima, obligatoria y EXCLUYENTE: si la oferta no la
-    # cumple, es inadmisible (ej. "deberá garantizar compatibilidad GNU/Linux",
-    # "componentes nuevos, sin uso", "marca en el Cuadrante Mágico de Gartner").
-    # Se distingue de la ficha técnica descriptiva por el lenguaje de
-    # obligación + exclusión, no por el tema.
+    # Condición técnica mínima obligatoria y EXCLUYENTE (inadmisible si no se cumple); se distingue por el lenguaje de obligación+exclusión, no por el tema.
     REQUISITO_TECNICO_EXCLUYENTE = "requisito_tecnico_excluyente"
     OTRA = "otra"
 
@@ -484,13 +457,9 @@ class TipoIdentificacion(str, Enum):
     PRESUPUESTO_OFICIAL = "presupuesto_oficial"
     JURISDICCION = "jurisdiccion"
     DENOMINACION = "denominacion"
-    # FIX (2026-09-14, Fase 2 de la auditoría RAG): el golden de varios
-    # pliegos pide datos de contacto/consulta que no tenían dónde ir en este
-    # enum -- ni el LLM los pedía (fuera de alcance del prompt), ni había
-    # ítem que los recibiera. Dos valores nuevos, genéricos (no ligados a la
-    # redacción de ningún pliego puntual):
-    CANAL_CONSULTAS = "canal_consultas"  # domicilio electrónico de notificaciones, correo de consultas administrativas/técnicas
-    LUGAR_CONSULTA_PLIEGO = "lugar_consulta_pliego"  # dónde retirar/consultar el pliego (oficina física o portal en línea)
+    # Agregados: el golden de varios pliegos pedía datos de contacto/consulta sin ítem que los recibiera.
+    CANAL_CONSULTAS = "canal_consultas"  # domicilio electrónico de notificaciones, correo de consultas
+    LUGAR_CONSULTA_PLIEGO = "lugar_consulta_pliego"  # dónde retirar/consultar el pliego
 
 
 class IdentificacionProcedimientoItem(ExtractedItem):
@@ -687,6 +656,49 @@ class HitoTemporalExtracted(BaseModel):
         ),
     )
 
+    # Estos 3 campos reemplazan ~10 funciones de post-filtrado por regex que no generalizaban (releer memoria `eventos-temporales-auditoria-completa-2026-09-21`): el LLM las autodeclara por ítem en vez de inferirlas después por texto libre.
+    accion_concreta: str = Field(
+        description=(
+            "La acción concreta que ocurre en este hito, con sujeto y verbo "
+            "propio (ej. 'el oferente presenta la oferta', 'el organismo "
+            "notifica la adjudicación', 'el proveedor entrega los bienes'). "
+            "Si no podés escribir una acción puntual con un sujeto que hace "
+            "algo -- porque el texto solo describe una característica, una "
+            "condición general, o remite a otro documento -- este ítem no "
+            "debería existir."
+        ),
+        min_length=8,
+        max_length=200,
+    )
+    es_ocurrencia_unica: bool = Field(
+        description=(
+            "True si este hito representa un momento PUNTUAL del proceso: "
+            "ocurre una vez, en un punto identificable (aunque la fecha "
+            "exacta todavía no se conozca). False si en realidad describe "
+            "una característica o condición continua (ej. una duración de "
+            "garantía del producto, la vigencia general del contrato), una "
+            "obligación que se repite mientras dure la ejecución (informes "
+            "periódicos, mesas de soporte 24x7), o una métrica medida cada "
+            "vez que ocurre otra acción que se puede repetir cualquier "
+            "cantidad de veces (ej. un tiempo de respuesta contado desde un "
+            "llamado o reclamo, que puede pasar una vez, varias veces o "
+            "nunca)."
+        ),
+    )
+    depende_de_decision_discrecional: bool = Field(
+        description=(
+            "True si este hito depende de que una de las partes DECIDA "
+            "ejercer un derecho o facultad, sin que el pliego lo ate a una "
+            "etapa puntual del cronograma (ej. 'el organismo podrá auditar "
+            "en cualquier momento durante la ejecución'). False si el hito "
+            "ocurre en un punto conocido o calculable del proceso -- aunque "
+            "alguien deba decidir accionarlo dentro de una ventana concreta "
+            "(ej. 'podrá prorrogar la fecha de apertura hasta 2 días antes "
+            "de la fecha original' es False: la decisión está acotada a una "
+            "etapa puntual, no es 'en cualquier momento')."
+        ),
+    )
+
     fuente_documento_id: str = Field(description="ID del documento donde se encontró")
     fuente_pagina: int = Field(description="Número de página donde aparece", ge=1)
     fuente_fragmento: str = Field(
@@ -794,8 +806,7 @@ class ExtractedData(BaseModel):
     )
     identificacion_procedimiento_extraction_status: str = "unknown"
     identificacion_procedimiento_narrative: CategoryNarrative | None = None
-    # Preview NO tiene contrato backend dedicado (`preview_data`): el frontend
-    # unifica visualmente `preview_criterios` + `objeto_alcance`.
+    # Preview NO tiene contrato backend dedicado: el frontend unifica visualmente `preview_criterios` + `objeto_alcance`.
     preview_criterios: list[PreviewCriterioItem] = Field(default_factory=list)
     preview_criterios_extraction_status: str = "unknown"
     preview_criterios_narrative: CategoryNarrative | None = None

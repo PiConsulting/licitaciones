@@ -31,8 +31,6 @@ class TimelineService:
         """
         self.db = db
 
-    # ==================== EVENTS ====================
-
     def create_event(self, event: Event, user_id: str) -> Event:
         """
         Crea un nuevo evento.
@@ -178,8 +176,6 @@ class TimelineService:
 
         event.hidden = hidden
         return self.update_event(event, user_id)
-
-    # ==================== DEADLINES ====================
 
     def create_deadline(self, deadline: Deadline, user_id: str) -> Deadline:
         """

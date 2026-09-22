@@ -89,7 +89,7 @@ def create_chunks(
             heading_path = list(block.get("heading_path") or [])
 
             section_path = " > ".join(heading_path) if heading_path else "general"
-            title = heading_path[-1] if heading_path else None  # Último nivel = título de sección
+            title = heading_path[-1] if heading_path else None
 
             if block_type == "table":
                 row_content = str(block["content"])
@@ -122,8 +122,7 @@ def create_chunks(
                     "source": source,  # RAG PHASE 3: Metadata estructurada para highlighting
                     "blocks": blocks_data,  # LEGACY: Mantener por compatibilidad
                     "chunk_type": "normal",
-                    # Solo para clasificar (ver fix en classify_chunk_categories) --
-                    # no es un campo persistido del chunk.
+                    # Solo para clasificar (classify_chunk_categories); no se persiste.
                     "table_context": block.get("table_context"),
                 }
                 classification = classify_chunk_categories(chunk_dict)

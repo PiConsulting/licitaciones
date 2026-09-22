@@ -6,7 +6,6 @@ import { Event, DeadlineResponse } from "../../types/timeline";
 import { ToastProvider } from "../ToastContainer";
 import * as timelineApi from "../../api/timeline";
 
-// Mock del API: PendingEventCard solo llama directamente a setEventHidden.
 vi.mock("../../api/timeline", () => ({
   setEventHidden: vi.fn(),
 }));

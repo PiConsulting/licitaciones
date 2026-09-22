@@ -21,9 +21,7 @@ from __future__ import annotations
 
 from indexing.document_intelligence.markdown_parsing import _same_text, _unescape_markdown
 
-# ---------------------------------------------------------------------------
 # El caso del hallazgo, con los textos reales de los dos pliegos
-# ---------------------------------------------------------------------------
 
 
 def test_la_numeracion_escapada_matchea_con_el_texto_plano() -> None:
@@ -51,13 +49,7 @@ def test_las_tres_etapas_de_migracion_de_bancor() -> None:
         assert _same_text(del_markdown, de_di)
 
 
-# ---------------------------------------------------------------------------
-# Escapes que YA matcheaban sin el fix (revertirlo no los rompe)
-#
-# Se dejan explícitos para no confundirlos con el hallazgo: sólo rompe el
-# emparejamiento el escape que cae DENTRO de los primeros 40 caracteres y no
-# pega contra ningún borde. Los de acá se salvaban por prefijo o por sufijo.
-# ---------------------------------------------------------------------------
+# Escapes que YA matcheaban sin el fix: sólo rompe el emparejamiento el escape que cae dentro de los primeros 40 caracteres sin pegar contra ningún borde; los de acá se salvaban por prefijo o sufijo.
 
 
 def test_guarda_el_mas_escapado_lejos_del_principio() -> None:
@@ -80,9 +72,7 @@ def test_guarda_los_marcadores_de_lista_escapados() -> None:
     )
 
 
-# ---------------------------------------------------------------------------
 # La pieza
-# ---------------------------------------------------------------------------
 
 
 def test_saca_el_backslash_solo_de_la_puntuacion() -> None:
@@ -102,9 +92,7 @@ def test_una_barra_que_no_precede_puntuacion_se_conserva() -> None:
     assert _unescape_markdown("ruta\\archivo") == "ruta\\archivo"
 
 
-# ---------------------------------------------------------------------------
 # Guardas: no aflojar el emparejamiento
-# ---------------------------------------------------------------------------
 
 
 def test_dos_textos_distintos_siguen_sin_matchear() -> None:

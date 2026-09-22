@@ -176,9 +176,7 @@ def test_boilerplate_no_aplica_en_documentos_cortos() -> None:
     assert boilerplate == set()
 
 
-# ---------------------------------------------------------------------------
 # US-3.1: Parent/child chunking para articulos largos con incisos
-# ---------------------------------------------------------------------------
 
 _ARTICULO_6_CON_INCISOS = (
     "Los oferentes deberan presentar la totalidad de la documentacion enumerada a "
@@ -302,16 +300,7 @@ def test_create_chunks_siguiente_bloque_no_colisiona_con_indices_de_children() -
     assert tabla_chunk["chunk_index"] == max(all_indices)
 
 
-# ---------------------------------------------------------------------------
-# REGRESIÓN CHK-01 (auditoría 2026-08-13): tamaño y duplicación de chunks.
-#
-# El carry de overlap arrastraba SIEMPRE al menos un párrafo entero (por el
-# `carried and` de la condición) y después appendeaba el párrafo que había
-# disparado el flush sin revalidar el límite. Con los defaults
-# (chunk_size=700, overlap=120) y párrafos de 690 tokens salían chunks de
-# 1380 tokens, y el primer chunk quedaba contenido ÍNTEGRAMENTE dentro del
-# segundo: 2070 tokens de entrada -> 3450 emitidos.
-# ---------------------------------------------------------------------------
+# REGRESIÓN CHK-01 (auditoría 2026-08-13): el carry de overlap arrastraba un párrafo entero sin revalidar el límite -> chunks de hasta el doble del tamaño configurado.
 
 _CHUNK_SIZE = 700
 _OVERLAP = 120
@@ -396,7 +385,6 @@ def test_parrafo_mas_grande_que_chunk_size_se_parte_con_overlap_real() -> None:
     assert len(chunks) >= 3
     assert all(len(chunk.split()) <= _CHUNK_SIZE for chunk in chunks)
 
-    # Chunks consecutivos comparten tokens (eso es el overlap).
     first_tokens = set(chunks[0].split())
     second_tokens = set(chunks[1].split())
     assert first_tokens & second_tokens, "debe haber solapamiento al partir un párrafo"
@@ -418,16 +406,7 @@ def test_invariantes_se_sostienen_en_un_barrido_de_tamanos() -> None:
         assert not contained, f"tokens_each={tokens_each}: chunks duplicados {contained}"
 
 
-# ---------------------------------------------------------------------------
-# REGRESIÓN CHK-04 (auditoría 2026-08-13): encabezados sin cuerpo propio.
-#
-# `_to_intermediate_blocks` fabrica un bloque "puro-encabezado" para cada título
-# que no recibe párrafo propio -- toda la maquinaria de `heading_has_body`
-# existe para eso, y su docstring dice "igual se conserva como su propio bloque
-# puro-encabezado, para no perderlo". Pero `create_chunks` ponía `body = ""` y
-# `content_pieces = []`, así que NO emitía ningún chunk. Código muerto con
-# pérdida de información: el comentario decía lo contrario de lo que hacía.
-# ---------------------------------------------------------------------------
+# REGRESIÓN CHK-04 (auditoría 2026-08-13): create_chunks descartaba el bloque puro-encabezado (body="") y perdía encabezados sin cuerpo propio (ej. portada de anexo).
 
 
 def test_la_portada_de_un_anexo_llega_al_indice() -> None:

@@ -1,149 +1,73 @@
 """
-Test del prompt dedicado de Riesgos.
-Valida que el prompt cumple los criterios de calidad de R2.2.
+Test del prompt dedicado de Riesgos (REDISEÑO 2026-09-18).
+
+`riesgos.txt` dejó de ser un prompt de extracción sobre chunks crudos -- ahora
+recibe un DIGEST de hechos ya extraídos por otras categorías (garantías,
+plazos, requisitos, causales, criterios) y selecciona/prioriza los 3-5 más
+materialmente riesgosos. Estos tests validan la estructura de ESE diseño, no
+la del prompt de escaneo-de-chunks anterior (ver git history si hace falta
+comparar).
 """
 
-import sys
-from pathlib import Path
-
-# Asegurar que el backend esté en el path
-backend_dir = Path(__file__).parent
-if str(backend_dir) not in sys.path:
-    sys.path.insert(0, str(backend_dir))
-
 from analysis.extraction.engine.prompts import (
-    CANONICAL_PROMPT_FILES,
     CANONICAL_CATEGORY_PROMPT_MAP,
+    CANONICAL_PROMPT_FILES,
     _load_prompt,
 )
 
 
 def test_prompt_existe_y_registrado():
-    """Verifica que riesgos.txt existe y está registrado correctamente."""
-    print("\n✅ Test 1: Prompt existe y está registrado")
+    assert "riesgos.txt" in CANONICAL_PROMPT_FILES
+    assert CANONICAL_CATEGORY_PROMPT_MAP.get("riesgos") == "riesgos.txt"
 
-    # Verificar que está en el inventario de prompts canónicos
-    assert "riesgos.txt" in CANONICAL_PROMPT_FILES, (
-        "riesgos.txt debe estar en CANONICAL_PROMPT_FILES"
-    )
-    print("   ✓ Registrado en CANONICAL_PROMPT_FILES")
-
-    # Verificar que está en el mapping de categorías
-    assert "riesgos" in CANONICAL_CATEGORY_PROMPT_MAP, (
-        "riesgos debe estar en CANONICAL_CATEGORY_PROMPT_MAP"
-    )
-    assert CANONICAL_CATEGORY_PROMPT_MAP["riesgos"] == "riesgos.txt", (
-        "Mapping debe apuntar a riesgos.txt"
-    )
-    print("   ✓ Registrado en CANONICAL_CATEGORY_PROMPT_MAP")
-
-    # Verificar que el archivo existe y se puede cargar
     prompt_content = _load_prompt("riesgos.txt")
-    assert len(prompt_content) > 0, "El prompt no debe estar vacío"
-    print(f"   ✓ Archivo cargado exitosamente ({len(prompt_content)} caracteres)")
+    assert len(prompt_content) > 0
 
 
-def test_estructura_dedicada():
-    """Verifica que el prompt tiene estructura dedicada a Riesgos."""
-    print("\n✅ Test 2: Estructura dedicada")
-
+def test_prompt_recibe_digest_no_chunks():
+    """A diferencia de las demás categorías, este prompt NO tiene el bloque
+    `<contexto_pliego>{chunks}</contexto_pliego>` -- recibe `{digest}`, la
+    lista de hechos ya extraídos por otras categorías."""
     prompt = _load_prompt("riesgos.txt")
 
-    # Secciones obligatorias (el bloque de chunks se marca con
-    # <contexto_pliego>{chunks}</contexto_pliego>, al final del prompt para
-    # que el prefijo estático sea cacheable -- plan latencia 6.2).
-    required_sections = [
-        "# CONCEPTO DE LA CATEGORÍA",
-        "# OBJETIVO",
-        "<contexto_pliego>",
-        "# INSTRUCCIONES DE EXTRACCIÓN",
-        "# FORMATO DE SALIDA",
-        "# VALIDACIÓN DE CALIDAD",
-    ]
-
-    for section in required_sections:
-        assert section in prompt, f"Sección '{section}' debe estar presente"
-        print(f"   ✓ Sección presente: {section}")
+    assert "{digest}" in prompt
+    assert "<contexto_pliego>" not in prompt
+    assert "{chunks}" not in prompt
 
 
-def test_enfoque_en_evidencia():
-    """Verifica que el prompt enfatiza evidencia verificable (AC1)."""
-    print("\n✅ Test 3: Enfoque en evidencia verificable (AC1)")
-
+def test_prompt_excluye_los_6_tipos_que_ahora_vienen_de_preview():
+    """forma_pago/moneda/tipo_cambio/anticipo_financiero/responsabilidad_
+    costos_logisticos/multas_penalidades se movieron a extracción directa de
+    `preview_criterios.txt` -- riesgos ya no debe reclamarlos."""
     prompt = _load_prompt("riesgos.txt")
 
-    # Frases clave que demuestran énfasis en evidencia
-    evidence_keywords = [
-        "source_references",
-        "citas textuales",
-        "respaldado",
-        "verificable",
-        "literal del pliego",
-        "No inventes",
-    ]
-
-    found = []
-    for keyword in evidence_keywords:
-        if keyword.lower() in prompt.lower():
-            found.append(keyword)
-            print(f"   ✓ Énfasis en evidencia: '{keyword}' presente")
-
-    coverage = (len(found) / len(evidence_keywords)) * 100
-    assert coverage >= 80, f"Cobertura de énfasis en evidencia debe ser >= 80%, fue {coverage:.0f}%"
-    print(f"\n   Cobertura: {len(found)}/{len(evidence_keywords)} ({coverage:.0f}%)")
+    for tipo in (
+        "forma de pago",
+        "moneda",
+        "tipo de cambio",
+        "anticipo financiero",
+        "multas y penalidades",
+    ):
+        assert tipo in prompt.lower(), f"debe mencionar explícitamente que excluye '{tipo}'"
 
 
-def test_regla_sin_evidencia():
-    """Verifica que el prompt instruye qué hacer sin evidencia (AC2)."""
-    print("\n✅ Test 4: Instrucción explícita sin evidencia (AC2)")
-
+def test_prompt_define_estructura_de_salida_por_indices():
+    """El LLM referencia hechos del digest por índice -- las citas se
+    resuelven en código a partir de esos índices, nunca las inventa/repite el
+    LLM (ver `_resolve_source_references` en riesgos.py)."""
     prompt = _load_prompt("riesgos.txt")
 
-    # Debe instruir explícitamente qué hacer cuando no hay riesgos
-    assert "not_found" in prompt, "Debe mencionar 'not_found'"
-    assert "NO encontrás" in prompt or "no encontras" in prompt.lower(), (
-        "Debe instruir qué hacer cuando NO encuentra riesgos"
-    )
-
-    # Verificar que instruye devolver lista vacía
-    assert "[]" in prompt, "Debe instruir devolver lista vacía cuando no hay hallazgos"
-
-    print("   ✓ Instrucción presente: qué hacer sin evidencia")
-    print("   ✓ Estado 'not_found' especificado")
-    print("   ✓ Formato de lista vacía [] especificado")
-
-
-def test_formato_estructurado():
-    """Verifica que define formato JSON estructurado claro."""
-    print("\n✅ Test 5: Formato estructurado definido")
-
-    prompt = _load_prompt("riesgos.txt")
-
-    # Campos obligatorios del formato
-    required_fields = [
-        "tipo",
-        "subtipo",
-        "valor",
-        "extraction_status",
-        "source_references",
-        "document_id",
-        "page_number",
-        "citation",
-    ]
-
-    for field in required_fields:
+    for field in ("indices", "explicacion", "tipo", "subtipo"):
         assert f'"{field}"' in prompt, f"Campo '{field}' debe estar en el formato de salida"
-        print(f"   ✓ Campo definido: {field}")
 
 
-def test_subtipos_definidos():
-    """Verifica que los subtipos están claramente definidos."""
-    print("\n✅ Test 6: Subtipos definidos")
-
+def test_prompt_tipos_y_subtipos_definidos():
     prompt = _load_prompt("riesgos.txt")
 
-    # Subtipos esperados
-    expected_subtypes = [
+    for tipo in ("descalificacion", "penalizacion", "legal", "operativo", "financiero", "otro"):
+        assert tipo in prompt
+
+    for subtipo in (
         "ejecucion",
         "incumplimiento",
         "operativo",
@@ -153,117 +77,20 @@ def test_subtipos_definidos():
         "legal_contractual",
         "comercial",
         "otro_explicito",
-    ]
-
-    for subtype in expected_subtypes:
-        assert subtype in prompt, f"Subtipo '{subtype}' debe estar definido"
-        print(f"   ✓ Subtipo definido: {subtype}")
+    ):
+        assert subtipo in prompt
 
 
-def test_reconocimiento_semantico():
-    """Verifica que incluye guía de reconocimiento semántico."""
-    print("\n✅ Test 7: Reconocimiento semántico")
-
+def test_prompt_permite_lista_vacia_y_no_fuerza_minimo() -> None:
+    """Pedido explícito ya documentado: preferir `[]` (o menos de 3) antes
+    que forzar un riesgo dudoso solo para completar un cupo."""
     prompt = _load_prompt("riesgos.txt")
 
-    # Debe incluir frases típicas que ayuden al LLM a reconocer riesgos
-    semantic_patterns = ["incumplimiento", "multas", "penalizaciones", "rescind", "responsable"]
-
-    found = 0
-    for pattern in semantic_patterns:
-        if pattern.lower() in prompt.lower():
-            found += 1
-            print(f"   ✓ Patrón semántico presente: '{pattern}'")
-
-    coverage = (found / len(semantic_patterns)) * 100
-    assert coverage >= 60, f"Cobertura semántica debe ser >= 60%, fue {coverage:.0f}%"
-    print(f"\n   Cobertura semántica: {found}/{len(semantic_patterns)} ({coverage:.0f}%)")
+    assert '"riesgos": []' in prompt
+    assert "preferí" in prompt.lower() or "preferi" in prompt.lower()
 
 
-def test_diferenciacion_categorias():
-    """Verifica que diferencia Riesgos de otras categorías."""
-    print("\n✅ Test 8: Diferenciación de categorías")
-
+def test_prompt_no_inventa_indices_fuera_del_digest() -> None:
     prompt = _load_prompt("riesgos.txt")
 
-    # Debe mencionar qué NO incluir para evitar confusión. La sección real se
-    # titula "NO INCLUIR" y remite a cada categoría por su result_key, no con
-    # los rótulos genéricos que este test buscaba antes ("No confundir",
-    # "Causales de rechazo", etc. no aparecen literalmente en el prompt).
-    differentiation_terms = ["NO INCLUIR", "causales_rechazo", "garantias", "requisitos_admisibilidad"]
-
-    found = 0
-    for term in differentiation_terms:
-        if term in prompt:
-            found += 1
-            print(f"   ✓ Diferenciación presente: '{term}'")
-
-    assert found >= 2, f"Debe diferenciar al menos de 2 categorías, encontró {found}"
-    print(f"\n   Diferenciación de {found} categorías")
-
-
-def test_validacion_calidad():
-    """Verifica que incluye reglas de validación de calidad."""
-    print("\n✅ Test 9: Reglas de validación de calidad")
-
-    prompt = _load_prompt("riesgos.txt")
-
-    # Reglas de validación esperadas
-    validation_rules = [
-        "DEBE estar respaldado",
-        "literales del pliego",
-        "No inventes",
-        "consolidalo",
-    ]
-
-    found = 0
-    for rule in validation_rules:
-        if rule in prompt:
-            found += 1
-            print(f"   ✓ Regla de validación: '{rule}'")
-
-    coverage = (found / len(validation_rules)) * 100
-    assert coverage >= 75, f"Cobertura de reglas debe ser >= 75%, fue {coverage:.0f}%"
-    print(f"\n   Cobertura de reglas: {found}/{len(validation_rules)} ({coverage:.0f}%)")
-
-
-if __name__ == "__main__":
-    print("\n" + "=" * 70)
-    print("TESTS DE PROMPT DEDICADO PARA RIESGOS")
-    print("=" * 70)
-
-    try:
-        test_prompt_existe_y_registrado()
-        test_estructura_dedicada()
-        test_enfoque_en_evidencia()
-        test_regla_sin_evidencia()
-        test_formato_estructurado()
-        test_subtipos_definidos()
-        test_reconocimiento_semantico()
-        test_diferenciacion_categorias()
-        test_validacion_calidad()
-
-        print("\n" + "=" * 70)
-        print("✅ TODOS LOS TESTS PASARON")
-        print("=" * 70)
-        print("\nEl prompt dedicado de Riesgos cumple todos los criterios:")
-        print("  ✓ AC1: Items estructurados sin inferencias no respaldadas")
-        print("  ✓ AC2: Explicita ausencia de riesgos cuando no hay evidencia")
-        print("\nCaracterísticas del prompt:")
-        print("  • Estructura dedicada con 6 secciones claras")
-        print("  • Énfasis fuerte en evidencia verificable")
-        print("  • Formato JSON estructurado con 8 subtipos")
-        print("  • Reconocimiento semántico de patrones de riesgo")
-        print("  • Diferenciación clara de otras categorías")
-        print("  • Reglas de validación de calidad explícitas")
-        print("=" * 70 + "\n")
-
-    except AssertionError as e:
-        print(f"\n❌ TEST FALLÓ: {e}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\n❌ ERROR: {e}")
-        import traceback
-
-        traceback.print_exc()
-        sys.exit(1)
+    assert "no inventes" in prompt.lower()

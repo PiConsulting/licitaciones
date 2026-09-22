@@ -1,5 +1,4 @@
-# Tests para analysis/extraction/engine/base.py — US-2.2 y US-2.3
-# (auditoría RAG 2026-08-12, hallazgos M-2 y M-3)
+# Tests para analysis/extraction/engine/base.py — US-2.2 y US-2.3 (auditoría RAG 2026-08-12, hallazgos M-2 y M-3).
 
 from __future__ import annotations
 
@@ -61,11 +60,7 @@ class TestCategoryBoostUsesRealScore:
         """Dos chunks con scores de Azure muy distintos no deben quedar
         artificialmente empatados tras el boost, aunque estén en ranks
         consecutivos."""
-        # Rank 0: score de Azure altísimo, sin la categoría target.
-        # Rank 1: score de Azure ínfimo, con la categoría target (boost +20%).
-        # Con 1/(rank+1) el boost casi empataba a ambos (1.0 vs 0.5*1.2=0.6);
-        # con el score real, el chunk de rank 0 tiene que seguir ganando
-        # ampliamente porque 50.0 >> 0.01 * 1.2.
+        # Con el rank sintético 1/(rank+1) el boost casi empataba a ambos (1.0 vs 0.6); con el score real, 50.0 >> 0.01*1.2 sigue ganando.
         candidates = [
             _chunk(chunk_index=0, primary_category="otra_categoria", search_score=50.0),
             _chunk(chunk_index=1, primary_category="garantias", search_score=0.01),
@@ -121,8 +116,8 @@ class TestCategoryBoostUsesRealScore:
         legacy o mocks de test que no pasan por _search_azure), no debe
         romper -- cae al rank sintético anterior."""
         candidates = [
-            _chunk(chunk_index=0, primary_category=None),  # sin search_score
-            _chunk(chunk_index=1, primary_category="garantias"),  # sin search_score
+            _chunk(chunk_index=0, primary_category=None),
+            _chunk(chunk_index=1, primary_category="garantias"),
         ]
 
         def fake_search(*, query, analysis_id, top_k, keyword_query, category=None):
@@ -139,7 +134,6 @@ class TestCategoryBoostUsesRealScore:
             correlation_id="corr-1",
         )
 
-        # No debe lanzar excepción y debe devolver ambos chunks.
         assert {c["chunk_index"] for c in result} == {0, 1}
 
     def test_reranking_is_applied_after_category_scoring(self, monkeypatch):
@@ -239,8 +233,7 @@ class TestRerankingGuardrailByPoolSize:
         def should_not_rerank(*_args, **_kwargs):
             raise AssertionError("rerank_chunks no debe invocarse cuando se activa el guardrail")
 
-        # timeout chico -> rerank_skip_threshold chico (= max(top_k, timeout/costo_par))
-        # -> el guardrail salta cuando `rerank_window` (top_k*2) lo supera.
+        # timeout chico -> rerank_skip_threshold chico -> el guardrail salta cuando rerank_window (top_k*2) lo supera.
         monkeypatch.setattr(
             chunk_retrieval,
             "get_settings",
@@ -282,18 +275,12 @@ class TestTokenBudgetUsesRealTokenizer:
 
         class FakeEncoder:
             def encode(self, text: str) -> list[int]:
-                # Tokenizer determinístico y distinto del conteo por palabras,
-                # para poder distinguir en el test cuál ruta se usó: 3 tokens
-                # por caracter no-espacio, por ejemplo.
+                # 3 tokens por carácter no-espacio: determinístico y distinto del conteo por palabras, para distinguir qué ruta se usó.
                 return [0] * (len(text.replace(" ", "")) * 3)
 
         monkeypatch.setattr(llm_client, "_get_token_encoder", lambda: FakeEncoder())
 
-        # Chunk 1: "ab" -> 1 palabra, pero 6 "tokens" con el fake encoder.
-        # Chunk 2: "cd" -> ídem.
-        # Presupuesto=6: por palabras entrarían los dos (1+1=2 <= 6); por
-        # tokens reales el primero solo ya usa el presupuesto entero (6) y
-        # el segundo debe quedar afuera.
+        # Presupuesto=6: por palabras entrarían los dos (1+1<=6); por tokens reales (6 c/u) el primero ya lo agota.
         chunks = [{"content": "ab"}, {"content": "cd"}]
         kept = llm_client._truncate_to_token_budget(chunks, budget=6)
         assert kept == [{"content": "ab"}], (
@@ -448,8 +435,7 @@ class TestAugmentIdentificacionPayloadRejectsGarbage:
                 page_number=2,
             )
         ]
-        # El LLM ya extrajo organismo/tipo/denominación -- pero NO numero_procedimiento
-        # (correctamente, porque el pliego no tiene uno).
+        # El LLM ya extrajo organismo/tipo/denominación pero no numero_procedimiento (correcto, el pliego no tiene uno).
         payload = [
             {"tipo": "organismo_convocante", "valor": "La Municipalidad de Rosario"},
             {"tipo": "tipo_procedimiento", "valor": "Licitación Privada"},
@@ -560,9 +546,7 @@ class TestMapReduceParallelismIsDeterministic:
             lambda *a, **kw: [],
         )
 
-        # Retrasos invertidos: doc-c responde primero, doc-a último. Si el
-        # ensamblado dependiera del orden de finalización, el resultado
-        # quedaría [c, b, a] en vez de [a, b, c].
+        # Retrasos invertidos (doc-c responde primero): si el ensamblado dependiera del orden de finalización, daría [c, b, a] en vez de [a, b, c].
         delay_by_doc = {"doc-a": 0.15, "doc-b": 0.08, "doc-c": 0.01}
 
         def fake_call_llm(*, messages, correlation_id):
@@ -657,9 +641,7 @@ class TestSingleDocumentGroupSplitting:
         chunks = [
             {
                 "document_id": "doc-unico",
-                # Orden invertido a propósito: el retrieval real ordena por
-                # relevancia, no por posición -- `_group_chunks_by_document`
-                # debe reordenar por `chunk_index` antes de partir en lotes.
+                # Orden invertido a propósito: `_group_chunks_by_document` debe reordenar por chunk_index antes de partir en lotes.
                 "chunk_index": total_chunks - 1 - i,
                 "content": f"contenido chunk {total_chunks - 1 - i}",
                 "primary_category": "garantias",
@@ -711,10 +693,7 @@ class TestSingleDocumentGroupSplitting:
             )
 
         monkeypatch.setattr(extractor_base, "_call_llm", fake_call_llm)
-        # Aislado de `self_consistency_runs` (glossary.json tiene 2 para
-        # "garantias" desde la Fase 2 de la auditoría RAG) -- esta clase
-        # prueba específicamente el split por tamaño de grupo, no las
-        # corridas repetidas (eso lo cubre `TestSelfConsistencyRuns`).
+        # Aislado de self_consistency_runs (glossary.json tiene 2 para "garantias"): esta clase prueba el split, no las corridas repetidas (ver TestSelfConsistencyRuns).
         monkeypatch.setattr(
             "analysis.extraction.glossary.get_category_self_consistency_runs",
             lambda category, default=1: 1,
@@ -751,8 +730,7 @@ class TestSingleDocumentGroupSplitting:
         assert len(call_batches) == 3
         assert delta["garantias_token_usage"]["llm_calls"] == 3
 
-        # Cada lote es un tramo CONTIGUO en orden real del documento (no
-        # salteado por score de relevancia).
+        # Cada lote es un tramo contiguo en orden real del documento (no salteado por score de relevancia).
         assert call_batches[0] == list(range(0, 15))
         assert call_batches[1] == list(range(15, 30))
         assert call_batches[2] == list(range(30, 35))
@@ -877,7 +855,5 @@ class TestSelfConsistencyRuns:
 
         assert call_count["n"] == 2
         assert delta["garantias_token_usage"]["llm_calls"] == 2
-        # Ambos ítems sobreviven a nivel run_extractor -- el dedup entre
-        # corridas pasa después, en merge_node (mismo criterio que ya usa
-        # para duplicados entre documentos distintos).
+        # Ambos ítems sobreviven a nivel run_extractor -- el dedup entre corridas pasa después, en merge_node.
         assert [item["valor"] for item in delta["garantias"]] == ["corrida-1", "corrida-2"]

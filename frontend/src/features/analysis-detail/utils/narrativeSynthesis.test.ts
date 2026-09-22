@@ -71,10 +71,7 @@ describe("buildNarrativeBlocks", () => {
   });
 
   test("requisitos_admisibilidad y causales_rechazo con varios hechos van en bullet_list, no apretujados en un parrafo", () => {
-    // No hay formato fijo por categoria: varios hechos discretos e
-    // independientes se listan, igual que cualquier otra categoria con mas de
-    // un item (ver comentario en categoryIcons.tsx sobre por que se saco
-    // SINGLE_PARAGRAPH_CATEGORIES).
+    // No hay formato fijo por categoria: varios hechos discretos se listan, igual que cualquier categoria con mas de un item (ver categoryIcons.tsx, SINGLE_PARAGRAPH_CATEGORIES).
     const category = createCategory([
       createField("documento", { value: "Certificado fiscal para contratar" }),
       createField("inhabilitacion", { value: "No estar inhabilitado por el Registro de Proveedores" }),
@@ -150,11 +147,7 @@ describe("buildNarrativeBlocks", () => {
     expect(narrative.sources).toHaveLength(0);
   });
 
-  // FIX (2026-08-13): un item "no_aplica" trae obligatoriamente una `valor`
-  // explicando el motivo (ver backend/analysis/extraction/prompts/garantias.txt,
-  // Caso 4) -- antes este fallback la descartaba y mostraba siempre la misma
-  // frase genérica ("Garantías no aplica para este pliego."), sin importar la
-  // explicación real que vino con cita desde el pliego.
+  // Un item "no_aplica" trae obligatoriamente una `valor` explicando el motivo (ver garantias.txt, Caso 4); antes se descartaba y mostraba una frase genérica.
   test("item no_aplica con explicacion muestra la explicacion, no una frase generica", () => {
     const category = createCategory([
       createField("mantenimiento_oferta", {
@@ -177,8 +170,7 @@ describe("buildNarrativeBlocks", () => {
   });
 
   test("item no_aplica sin explicacion (valor vacio) no cuenta como dato util y cae al fallback", () => {
-    // Sin `valor`, un item no_aplica no aporta nada verificable -- distinto
-    // del caso con explicación, que sí debe mostrarse (test anterior).
+    // Sin `valor`, un item no_aplica no aporta nada verificable -- distinto del caso con explicación (test anterior).
     const category = createCategory([
       createField("mantenimiento_oferta", { state: "no_aplica", value: "" }),
     ]);
@@ -192,9 +184,7 @@ describe("buildNarrativeBlocks", () => {
   });
 
   test("categoria compuesta solo por items no_aplica no cae al fallback 'no se encontro informacion'", () => {
-    // Antes, al no contar como "dato util", una categoria entera de items
-    // no_aplica caia en fallbackBlock ("No se encontró información sobre
-    // garantías..."), contradiciendo el badge "no aplica" que sí se muestra.
+    // Antes, una categoria entera de items no_aplica caia en fallbackBlock, contradiciendo el badge "no aplica" que sí se muestra.
     const category = createCategory([
       createField("mantenimiento_oferta", {
         state: "no_aplica",

@@ -6,7 +6,6 @@ Valida que cada riesgo conserva sus source_references a través del pipeline com
 import sys
 from pathlib import Path
 
-# Asegurar que el backend esté en el path
 backend_dir = Path(__file__).parent
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
@@ -24,7 +23,6 @@ def test_riesgo_item_conserva_evidencia():
     """Verifica que RiesgoItem conserva source_references (AC1)."""
     print("\n✅ Test 1: RiesgoItem conserva evidencia")
 
-    # Crear riesgo con evidencia
     riesgo = RiesgoItem(
         tipo=TipoRiesgo.PENALIZACION,
         subtipo=SubtipoRiesgo.ECONOMICO,
@@ -40,7 +38,6 @@ def test_riesgo_item_conserva_evidencia():
         ],
     )
 
-    # Verificar que la evidencia se conserva
     assert len(riesgo.source_references) == 1
     assert riesgo.source_references[0].document_id == "doc-123"
     assert riesgo.source_references[0].page_number == 15
@@ -55,7 +52,6 @@ def test_multiple_source_references():
     """Verifica que un riesgo puede tener múltiples fuentes."""
     print("\n✅ Test 2: Múltiples source_references por riesgo")
 
-    # Riesgo mencionado en varias páginas
     riesgo = RiesgoItem(
         tipo=TipoRiesgo.LEGAL,
         subtipo=SubtipoRiesgo.LEGAL_CONTRACTUAL,
@@ -89,7 +85,6 @@ def test_evidencia_accesible_en_extracted_data():
     """Verifica que la evidencia está accesible en ExtractedData (AC2)."""
     print("\n✅ Test 3: Evidencia accesible en ExtractedData (AC2)")
 
-    # Crear múltiples riesgos con evidencia
     riesgos = [
         RiesgoItem(
             tipo=TipoRiesgo.FINANCIERO,
@@ -126,20 +121,16 @@ def test_evidencia_accesible_en_extracted_data():
         ),
     ]
 
-    # Crear ExtractedData
     data = ExtractedData(riesgos=riesgos, riesgos_extraction_status="success")
 
-    # Verificar que todos los riesgos tienen evidencia
     assert len(data.riesgos) == 2
     assert all(len(r.source_references) >= 1 for r in data.riesgos)
 
-    # Verificar evidencia del primer riesgo
     primer_riesgo = data.riesgos[0]
     assert len(primer_riesgo.source_references) == 1
     assert primer_riesgo.source_references[0].document_id == "doc-abc"
     assert primer_riesgo.source_references[0].page_number == 8
 
-    # Verificar evidencia del segundo riesgo (múltiples fuentes)
     segundo_riesgo = data.riesgos[1]
     assert len(segundo_riesgo.source_references) == 2
     assert segundo_riesgo.source_references[0].page_number == 12
@@ -169,15 +160,12 @@ def test_evidencia_serializada_json():
         ],
     )
 
-    # Serializar a dict (como lo haría la API)
     riesgo_dict = riesgo.model_dump()
 
-    # Verificar estructura JSON
     assert "source_references" in riesgo_dict
     assert isinstance(riesgo_dict["source_references"], list)
     assert len(riesgo_dict["source_references"]) == 1
 
-    # Verificar campos de evidencia
     evidencia = riesgo_dict["source_references"][0]
     assert evidencia["document_id"] == "doc-xyz-789"
     assert evidencia["page_number"] == 3
@@ -209,7 +197,6 @@ def test_evidencia_con_campos_opcionales():
         ],
     )
 
-    # Verificar campos opcionales
     ref = riesgo.source_references[0]
     assert hasattr(ref, "filename")
     assert hasattr(ref, "is_primary")
@@ -219,7 +206,6 @@ def test_evidencia_con_campos_opcionales():
     if hasattr(ref, "is_primary"):
         print(f"   ✓ is_primary conservado: {ref.is_primary}")
 
-    # Serializar
     riesgo_dict = riesgo.model_dump()
     evidencia = riesgo_dict["source_references"][0]
 

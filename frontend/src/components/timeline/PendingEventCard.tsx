@@ -90,10 +90,7 @@ export function PendingEventCard({
           </div>
 
           {deadline?.day_type === "no_especificado" ? (
-            // 2026-09-01: el pliego no dice si el plazo es de días hábiles o
-            // corridos -- el motor de cálculo no lo asume solo (a propósito,
-            // para no arriesgar una fecha mal calculada), así que hace falta
-            // cargar esta fecha a mano con "Agregar fecha".
+            // El motor de cálculo no asume días hábiles/corridos a propósito, para no arriesgar una fecha mal calculada.
             <div className="mt-1 flex items-center gap-1.5 text-xs text-warning">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
               <span>

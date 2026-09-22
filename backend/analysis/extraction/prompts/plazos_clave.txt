@@ -36,17 +36,75 @@ aún así contener fechas críticas. Buscá:
 
 ---
 
+## ⚠️ EXCLUSIÓN CRÍTICA — Duración de garantía técnica de un producto NO es un plazo
+
+Una cláusula puede mencionar una duración ("años", "meses", "días") sin que eso
+sea un plazo que el oferente deba cumplir. La expresión de tiempo por sí sola
+NUNCA es la señal a seguir — la señal es de QUIÉN/QUÉ es esa duración:
+
+❌ **NO es un plazo — es cuánto tiempo un BIEN/PRODUCTO/EQUIPO ofertado queda
+cubierto después de entregado** (el fabricante/proveedor lo respalda, pero el
+oferente no tiene ninguna acción ni vencimiento que anotar en su calendario
+por ese dato):
+- "La garantía del equipo deberá extenderse por al menos 3 (tres) años" → NO
+- "Garantía: 12 (doce) meses" (referido a un bien/artículo del pliego) → NO
+
+✅ **SÍ es un plazo — hay una ACCIÓN del procedimiento o del contrato con un
+vencimiento real** (presentar, entregar, pagar, firmar, ejecutar, notificar):
+- "El plazo de entrega de los productos será de 90 días corridos" → SÍ
+- "Los oferentes deberán mantener el precio cotizado durante 60 días" → SÍ
+
+**Regla operativa:** si la cláusula dice cuánto tiempo dura la COBERTURA o
+RESPALDO de un producto/bien/equipo, no es un plazo — no importa qué tan
+parecida suene la redacción a un plazo real, ni que mencione años/meses/días.
+Esa cláusula corresponde a la categoría "garantias" (como garantía técnica,
+no financiera), no a esta.
+
+---
+
 # OBJETIVO
 
-Extraer **TODOS los plazos y fechas** mencionados en el pliego, tanto del procedimiento licitatorio como del contrato post-adjudicación.
+Extraer los plazos **CLAVE** del pliego -- los que un oferente necesita anotar en
+su calendario para no perder la licitación o incumplir el contrato. Esto NO es
+"todas las fechas o cantidades de días que aparecen en el texto": es una
+selección de los hitos que realmente importan.
 
-**Incluye:**
-- Plazos del procedimiento: presentación, apertura, consultas, mantenimiento de oferta
-- Plazos de ejecución: entrega, instalación, puesta en marcha
-- Plazos post-adjudicación: firma de contrato, emisión de orden, pagos, garantías
-- Cualquier otro plazo o fecha mencionada
+**SÍ es un plazo clave** (extraelo):
+- Presentación/cierre de ofertas, apertura de ofertas
+- Mantenimiento de oferta (vigencia de la propuesta)
+- Consultas o impugnaciones al pliego (plazo para presentarlas)
+- Entrega, instalación, puesta en marcha, ejecución del contrato
+- Firma de contrato u orden de compra, inicio de la prestación
+- Pagos (si tienen plazo propio: "a los N días de la factura")
+- Hitos contractuales con fecha o duración propia que afectan cuándo el
+  oferente/adjudicatario debe actuar o cuándo vence algo relevante para
+  participar o ejecutar (recepción provisoria/definitiva, subsanación de
+  documentación, constitución de garantías)
 
-**NO filtrar por etapa** - si el pliego menciona un plazo, extraelo.
+**NO es un plazo clave** (no generes ítem, aunque mencione días/meses/años):
+- Un plazo que es CONSECUENCIA administrativa interna del organismo, sin
+  acción ni vencimiento que el oferente deba controlar (ej. cuánto tarda el
+  organismo en archivar un expediente)
+- Una referencia a "días" dentro de la descripción de OTRA categoría que ya
+  tiene su propio plazo (no lo repitas como ítem nuevo solo porque menciona
+  un número de días de pasada)
+- Vigencia/cobertura de garantía TÉCNICA de un producto (ver exclusión debajo)
+- Plazos de vigencia de normas/registros que no son específicos de ESTE
+  procedimiento (ej. "el certificado X vence a los 2 años de emitido" es un
+  dato del certificado, no un plazo de la licitación)
+- Un plazo mencionado una sola vez, de pasada, dentro de una cláusula sobre
+  otro tema, que no es en sí mismo un hito que el oferente deba cumplir
+
+**Regla operativa cuando dudes:** preguntate "¿si el oferente se olvida esta
+fecha/plazo, pierde la licitación, incumple el contrato, o pierde una
+oportunidad relevante (consultar, impugnar, subsanar)?" Si la respuesta es no,
+no es un plazo clave -- no lo incluyas solo porque el pliego lo menciona.
+
+**Regla de volumen esperado:** para la mayoría de los pliegos, entre 5 y 12
+plazos clave cubren el procedimiento completo (presentación → apertura →
+mantenimiento → entrega → ejecución → pagos). Si estás por emitir más de 15,
+revisá si varios de esos ítems son en realidad menciones incidentales o
+duplicados de un mismo hito con otra redacción, no plazos distintos.
 
 Un ítem por plazo. Si el pliego da fecha Y hora para el mismo hito, es un solo
 ítem con ambos campos completos.
@@ -163,6 +221,9 @@ el pliego te da.
   garantía financiera, va en "garantias"). La diferencia: el PLAZO es cuánto
   TIEMPO la oferta es válida; la GARANTÍA es cuánto DINERO/PÓLIZA hay que
   depositar.
+
+- **No confundir plazo con garantía técnica de un producto:** ver la
+  exclusión al inicio de este prompt (sección "⚠️ EXCLUSIÓN CRÍTICA").
 
 ---
 

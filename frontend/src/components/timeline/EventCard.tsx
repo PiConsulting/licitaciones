@@ -56,9 +56,7 @@ export function EventCard({
   const queryClient = useQueryClient();
   const { addToast } = useToast();
 
-  // Ocultar/mostrar el evento sin borrarlo (2026-09-01) -- no necesita
-  // confirmación (a diferencia del delete) porque es reversible con un
-  // segundo click, así que la mutación va directo, sin modal.
+  // Reversible con un segundo click, por eso va sin modal de confirmación (a diferencia del delete).
   const hideMutation = useMutation({
     mutationFn: (hidden: boolean) => setEventHidden(analysisId, event.event_id, hidden),
     onSuccess: (_, hidden) => {
@@ -162,14 +160,12 @@ export function EventCard({
           </div>
         </div>
 
-        {/* Mostrar error de cálculo si existe */}
         {hasCalculationError && (
           <div className="mt-2">
             <ErrorIndicator error={deadline.calculation_error!} />
           </div>
         )}
 
-        {/* Dependency indicator solo si no hay error */}
         {deadline && !hasCalculationError && (
           <DependencyIndicator
             deadline={deadline}
@@ -180,7 +176,6 @@ export function EventCard({
         )}
       </div>
 
-      {/* Modal Detalle */}
       {activeModal === 'detail' && (
         <EventDetailModal
           event={event}
@@ -191,7 +186,6 @@ export function EventCard({
         />
       )}
 
-      {/* Modal Editar Fecha */}
       {activeModal === 'edit' && (
         <EditDateModal
           event={event}
@@ -200,7 +194,6 @@ export function EventCard({
         />
       )}
 
-      {/* Diálogo Eliminar Evento */}
       {activeModal === 'delete' && (
         <DeleteEventDialog
           event={event}

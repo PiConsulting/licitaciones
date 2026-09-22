@@ -1,12 +1,4 @@
-# Regresión (2026-09-14, Fase 2 de la auditoría RAG): un anexo numerado
-# ("Anexo II") tiene una sola identidad real en todo el pliego, sin importar
-# en qué documento subido aparece -- puede estar mencionado en el índice del
-# pliego principal (documento A) y, por separado, ser su propio archivo
-# subido con el contenido real (documento B). Antes `_item_section_key`
-# incluía SIEMPRE `document_id` en la clave de fusión, así que esas dos
-# apariciones del mismo anexo nunca se fusionaban -- medido en un pliego
-# real multi-documento (santa_fe, 6 anexos numerados): cada uno salía
-# duplicado dos veces.
+# Regresión (2026-09-14): `_item_section_key` incluía siempre `document_id`, así que un mismo anexo mencionado en dos documentos nunca se fusionaba (caso real: santa_fe, duplicado x2).
 from __future__ import annotations
 
 from analysis.extraction.engine.item_merging import _merge_items_by_document_section

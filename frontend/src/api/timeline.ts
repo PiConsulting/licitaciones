@@ -65,11 +65,7 @@ export async function deleteEvent(analysisId: string, eventId: string): Promise<
   await apiClient.delete(`/analyses/${analysisId}/timeline/events/${eventId}`);
 }
 
-// Ocultar/mostrar un evento sin borrarlo (2026-09-01): para eventos que el
-// pliego menciona pero no son relevantes en el momento actual del proceso
-// (ej. "Notificación de fuerza mayor"). El evento sigue existiendo y
-// sigue participando del cálculo de fechas -- solo deja de contar en las
-// estadísticas y en "fechas por cargar" mientras está oculto.
+// Oculta un evento sin borrarlo (sigue participando del cálculo de fechas, solo deja de contar en estadísticas/"fechas por cargar").
 export async function setEventHidden(
   analysisId: string,
   eventId: string,

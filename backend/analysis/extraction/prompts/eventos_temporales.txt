@@ -25,36 +25,36 @@ Incluye:
 - Plazos del procedimiento o de la ejecución contractual contados desde otro evento
 - Cualquier otro hito o plazo temporal mencionado en el pliego
 
-**NO incluye (criterio general, aplicable a cualquier pliego -- no es una lista
-cerrada de palabras, es el PRINCIPIO que las explica):**
+**NO incluye -- test de 3 preguntas (ver sección OBJETIVO más abajo para el
+detalle operativo, esto es el resumen conceptual):**
 
-El test es: "¿es esto un HITO -- algo que ocurre una vez, en un momento del
-calendario, y que el oferente necesita marcar y accionar?" Si la respuesta es
-no, no es un hito temporal, aunque el texto mencione días, meses o "a partir
-de".
+Antes de emitir un ítem, respondé 3 preguntas sobre ÉL MISMO -- no sobre una
+lista de palabras prohibidas, sobre EL HECHO que estás por convertir en hito:
 
-- **Condiciones o modalidades contractuales que se describen con plazos, pero
-  no son en sí mismas un evento que el oferente deba marcar en un calendario.**
-  Ejemplo típico: una forma de pago en cuotas o cheques diferidos ("se pagará
-  en 6 cheques a 30, 60, 90, 120, 150 y 180 días desde la emisión de los
-  valores") es una CONDICIÓN comercial, no un hito -- no generes un ítem
-  "Forma de Pago" (ni uno por cada vencimiento de cuota). Esto es distinto de
-  un plazo real que el oferente sí debe cumplir en una fecha concreta (ej.
-  "el pago se realizará dentro de los 30 días de la factura" SÍ es un plazo,
-  porque ahí "Pago" es el hito que depende de "Factura").
-- **Requisitos, garantías o características técnicas que mencionan una
-  duración pero no marcan un evento del proceso.** Ejemplo: "la garantía
-  técnica del fabricante es de 3 años" describe una característica del
-  producto, no un hito de la licitación -- no la extraigas acá (si además
-  tiene un plazo real de constitución/vigencia con fecha de inicio propia del
-  proceso, ESE plazo sí puede ser un hito, pero la característica en sí no).
-- **Si dudás si algo es un hito o una condición, preguntate: "¿tiene sentido
-  poner esto en un calendario como una fecha a la que el oferente debe
-  llegar?"** Si la respuesta es "no, es solo una regla de cómo se paga / de
-  qué calidad debe ser algo / de qué requisito cumplir", no es un hito
-  temporal -- aunque mencione "días" o "meses", esa categoría (garantías,
-  requisitos, forma de pago) ya se extrae en su propia sección del análisis,
-  no acá.
+1. **¿Puedo escribir una acción concreta, con sujeto y verbo propio, que
+   ocurre acá?** ("el oferente presenta la oferta", no "condiciones de pago",
+   no "antigüedad requerida"). Si el texto solo describe una característica,
+   una condición general o una clasificación del trámite, no hay acción que
+   nombrar → no es un hito.
+2. **¿Esa acción pasa UNA VEZ, en un punto identificable del proceso o de la
+   ejecución -- o es una característica/condición continua, o algo que se
+   repite mientras dure el contrato?** Una duración de garantía de un
+   producto, la vigencia general del contrato, un informe periódico o una
+   mesa de soporte 24x7 no son ocurrencias puntuales, aunque tengan una
+   cantidad de tiempo asociada.
+3. **¿Esa acción está atada a una etapa del proceso, o depende de que una
+   parte DECIDA ejercerla cuando quiera, sin ventana fija?** Una facultad
+   discrecional ("podrá auditar en cualquier momento") no es un hito aunque
+   la cláusula fije un plazo para lo que pasa DESPUÉS de que la parte decida
+   actuar.
+
+Si la respuesta a la 1 es "no puedo" o a la 2/3 es "no, es continuo/
+discrecional", no es un hito -- **aunque el texto mencione días, meses o "a
+partir de"**. Estas 3 preguntas son exactamente lo que le vas a pedir al
+lector en los campos `accion_concreta`, `es_ocurrencia_unica` y
+`depende_de_decision_discrecional` de cada ítem (ver ESTRUCTURA DE SALIDA) --
+no es una instrucción aparte, es lo que ya vas a tener que declarar por cada
+hito que emitas.
 
 **Reconocimiento semántico:** Los hitos pueden aparecer en cualquier sección del
 documento (Plazos, Cronograma, Requisitos, Condiciones de contratación, Anexos). Buscá:
@@ -84,19 +84,40 @@ documento (Plazos, Cronograma, Requisitos, Condiciones de contratación, Anexos)
 
 # OBJETIVO
 
-Extraer **TODOS los hitos temporales** mencionados en el pliego —con fecha propia,
-como plazo relativo, o ambos— identificando:
+Extraer los hitos temporales del pliego que superen el test de 3 preguntas de
+la sección anterior -- con fecha propia, como plazo relativo, o ambos.
+
+**No es una tarea de "encontrar todas las menciones de tiempo".** Es una tarea
+de dos pasos por cada mención candidata:
+
+1. **Identificar** el hecho temporal (fecha, o cantidad+unidad+disparador).
+2. **Juzgar**, con las 3 preguntas de arriba, si ese hecho es un HITO -- una
+   ocurrencia puntual, accionable, atada a una etapa del proceso -- o si en
+   realidad es una característica, una condición continua, o una facultad sin
+   ventana fija. Un hecho temporal real (el texto sí menciona días/fechas) que
+   no pasa el paso 2 **no se extrae** -- no hay ambigüedad entre "está en el
+   texto" y "es un hito": lo primero es necesario, no es suficiente.
+
+El paso 2 no es un filtro que se aplica DESPUÉS de una lista de exclusiones --
+es la razón de ser de los campos `accion_concreta`, `es_ocurrencia_unica` y
+`depende_de_decision_discrecional` (ver ESTRUCTURA DE SALIDA): si no podés
+completarlos con convicción para un candidato, ese candidato no debería
+convertirse en ítem.
+
+Por cada hito que sí pasa el test, identificá:
 - El nombre del hito (normalizado)
 - La fecha explícita si está presente en el texto
 - Si depende de otro hito: cuánto tiempo, desde/hasta qué hito, y con qué dirección
 - El fragmento de texto donde se menciona
 - La página donde aparece
 
-**NO filtrar por tipo o etapa** - si el pliego menciona un hito temporal, extraelo.
-
 **NO calcular fechas absolutas** para los plazos relativos. Solo extraé la estructura
 (cantidad, unidad, evento disparador, dirección). El cálculo de fechas se hace en otra
-capa del sistema.
+capa del sistema -- un hito sin fecha explícita pero con `evento_disparador`+`cantidad`
+bien estructurados es tan válido como uno con fecha: si el disparador ya tiene fecha,
+el sistema calcula la fecha resultante solo; si el disparador todavía no tiene fecha,
+el hito queda pendiente de carga manual. Ninguno de los dos casos es motivo para
+omitir el hito.
 
 Un ítem por hito. Si el mismo hito aparece múltiples veces en el documento (con o sin
 fecha, como plazo relativo o no), consolidalo en UN SOLO ítem con todos los datos y
@@ -158,6 +179,30 @@ Usá el schema `HitosTemporalesResponse` definido en `schemas.py`.
     `evento_disparador` de otro ítem (regla 2) y el pliego NUNCA lo menciona por su
     cuenta -- no hay ninguna oración que hable de este hito en sí, solo la mención de
     pasada dentro de la oración del plazo que depende de él.
+
+- `accion_concreta`: **OBLIGATORIO** (8-200 caracteres). La acción puntual que ocurre en
+  este hito, con SUJETO y VERBO propios -- ej. "el oferente presenta la oferta", "el
+  organismo notifica la adjudicación", "el proveedor entrega los bienes". Escribila
+  ANTES de decidir si el ítem existe: si no podés nombrar quién hace qué -- porque el
+  texto solo describe una característica, una condición general, o remite a otro
+  documento -- el ítem no debería generarse. No es un resumen del fragmento completo,
+  es la acción específica que hace de ESTE hito un hito.
+
+- `es_ocurrencia_unica`: **OBLIGATORIO**. Boolean. `true` si la acción de arriba pasa UNA
+  VEZ en un punto identificable del proceso (aunque la fecha exacta todavía no se
+  conozca). `false` si en realidad es una característica o condición CONTINUA (una
+  duración de garantía del producto, la vigencia general del contrato), una obligación
+  que se repite mientras dure la ejecución (informes periódicos, soporte 24x7), o una
+  métrica contada desde una acción que se puede repetir cualquier cantidad de veces (un
+  tiempo de respuesta desde un llamado o reclamo). Si es `false`, no generes el ítem.
+
+- `depende_de_decision_discrecional`: **OBLIGATORIO**. Boolean. `true` si el hito depende
+  de que una parte DECIDA ejercer un derecho o facultad "en cualquier momento"/"cuando lo
+  considere", sin que el pliego lo ate a una etapa puntual del cronograma. `false` si
+  ocurre en un punto conocido o calculable del proceso -- aunque alguien deba decidir
+  accionarlo dentro de una ventana concreta (ej. "podrá prorrogar la apertura hasta 2
+  días antes de la fecha original" es `false`: la ventana está acotada). Si es `true`, no
+  generes el ítem.
 
 - `fuente_documento_id`: **OBLIGATORIO**. ID del documento donde se encontró (proporcionado en el contexto)
 
@@ -268,6 +313,18 @@ Si el evento disparador no está explícito en el texto y no podés inferirlo co
 confianza razonable, dejá `evento_disparador: null` (el hito queda sin plazo relativo
 estructurado, pero igual extraé el resto de la información en `fuente_fragmento`).
 
+**`evento_disparador` y `cantidad` van SIEMPRE juntos, o ninguno de los dos.** No
+completes `evento_disparador` solo porque el pliego menciona que un hito ocurre
+"luego de"/"a continuación de"/"posteriormente a" otro, si el texto NO da una
+cantidad de tiempo concreta (un número + unidad). Una secuencia narrativa sin
+plazo numérico no es un plazo relativo -- es simplemente el orden en que pasan
+las cosas. En ese caso, dejá tanto `evento_disparador` como `cantidad`/`unidad`
+en `null`: el hito sigue siendo válido por sí mismo (con su propio `nombre` y
+`fuente_fragmento`), pero sin una estructura de plazo que en realidad el pliego
+nunca cuantificó. Generar un plazo con `cantidad: null` (o asumir 0 quieras o
+no) es peor que no generarlo: implica una relación instantánea que el pliego
+nunca afirmó.
+
 ## 3. Determinación de la dirección temporal (`direccion`)
 
 Analizá la expresión para determinar la dirección correcta:
@@ -342,74 +399,91 @@ Solo extraé hitos que estén **EXPLÍCITAMENTE MENCIONADOS** en el texto.
 
 Si el pliego NO menciona un hito, NO lo incluyas, incluso si es común en otras licitaciones.
 
-## 8. Qué NO es un hito temporal
+## 8. Qué NO es un hito temporal -- las 3 preguntas, en detalle
 
-Un hito temporal es algo que **OCURRE en un momento puntual** del proceso, o es un
-**plazo del PROCESO o de la ejecución del contrato** contado desde un evento del
-procedimiento. Antes de emitir un ítem, preguntate: *¿tiene sentido asignarle una fecha
-de calendario a esto, o es una ventana de tiempo que alguien debe cumplir a partir de un
-evento del proceso?* Si la respuesta a ambas es no, NO es un hito.
+Esta regla YA NO es una lista de frases prohibidas. Es la explicación de por
+qué las 3 preguntas de la sección CONCEPTO fallan en distintos tipos de
+texto -- los ejemplos son ilustraciones de CADA eje, no una lista cerrada:
+una redacción nueva del mismo problema conceptual sigue fallando la misma
+pregunta, aunque no aparezca acá.
 
-**NO son hitos temporales (NO los extraigas):**
+### Eje 1 -- "¿Puedo escribir `accion_concreta` con sujeto y verbo propios?"
 
-- **Metadatos del trámite**: el tipo/modalidad de procedimiento ("Procedimiento de
-  selección: Contratación Directa por Urgencia", "Licitación Pública", "Concurso de
-  Precios"). Esto es una clasificación del expediente, no algo que ocurre en una fecha.
-  ❌ NO extraer `"nombre": "Procedimiento de Selección"`.
+Fallan este eje los textos que describen una **característica, clasificación
+o condición general**, no una acción de alguien:
 
-- **Requisitos de elegibilidad con antigüedad/experiencia**: "antigüedad mínima de 2
-  años en la actividad", "experiencia de 2 años en prestaciones análogas". Estos miran
-  HACIA ATRÁS en el tiempo del oferente (¿hace cuánto existe?, ¿hace cuánto tiene
-  experiencia?), no son un hito puntual ni una acción a cumplir dentro de una ventana
-  del proceso — son una condición de admisibilidad, aunque el texto diga "a la fecha de
-  apertura" o "anteriores a la apertura" como punto de referencia. Si en OTRO fragmento
-  del mismo pliego se menciona una fecha real de apertura de ofertas, ESE fragmento es
-  el que genera el hito "Apertura de Ofertas" — no este.
-  ❌ NO extraer `{"nombre": "Antigüedad Mínima en la Actividad", ...}`
-  ❌ NO extraer `{"nombre": "Experiencia en Provisiones Análogas", ...}`
+- Metadatos del trámite: el tipo/modalidad de procedimiento ("Contratación
+  Directa por Urgencia", "Licitación Pública"). Es una clasificación del
+  expediente -- no hay quién haga qué.
+- Encabezados/carátulas administrativas: lugar y fecha de emisión del
+  documento, numeración de expediente, nombre del organismo.
+- Objeto o alcance de la contratación: qué se compra, sin que eso sea una
+  acción con fecha propia.
+- Requisitos de elegibilidad con antigüedad/experiencia ("antigüedad mínima
+  de 2 años en la actividad"): miran HACIA ATRÁS en el tiempo del oferente,
+  no describen una acción a cumplir -- son una condición de admisibilidad,
+  aunque el texto use "a la fecha de apertura" como punto de referencia. Si
+  en OTRO fragmento del mismo pliego hay una fecha real de apertura, ESE
+  fragmento genera el hito "Apertura de Ofertas" -- no este.
+- Referencias a que el detalle se define en OTRO documento o sección ("según
+  el cronograma previsto para el proceso", "los requisitos se detallan en el
+  Anexo X"): la acción real (si existe) está en ESE otro documento, no acá --
+  no le pongas nombre propio a la referencia en sí misma.
+- Etiquetas genéricas sin acción identificable en la cita ("Hito Intermedio
+  del Plan de Trabajo", "Acumulación de Penalidades"): si no podés señalar,
+  dentro del fragmento, una acción puntual con su propio sujeto y momento, no
+  hay `accion_concreta` que escribir -- no inventes una para justificar el
+  ítem (ver regla 7).
 
-- **Encabezados/carátulas administrativas**: lugar y fecha de emisión del documento
-  ("Santa Fe, XX de XXXXX de 2026"), numeración de expediente, nombre del organismo.
+### Eje 2 -- "¿`es_ocurrencia_unica` es realmente `true`?"
 
-- **Objeto o alcance de la contratación**: qué se compra o contrata, sin que eso sea un
-  hito con fecha propia.
+Fallan este eje los textos que describen algo que se **mantiene o se repite**
+en el tiempo, no algo que pasa una vez:
 
-- **Duraciones que no dependen de un evento del proceso**: garantías con vigencia fija,
-  validez de certificaciones, plazos de una norma externa citada solo como referencia.
+- Duraciones que no dependen de un evento del proceso: garantía técnica de un
+  producto, vigencia general del contrato, validez de una certificación.
+  Describen un PERÍODO/característica, no un momento.
+- Obligaciones recurrentes o continuas durante la ejecución (informes
+  periódicos, simulacros o pruebas con cadencia fija, mesas de soporte
+  24x7x365, operación continua de un servicio): no tienen un "cuándo ocurre"
+  puntual, ocurren siempre o cada tanto mientras el contrato esté vigente.
+  ✅ Si el pliego fija una fecha o plazo puntual para EMPEZAR esa obligación
+  ("la operación continua inicia dentro de los 10 días de la puesta en
+  marcha"), ESE inicio sí es un hito -- lo recurrente en sí no lo es.
+  ⛔ No conviertas la obligación recurrente en un hito agregándole al
+  `nombre` una aclaración como "... - Recurrente": si falla este eje, no
+  generás el ítem, ni con esa aclaración ni sin ella.
+- Métricas de nivel de servicio contadas desde una acción que el cliente/
+  organismo puede repetir cualquier cantidad de veces (un llamado, un
+  reclamo, un aviso de falla, una solicitud de servicio o soporte puntual):
+  un tiempo de respuesta medido desde ESE tipo de disparador es la misma
+  obligación recurrente de arriba, solo que estructurada como plazo
+  relativo -- ni el disparador ni el plazo que depende de él pasan este eje,
+  aunque el pliego dé una cantidad concreta de horas/días.
+  ✅ Distinto es un llamado/aviso/solicitud que el pliego ata a un momento
+  ÚNICO y puntual del proceso ("el oferente deberá notificar su renuncia a
+  la oferta antes de la fecha de apertura") -- ahí sí pasa este eje, porque
+  ocurre una vez en un punto conocido, no de forma repetible.
 
-- **Obligaciones RECURRENTES o continuas durante la ejecución del contrato**: algo que
-  se repite periódicamente o se mantiene mientras dure el contrato, sin una fecha de
-  cierre puntual (informes mensuales, simulacros o pruebas anuales, ajustes/controles
-  continuos de un indicador, mesas de soporte 24x7x365, operación continua de un
-  servicio). Son condiciones de CÓMO se presta el servicio, no un hito que el oferente
-  marca una vez en su calendario — no tienen un "cuándo ocurre" puntual, ocurren siempre
-  o cada tanto mientras el contrato esté vigente.
-  ❌ NO extraer `{"nombre": "Reporte Mensual", ...}`
-  ❌ NO extraer `{"nombre": "Simulacros de Crisis", ...}`
-  ❌ NO extraer `{"nombre": "Ajuste de RTO y RPO", ...}`
-  ❌ NO extraer `{"nombre": "Operación Continua del Entorno", ...}`
-  ✅ Si el pliego fija una fecha o plazo puntual para EMPEZAR esa obligación recurrente
-  (ej. "la operación continua inicia dentro de los 10 días de la puesta en marcha"), ESE
-  inicio sí es un hito — lo recurrente en sí no lo es.
-  ⛔ No le agregues al `nombre` una aclaración de que es recurrente (ej. "... -
-  Recurrente", "... Continuo/a") como forma de igualmente incluirlo: si es una
-  obligación recurrente, no generás NINGÚN ítem para ella, ni con esa aclaración en el
-  nombre ni sin ella.
+### Eje 3 -- "¿`depende_de_decision_discrecional` es realmente `false`?"
 
-- **Nombres genéricos sin una acción puntual concreta identificable**: no le pongas una
-  etiqueta genérica tipo "Hito Intermedio del Plan de Trabajo" o "Acumulación de
-  Penalidades" solo porque el texto menciona plazos o penalidades en términos
-  generales. Si no podés señalar, dentro de la cita, una acción puntual específica con
-  su propio sujeto y momento (ver regla 7 — nunca inventes hitos), no hay hito que
-  extraer ahí.
-  ❌ NO extraer `{"nombre": "Hito Intermedio del Plan de Trabajo", ...}` (genérico, sin
-  acción puntual identificable en el texto)
-  ❌ NO extraer `{"nombre": "Acumulación de Penalidades", ...}` (es una condición sobre
-  penalidades ya acumuladas, no una acción que ocurre en un momento)
+Fallan este eje las **facultades discrecionales** de una de las partes,
+ejercibles en cualquier momento durante la ejecución ("el organismo tiene la
+facultad de inspeccionar...", "el comitente podrá auditar...", "ante la
+existencia de controversias, la entidad podrá convocar..."): son derechos
+que una parte PUEDE ejercer si y cuando lo decide, no una acción que el
+pliego programa para un momento del proceso -- aunque la cláusula fije un
+plazo concreto para lo que pasa DESPUÉS de que la parte decida ejercerla
+("deberá notificar con 48 horas de antelación"), ese plazo cuenta desde una
+decisión discrecional, no desde un hito real.
+✅ Distinto es una facultad que el pliego SÍ ata a una ventana puntual del
+proceso ("el organismo podrá prorrogar la apertura hasta 2 días antes de la
+fecha original") -- ahí la facultad se ejerce dentro de un punto conocido
+del cronograma, así que `depende_de_decision_discrecional` es `false`.
 
-Si tenés duda entre "esto es un hito" y "esto es una condición/requisito/metadato",
-optá por NO extraerlo. Es preferible una lista más corta y precisa que una lista larga
-con ruido.
+Si tenés duda entre "esto es un hito" y "esto es una condición/requisito/
+metadato", optá por NO extraerlo. Es preferible una lista más corta y
+precisa que una lista larga con ruido.
 
 ## 9. Normalización de nombres de hitos
 
@@ -487,6 +561,9 @@ con `evento_disparador: "Adjudicación"`, no se mezcla dentro de este):
   "direccion": null,
   "es_plazo_maximo": false,
   "mencion_propia": true,
+  "accion_concreta": "el organismo adjudica la contratación",
+  "es_ocurrencia_unica": true,
+  "depende_de_decision_discrecional": false,
   "fuente_pagina": 2,
   "fuente_fragmento": "La adjudicación se notificará a los oferentes. (pág. 2) | La adjudicación se realizará el 30 de septiembre de 2026. (pág. 12)",
   "extraction_status": "success"
@@ -538,6 +615,9 @@ con `evento_disparador: "Adjudicación"`, no se mezcla dentro de este):
       "direccion": null,
       "es_plazo_maximo": false,
       "mencion_propia": true,
+      "accion_concreta": "el organismo abre las ofertas presentadas",
+      "es_ocurrencia_unica": true,
+      "depende_de_decision_discrecional": false,
       "fuente_documento_id": "doc-123",
       "fuente_pagina": 3,
       "fuente_fragmento": "La apertura de ofertas se realizará el día 15 de septiembre de 2026 a las 10:00hs en la sede del organismo convocante.",
@@ -567,6 +647,9 @@ con `evento_disparador: "Adjudicación"`, no se mezcla dentro de este):
       "direccion": null,
       "es_plazo_maximo": false,
       "mencion_propia": true,
+      "accion_concreta": "el oferente recibe el pliego de bases y condiciones",
+      "es_ocurrencia_unica": true,
+      "depende_de_decision_discrecional": false,
       "fuente_documento_id": "doc-123",
       "fuente_pagina": 2,
       "fuente_fragmento": "El pliego se recibe en la fecha indicada en la carátula.",
@@ -583,6 +666,9 @@ con `evento_disparador: "Adjudicación"`, no se mezcla dentro de este):
       "direccion": "desde",
       "es_plazo_maximo": true,
       "mencion_propia": true,
+      "accion_concreta": "el oferente presenta consultas por escrito",
+      "es_ocurrencia_unica": true,
+      "depende_de_decision_discrecional": false,
       "fuente_documento_id": "doc-123",
       "fuente_pagina": 2,
       "fuente_fragmento": "Dentro de los 15 días de recibido el pliego, los oferentes deberán presentar consultas por escrito.",
@@ -612,6 +698,9 @@ con `evento_disparador: "Adjudicación"`, no se mezcla dentro de este):
       "direccion": null,
       "es_plazo_maximo": false,
       "mencion_propia": true,
+      "accion_concreta": "el organismo adjudica la contratación",
+      "es_ocurrencia_unica": true,
+      "depende_de_decision_discrecional": false,
       "fuente_documento_id": "doc-123",
       "fuente_pagina": 8,
       "fuente_fragmento": "La adjudicación se realizará el 30 de septiembre de 2026.",
@@ -628,6 +717,9 @@ con `evento_disparador: "Adjudicación"`, no se mezcla dentro de este):
       "direccion": "desde",
       "es_plazo_maximo": true,
       "mencion_propia": true,
+      "accion_concreta": "el adjudicatario firma el contrato",
+      "es_ocurrencia_unica": true,
+      "depende_de_decision_discrecional": false,
       "fuente_documento_id": "doc-123",
       "fuente_pagina": 8,
       "fuente_fragmento": "Dentro de los 10 días de la adjudicación, el adjudicatario deberá presentarse para firmar el contrato.",
@@ -657,6 +749,9 @@ con `evento_disparador: "Adjudicación"`, no se mezcla dentro de este):
       "direccion": null,
       "es_plazo_maximo": false,
       "mencion_propia": true,
+      "accion_concreta": "el organismo abre las ofertas presentadas",
+      "es_ocurrencia_unica": true,
+      "depende_de_decision_discrecional": false,
       "fuente_documento_id": "doc-123",
       "fuente_pagina": 6,
       "fuente_fragmento": "La apertura de ofertas será el 20/09/2026.",
@@ -673,6 +768,9 @@ con `evento_disparador: "Adjudicación"`, no se mezcla dentro de este):
       "direccion": "antes_de",
       "es_plazo_maximo": true,
       "mencion_propia": true,
+      "accion_concreta": "el oferente presenta consultas por escrito",
+      "es_ocurrencia_unica": true,
+      "depende_de_decision_discrecional": false,
       "fuente_documento_id": "doc-123",
       "fuente_pagina": 6,
       "fuente_fragmento": "El cronograma establece: consultas hasta 5 días antes de la apertura, evaluación de 10 días hábiles desde la apertura, y adjudicación dentro de los 3 días de finalizada la evaluación.",
@@ -689,6 +787,9 @@ con `evento_disparador: "Adjudicación"`, no se mezcla dentro de este):
       "direccion": "desde",
       "es_plazo_maximo": false,
       "mencion_propia": true,
+      "accion_concreta": "el organismo evalúa las ofertas presentadas",
+      "es_ocurrencia_unica": true,
+      "depende_de_decision_discrecional": false,
       "fuente_documento_id": "doc-123",
       "fuente_pagina": 6,
       "fuente_fragmento": "El cronograma establece: consultas hasta 5 días antes de la apertura, evaluación de 10 días hábiles desde la apertura, y adjudicación dentro de los 3 días de finalizada la evaluación.",
@@ -705,6 +806,9 @@ con `evento_disparador: "Adjudicación"`, no se mezcla dentro de este):
       "direccion": "desde",
       "es_plazo_maximo": true,
       "mencion_propia": true,
+      "accion_concreta": "el organismo adjudica la contratación",
+      "es_ocurrencia_unica": true,
+      "depende_de_decision_discrecional": false,
       "fuente_documento_id": "doc-123",
       "fuente_pagina": 6,
       "fuente_fragmento": "El cronograma establece: consultas hasta 5 días antes de la apertura, evaluación de 10 días hábiles desde la apertura, y adjudicación dentro de los 3 días de finalizada la evaluación.",
@@ -734,6 +838,9 @@ con `evento_disparador: "Adjudicación"`, no se mezcla dentro de este):
       "direccion": null,
       "es_plazo_maximo": false,
       "mencion_propia": true,
+      "accion_concreta": "el organismo emite la orden de inicio",
+      "es_ocurrencia_unica": true,
+      "depende_de_decision_discrecional": false,
       "fuente_documento_id": "doc-123",
       "fuente_pagina": 15,
       "fuente_fragmento": "El plazo de ejecución de las obras será de 12 meses a partir de la emisión de la orden de inicio.",
@@ -750,6 +857,9 @@ con `evento_disparador: "Adjudicación"`, no se mezcla dentro de este):
       "direccion": "desde",
       "es_plazo_maximo": false,
       "mencion_propia": true,
+      "accion_concreta": "el adjudicatario ejecuta las obras contratadas",
+      "es_ocurrencia_unica": true,
+      "depende_de_decision_discrecional": false,
       "fuente_documento_id": "doc-123",
       "fuente_pagina": 15,
       "fuente_fragmento": "El plazo de ejecución de las obras será de 12 meses a partir de la emisión de la orden de inicio.",
@@ -835,6 +945,9 @@ capacitación.
       "direccion": null,
       "es_plazo_maximo": false,
       "mencion_propia": false,
+      "accion_concreta": "el proveedor pone en marcha el sistema",
+      "es_ocurrencia_unica": true,
+      "depende_de_decision_discrecional": false,
       "fuente_documento_id": "doc-123",
       "fuente_pagina": 9,
       "fuente_fragmento": "El proveedor deberá realizar la capacitación del personal dentro de los 20 días corridos posteriores a la puesta en marcha del sistema.",
@@ -851,6 +964,9 @@ capacitación.
       "direccion": "después_de",
       "es_plazo_maximo": true,
       "mencion_propia": true,
+      "accion_concreta": "el proveedor capacita al personal del organismo",
+      "es_ocurrencia_unica": true,
+      "depende_de_decision_discrecional": false,
       "fuente_documento_id": "doc-123",
       "fuente_pagina": 9,
       "fuente_fragmento": "El proveedor deberá realizar la capacitación del personal dentro de los 20 días corridos posteriores a la puesta en marcha del sistema.",
@@ -865,6 +981,46 @@ Nota: "Puesta en Marcha del Sistema" tuvo que crearse igual como su propio ítem
 declara por su cuenta, lleva `mencion_propia: false`. "Capacitación del Personal" sí es
 un hito real descripto en el texto (aunque dependa de otro para su fecha), así que
 lleva `mencion_propia: true` como cualquier otro.
+
+---
+
+## Ejemplo 9: candidatos que NO pasan el test de 3 preguntas (regla 8)
+
+**Texto del pliego:**
+"El Contratista deberá presentar mensualmente un informe de gestión con el detalle de
+los servicios prestados. Asimismo, el equipamiento ofrecido cuenta con 3 años de
+garantía del fabricante. El Banco podrá, en cualquier momento durante la vigencia del
+contrato, auditar el cumplimiento de las obligaciones de seguridad."
+
+**Salida correcta:**
+```json
+{
+  "eventos_temporales": []
+}
+```
+
+**Por qué ninguno de los tres pasa el test** (razonamiento por candidato, no por
+palabra prohibida):
+
+- "Informe de gestión mensual": `accion_concreta` sí se puede escribir ("el
+  Contratista presenta un informe de gestión"), pero `es_ocurrencia_unica` es `false`
+  -- se repite todos los meses mientras dure el contrato, no ocurre una vez en un
+  punto identificable. Falla el eje 2.
+- "Garantía del fabricante": no hay una acción con sujeto y verbo que ocurra en un
+  momento -- es una característica del equipo (3 años de cobertura), no algo que
+  alguien HACE en una fecha. `accion_concreta` no se puede completar con convicción.
+  Falla el eje 1 (y, si se fuerza una acción, también el 2: una garantía es un
+  período, no una ocurrencia puntual).
+- "Auditoría de cumplimiento": el Banco decide CUÁNDO auditar ("en cualquier
+  momento durante la vigencia") -- no hay una etapa del proceso a la que atarlo.
+  `depende_de_decision_discrecional` es `true`. Falla el eje 3.
+
+Si alguno de estos MISMOS conceptos apareciera con otra redacción (ej. "el
+adjudicatario deberá remitir reportes de avance con la periodicidad que el organismo
+determine", o "la Gerencia se reserva el derecho de solicitar inspecciones adicionales
+sin previo aviso"), el razonamiento es el mismo -- no hace falta una frase nueva en
+esta lista para reconocerlo: las 3 preguntas ya cubren cualquier redacción del mismo
+problema.
 
 ---
 
@@ -891,10 +1047,12 @@ Antes de emitir la respuesta:
 17. ✅ Cada hito incluye `"extraction_status": "success"`
 18. ✅ Cada hito incluye `mencion_propia` (true salvo que sea un disparador agregado solo por la regla 2)
 19. ✅ **Releíste los fragmentos buscando "días corridos/hábiles", "dentro de los X días", "X meses desde", "antes de", "después de" -- si hay alguna de estas expresiones y tu lista no tiene ningún `evento_disparador` completado, te falta extraer plazos relativos (ver regla 0)**
-20. ✅ NO hay obligaciones recurrentes/continuas (informes periódicos, simulacros o
-    controles que se repiten, servicios "durante toda la ejecución") extraídas como
-    hito, ni nombres genéricos sin una acción puntual identificable en el texto (ver
-    regla 8)
+20. ✅ **Cada hito tiene `accion_concreta` (8-200 chars, con sujeto y verbo propios -- no
+    un resumen del fragmento), `es_ocurrencia_unica` y `depende_de_decision_discrecional`
+    completados con convicción real, no con un valor por defecto.** Por cada ítem, releélo
+    una vez más contra las 3 preguntas de la regla 8: si `es_ocurrencia_unica` sería
+    `false` o `depende_de_decision_discrecional` sería `true`, ese ítem no debería estar
+    en la lista final -- sacalo antes de responder, no lo dejes con esos valores.
 
 ---
 

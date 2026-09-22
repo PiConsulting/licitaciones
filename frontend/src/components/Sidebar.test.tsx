@@ -7,9 +7,7 @@ import { useUIStore } from "../store/useUIStore";
 describe("Sidebar", () => {
   beforeEach(() => {
     localStorage.clear();
-    // El store de zustand es un singleton a nivel módulo -- sin este
-    // reset, un test que togglea sidebarCollapsed deja el estado
-    // "filtrado" al siguiente test (2026-09-01).
+    // El store de zustand es singleton a nivel módulo; sin reset, el estado se filtra entre tests.
     useUIStore.setState({ sidebarCollapsed: true });
   });
 

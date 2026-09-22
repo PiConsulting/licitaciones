@@ -44,7 +44,6 @@ export function Sidebar() {
       aria-label="Barra lateral"
     >
       <div className="flex h-full flex-col">
-        {/* Header */}
         <div
           className={cn(
             "border-b px-4 py-4",
@@ -88,7 +87,6 @@ export function Sidebar() {
           </div>
         </div>
 
-        {/* Nav */}
         <nav className="flex-1" role="navigation" aria-label="Navegación principal">
           <button
             type="button"
@@ -108,9 +106,7 @@ export function Sidebar() {
             <NavLink
               key={to}
               to={to}
-              // 2026-09-01: al elegir una sección, el sidebar se vuelve a
-              // colapsar solo -- se abre a mano con la flecha, se usa para
-              // navegar, y se esconde para no ocupar espacio.
+              // Al navegar, el sidebar se colapsa solo; se reabre a mano con la flecha.
               onClick={() => setSidebarCollapsed(true)}
               className={({ isActive }) =>
                 cn(
@@ -142,14 +138,12 @@ export function Sidebar() {
           ))}
         </nav>
 
-        {/* Footer */}
         <div
           className={cn(
             "border-t px-4 py-4",
             isPi ? "border-[#FFF100]/20" : "border-gray-200",
           )}
         >
-          {/* User row + theme toggle */}
           <div className="mb-2 flex items-center justify-between gap-2">
             <div
               className={cn(
@@ -191,7 +185,6 @@ export function Sidebar() {
             <span className={cn(sidebarCollapsed && "sr-only")}>Cerrar Sesión</span>
           </button>
 
-          {/* COE IA attribution */}
           {!sidebarCollapsed && (
             <p
               className={cn(

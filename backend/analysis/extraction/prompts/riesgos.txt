@@ -1,129 +1,104 @@
 # CONCEPTO DE LA CATEGORÍA
 
-Esta categoría responde una pregunta concreta desde el punto de vista de un oferente
-que está evaluando si le conviene o no participar de esta licitación:
+Esta categoría NO lee el pliego directamente. Recibe un DIGEST -- una lista
+numerada de hechos que YA fueron extraídos y verificados en otras categorías
+del mismo análisis (garantías, plazos clave, requisitos de admisibilidad,
+causales de rechazo, criterios de evaluación) -- y tiene que seleccionar y
+priorizar cuáles de esos hechos representan un RIESGO COMERCIAL MATERIAL
+para un oferente que evalúa participar.
 
-**"¿Qué riesgos debería tener en cuenta antes de decidir participar y al preparar mi oferta?"**
+Un riesgo, acá, es una condición del pliego (ya capturada en el digest) que
+puede generar una consecuencia relevante -- financiera, operativa o
+competitiva -- si la empresa participa o ejecuta el contrato sin tenerla en
+cuenta. NO es un hallazgo nuevo del texto crudo: es un juicio sobre CUÁLES
+de los hechos que ya tenés adelante son los que más importan.
 
-No es un resumen exhaustivo de todo lo que puede salir mal en el pliego. Es un análisis
-ACOTADO y de ALTO VALOR, enfocado en un conjunto específico de dimensiones. El objetivo
-es que el usuario lea 5-10 riesgos concretos y accionables, no 20-30 variantes del mismo
-tema repetidas.
+**Lo que esta categoría NO cubre** (se extrae en otro lado, no lo repitas):
+- forma de pago, moneda, tipo de cambio, anticipo financiero, responsabilidad
+  de costos logísticos, multas y penalidades -- todo esto se extrae directo
+  en la categoría `preview_criterios`.
+- el contenido detallado de garantías/plazos/requisitos/causales/criterios en
+  sí -- eso ya está en sus propias categorías; acá solo señalás CUÁLES de
+  esos hechos son riesgosos y por qué, no los repetís tal cual.
 
-**Es un análisis aproximado.** El sistema no tiene acceso a datos propios del oferente
-(certificaciones que ya posee, relación previa con la cuenta, capacidad técnica real,
-etc.), así que para las dimensiones que dependen de eso (por ejemplo "capacidades
-técnicas exigidas"), el objetivo es señalar el requisito como posible riesgo a validar,
-NO afirmar si el oferente lo cumple o no.
+# DIGEST (hechos ya extraídos y verificados)
 
----
+Cada entrada tiene un `index` (usalo para referenciar), la `categoria` de
+origen, el `tipo` que le asignó esa categoría, y su `valor`.
 
-# DIMENSIONES DE RIESGO PERMITIDAS (LISTA ESTRICTA)
-Extraé un riesgo ÚNICAMENTE si mapea directamente a una de estas dimensiones. Si hay duda, descártalo:
-1. **Fecha / Plazo de entrega:** Tiempos de entrega críticamente ajustados o con penalidades severas.
-2. **Mantenimiento de oferta:** Obligación de mantener la oferta por períodos inusualmente largos o rígidos.
-3. **Moneda y tipo de cambio:** Descalce de monedas, falta de cláusulas de ajuste o moneda no habitual.
-4. **Forma de pago:** Plazos de cobro extendidos, retenciones desfavorables o impacto crítico de cash-flow.
-5. **Competencia:** Señales de alta concurrencia o ventajas explícitas del incumbent / proveedor actual.
-6. **Direccionamiento:** Exigencia de marcas, modelos o certificaciones tan específicas que restringen la competencia. (Declarar marca ofrecida NO es direccionamiento).
-7. **Control de cuenta / relación:** Obligación de abrir cuentas en bancos específicos o pérdida de control operativo.
-8. **Apertura de la oferta:** Presencialidad obligatoria, plazos inmediatos o requisitos operativos rígidos de apertura.
-9. **Capacidades / skills exigidos:** Requisitos técnicos o de experiencia muy específicos a validar contra capacidad propia.
-
-# GUARDRAILS DE EXTRACCIÓN
-- **Cero tareas de rutina:** Obligaciones operativas estándar del contrato NO son riesgos.
-- **Cero solapamiento categórico:** Si el fragmento responde a "¿Qué presentar?" (`requisitos_admisibilidad`), "¿Qué causa rechazo?" (`causales_rechazo`), "¿Qué garantías constituir?" (`garantias`), o "¿Cómo evalúan?" (`criterios_evaluacion`), NO lo incluyas aquí.
-- **Consolidación obligatoria:** Múltiples menciones del mismo riesgo subyacente deben fusionarse en UN solo ítem robusto con sus citas combinadas.
-- **Lista acotada y de alto valor:** Apuntar a 5-10 riesgos concretos; es preferible devolver `{root_key}: []` con `extraction_status: "not_found"` antes que forzar ítems dudosos.
-
----
+```json
+{digest}
+```
 
 # OBJETIVO
-Extraer una lista ACOTADA de riesgos relevantes para la decisión de participar y para la preparación de la oferta, limitada a las 9 dimensiones permitidas.
 
----
+Devolver 3 a 5 riesgos (los más materiales -- no una lista exhaustiva) en
+`riesgos`, cada uno con:
+- `indices`: lista de 1 o más `index` del digest en los que se basa este
+  riesgo. Si el riesgo combina dos hechos relacionados (ej. un plazo ajustado
+  + la penalidad que aplica si no se cumple), incluí ambos índices.
+- `explicacion`: por qué esto es un riesgo para el oferente -- tiene que
+  nombrar el hecho concreto (con el dato: porcentaje, monto, plazo, condición)
+  y la consecuencia. No repitas literalmente el `valor` del digest sin
+  explicar la implicancia; tampoco inventes una consecuencia que el digest no
+  respalda.
+- `tipo`: uno de `descalificacion`, `penalizacion`, `legal`, `operativo`,
+  `financiero`, `otro`.
+- `subtipo`: uno de `ejecucion`, `incumplimiento`, `operativo`, `plazos`,
+  `economico`, `tecnico`, `legal_contractual`, `comercial`, `otro_explicito`.
 
----
+**No inventes nada que no esté en el digest.** Si un `index` no existe en el
+digest de esta corrida, no lo uses -- el riesgo se descarta en código si no
+tiene ningún índice válido con evidencia real.
 
-# INSTRUCCIONES DE EXTRACCIÓN
+# CRITERIO DE SELECCIÓN (cómo priorizar)
 
-1. Leé cada fragmento detenidamente.
-2. Identificá candidatos a riesgo.
-3. Para CADA candidato, antes de incluirlo, hacé este chequeo explícito: "¿A cuál de las
-   9 dimensiones numeradas de QUÉ INCLUYE corresponde este candidato?" Si no podés
-   nombrar el número de la dimensión, DESCARTALO — no lo incluyas "por las dudas" ni
-   porque suene relevante. Prestá especial atención a no colar como riesgo algo que en
-   realidad es una causal de rechazo, un requisito de admisibilidad, una tarea operativa
-   normal de ejecución, o una cláusula legal estándar (ver "NO INCLUIR").
-4. Para cada riesgo que pasó el chequeo, determiná:
-   - **tipo**: clasificación general del riesgo
-   - **subtipo**: clasificación granular para priorización
-   - **valor**: descripción clara y concisa del riesgo, orientada a la decisión de
-     participar (qué es el riesgo y por qué importa, no sólo citar el texto del pliego)
-   - **source_references**: citas textuales que respaldan el hallazgo
-5. Antes de finalizar, aplicá la regla de CONSOLIDACIÓN: fusioná items que describan el
-   mismo riesgo de fondo.
-6. Subtipos disponibles:
-   - **ejecucion**: Riesgos relacionados con la ejecución del contrato
-   - **incumplimiento**: Riesgos de incumplimiento de obligaciones contractuales
-   - **operativo**: Riesgos operacionales o de gestión (incluye apertura, control de cuenta)
-   - **plazos**: Riesgo/impacto del plazo o fecha de entrega
-   - **economico**: Riesgos financieros, multas, penalizaciones económicas
-   - **tecnico**: Capacidades/skills técnicos exigidos, a validar contra capacidad propia
-   - **legal_contractual**: Uso poco frecuente — sólo si un riesgo de las 9 dimensiones
-     tiene además un ángulo legal/contractual específico (por ejemplo, una condición de
-     pago con una cláusula legal atípica). No usar para boilerplate legal genérico.
-   - **comercial**: Mantenimiento de oferta, moneda/tipo de cambio, forma de pago,
-     competencia, direccionamiento
-   - **otro_explicito**: Riesgos relevantes que no encajan claramente en los otros subtipos,
-     pero que sí encajan en alguna de las 9 dimensiones de QUÉ INCLUYE
-7. Si NO encontrás riesgos relevantes (dentro del alcance definido) en los fragmentos,
-   devolvé `{root_key}: []` con `extraction_status: "not_found"`.
-8. Emití SOLO el JSON, sin texto adicional.
+No alcanza con "esto podría salir mal" -- para que un hecho del digest
+justifique un riesgo, tiene que cumplir AL MENOS una de estas condiciones:
 
----
+1. **Carga financiera significativa**: un porcentaje/monto de garantía,
+   penalidad o contragarantía alto en relación al contrato (ej. contragarantía
+   del 150% de un anticipo, tope de penalidades acumuladas del 10%).
+2. **Plazo ajustado con consecuencia real**: un plazo de ejecución/entrega
+   corto combinado con una penalidad si no se cumple, o un plazo de reacción
+   muy breve (ej. impugnar en 2 días hábiles).
+3. **Direccionamiento o barrera de entrada**: requisitos de admisibilidad muy
+   específicos (una marca/partner puntual, una certificación rara, antigüedad
+   o presencia geográfica exigente) que condicionan fuertemente quién puede
+   ofertar.
+4. **Descalificación severa o de bajo margen de error**: causales de rechazo
+   que se disparan por errores formales menores, o un filtro técnico
+   "un solo incumplimiento descalifica todo".
+5. **Criterio de evaluación desfavorable**: reglas de adjudicación que dejan
+   poco margen de negociación o favorecen fuertemente un solo factor (ej.
+   solo precio, sin importar la propuesta técnica).
 
-# FORMATO DE SALIDA
+Si NINGÚN hecho del digest cumple con fuerza alguna de estas 5 condiciones,
+devolvé menos de 3 riesgos (incluso 0) -- preferí `[]` antes que forzar un
+riesgo dudoso solo para completar el cupo de 3.
+
+# CONSOLIDACIÓN
+
+Si varios hechos del digest son manifestaciones del MISMO riesgo de fondo
+(ej. tres garantías distintas que todas suman a "carga financiera alta"), es
+UN SOLO riesgo con los `indices` de los tres, no tres riesgos repetidos con
+redacción distinta.
+
+# ESTRUCTURA DE SALIDA
+
+Devolver exclusivamente JSON válido con esta forma exacta:
 
 ```json
 {
-  "{root_key}": [
+  "riesgos": [
     {
-      "tipo": "descalificacion|penalizacion|legal|operativo|financiero|otro",
-      "subtipo": "ejecucion|incumplimiento|operativo|plazos|economico|tecnico|legal_contractual|comercial|otro_explicito",
-      "valor": "Descripción clara del riesgo, orientada a la decisión de participar",
-      "confidence": 0.85,
-      "extraction_status": "success|partial|not_found",
-      "source_references": [
-        {
-          "document_id": "UUID del documento",
-          "page_number": número_página,
-          "citation": "Texto literal del pliego (12-120 caracteres)"
-        }
-      ]
+      "indices": [3, 7],
+      "explicacion": "El plazo de entrega es de 45 días corridos desde la adjudicación, con penalidades de 0,5% del monto total por cada día corrido de demora -- un cronograma ajustado combinado con una tasa diaria significativa.",
+      "tipo": "penalizacion",
+      "subtipo": "plazos"
     }
-  ],
-  "extraction_status": "success|partial|not_found"
+  ]
 }
 ```
 
----
-
-# VALIDACIÓN DE CALIDAD
-
-- Cada riesgo DEBE estar respaldado por al menos una cita verificable.
-- Las citas deben ser literales del pliego (12-120 caracteres).
-- No inventes riesgos que no estén explícita o implícitamente mencionados.
-- No dupliques contenido que ya corresponde a otra categoría (ver "NO INCLUIR").
-- Si un riesgo está mencionado varias veces o en variantes similares, consolidalo en un
-  solo item (ver "CONSOLIDACIÓN").
-- Preferí una lista corta y de alto valor por sobre una lista exhaustiva.
-- Cada item debe corresponder a una de las 9 dimensiones numeradas de "QUÉ INCLUYE". Si
-  al revisar la lista final no podés justificar con qué número de dimensión corresponde
-  un item, sacalo antes de responder.
-
----
-
-<contexto_pliego>
-{chunks}
-</contexto_pliego>
+Si ningún hecho del digest cumple el criterio de selección: `{"riesgos": []}`.

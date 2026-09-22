@@ -47,9 +47,7 @@ logger = structlog.get_logger(__name__)
 
 _DOCUMENT_SECTION_MERGE_CATEGORIES = {"anexos_obligatorios"}
 
-# Fallback si `settings` no trae `extraction_group_max_chunks` (p.ej. un
-# fake de test que solo define los atributos que usa) -- ver
-# `_split_oversized_groups` en item_merging.py.
+# Fallback si `settings` no trae `extraction_group_max_chunks` (p.ej. un fake de test).
 _DEFAULT_EXTRACTION_GROUP_MAX_CHUNKS = 15
 
 
@@ -75,11 +73,7 @@ def run_extractor(
 
     delta: GraphState = {}
 
-    # Instrumentación (Paso 0.1, plan rag-plan-latencia-2026-09-09): nº de
-    # llamadas al LLM y wall-time de esta rama, para poder medir el efecto de
-    # cada cambio de paralelización/costo. Se cuelga del dict de token_usage
-    # que ya viaja por el pipeline (`{state_field}_token_usage` ->
-    # merge_node -> extraction_metadata), así que no agrega plumbing nuevo.
+    # Instrumentación: se cuelga del dict de token_usage que ya viaja por el pipeline, sin plumbing nuevo.
     _started = time.monotonic()
     token_usage_key = f"{state_field}_token_usage"
 
@@ -96,14 +90,7 @@ def run_extractor(
         settings = get_settings()
         keyword_query = build_keyword_query(result_key)
 
-        # FASE 4 del plan RAG v2 (2026-08-24, sección 4.4): la query que se
-        # vectoriza para el vector search se enriquece con la definición
-        # semántica versionada de la categoría (misma fuente que 4.3), en vez
-        # de usar solo la frase corta que arma cada extractor. La query de
-        # keywords para BM25 (keyword_query, arriba) NO se toca -- sigue
-        # siendo términos discriminantes del glosario. Apagado por default:
-        # con el flag en false, retrieval_query == query (comportamiento
-        # idéntico al actual).
+        # La query vectorial se enriquece con la definición semántica de la categoría; keyword_query (BM25) no se toca. Apagado por default.
         from analysis.extraction.glossary import get_category_query_expansion
 
         retrieval_query = query
@@ -129,12 +116,7 @@ def run_extractor(
 
         category_top_k = get_category_top_k(result_key, default=settings.extraction_top_k)
 
-        # FIX (2026-09-03, Fase 1.4 del plan): category_penalty configurable
-        # por categoría, mismo mecanismo que category_top_k arriba. Ver el
-        # comentario de `get_category_penalty` en glossary.py para el porqué
-        # (evidencia empírica de daño en preview_criterios, sin datos aún
-        # para las otras categorías -- por eso es un override puntual y no
-        # un cambio del default global en chunk_retrieval.py).
+        # category_penalty configurable por categoría: evidencia empírica de daño solo en preview_criterios (ver glossary.py::get_category_penalty), por eso es override puntual y no default global.
         category_penalty = get_category_penalty(result_key, default=0.30)
         relevance_min_chunks = get_category_relevance_min_chunks(result_key, default=10)
         relevance_min_ratio = get_category_relevance_min_ratio(result_key, default=0.4)
@@ -147,7 +129,7 @@ def run_extractor(
             category=result_key,
             correlation_id=correlation_id,
             category_penalty=category_penalty,
-            global_candidates=state.get("global_candidates"),  # FASE 3 (4.2)
+            global_candidates=state.get("global_candidates"),
         )
 
         chunks = _drop_low_relevance_chunks(
@@ -209,9 +191,7 @@ def run_extractor(
         document_labels = state.get("document_labels")
 
         if is_object_result:
-            # Resultado de un solo objeto agregado (ej. estimación de
-            # presupuesto): no aplica "partir por documento y unir" -- se
-            # mantiene el llamado único de siempre.
+            # Resultado de un solo objeto agregado: no aplica map-reduce por documento.
             messages = _build_messages(
                 prompt_file_name=prompt_file_name,
                 chunks_block=_format_chunks(chunks, document_labels),
@@ -230,28 +210,7 @@ def run_extractor(
                 )
             payload = llm_result.get(result_key)
         else:
-            # MAP-REDUCE POR DOCUMENTO (2026-08-21).
-            #
-            # Un solo llamado con todos los chunks recuperados mezclados sufre
-            # "lost in the middle": con un contexto largo y muchos fragmentos
-            # parecidos entre sí, el LLM no presta atención uniforme a todo el
-            # texto -- lo que queda en el medio se pierde con más frecuencia,
-            # y de forma no determinista entre corridas. Medido en este
-            # proyecto: con retrieval idéntico verificado chunk por chunk,
-            # sólo 1/8 categorías daba el mismo resultado en 5 corridas (ver
-            # `docs/docu/PLAN-structured-outputs-EXT-01.md` y comentario en
-            # `shared/adapters/azure_openai.py`). Reproducido también en el
-            # experimento de `scripts/retrieval_debug/experimento_full_context.py` sobre
-            # `anexos_obligatorios`: mismos 19 chunks, mismo prompt -- "ANEXO
-            # V — Plan de Trabajo" aparecía en un modo y no en el otro.
-            #
-            # Partir por documento (cada pliego/anexo es una unidad lógica
-            # natural, ya disponible en `document_id`) reduce cuánto texto
-            # compite por atención en cada llamado individual, sin tocar el
-            # vocabulario de la extracción -- sigue siendo texto libre, no
-            # structured outputs con enums (descartado deliberadamente por la
-            # variabilidad de terminología entre pliegos, ver
-            # `PLAN-CORRECCION-RAG-VARIANZA.md` Epic 4).
+            # Map-reduce por documento evita "lost in the middle" (medido: solo 1/8 categorías daba el mismo resultado en 5 corridas con un solo llamado).
             groups = _group_chunks_by_document(chunks)
             group_max_chunks = int(
                 getattr(settings, "extraction_group_max_chunks", None)
@@ -275,44 +234,16 @@ def run_extractor(
                 )
                 return _call_llm(messages=group_messages, correlation_id=correlation_id)
 
-            # FIX (2026-09-11): `_split_oversized_groups` puede partir el
-            # grupo de UN documento en varios lotes (mismo `document_id`
-            # repetido) cuando supera `group_max_chunks` -- ver docstring en
-            # item_merging.py. Por eso los resultados se indexan por
-            # POSICIÓN en `groups_items`, no por `document_id`: una clave por
-            # document_id pisaría el resultado de un lote anterior del mismo
-            # documento en vez de acumular los dos.
+            # Se indexa por POSICIÓN, no document_id: un documento partido en varios lotes repite document_id, y una clave por id pisaría el lote anterior.
             groups_items = _split_oversized_groups(groups, max_chunks_per_call=group_max_chunks)
 
-            # Self-consistency (Fase 2 auditoría RAG, 2026-09-14): repite CADA
-            # grupo `self_consistency_runs` veces -- misma lista de chunks,
-            # llamado independiente. Reusa el mismo pool de paralelización y
-            # ensamblado de abajo sin ramas nuevas: cada repetición es "un
-            # grupo más" con el mismo `document_id`, así que sus ítems se
-            # etiquetan con el mismo `_source_document_id` y el dedup por
-            # categoría de `merge_node` (ya existe, agrupa por tipo/monto o
-            # tipo/subtipo/valor) los fusiona si coinciden o los deja separados
-            # si no -- exactamente el mismo criterio que ya aplica hoy a
-            # duplicados entre documentos distintos. Opt-in por categoría
-            # (`get_category_self_consistency_runs`, default 1 = sin cambios).
+            # Self-consistency: repite cada grupo N veces como "un grupo más"; el dedup existente de merge_node fusiona o separa igual que entre documentos distintos. Opt-in, default 1 = sin cambios.
             self_consistency_runs = get_category_self_consistency_runs(result_key)
             if self_consistency_runs > 1:
                 groups_items = [item for item in groups_items for _ in range(self_consistency_runs)]
 
-            # Paso 2 (plan rag-plan-latencia-2026-09-09): las llamadas por
-            # documento (o por lote dentro de un documento, ver arriba) son
-            # independientes entre sí, así que se pueden correr en paralelo.
-            # El resultado se ensambla DESPUÉS recorriendo `groups_items` en
-            # su orden original, con lo cual el merge/dedup/detección de
-            # conflictos río abajo es byte-idéntico al modo secuencial -- lo
-            # único que cambia es el wall-time. NUNCA se fusionan chunks de
-            # documentos distintos en una misma llamada: eso dejaría que el
-            # LLM "reconcilie" una contradicción principal vs. anexo en un
-            # solo ítem y se perdería el aviso (ver detección de conflictos
-            # en graph/nodes.py::merge_node). El tope real de concurrencia
-            # contra Azure lo pone el semáforo global de `_call_llm`
-            # (LLM_MAX_CONCURRENCY). `EXTRACTION_MAPREDUCE_CONCURRENCY <= 1`
-            # (default) = secuencial = comportamiento actual.
+            # Llamadas en paralelo, ensamblado luego en orden original (mismo resultado que secuencial).
+            # Nunca se fusionan chunks de documentos distintos en una llamada: el LLM podría "reconciliar" una contradicción principal-vs-anexo y perderse el aviso de conflicto (merge_node).
             mapreduce_workers = min(
                 len(groups_items),
                 max(1, int(settings.extraction_mapreduce_concurrency or 1)),
@@ -341,8 +272,7 @@ def run_extractor(
                         except Exception as exc:  # noqa: BLE001
                             results_by_index[index] = exc
 
-            # Ensamblado determinístico: se recorre en el orden original de
-            # los grupos, no en el orden en que terminaron las llamadas.
+            # Ensamblado determinístico: orden original de los grupos, no orden de llegada.
             for index, (document_id, group_chunks) in enumerate(groups_items):
                 outcome = results_by_index.get(index)
                 if isinstance(outcome, BaseException):
@@ -361,24 +291,14 @@ def run_extractor(
 
                 for key in accumulated_usage:
                     accumulated_usage[key] += int(group_usage.get(key, 0) or 0)
-                # La llamada se hizo (haya devuelto items o "sin_contenido"),
-                # así que cuenta para el costo/latencia real.
+                # Cuenta para costo/latencia aunque el resultado sea "sin_contenido".
                 accumulated_usage["llm_calls"] += 1
 
                 if group_result.get("_diagnostic") == "sin_contenido_recuperado":
                     continue
 
                 group_payload = group_result.get(result_key)
-                # FIX (2026-08-24, hallazgo variabilidad anexos_obligatorios):
-                # se etiqueta cada ítem crudo con el `document_id` del grupo
-                # que lo generó. Los ítems sin ninguna cita verificable (ver
-                # `_verify_citation_grounding`, status "partial" +
-                # `_warning="cita_no_verificada"`) no tienen forma de saber
-                # después de qué documento/sección salieron -- esta etiqueta
-                # es la única pista que le queda a `_merge_items_by_document_section`
-                # para poder fusionarlos igual, en vez de dejarlos como
-                # "anexos" fantasma sueltos. No se persiste como fuente de
-                # verdad de nada -- es sólo una pista interna para el merge.
+                # Etiqueta cada ítem con el document_id del grupo: única pista para fusionar ítems sin cita verificable en `_merge_items_by_document_section` (no se persiste como fuente de verdad).
                 if isinstance(group_payload, list):
                     for item in group_payload:
                         if isinstance(item, dict):
@@ -388,17 +308,7 @@ def run_extractor(
                     group_payload.setdefault("_source_document_id", document_id)
                     all_items.append(group_payload)
 
-            # Si el LLM falló en TODOS los grupos, esto no es "no se encontró
-            # nada" (not_found) -- es una falla real del sistema. Antes
-            # `all_items` quedaba vacío y caía en el mismo camino que un
-            # payload legítimamente vacío, perdiendo la señal de que hubo un
-            # error real (ver auditoría: reportaba status="not_found" en vez
-            # de "failed"). Se eleva para que lo capture el `except` de abajo,
-            # que sí marca "failed" correctamente. Se compara contra
-            # `groups_items` (lotes, cuenta de llamadas reales) y no contra
-            # `groups` (documentos): un documento partido en varios lotes por
-            # `_split_oversized_groups` puede fallar más veces que documentos
-            # distintos hay.
+            # Falla real del sistema (no "not_found") si TODOS los grupos fallaron; se eleva para que el except de abajo marque "failed". Compara contra groups_items (lotes reales), no groups (documentos).
             if groups_items and groups_failed == len(groups_items):
                 raise RuntimeError(
                     f"Todos los grupos ({groups_failed}/{len(groups_items)}) fallaron al "
@@ -442,11 +352,7 @@ def run_extractor(
             normalized_items = _normalize_mixed_not_found_items(
                 normalized_items, category=result_key
             )
-            # Red de seguridad genérica: si el LLM partió un solo hecho en dos
-            # ítems (ver docstring de `_merge_split_fact_items`), se fusionan
-            # ANTES de la verificación de citas para que ésta trabaje sobre el
-            # ítem ya consolidado. Aplica a cualquier categoría y cualquier
-            # pliego -- no depende de redacción de un pliego en particular.
+            # Fusiona hechos partidos en dos ítems ANTES de verificar citas, para que trabaje sobre el ítem ya consolidado.
             normalized_items = _merge_split_fact_items(
                 normalized_items, chunks, category=result_key, correlation_id=correlation_id
             )
@@ -461,7 +367,6 @@ def run_extractor(
                 [delta[state_field]], chunks, category=result_key, correlation_id=correlation_id
             )
 
-            # Detectar contaminación cruzada en objeto
             from analysis.extraction.engine.validators import detect_cross_contamination
 
             contaminated = detect_cross_contamination([delta[state_field]], category=result_key)
@@ -479,7 +384,6 @@ def run_extractor(
                 delta[state_field], chunks, category=result_key, correlation_id=correlation_id
             )
 
-            # Detectar contaminación cruzada en lista
             from analysis.extraction.engine.validators import detect_cross_contamination
 
             contaminated = detect_cross_contamination(delta[state_field], category=result_key)

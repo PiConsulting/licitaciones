@@ -41,8 +41,7 @@ describe("PlazosTimeline", () => {
     render(<PlazosTimeline items={items} />);
 
     const container = screen.getByTestId("plazos-sin-fecha");
-    // Cada plazo es un hecho independiente: una fila por ítem, nunca un único
-    // párrafo con todo encadenado (eso era ilegible con muchos plazos).
+    // Una fila por ítem, nunca un párrafo con todo encadenado (era ilegible con muchos plazos).
     expect(container.querySelectorAll('[data-testid="plazos-sin-fecha-item"]')).toHaveLength(2);
     expect(container).toHaveTextContent("Mantenimiento de oferta: 30 días corridos desde la apertura");
     expect(container).toHaveTextContent("Consultas: Hasta 5 días antes de la apertura");
@@ -50,10 +49,7 @@ describe("PlazosTimeline", () => {
   });
 
   test("plazos duplicados del mismo hecho no deberían llegar dos veces (regresión de datos, no de UI)", () => {
-    // Este test documenta que la deduplicación real vive en el backend
-    // (merge_node); acá solo verificamos que la UI no hace su propia
-    // deduplicación silenciosa -- si llegaran dos ítems iguales, ambos se
-    // muestran como dos filas (el bug de datos se ve, no se esconde).
+    // La deduplicación real vive en el backend (merge_node); la UI no hace la suya, para que un bug de datos se vea en vez de esconderse.
     const items = [
       undatedField("Mantenimiento de oferta", "30 días corridos desde la apertura"),
       undatedField("Mantenimiento de oferta", "30 días corridos desde la apertura"),

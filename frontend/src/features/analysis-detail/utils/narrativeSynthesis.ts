@@ -28,16 +28,7 @@ function fieldSentence(field: FieldItem): string | null {
     case "no_encontrado":
       return `No se encontró información sobre ${fieldLabel.toLowerCase()}.`;
     case "no_aplica": {
-      // FIX (2026-08-13): antes se descartaba `field_value` acá y se mostraba
-      // siempre la misma frase genérica ("X no aplica para este pliego"),
-      // aunque el backend (ver `garantias.txt` Caso 4, y el mismo patrón para
-      // cualquier categoría) exige una `valor` explicando el motivo puntual
-      // ("el pliego sólo prevé garantía técnica del equipamiento, ninguna
-      // financiera", "exento por no superar el monto X", etc.) con cita
-      // obligatoria. Este fallback de frontend solo corre cuando el backend
-      // no llegó a emitir `narrative` (ver comentario de `buildNarrativeBlocks`
-      // más abajo) -- pero cuando corre, tiene que mostrar esa explicación en
-      // vez de perderla.
+      // El backend exige una `valor` explicando el motivo puntual (ver `garantias.txt` Caso 4); no descartarla por una frase genérica.
       const value = normalizeText(field.field_value);
       return value ? `${fieldLabel}: ${value}.` : `${fieldLabel} no aplica para este pliego.`;
     }
@@ -114,12 +105,7 @@ export function buildNarrativeBlocks(
     return { blocks: [fallbackBlock(categoryId)], sources: [] };
   }
 
-  // FIX (2026-08-13): un item "no_aplica" con explicación (ej. garantías
-  // financieras exentas, con `valor` obligatorio por prompt) SÍ es dato útil
-  // -- antes solo "extraido" contaba, así que una categoría compuesta
-  // enteramente por items no_aplica cae acá y mostraba "No se encontró
-  // información sobre..." (fallbackBlock), que contradice el badge "no
-  // aplica" que sí se muestra en `CategorySection` y esconde la explicación.
+  // Un item "no_aplica" con explicación SÍ es dato útil -- antes solo "extraido" contaba, y eso contradecía el badge "no aplica" que sí se muestra en `CategorySection`.
   const hasUsefulData = items.some(
     (item) =>
       (item.field_state === "extraido" || item.field_state === "no_aplica") &&
@@ -132,11 +118,7 @@ export function buildNarrativeBlocks(
   const sources: NarrativeSource[] = [];
   const sourceIndex = new Map<string, number>();
 
-  // El formato no es fijo por categoría: varios hechos discretos e
-  // independientes van en lista, una idea única va en párrafo. Nunca se
-  // fuerza a juntar todo en un solo párrafo solo porque la categoría "suele"
-  // tener pocos datos -- eso llevaba a respuestas ilegibles cuando el pliego
-  // real tenía muchos hechos para esa categoría.
+  // El formato no es fijo por categoría: varios hechos van en lista, una idea única en párrafo -- nunca se fuerza un solo párrafo porque la categoría "suele" tener pocos datos.
   const useBulletList = options?.forceList || CHECKLIST_CATEGORIES.has(categoryId) || items.length > 1;
 
   if (!useBulletList) {

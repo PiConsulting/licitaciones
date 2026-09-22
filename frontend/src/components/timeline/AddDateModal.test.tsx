@@ -6,7 +6,6 @@ import { AddDateModal } from "./AddDateModal";
 import * as timelineApi from "../../api/timeline";
 import type { EventResponse } from "../../types/timeline";
 
-// Mock del API
 vi.mock("../../api/timeline", () => ({
   updateEvent: vi.fn(),
   recalculateDependentDates: vi.fn(),
@@ -91,14 +90,11 @@ describe("AddDateModal", () => {
       { wrapper: createWrapper() }
     );
 
-    // Seleccionar fecha
     const dateInput = screen.getByLabelText(/Fecha/i);
     fireEvent.change(dateInput, { target: { value: "2026-09-10" } });
 
-    // Submit
     fireEvent.click(screen.getByRole("button", { name: /Guardar/i }));
 
-    // Verificar llamadas a la API
     await waitFor(() => {
       expect(mockUpdate).toHaveBeenCalledWith(
         "analysis-123",
@@ -111,7 +107,6 @@ describe("AddDateModal", () => {
       expect(mockRecalc).toHaveBeenCalledWith("analysis-123", "evt-1");
     });
 
-    // Verificar que se cerró el modal
     await waitFor(() => {
       expect(mockOnClose).toHaveBeenCalled();
     });
@@ -183,7 +178,6 @@ describe("AddDateModal", () => {
       { wrapper: createWrapper() }
     );
 
-    // Intentar submit sin fecha
     fireEvent.click(screen.getByRole("button", { name: /Guardar/i }));
 
     await waitFor(() => {

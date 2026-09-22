@@ -1,20 +1,4 @@
-/**
- * CTX-06: la lista "Fuentes verificables" decía "Documento" para todas.
- *
- * `NarrativeBlocks.tsx` renderiza `{source.document_name} · pág. {source.page}`,
- * y `document_name` era la constante `"Documento"` en los tres mappers que
- * construyen fuentes en `analysisApi.ts`. Con un solo documento eso era
- * simplemente inútil. En el análisis de Santa Fe (`18a86363-…`: un pliego y
- * cuatro anexos) las fuentes de una misma categoría se leen todas igual:
- *
- *     Documento · pág. 1
- *     Documento · pág. 1
- *
- * y esas dos son la página 1 de dos archivos distintos.
- *
- * El backend ahora manda `filename` en cada referencia (antes llegaba en `null`
- * en las 20 referencias de esa corrida: el campo existía y nadie lo escribía).
- */
+// CTX-06: "Documento" era fijo para todas las fuentes; ahora el backend manda `filename` real por referencia.
 
 import { beforeEach, describe, expect, test, vi } from "vitest";
 

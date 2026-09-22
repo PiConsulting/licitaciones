@@ -6,10 +6,8 @@ from analysis.extraction.schemas import RiesgoItem, SubtipoRiesgo, TipoRiesgo, S
 print("Testing SubtipoRiesgo Implementation")
 print("=" * 50)
 
-# Test 1: Enum exists
 print("✓ Test 1: SubtipoRiesgo enum imported successfully")
 
-# Test 2: All subtypes exist
 subtipos = [
     SubtipoRiesgo.EJECUCION,
     SubtipoRiesgo.INCUMPLIMIENTO,
@@ -23,7 +21,6 @@ subtipos = [
 assert len(subtipos) == 8
 print("✓ Test 2: All 8 subtypes exist in enum")
 
-# Test 3: Enum values are correct
 assert SubtipoRiesgo.EJECUCION.value == "ejecucion"
 assert SubtipoRiesgo.INCUMPLIMIENTO.value == "incumplimiento"
 assert SubtipoRiesgo.OPERATIVO.value == "operativo"
@@ -34,7 +31,6 @@ assert SubtipoRiesgo.LEGAL_CONTRACTUAL.value == "legal_contractual"
 assert SubtipoRiesgo.OTRO_EXPLICITO.value == "otro_explicito"
 print("✓ Test 3: Enum values are correct")
 
-# Test 4: RiesgoItem has subtipo field
 source_ref = SourceReference(
     document_id="test-doc", page_number=5, citation="Riesgo de incumplimiento según cláusula 10"
 )
@@ -50,7 +46,6 @@ assert item.subtipo == SubtipoRiesgo.PLAZOS
 assert item.subtipo.value == "plazos"
 print("✓ Test 4: RiesgoItem accepts subtipo field")
 
-# Test 5: Default subtipo is OTRO_EXPLICITO
 item_default = RiesgoItem(
     tipo=TipoRiesgo.OTRO,
     valor="Riesgo sin clasificar",
@@ -61,7 +56,6 @@ item_default = RiesgoItem(
 assert item_default.subtipo == SubtipoRiesgo.OTRO_EXPLICITO
 print("✓ Test 5: Default subtipo is OTRO_EXPLICITO")
 
-# Test 6: All subtipos work with RiesgoItem
 for subtipo in SubtipoRiesgo:
     item = RiesgoItem(
         tipo=TipoRiesgo.OTRO,
@@ -74,7 +68,6 @@ for subtipo in SubtipoRiesgo:
     assert item.subtipo == subtipo
 print("✓ Test 6: All subtipos work correctly in RiesgoItem")
 
-# Test 7: Source references are preserved
 item_amb = RiesgoItem(
     tipo=TipoRiesgo.OTRO,
     subtipo=SubtipoRiesgo.OTRO_EXPLICITO,

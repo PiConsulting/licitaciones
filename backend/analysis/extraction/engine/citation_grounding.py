@@ -68,8 +68,7 @@ def _expand_short_paragraph_citation(
             normalized_content = _normalize_for_grounding(chunk.get("content", ""))
             if normalized_preferred in normalized_content:
                 return clip_citation(preferred_text)
-    # Política estricta: no expandir por match de palabra suelta. Si no hay
-    # ancla explícita válida, la cita se conserva y el ítem se penaliza luego.
+    # Política estricta: sin ancla explícita válida, se conserva la cita y se penaliza luego.
     return citation_text
 
 
@@ -180,8 +179,7 @@ def clip_citation(citation: str, max_chars: int = CITATION_MAX_CHARS) -> str:
 
     clipped = text[:max_chars]
     last_space = clipped.rfind(" ")
-    # Solo cortamos en el último espacio si eso no destruye la cita (nos
-    # quedaría por debajo del mínimo discriminante).
+    # Solo cortamos en el último espacio si no destruye la cita (no cae debajo del mínimo).
     if last_space >= CITATION_MIN_CHARS:
         clipped = clipped[:last_space]
     return clipped.strip()
@@ -270,9 +268,7 @@ def shorten_citation_to_evidence(
         start = max(0, len(text) - max_chars)
         end = len(text)
 
-    # Bordes de palabra: nunca partir una palabra al medio, ni al principio ni
-    # al final. Si el ajuste dejara la cita por debajo del mínimo, se prefiere
-    # el corte crudo antes que perder la cita.
+    # Bordes de palabra: si el ajuste dejara la cita por debajo del mínimo, se prefiere el corte crudo.
     if start > 0:
         space = text.find(" ", start)
         if 0 <= space < end - CITATION_MIN_CHARS:
@@ -351,8 +347,7 @@ def _build_context_citation(
     core_end = max(core_start, min(int(end), len(text)))
     core_len = core_end - core_start
 
-    # El núcleo es la evidencia. Si por sí solo excede el techo, se recorta el
-    # núcleo: seguimos dentro del texto que respalda el dato.
+    # El núcleo es la evidencia; si excede el techo por sí solo, se recorta pero sigue dentro del texto que respalda el dato.
     if core_len >= max_chars:
         return clip_citation(text[core_start:core_end], max_chars=max_chars)
 
@@ -439,9 +434,7 @@ def _verify_citation_grounding(
     parseados como los `chunks` originales pasados al LLM. Sigue el mismo patrón
     de `_warning` + downgrade a "partial" que ya usa `_penalize_unverifiable` en
     graph.py, sin inventar un mecanismo paralelo."""
-    # Imports diferidos: normalization y chunk_retrieval importan de este
-    # módulo a nivel de módulo (_normalize_for_grounding, etc.); importar acá
-    # arriba crearía un ciclo. Sólo esta función necesita estos dos símbolos.
+    # Import diferido: normalization/chunk_retrieval importan de este módulo a nivel de módulo; importar arriba crearía un ciclo.
     from analysis.extraction.engine.chunk_retrieval import _attach_chunk_identity
     from analysis.extraction.engine.normalization import _as_page_number
 
@@ -468,11 +461,7 @@ def _verify_citation_grounding(
             if not isinstance(ref, dict):
                 continue
             citation = str(ref.get("citation", ""))
-            # FIX (2026-08-14): `int(...)` directo reventaba con ValueError ante
-            # un `page_number` que el LLM escribiera como "3-4", "12 y 13" o
-            # "s/n" -- formas que aparecen cuando una cita cruza dos páginas del
-            # pliego. Igual que arriba: un ref raro degrada ese ref, no la
-            # categoría entera.
+            # FIX 2026-08-14: `int(...)` directo reventaba ante page_number tipo "3-4"/"12 y 13"/"s/n"; un ref raro degrada ese ref, no la categoría entera.
             document_id = str(ref.get("document_id", ""))
             page_number = _as_page_number(ref.get("page_number"))
             candidates = chunks_by_doc_page.get((document_id, page_number))
@@ -487,27 +476,11 @@ def _verify_citation_grounding(
             rescued_citation: str | None = None
             grounding_chunk = _find_grounding_chunk(citation_for_verification, candidates)
 
-            # FIX (2026-09-03, causa raíz del bug "se encontró pero no se pudo
-            # verificar la cita"): `_merge_intermediate_blocks` (indexing/
-            # chunking/block_merging.py) nunca fusiona un bloque a través de
-            # un salto de página (`previous["page_number"] == block["page_number"]`
-            # es condición obligatoria para fusionar). Una oración real que
-            # empieza al final de una página y termina en la siguiente queda
-            # partida en dos chunks con `page_number` distinto -- el LLM la lee
-            # en orden de lectura continuo (ve ambos fragmentos, cada uno con
-            # su propia etiqueta "Página: N" en el prompt, ver
-            # `engine/prompts.py::_format_chunks`) y puede citarla completa
-            # bajo un solo número de página. Esa cita no es substring literal
-            # de NINGÚN chunk individual, aunque el texto exista tal cual en
-            # el pliego -- ya había un indicio de esto en el FIX 2026-08-14 de
-            # arriba (page_number tipo "3-4"), que solo arregló el parseo, no
-            # la verificación en sí. Antes de dar la cita por no-verificada,
-            # se prueba: (a) si aparece entera en algún chunk de la página
-            # vecina (page_number mal etiquetado por el LLM, pero la oración
-            # SÍ estaba entera en un solo chunk); y si no, (b) si aparece
-            # concatenando los chunks de página vecina en orden de lectura
-            # (la oración realmente partida a la mitad por el salto de
-            # página). Ninguna de las dos es alucinación: el texto existe.
+            # FIX 2026-09-03: el chunking nunca fusiona un bloque a través de un salto de página,
+            # así que una oración real partida en dos chunks con page_number distinto no es
+            # substring literal de ningún chunk individual aunque exista tal cual en el pliego.
+            # Antes de dar la cita por no-verificada: (a) buscar entera en la página vecina, o
+            # (b) concatenar chunks de páginas vecinas en orden de lectura. Ninguna es alucinación.
             if grounding_chunk is None:
                 adjacent_candidates = [
                     *chunks_by_doc_page.get((document_id, page_number - 1), []),
@@ -535,12 +508,7 @@ def _verify_citation_grounding(
                 any_verified = True
                 normalized_ref = dict(ref)
 
-                # La cita pudo haber verificado en una página adyacente a la
-                # que declaró el LLM (ver fix arriba) -- se corrige acá para
-                # que `page_number` sea la página real donde vive el chunk,
-                # no la que el LLM haya asignado a una oración que cruza un
-                # salto de página. Necesario para que el highlight en el PDF
-                # (que busca por documento+página) apunte al lugar correcto.
+                # page_number se corrige a la página real del chunk (pudo verificar en una adyacente); el highlight del PDF busca por documento+página.
                 grounding_page = grounding_chunk.get("page_number")
                 if grounding_page is not None:
                     normalized_ref["page_number"] = int(grounding_page)
@@ -579,9 +547,7 @@ def _verify_citation_grounding(
                 continue
 
             if not _is_table_citation(citation):
-                # Mismo motivo que el fallback de arriba: el rescate por
-                # `valor`/`texto_original` del item también puede estar en la
-                # página vecina si el hecho cruza un salto de página.
+                # Mismo motivo que el fallback de arriba: el hecho puede cruzar un salto de página.
                 rescue_candidates = [
                     *candidates,
                     *chunks_by_doc_page.get((document_id, page_number - 1), []),
@@ -597,11 +563,7 @@ def _verify_citation_grounding(
                 normalized_ref["citation"] = rescued_citation
                 normalized_ref["citation_llm"] = citation
                 normalized_ref["citation_origin"] = "rescatada"
-                # La cita rescatada también tiene su chunk de respaldo: es el
-                # que hizo pasar `_verify_reference_grounded` dentro de
-                # `_rescue_paragraph_citation`. Se busca en `rescue_candidates`
-                # (incluye páginas vecinas) porque ahí es donde pudo haberse
-                # encontrado, no solo en `candidates` (página exacta).
+                # Se busca en rescue_candidates (incluye páginas vecinas), no solo candidates (página exacta), porque ahí pudo haberse encontrado.
                 rescue_chunk = _find_grounding_chunk(rescued_citation, rescue_candidates)
                 if rescue_chunk is not None:
                     rescue_page = rescue_chunk.get("page_number")
@@ -613,8 +575,7 @@ def _verify_citation_grounding(
         if verified_refs:
             item["source_references"] = verified_refs
 
-        # Un item que sólo se sostiene con citas rescatadas no está verificado:
-        # su evidencia declarada no existía en los chunks (ver arriba).
+        # No está verificado: su evidencia declarada no existía en los chunks.
         if not any_verified and rescued_refs_count:
             rescued_items += 1
             if status == "success":

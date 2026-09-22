@@ -8,7 +8,6 @@
 export function formatEventDate(dateStr: string | null): string {
   if (!dateStr) return "Fecha pendiente";
 
-  // Formato ISO date (YYYY-MM-DD) - parsear como fecha local sin conversión de zona horaria
   const [year, month, day] = dateStr.split("T")[0].split("-");
   return `${day}/${month}/${year}`;
 }

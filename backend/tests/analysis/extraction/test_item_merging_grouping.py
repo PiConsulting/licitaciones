@@ -1,9 +1,4 @@
-# Tests para el agrupado/split de chunks del map-reduce por documento
-# (analysis/extraction/engine/item_merging.py) — fix 2026-09-11, diagnóstico
-# de no-determinismo en garantías (ver reanalyze-preview-bug-and-nondeterminism
-# en memoria): los grupos deben quedar ordenados por posición real en el
-# documento (no por score de relevancia), y un documento con muchos chunks
-# debe poder partirse en varios llamados en vez de uno solo gigante.
+# Fix 2026-09-11 (no-determinismo en garantías): los grupos deben ordenarse por posición real en el documento, no por score de relevancia.
 from __future__ import annotations
 
 from analysis.extraction.engine.item_merging import (

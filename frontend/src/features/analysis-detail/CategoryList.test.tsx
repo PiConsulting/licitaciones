@@ -92,7 +92,6 @@ describe("CategoryList - AC3: Orden consistente en todos los componentes", () =>
     const articles = container.querySelectorAll("article");
     expect(articles).toHaveLength(8);
 
-    // Verificar que cada artículo tiene el ID correcto en el orden esperado
     CATEGORY_ORDER.forEach((categoryId, index) => {
       expect(articles[index].id).toBe(`category-${categoryId}`);
     });
@@ -101,11 +100,9 @@ describe("CategoryList - AC3: Orden consistente en todos los componentes", () =>
   it("debe mostrar nombres de categorías en el orden canónico", () => {
     render(<CategoryList analysis={mockAnalysis} />);
 
-    // Obtener todos los h3 (nombres de categorías) en orden de aparición
     const headings = screen.getAllByRole("heading", { level: 3 });
     expect(headings).toHaveLength(8);
 
-    // Verificar que cada heading tiene el nombre correcto en el orden esperado
     CATEGORY_ORDER.forEach((categoryId, index) => {
       expect(headings[index]).toHaveTextContent(CATEGORY_NAMES[categoryId]);
     });
@@ -114,11 +111,9 @@ describe("CategoryList - AC3: Orden consistente en todos los componentes", () =>
   it("NO debe renderizar datos_procedimiento", () => {
     render(<CategoryList analysis={mockAnalysis} />);
 
-    // Verificar que no existe el artículo de datos_procedimiento
     const datasProcArticle = document.getElementById("category-datos_procedimiento");
     expect(datasProcArticle).toBeNull();
 
-    // Verificar que el nombre no aparece
     expect(screen.queryByText("Datos del Procedimiento")).toBeNull();
   });
 });
@@ -131,7 +126,7 @@ describe("CategoryList - AC5: Compatibilidad con categorías faltantes", () => {
         id: "version-1",
         version_number: 1,
         created_at: "2026-08-06T12:00:00Z",
-        extracted_data: {}, // Sin datos del backend
+        extracted_data: {},
       },
     };
 
@@ -140,17 +135,12 @@ describe("CategoryList - AC5: Compatibilidad con categorías faltantes", () => {
     const articles = container.querySelectorAll("article");
     expect(articles).toHaveLength(8);
 
-    // Verificar que todas las categorías se muestran
     CATEGORY_ORDER.forEach((categoryId) => {
       const article = document.getElementById(`category-${categoryId}`);
       expect(article).not.toBeNull();
     });
 
-    // Sin datos del backend, `CategoryList` completa con `EMPTY_CATEGORY`
-    // (`extraction_status: "not_analyzed"`): las 8 categorías, incluida
-    // Plazos Clave, se muestran en minimalista -- no como un contenedor de
-    // "Respuesta" vacío ni una timeline vacía, que sugerirían que se buscó y
-    // no se encontró nada.
+    // Sin datos, `CategoryList` completa con `EMPTY_CATEGORY` (`not_analyzed`): se muestra minimalista, no como "sin evidencia" (afirmaría que se buscó y no se encontró nada).
     expect(screen.queryAllByTestId("narrative-blocks")).toHaveLength(0);
     expect(document.getElementById("category-plazos_clave")?.querySelector('[data-testid^="plazos-timeline"]')).toBeNull();
     expect(screen.getAllByTestId("category-not-analyzed")).toHaveLength(8);
@@ -166,7 +156,6 @@ describe("CategoryList - AC5: Compatibilidad con categorías faltantes", () => {
         extracted_data: {
           objeto_alcance: mockAnalysis.current_version!.extracted_data.objeto_alcance,
           garantias: mockAnalysis.current_version!.extracted_data.garantias,
-          // Solo 2 categorías, las otras 6 faltantes
         },
       },
     };
@@ -174,18 +163,14 @@ describe("CategoryList - AC5: Compatibilidad con categorías faltantes", () => {
     const { container } = render(<CategoryList analysis={partialAnalysis} />);
 
     const articles = container.querySelectorAll("article");
-    expect(articles).toHaveLength(8); // Siempre 8 categorías
+    expect(articles).toHaveLength(8);
 
-    // Verificar que las categorías con datos y sin datos se renderizan
     expect(screen.getByText("Objeto y Alcance")).toBeInTheDocument();
     expect(screen.getByText("Garantías")).toBeInTheDocument();
-    expect(screen.getByText("Plazos Clave")).toBeInTheDocument(); // Sin datos pero renderizada
-    expect(screen.getByText("Requisitos de Admisibilidad")).toBeInTheDocument(); // Sin datos pero renderizada
+    expect(screen.getByText("Plazos Clave")).toBeInTheDocument();
+    expect(screen.getByText("Requisitos de Admisibilidad")).toBeInTheDocument();
 
-    // Sólo las 2 categorías con datos reales (objeto_alcance, garantias)
-    // tienen NarrativeBlocks; las otras 6 -- faltantes, `not_analyzed` vía
-    // `EMPTY_CATEGORY` -- se muestran en minimalista, no como timeline/
-    // contenedor vacío.
+    // Solo las 2 categorías con datos reales tienen NarrativeBlocks; las faltantes (`not_analyzed` vía `EMPTY_CATEGORY`) se muestran minimalistas.
     const narrativeBlocks = screen.getAllByTestId("narrative-blocks");
     expect(narrativeBlocks).toHaveLength(2);
     expect(document.getElementById("category-plazos_clave")?.querySelector('[data-testid^="plazos-timeline"]')).toBeNull();

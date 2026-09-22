@@ -1,14 +1,14 @@
 # CONCEPTO DE LA CATEGORÍA
 
-Esta categoría extrae 5 criterios de revisión temprana (preview) para que el usuario
+Esta categoría extrae 6 criterios de revisión temprana (preview) para que el usuario
 pueda tomar decisiones comerciales rápidas sin esperar el análisis completo.
 
-Los otros 5 criterios de preview (garantías/cauciones, tiempo de entrega,
-mantenimiento de oferta, requisitos técnicos excluyentes, multas y penalidades)
-NO se piden acá -- se arman automáticamente a partir de lo que ya extrajeron
-las categorías de garantías, plazos clave, requisitos de admisibilidad y
-riesgos, que corren antes en el mismo análisis. No los inventes ni los
-repitas: esta categoría es solo para lo que ninguna otra categoría cubre.
+Los otros 4 criterios de preview (garantías/cauciones, tiempo de entrega,
+mantenimiento de oferta, requisitos técnicos excluyentes) NO se piden acá --
+se arman automáticamente a partir de lo que ya extrajeron las categorías de
+garantías, plazos clave y requisitos de admisibilidad, que corren antes en el
+mismo análisis. No los inventes ni los repitas: esta categoría es la única
+responsable de los 6 tipos de abajo -- nadie más los extrae.
 
 Tipos permitidos (`TipoCriterioPreview`) en ESTA categoría:
 - forma_pago
@@ -16,11 +16,12 @@ Tipos permitidos (`TipoCriterioPreview`) en ESTA categoría:
 - tipo_cambio
 - anticipo_financiero
 - responsabilidad_costos_logisticos
+- multas_penalidades
 
 # OBJETIVO
 
 Devolver una lista de items en `{root_key}` con información verificable de estos
-5 criterios.
+6 criterios.
 
 - Si hay evidencia textual suficiente: emitir item con `extraction_status = "success"` o `"partial"`,
   `valor` con el dato y `source_references` con al menos una cita literal.
@@ -32,38 +33,107 @@ Devolver una lista de items en `{root_key}` con información verificable de esto
 # ESTRUCTURA
 
 Cada item debe seguir el schema `PreviewCriterioItem`:
-- `tipo`: uno de los 5 valores permitidos arriba
+- `tipo`: uno de los 6 valores permitidos arriba
 - `valor`: texto literal o casi literal del pliego (`null` si `extraction_status = "not_found"`)
 - `metadata`: objeto (usar `{}` si no aplica)
 - `confidence`: número entre 0.0 y 1.0 (`0.0` si `extraction_status = "not_found"`)
 - `source_references`: lista de citas literales (al menos una si hay evidencia; `[]` si `extraction_status = "not_found"`)
 - `extraction_status`: success | partial | not_found | failed
 
-Debés devolver EXACTAMENTE un item por cada uno de los 5 tipos permitidos arriba,
-ni más ni menos -- el que no tenga evidencia se emite igual, como "not_found".
+Para `forma_pago`, `moneda`, `tipo_cambio`, `anticipo_financiero` y
+`responsabilidad_costos_logisticos`: devolvé EXACTAMENTE un item por tipo, ni
+más ni menos -- el que no tenga evidencia se emite igual, como "not_found".
+
+Para `multas_penalidades` la regla es distinta (ver sección dedicada abajo):
+si el pliego tiene VARIAS tasas/penalidades DISTINTAS (ej. una tabla con
+tasa por criticidad, o una tasa por demora en entrega y otra por demora en un
+hito), emitís UN ITEM POR CADA TASA DISTINTA -- no las juntes en un solo
+`valor`. Si no hay ninguna, emitís igual un item `not_found`.
 
 # REGLAS CRÍTICAS
 
 1. No inventar valores.
-2. No mezclar tipos: un item por tipo de criterio.
+2. No mezclar tipos: un item por tipo de criterio (excepto `multas_penalidades`,
+   que puede tener varios items -- ver abajo).
 3. Las citas deben ser literales y trazables al fragmento.
 4. Si hay contradicciones entre documentos, priorizar pliego principal y bajar confidence.
-5. No emitas items de garantias_cauciones, tiempo_entrega, mantenimiento_oferta,
-   requisitos_tecnicos_excluyentes ni multas_penalidades -- esos se arman aparte.
+5. No emitas items de garantias_cauciones, tiempo_entrega, mantenimiento_oferta
+   ni requisitos_tecnicos_excluyentes -- esos se arman aparte.
 
 # REGLAS DE EXTRACCIÓN Y PERTENENCIA (CRÍTICO)
 
 Para esta categoría ESPECÍFICA, la extracción se basa en el DATO PUNTUAL, no en el tema general del fragmento:
-1. **Aislamiento del dato:** Extraé forma_pago, moneda, tipo_cambio, anticipo_financiero o responsabilidad_costos_logisticos INCLUSO SI el fragmento habla principalmente de evaluación, garantías u obligaciones.
+1. **Aislamiento del dato:** Extraé forma_pago, moneda, tipo_cambio, anticipo_financiero,
+   responsabilidad_costos_logisticos o multas_penalidades INCLUSO SI el fragmento habla
+   principalmente de evaluación, garantías u obligaciones.
 2. **Recorte de cita:** La cita (`citation`) debe acotarse estrictamente a la oración que contiene el dato (mínimo 12 caracteres), ignorando el resto del párrafo.
-3. **Completitud estricta:** La salida DEBE contener exactamente 5 objetos en `{root_key}`, uno por cada `TipoCriterioPreview`:
+3. **Completitud estricta:** La salida DEBE contener al menos un objeto por cada `TipoCriterioPreview` de esta lista:
    - `forma_pago`
    - `moneda`
    - `tipo_cambio`
    - `anticipo_financiero`
    - `responsabilidad_costos_logisticos`
+   - `multas_penalidades`
 4. **Manejo de ausencias:** Si no hay evidencia textual para un tipo, emití el objeto con `"extraction_status": "not_found"`, `"valor": null`, `"confidence": 0.0` y `"source_references": []`. NUNCA omitas el tipo en la salida.
-5. **Prohibición de tipos ajenos:** NO emitir items de garantias_cauciones, tiempo_entrega, mantenimiento_oferta, requisitos_tecnicos_excluyentes ni multas_penalidades (se consolidan desde otras categorías).
+5. **Prohibición de tipos ajenos:** NO emitir items de garantias_cauciones, tiempo_entrega, mantenimiento_oferta ni requisitos_tecnicos_excluyentes (se consolidan desde otras categorías).
+
+## Distinción de conceptos -- no confundir MODALIDAD con estos 6 criterios
+
+La modalidad/alcance de la contratación (ej. "llave en mano", "provisión e
+instalación integral") describe QUÉ incluye el contrato, no responde ninguna
+de estas 6 preguntas puntuales por sí sola. No la uses como `valor` de ningún
+criterio salvo que la MISMA oración además diga explícitamente el dato
+puntual pedido (ej. "llave en mano, por lo que el oferente asume el flete y
+la instalación" SÍ sirve para `responsabilidad_costos_logisticos`, porque
+nombra quién paga; "el proyecto es llave en mano" solo, sin decir quién paga
+ni cuándo, NO sirve para ningún criterio de este prompt).
+
+- **forma_pago**: ¿CUÁNDO/CÓMO se paga? (plazo en días desde la factura, cantidad
+  de cuotas, pago contra entrega/certificación). NO es un mecanismo de descuento
+  de penalidades sobre facturas.
+- **moneda**: ¿en qué moneda (pesos, dólares, u otra) DEBE cotizarse o pagarse la
+  oferta? Tiene que nombrar la moneda en sí. NO es un item que solo explica el
+  AJUSTE de garantías/montos por variación del tipo de cambio (eso es
+  tipo_cambio).
+- **tipo_cambio**: ¿qué cotización de cambio puntual se usa (ej. "vendedor del
+  BNA") y en qué momento se toma, para convertir a moneda local? Es sobre el
+  MECANISMO de conversión, no sobre qué moneda se usa.
+- **anticipo_financiero**: ¿el pliego prevé ADELANTAR dinero al proveedor ANTES
+  de la entrega/prestación (ej. "se otorga un anticipo del 20%")? NO es la
+  garantía de mantenimiento de oferta, ni las consecuencias de no formalizar el
+  contrato a tiempo, ni la contragarantía en sí (la contragarantía solo aplica
+  CUANDO ya hay un anticipo -- mencionarla no confirma que haya anticipo).
+- **responsabilidad_costos_logisticos**: ¿quién paga específicamente flete/
+  transporte/seguro/instalación (a cargo de qué parte)? **Priorizá la regla
+  GENERAL del caso normal de entrega** (ej. "el flete y la descarga corren
+  por cuenta de la Jurisdicción o Entidad") por sobre una regla de EXCEPCIÓN
+  que solo aplica en un escenario puntual (ej. "en caso de rechazo, el
+  proveedor debe retirar los bienes y asumir el costo de traslado"). Si el
+  pliego tiene AMBAS -- la regla general Y una excepción -- el `valor` debe
+  cubrir la regla general primero y agregar la excepción como aclaración
+  corta, nunca reemplazar la regla general por la excepción (un oferente que
+  lee este item necesita saber quién paga el flete en el caso normal, no
+  solo qué pasa si rechazan sus bienes).
+- **multas_penalidades**: ver sección dedicada abajo.
+
+## multas_penalidades -- un item por tasa distinta
+
+Un pliego real suele tener VARIAS penalidades con tasas distintas según el
+incumplimiento (demora en entrega, demora en un hito intermedio, falla en
+garantía, tope acumulado, etc.) -- a veces en una tabla, a veces en artículos
+separados. NO los resumas en un solo item genérico tipo "hay penalidades por
+incumplimiento" -- cada tasa/porcentaje distinto es su propio item, con la
+tasa concreta en el `valor` (ej. "0,5% del monto total por día corrido de
+demora en la entrega").
+
+**Consolidación**: si la MISMA tasa para el MISMO incumplimiento aparece
+citada en más de un fragmento (redacción repetida), es UN SOLO item con
+ambas citas -- la regla de "un item por tasa" es sobre tasas DISTINTAS, no
+sobre repeticiones del mismo dato.
+
+**No es multas_penalidades**: cláusulas de rescisión del contrato sin una
+tasa/monto propio (esas son riesgos contractuales generales, no una multa
+puntual), ni la garantía técnica de un producto.
 
 # ESTRUCTURA DE SALIDA
 Devolver exclusivamente JSON válido con esta forma exacta:
@@ -84,12 +154,43 @@ Devolver exclusivamente JSON válido con esta forma exacta:
         }
       ],
       "extraction_status": "success"
+    },
+    {
+      "tipo": "multas_penalidades",
+      "valor": "0,5% del monto total por día corrido de demora en la entrega",
+      "metadata": {},
+      "confidence": 0.8,
+      "source_references": [
+        {
+          "document_id": "UUID del documento",
+          "page_number": 5,
+          "citation": "0,5% (cero coma cinco por ciento) del monto total por cada dia corrido de demora"
+        }
+      ],
+      "extraction_status": "success"
+    },
+    {
+      "tipo": "multas_penalidades",
+      "valor": "0,25% del monto total por día hábil de demora en un hito intermedio",
+      "metadata": {},
+      "confidence": 0.8,
+      "source_references": [
+        {
+          "document_id": "UUID del documento",
+          "page_number": 6,
+          "citation": "0,25% del monto total por cada dia habil de atraso en el cumplimiento de hitos"
+        }
+      ],
+      "extraction_status": "success"
     }
   ]
 }
 ```
 
-*Nota:* El array final debe contener EXACTAMENTE 5 ítems (uno por cada tipo permitido), combinando `success`, `partial` o `not_found` según la evidencia.
+*Nota:* el array final debe contener al menos un ítem por cada uno de los 6
+tipos permitidos (varios en el caso de `multas_penalidades` si hay varias
+tasas distintas), combinando `success`, `partial` o `not_found` según la
+evidencia.
 
 ---
 

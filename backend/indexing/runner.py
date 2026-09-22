@@ -39,11 +39,8 @@ from infra.security import sanitize_error_message
 
 logger = structlog.get_logger(__name__)
 
-# FIX (2026-09-03): garantias, plazos_clave, requisitos_admisibilidad y
-# riesgos se promovieron a fase 1 (ver analysis/extraction/graph/nodes.py) --
-# fase 1 pasa de 3 a 7 nodos (objeto_alcance, identificacion, preview_criterios
-# + las 4 promovidas), fase 2 baja de 8 a 4 (causales, anexos, criterios,
-# eventos_temporales). Solo afecta el conteo mostrado en la barra de progreso.
+# garantias, plazos_clave, requisitos_admisibilidad y riesgos se promovieron a
+# fase 1 (analysis/extraction/graph/nodes.py); solo afecta el conteo de la barra de progreso.
 TOTAL_PHASE1_NODES = 7
 TOTAL_PHASE2_NODES = 4
 
@@ -499,9 +496,7 @@ def extract_and_index_phase2(analysis_id: str) -> None:
         metadata.pop("timeout_warning_reached", None)
         analysis.extraction_metadata = metadata
 
-        # Fase 2 reutiliza artefactos de fase 1, pero inicia una nueva ventana
-        # de timeout al volver a procesamiento para evitar vencimientos espurios
-        # durante la espera humana en en_revision.
+        # Nueva ventana de timeout para evitar vencimientos espurios tras la espera humana en en_revision.
         analysis.status = "processing"
         analysis.cancellation_requested = False
         analysis.error_message = None

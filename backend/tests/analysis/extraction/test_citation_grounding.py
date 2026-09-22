@@ -67,8 +67,7 @@ def test_cita_de_parrafo_alucinada() -> None:
 
 
 def test_cita_de_parrafo_con_espaciado_distinto_legitimo() -> None:
-    # El chunk tiene un salto de linea en medio de la frase; el LLM la cita con
-    # un espacio simple. Esto NO debe considerarse una alucinacion.
+    # El chunk tiene salto de línea en la frase; el LLM cita con espacio simple -- no es alucinación.
     chunk = _paragraph_chunk(
         content="La garantía de mantenimiento\nde oferta es del 5% del monto cotizado."
     )
@@ -195,8 +194,7 @@ def test_no_penaliza_items_not_found_sin_referencias() -> None:
 
 
 def test_no_aplica_chequeo_de_tabla_a_cita_de_parrafo() -> None:
-    # Cita de tabla legitima verificada solo contra chunks de tabla; no debe
-    # aplicarse el chequeo de subcadena literal de parrafo a este formato.
+    # Cita de tabla se verifica solo contra chunks de tabla, no con el chequeo de subcadena literal de párrafo.
     table_chunk = _table_chunk()
     paragraph_chunk = _paragraph_chunk(
         content="Encabezado: Ponderacion | Fila: 2 | Valor: 40% no es texto real"
@@ -289,10 +287,7 @@ def test_rescata_cita_desde_valor_literal_del_item_en_mismo_chunk() -> None:
     )
 
     assert item["extraction_status"] == "success"
-    # La cita se rescata desde el `valor` literal del item, pero ahora se
-    # recorta al límite de legibilidad (CITATION_MAX_CHARS = 120): el `valor`
-    # de este item tiene 129 caracteres. Lo que importa es que siga siendo un
-    # fragmento LITERAL y contiguo de ese valor, no que sea idéntico.
+    # Se rescata desde el `valor` (129 chars) pero se recorta a CITATION_MAX_CHARS=120; importa que siga siendo literal y contiguo, no idéntico.
     citation = item["source_references"][0]["citation"]
     assert citation in item["valor"]
     assert len(citation) <= CITATION_MAX_CHARS

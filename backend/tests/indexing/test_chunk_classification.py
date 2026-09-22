@@ -94,7 +94,6 @@ class TestClassifyByKeywords:
 
 class TestClassifyChunkCategories:
     def test_heading_takes_priority_over_keywords(self):
-        # Chunk con título de garantías pero menciona requisitos
         chunk = {
             "heading_path": ["Garantías"],
             "content": "Presentar certificado de inscripción",
@@ -118,11 +117,8 @@ class TestClassifyChunkCategories:
         assert "category_scores" in result
 
     def test_secondary_categories_threshold(self):
-        # Chunk que menciona múltiples categorías. Heading con un calificador
-        # propio (no solo "Requisitos" a secas) para que sea un match FUERTE
-        # y no compita con el contenido -- lo que se está probando acá es la
-        # población de secondary, no la competencia heading/contenido (eso
-        # ya lo cubre TestHeadingDebilCedeAlContenido).
+        # Heading con calificador fuerte (no "Requisitos" a secas) para no competir con el
+        # contenido; esa competencia heading/contenido ya la cubre TestHeadingDebilCedeAlContenido.
         chunk = {
             "heading_path": ["Requisitos de Admisibilidad"],
             "content": """
@@ -135,7 +131,6 @@ class TestClassifyChunkCategories:
         result = classify_chunk_categories(chunk)
 
         assert result["primary_category"] == "requisitos_admisibilidad"
-        # Debería detectar al menos una categoría secundaria
         assert len(result["secondary_categories"]) > 0
 
     def test_handles_empty_content(self):
@@ -407,8 +402,7 @@ class TestCategoryHeadingPatterns:
         for patterns in CATEGORY_HEADING_PATTERNS.values():
             all_patterns.extend([_normalize_for_matching(p) for p in patterns])
 
-        # Verificar que no haya duplicados exactos
-        # (puede haber overlap semántico pero no términos idénticos)
+        # puede haber overlap semántico entre categorías, pero no términos idénticos
         assert len(all_patterns) == len(set(all_patterns))
 
 
@@ -416,15 +410,7 @@ if __name__ == "__main__":
     pytest.main([__file__, "-v"])
 
 
-# ---------------------------------------------------------------------------
-# REGRESIÓN CHK-06 (auditoría 2026-08-13): el ancestro le ganaba a la sección.
-#
-# `_classify_by_heading` concatenaba TODO el heading_path en un solo string y
-# desempataba por la posición más temprana del patrón. Como los ancestros van
-# primero en esa concatenación, el desempate favorecía estructuralmente al
-# ancestro por sobre la sección real -- y el título tiene prioridad absoluta
-# sobre las keywords del contenido, así que nada aguas abajo podía corregirlo.
-# ---------------------------------------------------------------------------
+# REGRESIÓN CHK-06 (auditoría 2026-08-13): _classify_by_heading concatenaba todo el heading_path y desempataba por la posición más temprana, favoreciendo estructuralmente al ancestro sobre la sección real.
 
 
 class TestClasificacionHojaSobreAncestro:

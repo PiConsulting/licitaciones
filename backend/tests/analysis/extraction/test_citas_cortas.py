@@ -46,9 +46,7 @@ def _item(valor: Any, tipo: str = "dato") -> dict[str, Any]:
     return {"tipo": tipo, "valor": valor}
 
 
-# ---------------------------------------------------------------------------
 # 1. El techo
-# ---------------------------------------------------------------------------
 
 
 def test_el_techo_es_de_un_renglon() -> None:
@@ -66,9 +64,7 @@ def test_ninguna_cita_supera_el_techo() -> None:
         assert len(shorten_citation_to_evidence(CARATULA, item)) <= CITATION_MAX_CHARS
 
 
-# ---------------------------------------------------------------------------
 # 2. La ventana contiene el dato, no el prefijo
-# ---------------------------------------------------------------------------
 
 
 def test_el_monto_sobrevive_al_recorte_aunque_este_al_final() -> None:
@@ -116,9 +112,7 @@ def test_sin_valor_ubicable_se_recorta_por_prefijo() -> None:
     assert CARATULA.startswith(citation)
 
 
-# ---------------------------------------------------------------------------
 # 3. El recorte no puede romper el grounding ni el resaltado
-# ---------------------------------------------------------------------------
 
 
 def test_la_cita_recortada_sigue_siendo_literal_y_contigua() -> None:
@@ -147,9 +141,7 @@ def test_no_se_parten_palabras_al_medio() -> None:
     assert fin == len(plano) or plano[fin] == " "
 
 
-# ---------------------------------------------------------------------------
 # 4. Normalización de números: el formato del pliego != el del dato extraído
-# ---------------------------------------------------------------------------
 
 
 def test_el_monto_del_item_y_el_del_pliego_se_escriben_distinto() -> None:

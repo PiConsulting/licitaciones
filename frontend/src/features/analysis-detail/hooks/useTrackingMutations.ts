@@ -86,7 +86,6 @@ export function useUpdateTrackingItemStatus() {
       status: TrackingItemStatus;
     }) => updateTrackingItemStatus(analysisId, categoryKey, trackingItemId, status),
 
-    // OPTIMISTIC UPDATE: actualizar cache inmediatamente
     onMutate: async (variables) => {
       // Cancelar queries en vuelo para evitar race conditions
       await queryClient.cancelQueries({ 
@@ -100,7 +99,6 @@ export function useUpdateTrackingItemStatus() {
         "detail",
       ]);
 
-      // Actualizar cache optimistically
       queryClient.setQueryData<AnalysisDetail>(
         ["analysis", variables.analysisId, "detail"],
         (current) => {
@@ -118,7 +116,6 @@ export function useUpdateTrackingItemStatus() {
                   items: cat.items.map((item) => {
                     if (item.tracking_item_id !== variables.trackingItemId) return item;
 
-                    // ACTUALIZAR el estado del item optimistically
                     return {
                       ...item,
                       status: variables.status,
@@ -132,13 +129,10 @@ export function useUpdateTrackingItemStatus() {
         },
       );
 
-      // Retornar contexto para rollback
       return { previousData };
     },
 
-    // ROLLBACK en caso de error
     onError: (error, variables, context) => {
-      // Restaurar estado anterior
       if (context?.previousData) {
         queryClient.setQueryData(
           ["analysis", variables.analysisId, "detail"],
@@ -147,15 +141,13 @@ export function useUpdateTrackingItemStatus() {
       }
     },
 
-    // SUCCESS: invalidar después de un delay para permitir que múltiples mutations completen
-    // sin pisarse entre sí. React Query hará batch de las invalidaciones.
+    // Delay antes de invalidar para permitir que múltiples mutations completen sin pisarse (React Query las agrupa en batch).
     onSuccess: (tracking, variables) => {
-      // Usar setTimeout para diferir la invalidación y permitir batching
       setTimeout(() => {
         void queryClient.invalidateQueries({ 
           queryKey: ["analysis", variables.analysisId, "detail"] 
         });
-      }, 100); // 100ms delay permite que mutations rápidas se agrupen
+      }, 100);
     },
   });
 }

@@ -34,9 +34,7 @@ def _parrafo(contenido: str, page: int, source_order: int) -> dict[str, Any]:
     return {"content": contenido, "page_number": page, "source_order": source_order}
 
 
-# Estructura real simplificada del PUBCG: "2." queda en nivel 4 (Azure DI le
-# dio menos prominencia tipográfica que a sus hermanos), separado de "1." por
-# dos sub-secciones reales.
+# Estructura real simplificada del PUBCG: "2." queda en nivel 4 (menos prominencia tipográfica que sus hermanos), separado de "1." por dos sub-secciones reales.
 _BLOQUES_PUBCG = [
     _heading("1. DISPOSICIONES GENERALES", 1, 1, 0),
     _heading("1.1. Ámbito de aplicación", 2, 1, 1),
@@ -114,17 +112,7 @@ def test_una_secuencia_corta_sin_relacion_no_se_toca() -> None:
     assert normalizados == bloques
 
 
-# ---------------------------------------------------------------------------
-# Auditoría de chunking (real: Pliego del Tribunal Superior de Justicia):
-# la misma convención de capítulos numerados, pero con "Artículo" antes del
-# número -- el patrón exigía que el número fuera LO PRIMERO del heading, así
-# que esta variante nunca entraba a la secuencia. "Artículo 16. GARANTÍAS"
-# con sus sub-items "16.1/16.2/16.3" quedó un nivel más profundo que sus
-# hermanos ("Artículo 11" a "15"), y como "Artículo 17" en adelante tampoco se
-# reconocía, quedó anidado como HIJO de "16.3" -- el resto del documento
-# entero (mora, moneda de pago, cláusula anticorrupción...) heredaba
-# "GARANTÍAS" como ancestro y se clasificaba mal por heading.
-# ---------------------------------------------------------------------------
+# Auditoría de chunking (real: Tribunal Superior de Justicia): el patrón exigía que el número fuera lo primero del heading, así que "Artículo N" nunca entraba a la secuencia y todo lo posterior a "Artículo 16. GARANTÍAS" heredaba GARANTÍAS como ancestro.
 
 
 def _bloques_articulo_con_prefijo() -> list[dict[str, Any]]:

@@ -25,7 +25,7 @@ def recalculate_dependent_dates(
     event_id: str,
     user_id: str | None = None,
     visited: set[str] | None = None,
-    max_depth: int = 1000  # F6 fix: límite de profundidad
+    max_depth: int = 1000
 ) -> RecalculationResult:
     """
     Recalcula fechas de todos los eventos que dependen del evento dado.
@@ -60,29 +60,23 @@ def recalculate_dependent_dates(
         >>> print(result.events_updated, result.errors)
         3 []
     """
-    # Inicializar set de visitados para detectar ciclos
     if visited is None:
         visited = set()
-    
-    # F6 fix: Detectar profundidad excesiva
+
     if len(visited) > max_depth:
         error = f"Max recursion depth ({max_depth}) exceeded. Check for circular dependencies or very deep chains."
         logger.error(error)
         return RecalculationResult(events_updated=0, errors=[error])
     
-    # Detectar ciclos
     if event_id in visited:
         error = f"Ciclo de dependencia detectado en cadena: {visited} -> {event_id}"
         logger.error(error)
         return RecalculationResult(events_updated=0, errors=[error])
-    
-    # Marcar este evento como visitado
+
     visited.add(event_id)
-    
-    # Obtener evento base (trigger)
+
     trigger_event = service.get_event(event_id, analysis_id, user_id)
-    
-    # Validar que el evento existe y tiene fecha
+
     if not trigger_event:
         error = f"Evento {event_id} no existe"
         logger.warning(error)
@@ -91,8 +85,7 @@ def recalculate_dependent_dates(
     if not trigger_event.event_date:
         error = f"Evento {event_id} no tiene fecha asignada"
         logger.info(error)
-        
-        # PATCH: Marcar deadlines dependientes como pending
+
         all_deadlines = service.list_deadlines(analysis_id, user_id)
         for dl in all_deadlines:
             if dl.trigger_event_id == event_id and dl.calculation_status != "pending":
@@ -101,8 +94,7 @@ def recalculate_dependent_dates(
                 service.update_deadline(dl, user_id)
         
         return RecalculationResult(events_updated=0, errors=[error])
-    
-    # Buscar todos los deadlines que dependen de este evento
+
     all_deadlines = service.list_deadlines(analysis_id, user_id)
     dependent_deadlines = [
         dl for dl in all_deadlines 
@@ -114,13 +106,10 @@ def recalculate_dependent_dates(
         f"dependientes de evento {event_id}"
     )
     
-    # Estadísticas de ejecución
     stats = RecalculationResult(events_updated=0, errors=[])
-    
-    # Procesar cada deadline dependiente
+
     for deadline in dependent_deadlines:
         try:
-            # PATCH: Validación defensiva antes de calcular
             validation = validate_deadline_for_calculation(service, analysis_id, deadline, user_id)
             if not validation.is_valid:
                 deadline.calculation_status = "error"
@@ -129,9 +118,7 @@ def recalculate_dependent_dates(
                 stats.errors.extend(validation.errors)
                 continue
             
-            # AC2: Validar que day_type esté especificado (redundante con
-            # validation, pero explícito). Solo aplica a unit="días" --
-            # "horas"/"meses" no usan day_type (ver validate_deadline_for_calculation).
+            # Redundant with validate_deadline_for_calculation, kept explicit; only unit="días" uses day_type.
             if deadline.unit == "días" and deadline.day_type == "no_especificado":
                 deadline.calculation_status = "error"
                 deadline.calculation_error = (
@@ -146,12 +133,7 @@ def recalculate_dependent_dates(
                 stats.errors.append(error_msg)
                 continue
             
-            # Obtener el evento target ANTES de calcular: si el usuario ya
-            # fijó su fecha a mano (date_source="user_input"), la cascada no
-            # debe pisarla -- ver AddDateModal/EditDateModal, que ya le
-            # prometen al usuario que "futuros recálculos no la
-            # sobrescribirán" cuando edita una fecha calculada. Antes de este
-            # fix esa promesa no se cumplía: acá siempre se sobreescribía.
+            # Fetched before calculating: cascade must not overwrite a user-fixed date (date_source="user_input").
             target_event = service.get_event(deadline.target_event_id, analysis_id, user_id)
             if not target_event:
                 error_msg = (
@@ -162,12 +144,10 @@ def recalculate_dependent_dates(
                 stats.errors.append(error_msg)
                 continue
 
-            # PATCH: No actualizar eventos eliminados
             if target_event.deleted:
                 logger.warning(f"Evento target {target_event.event_id} está eliminado, saltando actualización")
                 continue
 
-            # Calcular fecha usando el motor determinístico
             calculated = add_business_days(
                 trigger_event.event_date,
                 deadline.duration,
@@ -182,10 +162,7 @@ def recalculate_dependent_dates(
             )
 
             if target_event.date_source == "user_input":
-                # Evento fijado a mano por el usuario: no tocamos su fecha.
-                # El deadline sí se mantiene sincronizado con la fecha REAL
-                # vigente del evento (no con el valor recalculado), para no
-                # mostrar dos números distintos para el mismo hito.
+                # Keep deadline_date synced to the event's real (user-set) date, not the recalculated one.
                 if (
                     deadline.deadline_date != target_event.event_date
                     or deadline.calculation_status != "calculated"
@@ -201,8 +178,7 @@ def recalculate_dependent_dates(
                     "usuario (date_source=user_input) -- se preserva, no se recalcula."
                 )
 
-                # La cascada sigue: eventos que dependen de ESTE target deben
-                # recalcularse en base a su fecha real (la que el usuario cargó).
+                # Cascade continues: dependents of this target still recalc from its real (user-set) date.
                 cascaded = recalculate_dependent_dates(
                     service,
                     analysis_id,
@@ -214,13 +190,11 @@ def recalculate_dependent_dates(
                 stats.errors.extend(cascaded.errors)
                 continue
 
-            # Actualizar deadline con fecha calculada
             deadline.deadline_date = calculated
             deadline.calculation_status = "calculated"
             deadline.calculation_error = None
             service.update_deadline(deadline, user_id)
 
-            # Actualizar evento target con la fecha calculada
             target_event.event_date = calculated
             target_event.date_source = "calculated"
             service.update_event(target_event, user_id)
@@ -228,8 +202,7 @@ def recalculate_dependent_dates(
 
             logger.info(f"Actualizado evento {target_event.event_id} con fecha {calculated}")
 
-            # Recalcular dependientes del evento target (cascada)
-            # Copiar visited para evitar mutación compartida entre ramas
+            # Copy visited to avoid shared mutation across recursive branches.
             cascaded = recalculate_dependent_dates(
                 service,
                 analysis_id,
@@ -238,17 +211,14 @@ def recalculate_dependent_dates(
                 visited.copy()
             )
 
-            # Acumular estadísticas de la recursión
             stats.events_updated += cascaded.events_updated
             stats.errors.extend(cascaded.errors)
             
         except ValueError as e:
-            # PATCH: Catch específico para errores de validación/cálculo
             error_msg = f"Error de validación en deadline {deadline.deadline_id}: {str(e)}"
             logger.warning(error_msg)
             stats.errors.append(error_msg)
-            
-            # Marcar deadline como error
+
             deadline.calculation_status = "error"
             deadline.calculation_error = str(e)
             try:
@@ -256,12 +226,10 @@ def recalculate_dependent_dates(
             except Exception as update_error:
                 logger.exception(f"Error actualizando deadline con error: {update_error}")
         except Exception as e:
-            # Errores inesperados (base de datos, etc.)
             error_msg = f"Error inesperado calculando deadline {deadline.deadline_id}: {str(e)}"
             logger.exception(error_msg)
             stats.errors.append(error_msg)
-            
-            # Marcar deadline como error
+
             deadline.calculation_status = "error"
             deadline.calculation_error = str(e)
             try:

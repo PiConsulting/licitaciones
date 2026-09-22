@@ -42,9 +42,7 @@ def _chunk(content: str, page: int = 4) -> dict[str, Any]:
 CITA = "Constancia de inscripción en el Registro Único de Proveedores vigente"
 
 
-# ---------------------------------------------------------------------------
 # 1. source_references raro
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("refs", [None, "no es una lista", 3, {"document_id": "doc-1"}])
@@ -64,9 +62,7 @@ def test_los_refs_validos_de_una_lista_mixta_se_conservan() -> None:
     assert item["source_references"] == [bueno]
 
 
-# ---------------------------------------------------------------------------
 # 2. page_number raro
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -125,9 +121,7 @@ def test_un_ref_que_no_es_dict_se_saltea() -> None:
     assert item["extraction_status"] == "success"
 
 
-# ---------------------------------------------------------------------------
 # 3. El techo de tokens de la respuesta
-# ---------------------------------------------------------------------------
 
 
 def test_el_tope_de_tokens_alcanza_para_una_categoria_larga() -> None:
@@ -144,12 +138,7 @@ def test_el_tope_de_tokens_alcanza_para_una_categoria_larga() -> None:
     assert "timeout=180" in fuente
 
 
-# ---------------------------------------------------------------------------
-# 4. `not_applicable` sin `valor` (2026-09-11, bug encontrado auditando
-#    garantías/dell): la prompt de garantías exige "valor OBLIGATORIO... un
-#    not_applicable con valor: null no sirve", y el LLM lo viola igual --
-#    el usuario terminaba viendo un N/A sin ninguna explicación legible.
-# ---------------------------------------------------------------------------
+# 4. `not_applicable` sin `valor` (2026-09-11): el prompt exige valor obligatorio pero el LLM lo viola igual, dejando un N/A sin explicación legible.
 
 
 def test_not_applicable_sin_valor_se_baja_a_partial() -> None:

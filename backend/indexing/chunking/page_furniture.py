@@ -20,26 +20,18 @@ _PAGE_FURNITURE_MAX_CHARS = 120
 _PAGE_FURNITURE_MIN_PAGES = 3
 _PAGE_FURNITURE_MIN_PAGE_FRACTION = 0.6
 
-# Un contador de pagina ("Hoja 5 de 22", "Pagina 3/10", "Pag. 12 de 45") es
-# membrete aunque el numero cambie en cada pagina -- por eso nunca lo agarra
-# `_drop_repeated_page_furniture` (que descarta por texto EXACTO repetido).
-# Document Intelligence en general lo marca bien como comentario `PageHeader`,
-# pero de forma inconsistente: en algunas paginas se filtra como parrafo de
-# cuerpo normal (caso real: Nucleoelectrica, "HOJA\n1 de 22" en varias paginas
-# de un anexo de 22). Es una convencion generica de plantillas institucionales
-# en espanol, no vocabulario de un pliego puntual.
+# Contador de pagina ("Hoja 5 de 22"); cambia en cada pagina, por eso no lo
+# agarra `_drop_repeated_page_furniture` (que descarta por texto EXACTO repetido).
+# DI lo marca inconsistentemente: a veces cae como parrafo de cuerpo normal
+# (caso real: Nucleoelectrica, "HOJA\n1 de 22").
 _PAGE_COUNTER_RE = re.compile(
     r"^(?:hoja|p[aá]gina|pag\.?|page)\s*n?[º°]?\s*\d+\s*(?:de|/)\s*\d+\s*$",
     re.IGNORECASE,
 )
 
 # Mismo caso que el contador de pagina, pero para el sello de version/revision
-# de plantilla ("V 1.13", "Rev. 3") cuando DI lo deja como parrafo de cuerpo
-# en vez de heading (`_is_bullet_marker_heading` en headings.py ya lo demueve
-# SI llega marcado como heading -- esto cubre cuando llega directo como
-# parrafo). Caso real: PLIEGO_5443-26, "V 1.13" sobrevivia como su propio
-# chunk de 5 caracteres, sin heading ni cuerpo alrededor con el que fusionarse
-# (cae justo en un salto de pagina, entre dos secciones distintas).
+# ("V 1.13") cuando DI lo deja como parrafo en vez de heading (headings.py ya
+# cubre el caso heading). Caso real: PLIEGO_5443-26 sobrevivia como chunk huérfano.
 _VERSION_STAMP_RE = re.compile(
     r"^(?:v|ver|vers(?:i[oó]n)?|rev(?:isi[oó]n)?)\.?\s*\d+(?:\.\d+)*\s*$",
     re.IGNORECASE,
@@ -97,9 +89,8 @@ def _drop_index_listings(blocks: list[dict]) -> list[dict]:
     if not blocks:
         return blocks
 
-    # Import diferido: block_merging importa de este módulo a nivel de
-    # módulo (_drop_index_listings, _drop_repeated_page_furniture); importar
-    # acá arriba crearía un ciclo. Sólo esta función necesita _table_group_key.
+    # Import diferido: block_merging importa de este módulo a nivel de módulo,
+    # importar acá arriba crearía un ciclo.
     from indexing.chunking.block_merging import _table_group_key
 
     paginas_totales = max((_safe_page(b) for b in blocks), default=1)

@@ -6,16 +6,12 @@ import { ToastProvider } from "../../components/ToastContainer";
 import * as timelineApi from "../../api/timeline";
 import type { Event, Deadline } from "../../types/timeline";
 
-// Mock de las APIs
 vi.mock("../../api/timeline");
 
 const mockGetTimelineEvents = vi.mocked(timelineApi.getTimelineEvents);
 const mockGetTimelineDeadlines = vi.mocked(timelineApi.getTimelineDeadlines);
 
-// Helper para renderizar con QueryClient. ToastProvider es necesario porque
-// EventCard/PendingEventCard/AnchorDatesPanel usan useToast() para avisar
-// del resultado de ocultar/mostrar un evento (2026-09-01) -- sin el
-// provider, useToast() tira si se llega a renderizar un evento real.
+// ToastProvider es necesario porque EventCard/PendingEventCard/AnchorDatesPanel usan useToast(), que tira sin el provider.
 function renderWithQueryClient(ui: React.ReactElement) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -30,7 +26,6 @@ function renderWithQueryClient(ui: React.ReactElement) {
 describe("TimelineTab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: sin eventos
     mockGetTimelineEvents.mockResolvedValue([]);
     mockGetTimelineDeadlines.mockResolvedValue([]);
   });
@@ -42,9 +37,7 @@ describe("TimelineTab", () => {
     expect(screen.getByText(/Eventos y plazos del proceso de licitación/)).toBeInTheDocument();
     
     await waitFor(() => {
-      // 2026-09-01: siempre se pide con includeHidden para poder togglear
-      // "Mostrar ocultos" sin un segundo fetch -- el filtrado real es del
-      // lado del cliente (ver TimelineTab.tsx).
+      // Siempre se pide con includeHidden para poder togglear "Mostrar ocultos" sin un segundo fetch; el filtrado real es del lado del cliente.
       expect(mockGetTimelineEvents).toHaveBeenCalledWith("analysis-123", { includeHidden: true });
     });
   });
@@ -57,7 +50,6 @@ describe("TimelineTab", () => {
   });
 
   test("shows loading state", () => {
-    // Mock de queries que nunca resuelven para simular loading
     mockGetTimelineEvents.mockImplementation(() => new Promise(() => {}));
     mockGetTimelineDeadlines.mockImplementation(() => new Promise(() => {}));
 
@@ -167,8 +159,7 @@ describe("TimelineTab", () => {
         expect(screen.getByText("Apertura de ofertas")).toBeInTheDocument();
       });
 
-      // En la lista, EventCard trae botón de "Editar fecha" -- en la línea
-      // de tiempo (solo lectura) no debería estar.
+      // En la lista, EventCard trae botón de "Editar fecha" -- en la línea de tiempo (solo lectura) no debería estar.
       expect(screen.getByRole("button", { name: /Editar fecha de Apertura de ofertas/i })).toBeInTheDocument();
       expect(screen.queryByText(/^HOY/)).not.toBeInTheDocument();
 
