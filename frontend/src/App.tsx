@@ -35,7 +35,9 @@ export default function App() {
           </ProtectedRoute>
         }
       >
+        <Route path="/" element={<Dashboard />} />
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/seguimiento" element={<Dashboard />} />
         <Route path="/analyze" element={<NewAnalysisWizard />} />
         <Route path="/analysis/:analysisId" element={<AnalysisDetail />} />
       </Route>

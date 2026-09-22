@@ -378,7 +378,7 @@ describe("PreviewTab", () => {
     const card = screen.getAllByTestId("preview-criterion-card")[0];
     const summary = within(card).getByTestId("preview-criterion-summary");
     expect(summary).toHaveTextContent("No informado");
-    expect(summary.className).toContain("text-gray-700");
+    expect(summary.className).toContain("text-gray-400");
 
     await user.click(within(card).getByRole("button", { name: /Expandir detalle/i }));
     expect(within(card).getByTestId("preview-criterion-detail")).toHaveTextContent(
@@ -415,7 +415,7 @@ describe("PreviewTab", () => {
     const card = screen.getAllByTestId("preview-criterion-card")[0];
     const summary = within(card).getByTestId("preview-criterion-summary");
     expect(summary).toHaveTextContent("—");
-    expect(summary.className).toContain("text-gray-700");
+    expect(summary.className).toContain("text-gray-400");
   });
 
   test("cuando resumen tiene dato real usa estilo enfatizado", () => {
@@ -448,8 +448,8 @@ describe("PreviewTab", () => {
     const card = screen.getAllByTestId("preview-criterion-card")[0];
     const summary = within(card).getByTestId("preview-criterion-summary");
     expect(summary).toHaveTextContent("60 días");
-    expect(summary.className).toContain("font-bold");
-    expect(summary.className).toContain("text-cedia-primary");
+    expect(summary.className).toContain("font-semibold");
+    expect(summary.className).toContain("text-gray-700");
   });
 
   test("listado de cards usa layout responsive de una sola columna sin overflow horizontal", () => {

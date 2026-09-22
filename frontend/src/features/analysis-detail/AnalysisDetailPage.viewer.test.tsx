@@ -200,11 +200,12 @@ function renderPage() {
   );
 }
 
-function getPreviewSourceButton() {
-  return (
-    screen.queryByRole("button", { name: /Ver fuente en el pliego \(pág\. 15\)/i }) ??
-    screen.queryByRole("button", { name: /Pliego Principal\.pdf · pág\. 15/i })
-  );
+function getPreviewSourceToggleButton() {
+  return screen.queryByRole("button", { name: /Mostrar fuentes|Ocultar fuentes/i });
+}
+
+function getPreviewSourceItemButton() {
+  return screen.queryByRole("button", { name: /Pliego Principal\.pdf · pág\. 15/i });
 }
 
 describe("AnalysisDetailPage PDF integration", () => {
@@ -266,7 +267,7 @@ describe("AnalysisDetailPage PDF integration", () => {
     });
 
     expect(screen.getByTestId("preview-tab-legacy-note")).toBeInTheDocument();
-    expect(screen.getByTestId("narrative-blocks")).toBeInTheDocument();
+    expect(screen.getByTestId("preview-object-card")).toBeInTheDocument();
   });
 
   test("en análisis legacy, Categorías y Timeline siguen operativos sin romper la vista", async () => {
@@ -325,10 +326,16 @@ describe("AnalysisDetailPage PDF integration", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(getPreviewSourceButton()).toBeInTheDocument();
+      expect(getPreviewSourceToggleButton()).toBeInTheDocument();
     });
 
-    await user.click(getPreviewSourceButton()!);
+    await user.click(getPreviewSourceToggleButton()!);
+
+    await waitFor(() => {
+      expect(getPreviewSourceItemButton()).toBeInTheDocument();
+    });
+
+    await user.click(getPreviewSourceItemButton()!);
 
     expect(screen.getByTestId("pdf-viewer-mock")).toHaveTextContent("viewer:doc-1:1");
   });
@@ -345,7 +352,13 @@ describe("AnalysisDetailPage PDF integration", () => {
     await user.click(screen.getByRole("button", { name: "Ocultar visor PDF" }));
     expect(screen.queryByTestId("pdf-viewer-panel")).not.toBeInTheDocument();
 
-    await user.click(getPreviewSourceButton()!);
+    await user.click(getPreviewSourceToggleButton()!);
+
+    await waitFor(() => {
+      expect(getPreviewSourceItemButton()).toBeInTheDocument();
+    });
+
+    await user.click(getPreviewSourceItemButton()!);
 
     expect(screen.getByTestId("pdf-viewer-panel")).toBeInTheDocument();
     expect(screen.getByTestId("pdf-viewer-mock")).toHaveTextContent("viewer:doc-1:1");

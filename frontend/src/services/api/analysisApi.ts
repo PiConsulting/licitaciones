@@ -19,6 +19,8 @@ import {
 import type { AnalysisStatusResponse } from "../../types/analysis";
 import { CATEGORY_ORDER } from "../../utils/categoryIcons";
 
+let currentDocumentNameById = new Map<string, string>();
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -37,12 +39,37 @@ function toSourceReference(value: unknown): SourceReference | null {
 
 /** CTX-06: nombre de archivo de la cita; usa `filename` del backend con fallback a `document_name` legacy y "Documento" por defecto. */
 function toDocumentName(value: Record<string, unknown>): string {
+  const documentId = String(value.document_id ?? "").trim();
+  const fromDocuments = documentId ? currentDocumentNameById.get(documentId) : undefined;
   const fromBackend = String(value.filename ?? "").trim();
   if (fromBackend) {
     return fromBackend;
   }
   const alreadyMapped = String(value.document_name ?? "").trim();
-  return alreadyMapped || "Documento";
+  if (alreadyMapped && alreadyMapped.toLowerCase() !== "documento") {
+    return alreadyMapped;
+  }
+  return fromDocuments || alreadyMapped || "Documento";
+}
+
+function buildDocumentNameById(documents: unknown): Map<string, string> {
+  const map = new Map<string, string>();
+  if (!Array.isArray(documents)) {
+    return map;
+  }
+
+  for (const rawDocument of documents) {
+    if (!isRecord(rawDocument)) {
+      continue;
+    }
+    const id = String(rawDocument.id ?? "").trim();
+    const filename = String(rawDocument.filename ?? "").trim();
+    if (id && filename) {
+      map.set(id, filename);
+    }
+  }
+
+  return map;
 }
 
 function toConfidenceLevel(value: unknown): ConfidenceLevel {
@@ -680,13 +707,14 @@ export async function getAnalysisById(analysisId: string): Promise<AnalysisDetai
   try {
     const response = await apiClient.get<AnalysisDetail>(`/analyses/${analysisId}`);
     const payload = response.data;
+    currentDocumentNameById = buildDocumentNameById(payload.documents);
     const normalizedVersions = Array.isArray(payload.versions)
       ? payload.versions.map((version) => ({
           ...version,
           extracted_data: normalizeCategories(version?.extracted_data),
         }))
       : undefined;
-    return {
+    const normalized = {
       ...payload,
       current_version: {
         ...payload.current_version,
@@ -694,7 +722,10 @@ export async function getAnalysisById(analysisId: string): Promise<AnalysisDetai
       },
       versions: normalizedVersions,
     };
+    currentDocumentNameById = new Map();
+    return normalized;
   } catch (error) {
+    currentDocumentNameById = new Map();
     if (error instanceof AxiosError && error.response?.status === 404) {
       const statusResponse = await apiClient.get<AnalysisStatusResponse>(`/analyses/${analysisId}/status`);
       return mapStatusToDetail(analysisId, statusResponse.data);

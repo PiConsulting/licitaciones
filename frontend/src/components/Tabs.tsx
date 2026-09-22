@@ -24,8 +24,8 @@ export function Tabs({ tabs, defaultTab, onChange }: TabsProps) {
 
   return (
     <div className="tabs-container">
-      <div className="border-b border-gray-200">
-        <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+      <div>
+        <nav className="flex flex-wrap gap-2" aria-label="Tabs">
           {tabs.map((tab) => {
             const isActive = tab.id === activeTab;
             return (
@@ -34,12 +34,12 @@ export function Tabs({ tabs, defaultTab, onChange }: TabsProps) {
                 type="button"
                 onClick={() => handleTabClick(tab.id)}
                 className={`
-                  whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium transition-colors
-                  focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary
+                  whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition-colors
+                  focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cedi-electric
                   ${
                     isActive
-                      ? "border-primary text-primary"
-                      : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
+                      ? "bg-cedi-gradient-button text-cedi-white"
+                      : "border border-cedi-navy-20 text-cedi-navy-68 hover:border-cedi-navy-30 hover:text-cedi-navy"
                   }
                 `}
                 aria-current={isActive ? "page" : undefined}

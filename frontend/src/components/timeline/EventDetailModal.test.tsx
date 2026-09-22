@@ -88,7 +88,7 @@ describe("EventDetailModal", () => {
     const viewButton = screen.getByLabelText(/ver fuente en el pliego/i);
     await user.click(viewButton);
 
-    expect(onViewSource).toHaveBeenCalledWith("doc-123", 4);
+    expect(onViewSource).toHaveBeenCalledWith("doc-123", 4, undefined);
   });
 
   test("shows edit and close buttons for all events", () => {

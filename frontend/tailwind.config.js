@@ -6,6 +6,28 @@ export default {
   theme: {
     extend: {
       colors: {
+        cedi: {
+          celeste: "#0099DB",
+          navy: "#003C6B",
+          electric: "#2F4EF8",
+          violet: "#A966FF",
+          mint: "#7FF3DE",
+          white: "#FFFFFF",
+          "surface-tint": "#F4F9FC",
+          "navy-68": "rgba(0,60,107,.68)",
+          "navy-55": "rgba(0,60,107,.55)",
+          "navy-30": "rgba(0,60,107,.3)",
+          "navy-20": "rgba(0,60,107,.2)",
+          "navy-12": "rgba(0,60,107,.12)",
+          "navy-10": "rgba(0,60,107,.1)",
+          "white-75": "rgba(255,255,255,.75)",
+          "white-72": "rgba(255,255,255,.72)",
+          "focus-ring": "rgba(0,153,219,.2)",
+          "gradient-accent": "linear-gradient(90deg,#0099DB,#2F4EF8,#A966FF)",
+          "gradient-button": "linear-gradient(90deg,#2F4EF8,#A966FF)",
+          "gradient-icon": "linear-gradient(145deg,#0099DB,#2F4EF8)",
+          "gradient-progress": "linear-gradient(90deg,#0099DB,#7FF3DE)",
+        },
         cedia: {
           primary: "#2b6aae",
           light: "#75e1d2",
@@ -66,6 +88,8 @@ export default {
         surface: "#FFFFFF",
       },
       fontFamily: {
+        display: ["Space Grotesk", "system-ui", "sans-serif"],
+        body: ["Montserrat", "system-ui", "sans-serif"],
         sans: ["Inter", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
         mono: ["Fira Code", "SF Mono", "Consolas", "monospace"],
       },

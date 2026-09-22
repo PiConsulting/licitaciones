@@ -43,6 +43,7 @@ describe("Tabs", () => {
     const tab2 = screen.getByText("Tab 2");
 
     expect(tab1).toHaveAttribute("aria-current", "page");
+    expect(tab1).toHaveClass("bg-cedi-gradient-button", "text-cedi-white", "rounded-full");
     expect(tab2).not.toHaveAttribute("aria-current");
 
     await user.click(tab2);

@@ -86,8 +86,8 @@ describe("DependencyIndicator", () => {
 
     render(<DependencyIndicator deadline={deadline} triggerEvent={triggerEvent} />);
 
-    const container = screen.getByText(/45 días corridos/).closest("div");
-    expect(container).toHaveClass("text-gray-600");
+    const button = screen.getByText(/45 días corridos/).closest("button");
+    expect(button).toHaveClass("text-gray-600");
   });
 
   test("has correct styling for pending dependency", () => {
@@ -96,7 +96,7 @@ describe("DependencyIndicator", () => {
 
     render(<DependencyIndicator deadline={deadline} triggerEvent={triggerEvent} />);
 
-    const container = screen.getByText(/Pendiente de fecha/).closest("div");
-    expect(container).toHaveClass("text-gray-500");
+    const button = screen.getByText(/Pendiente de fecha/).closest("button");
+    expect(button).toHaveClass("text-gray-500");
   });
 });

@@ -19,4 +19,9 @@ describe("Input", () => {
     expect(screen.getByRole("textbox")).toBeDisabled();
     expect(screen.getByRole("textbox")).toHaveClass("bg-gray-50");
   });
+
+  test("usa forma pill y borde CEDI", () => {
+    render(<Input label="CUIT" />);
+    expect(screen.getByRole("textbox")).toHaveClass("rounded-full", "border-cedi-navy-20");
+  });
 });
