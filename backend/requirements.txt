@@ -201,7 +201,7 @@ pygments==2.20.0
     # via
     #   pytest
     #   rich
-pyjwt==2.13.0
+pyjwt==2.14.0
     # via licitaciones-pi-backend (pyproject.toml)
 pymupdf==1.28.2
     # via licitaciones-pi-backend (pyproject.toml)
