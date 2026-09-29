@@ -9,10 +9,8 @@ IMPORTANTE: Este módulo NO usa LLMs - solo matemática determinística y
 propagación de dependencias.
 """
 import logging
-from datetime import date
 
 from timeline.date_calculator import add_business_days
-from timeline.models import Deadline, Event
 from timeline.service import TimelineService
 from timeline.validation import validate_deadline_for_calculation, RecalculationResult
 
@@ -118,7 +116,7 @@ def recalculate_dependent_dates(
                 stats.errors.extend(validation.errors)
                 continue
             
-            # Redundant with validate_deadline_for_calculation, kept explicit; only unit="días" uses day_type.
+            # Redundante con validate_deadline_for_calculation, se deja explícito; solo unit="días" usa day_type.
             if deadline.unit == "días" and deadline.day_type == "no_especificado":
                 deadline.calculation_status = "error"
                 deadline.calculation_error = (
@@ -133,7 +131,7 @@ def recalculate_dependent_dates(
                 stats.errors.append(error_msg)
                 continue
             
-            # Fetched before calculating: cascade must not overwrite a user-fixed date (date_source="user_input").
+            # Se obtiene antes de calcular: la cascada no debe pisar una fecha fijada por el usuario (date_source="user_input").
             target_event = service.get_event(deadline.target_event_id, analysis_id, user_id)
             if not target_event:
                 error_msg = (
@@ -162,7 +160,7 @@ def recalculate_dependent_dates(
             )
 
             if target_event.date_source == "user_input":
-                # Keep deadline_date synced to the event's real (user-set) date, not the recalculated one.
+                # Mantiene deadline_date sincronizado con la fecha real del evento (fijada por el usuario), no la recalculada.
                 if (
                     deadline.deadline_date != target_event.event_date
                     or deadline.calculation_status != "calculated"

@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Montserrat:wght@300;400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -18,7 +20,17 @@
 
 @layer base {
   body {
-    @apply bg-background text-gray-900 font-sans;
+    @apply bg-background text-gray-900;
+    font-family: "Montserrat", system-ui, sans-serif;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: "Space Grotesk", system-ui, sans-serif;
   }
 
   :focus-visible {
@@ -41,5 +53,43 @@
 
   .animate-toast-in {
     animation: toast-in 200ms ease-out;
+  }
+}
+
+@layer components {
+  .cedi-preview-card-title {
+    font-family: "Montserrat", system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    line-height: 1.3;
+    text-transform: uppercase;
+    color: rgba(0, 60, 107, 0.68);
+  }
+
+  .cedi-preview-card-value {
+    font-family: "Space Grotesk", system-ui, sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    color: #003C6B;
+  }
+
+  .cedi-preview-card-value-muted {
+    color: rgba(0, 60, 107, 0.4);
+  }
+
+  .cedi-preview-card-unit {
+    font-family: "Montserrat", system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(0, 60, 107, 0.68);
+  }
+
+  .cedi-preview-card-detail {
+    font-family: "Montserrat", system-ui, sans-serif;
+    font-size: 12px;
+    line-height: 1.45;
+    color: rgba(0, 60, 107, 0.68);
   }
 }

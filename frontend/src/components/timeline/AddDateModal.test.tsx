@@ -218,7 +218,9 @@ describe("AddDateModal", () => {
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
     const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>{children}</ToastProvider>
+      </QueryClientProvider>
     );
 
     render(
@@ -257,7 +259,7 @@ describe("AddDateModal", () => {
     fireEvent.click(screen.getByRole("button", { name: /Guardar/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Error/i)).toBeInTheDocument();
+      expect(screen.getByText(/Error de red/i)).toBeInTheDocument();
     });
   });
 });

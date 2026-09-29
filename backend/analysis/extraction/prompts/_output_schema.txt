@@ -37,6 +37,7 @@ Elegí el formato según el contenido real, no hay "default por categoría":
   "type": "bullet_list",
   "items": [
     {
+      "titulo": "<título corto, 3-8 palabras>",
       "text": "<oración completa>",
       "confidence_level": "alta|media|baja",
       "item_refs": [0]
@@ -48,8 +49,14 @@ Elegí el formato según el contenido real, no hay "default por categoría":
 
 **Cuándo usar:** Varios hechos independientes, cada uno con su propio dato concreto.
 **Ejemplo:** Lista de requisitos, lista de anexos, lista de causales.
-**Regla:** Cada item debe ser corto y escaneable. Se permite formato breve
-`Etiqueta: dato` cuando mejora claridad (ej: "Apertura: 14/09/2026 10:00 hs").
+**Regla `titulo` (OBLIGATORIO en cada bullet):** título corto (3-8 palabras) que
+identifica DE QUÉ trata el ítem, autocontenido y SIN dos puntos. Ejemplos:
+"Garantía de mantenimiento de oferta", "Constancia RUP vigente", "Anexo I —
+Planilla de Cotización". La UI lo muestra como encabezado en negrita, separado
+de `text`.
+**Regla `text`:** oración completa y autocontenida con el detalle (monto, plazo,
+condición, etc.). NO repitas `titulo` como prefijo de `text` (ya no hace falta
+el formato `Etiqueta: dato`) -- `text` es solo el cuerpo/descripción.
 **`item_refs`:** los `item_index` de los ítems cuyo dato usaste para escribir ESTE bullet puntual, y solo esos.
 
 ### 3. Table (para datos comparables)

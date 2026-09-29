@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from hashlib import sha256
-from pathlib import Path
 
 
 def _open_document_from_bytes(content: bytes):

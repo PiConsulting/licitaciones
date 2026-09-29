@@ -156,8 +156,7 @@ def _score_chunks_for_category(
     use_graded_scores = get_category_graded_scores(category)
     use_rank_fusion = get_category_rank_fusion(category)
 
-    # Rank-fusion: scores RRF crudos están comprimidos y un boost multiplicativo no separa
-    # bien gold de ruido; se fusiona por posición: final = 1/(K+rank_híbrido) + W/(K+rank_categoría).
+    # Rank-fusion: scores RRF crudos están comprimidos, un boost multiplicativo no separa bien gold de ruido; se fusiona por posición: final = 1/(K+rank_híbrido) + W/(K+rank_categoría).
     if use_rank_fusion:
         RRF_K = 60
         W_CAT = 1.0
@@ -402,8 +401,7 @@ def _retrieve_with_category_priority(
     # Ventana limitada para acotar costo de CPU en categorías con over-fetch alto.
     rerank_window = min(len(ranked_chunks), top_k * 2)
 
-    # FIX 2026-09-08: el guardrail comparaba contra el pool crudo (hasta top_k*3), no contra
-    # `rerank_window` (lo que realmente se manda al cross-encoder) -- se salteaba casi siempre.
+    # El guardrail debe comparar contra `rerank_window` (lo que se manda al cross-encoder), no el pool crudo, o se saltea casi siempre.
     rerank_skip_threshold = max(
         top_k, int(settings.rag_reranking_timeout_seconds / _RERANK_SECONDS_PER_PAIR)
     )

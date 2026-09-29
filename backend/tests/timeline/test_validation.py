@@ -4,8 +4,6 @@ Tests para validaciones de Timeline.
 from datetime import date
 from unittest.mock import Mock
 
-import pytest
-
 from timeline.models import Deadline, Event
 from timeline.validation import ValidationResult, validate_deadline_for_calculation
 

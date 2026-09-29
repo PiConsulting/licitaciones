@@ -1,11 +1,9 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { CategorySection } from "./CategorySection";
 import type { CategoryData, CategoryId, CategoryNarrative, FieldItem } from "./types";
 import { CATEGORY_ICONS } from "../../utils/categoryIcons";
-import type { TrackingCategory } from "../../types/tracking";
 
 function createField(
   field_name: string,
@@ -96,9 +94,9 @@ describe("CategorySection", () => {
 
     render(<CategorySection category={category} categoryId="garantias" />);
 
-    const wrapper = document.getElementById("category-garantias");
-    expect(wrapper).toHaveClass("border-l-highlight");
-    expect(screen.queryByText(/CRÍTICA/i)).not.toBeInTheDocument();
+    const accent = screen.getByTestId("category-accent");
+    expect(accent).toHaveAttribute("data-accent-tone", "border-l-highlight");
+    expect(screen.getByText(/Crítica/i)).toBeInTheDocument();
   });
 
   test("T2: Categoría revisada muestra borde verde y badge REVISADA", () => {
@@ -106,9 +104,9 @@ describe("CategorySection", () => {
 
     render(<CategorySection category={category} categoryId="garantias" />);
 
-    const wrapper = document.getElementById("category-garantias");
-    expect(wrapper).toHaveClass("border-l-success");
-    expect(screen.getByText(/REVISADA/i)).toBeInTheDocument();
+    const accent = screen.getByTestId("category-accent");
+    expect(accent).toHaveAttribute("data-accent-tone", "border-l-success");
+    expect(screen.getByText(/Revisada/i)).toBeInTheDocument();
   });
 
   test("T3: Categoría con conflictos muestra borde rojo y contador", () => {
@@ -116,9 +114,9 @@ describe("CategorySection", () => {
 
     render(<CategorySection category={category} categoryId="requisitos_admisibilidad" />);
 
-    const wrapper = document.getElementById("category-requisitos_admisibilidad");
-    expect(wrapper).toHaveClass("border-l-error");
-    expect(screen.getByText("2 conflictos")).toHaveClass("bg-error-light", "text-error");
+    const accent = screen.getByTestId("category-accent");
+    expect(accent).toHaveAttribute("data-accent-tone", "border-l-error");
+    expect(screen.getByText("2 conflictos")).toHaveClass("bg-[#FEE2E2]", "text-[#DC2626]");
   });
 
   test("T4: La sección siempre muestra la narrativa del backend cuando está disponible", () => {
@@ -171,7 +169,8 @@ describe("CategorySection", () => {
     expect(screen.queryByTestId("narrative-bullet-list")).not.toBeInTheDocument();
   });
 
-  test("T5d: La fuente citada por un ítem aparece en Fuentes verificables", () => {
+  test("T5d: La fuente citada por un ítem aparece en Fuentes verificables", async () => {
+    const user = userEvent.setup();
     const category = createMockCategory({
       items: [
         createField("objeto", {
@@ -189,6 +188,7 @@ describe("CategorySection", () => {
     });
 
     render(<CategorySection category={category} categoryId="objeto_alcance" />);
+    await user.click(screen.getByTestId("paragraph-sources-toggle"));
 
     expect(screen.getByRole("button", { name: /Pliego\.pdf · pág\. 8/i })).toBeInTheDocument();
   });
@@ -202,9 +202,9 @@ describe("CategorySection", () => {
 
     render(<CategorySection category={category} categoryId="requisitos_admisibilidad" />);
 
-    expect(screen.getByText("5 extraídos")).toHaveClass("bg-success-light", "text-success");
-    expect(screen.getByText("2 no encontrados")).toHaveClass("bg-warning-light", "text-warning");
-    expect(screen.getByText("1 conflicto")).toHaveClass("bg-error-light", "text-error");
+    expect(screen.getByText("5 extraídos")).toHaveClass("bg-[rgba(0,153,219,.12)]", "text-[#0077AD]");
+    expect(screen.getByText("2 no encontrados")).toHaveClass("bg-[rgba(169,102,255,.14)]", "text-[#6E2FC9]");
+    expect(screen.getByText("1 conflicto")).toHaveClass("bg-[#FEE2E2]", "text-[#DC2626]");
   });
 
   test("T6b: Categoría sin ningún campo no muestra badges de conteo vacíos", () => {
@@ -226,7 +226,7 @@ describe("CategorySection", () => {
 
     render(<CategorySection category={category} categoryId="criterios_evaluacion" />);
 
-    expect(screen.getByText("ERROR")).toBeInTheDocument();
+    expect(screen.getByText("Error")).toBeInTheDocument();
   });
 
   test("T7b: Categoría con extraction_status=not_applicable muestra badge NO APLICA", () => {
@@ -237,7 +237,7 @@ describe("CategorySection", () => {
 
     render(<CategorySection category={category} categoryId="anexos_obligatorios" />);
 
-    expect(screen.getByText("NO APLICA")).toBeInTheDocument();
+    expect(screen.getByText("1 no aplica")).toBeInTheDocument();
     expect(screen.getByText("1 no aplica")).toBeInTheDocument();
   });
 
@@ -300,6 +300,7 @@ describe("CategorySection", () => {
     });
 
     render(<CategorySection category={category} categoryId="objeto_alcance" onViewSource={onViewSource} />);
+    await user.click(screen.getByTestId("paragraph-sources-toggle"));
 
     const sourceButton = screen.getByRole("button", { name: /Pliego Principal\.pdf · pág. 12/i });
     await user.click(sourceButton);
@@ -330,7 +331,7 @@ describe("CategorySection", () => {
 
     expect(screen.getByTestId("category-sources-empty")).toBeInTheDocument();
     expect(screen.queryByText(/^REVISADA$/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/CRÍTICA/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Crítica/i)).toBeInTheDocument();
   });
 
   test("T11: Plazos Clave renderiza la línea de tiempo en vez de la respuesta narrativa", () => {
@@ -349,227 +350,4 @@ describe("CategorySection", () => {
     expect(screen.queryByTestId("narrative-blocks")).not.toBeInTheDocument();
   });
 
-  test("T12: Los ítems accionables se marcan inline y no como una sección checklist aparte", async () => {
-    const user = userEvent.setup();
-    const onChangeTrackingItemStatus = vi.fn();
-    const category = createMockCategory({
-      items: [createField("Constancia RUP", { value: "Debe estar vigente" })],
-    });
-    const trackingCategory: TrackingCategory = {
-      category_key: "requisitos_admisibilidad",
-      status: "in_review",
-      comments_count: 0,
-      items: [
-        {
-          tracking_item_id: "tracking-item-1",
-          category_key: "requisitos_admisibilidad",
-          status: "not_evaluated",
-          source_item_ref: {
-            version_id: "version-1",
-            field_name: "Constancia RUP",
-          },
-        },
-      ],
-    };
-
-    render(
-      <CategorySection
-        category={category}
-        categoryId="requisitos_admisibilidad"
-        trackingCategory={trackingCategory}
-        onChangeTrackingItemStatus={onChangeTrackingItemStatus}
-      />,
-    );
-
-    expect(screen.queryByLabelText(/Checklist de seguimiento/i)).not.toBeInTheDocument();
-    const response = screen.getByTestId("narrative-blocks");
-    const cumpleButton = within(response).getByRole("button", { name: "Cumple: Constancia RUP" });
-
-    await user.click(cumpleButton);
-
-    expect(onChangeTrackingItemStatus).toHaveBeenCalledWith(
-      "requisitos_admisibilidad",
-      "tracking-item-1",
-      "compliant",
-    );
-  });
-
-  test("T12b: tracking global completado no muestra controles de terminar categoría", () => {
-    const category = createMockCategory({
-      items: [createField("Constancia RUP", { value: "Vigente" })],
-    });
-    const trackingCategory: TrackingCategory = {
-      category_key: "requisitos_admisibilidad",
-      status: "in_review",
-      comments_count: 1,
-      items: [
-        {
-          tracking_item_id: "tracking-item-1",
-          category_key: "requisitos_admisibilidad",
-          status: "not_evaluated",
-          source_item_ref: {
-            version_id: "version-1",
-            field_name: "Constancia RUP",
-          },
-        },
-      ],
-    };
-
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <CategorySection
-          analysisId="analysis-1"
-          category={category}
-          categoryId="requisitos_admisibilidad"
-          trackingCategory={trackingCategory}
-          trackingReadOnly
-          onCreateTrackingComment={vi.fn()}
-        />
-      </QueryClientProvider>,
-    );
-
-    expect(screen.queryByRole("button", { name: "Terminar categoría" })).not.toBeInTheDocument();
-  });
-
-  test("T12c: en read-only sin comentarios no renderiza panel de comentarios", () => {
-    const category = createMockCategory({
-      items: [createField("Constancia RUP", { value: "Vigente" })],
-    });
-    const trackingCategory: TrackingCategory = {
-      category_key: "requisitos_admisibilidad",
-      status: "in_review",
-      comments_count: 0,
-      items: [
-        {
-          tracking_item_id: "tracking-item-1",
-          category_key: "requisitos_admisibilidad",
-          status: "not_evaluated",
-          source_item_ref: {
-            version_id: "version-1",
-            field_name: "Constancia RUP",
-          },
-        },
-      ],
-    };
-
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <CategorySection
-          analysisId="analysis-1"
-          category={category}
-          categoryId="requisitos_admisibilidad"
-          trackingCategory={trackingCategory}
-          trackingReadOnly
-          onCreateTrackingComment={vi.fn()}
-        />
-      </QueryClientProvider>,
-    );
-
-    expect(screen.queryByText("Comentarios")).not.toBeInTheDocument();
-  });
-
-  test("T12d: en modo vista muestra porcentaje y desglose de cumplimiento por estado", () => {
-    const category = createMockCategory({
-      items: [
-        createField("Req 1", { value: "Cumple" }),
-        createField("Req 2", { value: "No cumple" }),
-        createField("Req 3", { value: "Sin evaluar" }),
-        createField("Req 4", { value: "No aplica" }),
-      ],
-    });
-    const trackingCategory: TrackingCategory = {
-      category_key: "requisitos_admisibilidad",
-      status: "closed",
-      comments_count: 0,
-      items: [
-        {
-          tracking_item_id: "tracking-item-1",
-          category_key: "requisitos_admisibilidad",
-          status: "compliant",
-          source_item_ref: {
-            version_id: "version-1",
-            field_name: "Req 1",
-          },
-        },
-        {
-          tracking_item_id: "tracking-item-2",
-          category_key: "requisitos_admisibilidad",
-          status: "non_compliant",
-          source_item_ref: {
-            version_id: "version-1",
-            field_name: "Req 2",
-          },
-        },
-        {
-          tracking_item_id: "tracking-item-3",
-          category_key: "requisitos_admisibilidad",
-          status: "not_evaluated",
-          source_item_ref: {
-            version_id: "version-1",
-            field_name: "Req 3",
-          },
-        },
-        {
-          tracking_item_id: "tracking-item-4",
-          category_key: "requisitos_admisibilidad",
-          status: "not_applicable",
-          source_item_ref: {
-            version_id: "version-1",
-            field_name: "Req 4",
-          },
-        },
-      ],
-    };
-
-    render(
-      <CategorySection
-        category={category}
-        categoryId="requisitos_admisibilidad"
-        trackingCategory={trackingCategory}
-        trackingReadOnly
-      />,
-    );
-
-    expect(screen.getByTestId("category-compliance-summary")).toBeInTheDocument();
-    expect(screen.getByText(/Cumplimiento/i)).toBeInTheDocument();
-    expect(screen.getByText("50%")).toBeInTheDocument();
-    expect(screen.getByText("1 cumplen")).toBeInTheDocument();
-    expect(screen.getByText("1 no cumplen")).toBeInTheDocument();
-    expect(screen.getByText("1 sin evaluar")).toBeInTheDocument();
-    expect(screen.getByText("1 no aplica")).toBeInTheDocument();
-  });
-
-  test("T12e: no muestra resumen de cumplimiento fuera de modo vista", () => {
-    const category = createMockCategory({
-      items: [createField("Req 1", { value: "Dato" })],
-    });
-    const trackingCategory: TrackingCategory = {
-      category_key: "requisitos_admisibilidad",
-      status: "in_review",
-      comments_count: 0,
-      items: [
-        {
-          tracking_item_id: "tracking-item-1",
-          category_key: "requisitos_admisibilidad",
-          status: "compliant",
-          source_item_ref: {
-            version_id: "version-1",
-            field_name: "Req 1",
-          },
-        },
-      ],
-    };
-
-    render(
-      <CategorySection
-        category={category}
-        categoryId="requisitos_admisibilidad"
-        trackingCategory={trackingCategory}
-      />,
-    );
-
-    expect(screen.queryByTestId("category-compliance-summary")).not.toBeInTheDocument();
-  });
 });

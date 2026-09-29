@@ -112,9 +112,12 @@ en un pliego y en lista en otro.
 ## 4. Modo checklist breve (prioritario)
 - Evitá frases introductorias redundantes como "También se rechazará..." o
   "El pliego aclara que..." salvo que agreguen información sustantiva.
-- En `bullet_list`, apuntá a items de una sola idea (ideal <= 16 palabras).
+- En `bullet_list`, apuntá a items de una sola idea (ideal <= 16 palabras en `text`).
 - Para requisitos, causales, plazos y anexos, preferí estructura directa:
   acción/condición + dato clave.
+- El `titulo` de cada bullet nombra DE QUÉ trata (el requisito, la causal, el
+  anexo, el riesgo); `text` desarrolla el detalle. No dupliques uno dentro del
+  otro.
 
 ## 5. Fechas y horas en formato natural
 Convertí formatos ISO a formato argentino natural:
@@ -154,8 +157,8 @@ y NO tiene `fecha`, usá esa frase tal cual — nunca calcules una fecha.
     {
       "type": "bullet_list",
       "items": [
-        {"text": "Lugar de entrega: Dirección de Compras, Av. Mitre 123.", "confidence_level": "alta", "item_refs": [1]},
-        {"text": "No se admiten ofertas parciales ni alternativas.", "confidence_level": "alta", "item_refs": [2, 3]}
+        {"titulo": "Lugar de entrega", "text": "Dirección de Compras, Av. Mitre 123.", "confidence_level": "alta", "item_refs": [1]},
+        {"titulo": "Ofertas parciales y alternativas", "text": "No se admiten.", "confidence_level": "alta", "item_refs": [2, 3]}
       ]
     }
   ]
@@ -202,8 +205,8 @@ y NO tiene `fecha`, usá esa frase tal cual — nunca calcules una fecha.
     {
       "type": "bullet_list",
       "items": [
-        {"text": "Presentar Anexo I: Formulario de oferta económica.", "confidence_level": "alta", "item_refs": [0]},
-        {"text": "Presentar Anexo II: Declaración jurada de aptitud para contratar.", "confidence_level": "alta", "item_refs": [0]}
+        {"titulo": "Anexo I", "text": "Formulario de oferta económica.", "confidence_level": "alta", "item_refs": [0]},
+        {"titulo": "Anexo II", "text": "Declaración jurada de aptitud para contratar.", "confidence_level": "alta", "item_refs": [0]}
       ]
     }
   ]
@@ -218,8 +221,8 @@ El segundo bullet habla del Anexo II pero referencia el `item_index` del Anexo I
     {
       "type": "bullet_list",
       "items": [
-        {"text": "Presentar Anexo I: Formulario de oferta económica.", "confidence_level": "alta", "item_refs": [0]},
-        {"text": "Presentar Anexo II: Declaración jurada de aptitud para contratar.", "confidence_level": "alta", "item_refs": [1]}
+        {"titulo": "Anexo I", "text": "Formulario de oferta económica.", "confidence_level": "alta", "item_refs": [0]},
+        {"titulo": "Anexo II", "text": "Declaración jurada de aptitud para contratar.", "confidence_level": "alta", "item_refs": [1]}
       ]
     }
   ]

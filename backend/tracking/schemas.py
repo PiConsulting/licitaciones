@@ -57,6 +57,7 @@ class AnalysisTracking(BaseModel):
     version_id: str
     status: TrackingStatus = "active"
     started_by: str
+    started_by_name: str | None = None
     started_at: datetime
     completed_by: str | None = None
     completed_by_name: str | None = None

@@ -14,11 +14,7 @@ _GARANTIA_VALID_TIPOS = {tipo.value for tipo in TipoGarantia}
 _CAUSAL_VALID_TIPOS = {tipo.value for tipo in TipoCausal}
 _RIESGO_SUBTIPO_VALID = {subtipo.value for subtipo in SubtipoRiesgo}
 
-# FIX (2026-09-14, mismo patrón que el resto de esta ronda): antes este set
-# era una copia a mano del enum, con el mismo riesgo que ya se vio en
-# garantías/causales -- si el enum se amplía y nadie actualiza este set, el
-# valor nuevo cae al fallback de palabras clave o a `None` aunque el LLM ya
-# lo haya devuelto bien. Ahora se deriva directo de `TipoIdentificacion`.
+# Derivado directo del enum: una copia a mano se desincroniza si el enum crece.
 _TIPOS_IDENTIFICACION_VALIDOS = {tipo.value for tipo in TipoIdentificacion}
 
 
@@ -66,32 +62,14 @@ def _canonical_garantia_tipo(value: str) -> str:
     if not text:
         return "otra"
 
-    # FIX (2026-09-11, bug encontrado auditando garantías/dell): esta función
-    # coercionaba CUALQUIER tipo que no matcheara sus 3 palabras clave
-    # (cumplimiento+contrato / anticipo / mantenimiento) a "otra" -- incluso
-    # cuando el LLM ya había devuelto un valor VÁLIDO del enum `TipoGarantia`
-    # ampliado (`contragarantia`/`impugnacion`/`fondo_reparo`/
-    # `por_vicios_ocultos`/`buen_uso_anticipo`, agregados a `schemas.py`
-    # después de escribir esta función, que nunca se actualizó). Un ítem
-    # etiquetado correctamente `contragarantia` se pisaba acá mismo con
-    # `otra` en CADA corrida -- sin que el LLM tuviera arte ni parte -- y de
-    # paso rompía el dedup con el ítem `anticipo` gemelo del mismo hecho
-    # (`_garantia_dedup_value` agrupa por `tipo`, así que dos ítems del mismo
-    # hecho con `tipo` distinto nunca se fusionan). Si el valor YA es un
-    # enum válido, se respeta tal cual -- el matcheo por palabra clave de
-    # abajo es solo el fallback para texto libre que el LLM no ajustó al
-    # enum (ej. "Garantía de Cumplimiento de Contrato" en vez de
-    # "cumplimiento_contrato").
+    # Si el valor ya es un enum válido se respeta tal cual (bug: coercionaba valores válidos ampliados del enum a "otra"); lo de abajo es solo fallback por palabra clave para texto libre.
     normalized_slug = text.replace(" ", "_").replace("-", "_")
     if normalized_slug in _GARANTIA_VALID_TIPOS:
         return normalized_slug
 
     if "cumplimiento" in text and "contrato" in text:
         return "cumplimiento_contrato"
-    # Debe evaluarse ANTES que "anticipo": "contragarantía por anticipo" es
-    # texto libre típico y contiene ambas palabras -- si "anticipo" se
-    # chequeara primero, una contragarantía en texto libre nunca llegaría a
-    # este branch.
+    # Debe ir antes que "anticipo": "contragarantía por anticipo" contiene ambas palabras.
     if "contragarantia" in text:
         return "contragarantia"
     if "impugnacion" in text:
@@ -162,12 +140,7 @@ def _canonical_causal_tipo(value: str) -> str:
     if not text:
         return "otra"
 
-    # FIX (2026-09-14, mismo patrón que `_canonical_garantia_tipo`, P1-3 de
-    # la auditoría RAG): esta función no tenía chequeo de match exacto contra
-    # el enum, y ni siquiera cubría los 6 valores de `TipoCausal` -- faltaba
-    # `etica` por completo. Cualquier causal que el LLM etiquetara
-    # correctamente `etica` se pisaba con `otra` acá mismo. Igual que en
-    # garantías: si el valor YA es un enum válido, se respeta tal cual.
+    # Si el valor ya es un enum válido se respeta tal cual (bug: "etica" faltaba en el matcheo y se pisaba con "otra").
     if text in _CAUSAL_VALID_TIPOS:
         return text
 
@@ -204,15 +177,7 @@ def _canonical_riesgo_subtipo(value: str) -> str:
     if not text:
         return "otro_explicito"
 
-    # FIX (2026-09-14, mismo patrón que `_canonical_garantia_tipo`, P1-3 de
-    # la auditoría RAG): sin este chequeo, un `subtipo` que el LLM ya
-    # devolvía como el slug exacto "comercial" caía por TODAS las ramas de
-    # palabras clave de abajo (ninguna busca literalmente "comercial", solo
-    # frases como "mantenimiento oferta"/"moneda"/"forma pago") y terminaba
-    # en "otro_explicito" -- y de paso rompía el dedup con otro ítem
-    # `comercial` gemelo del mismo hecho (el merge de riesgos agrupa por
-    # `subtipo`). Los otros 8 valores del enum coincidían por casualidad con
-    # alguna palabra clave de su propia rama; "comercial" era el único que no.
+    # Si el valor ya es un enum válido se respeta tal cual (bug: "comercial" no matcheaba ninguna palabra clave propia y caía a "otro_explicito").
     if text in _RIESGO_SUBTIPO_VALID:
         return text
 

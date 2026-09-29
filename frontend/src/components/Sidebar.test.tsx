@@ -1,17 +1,21 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { vi } from "vitest";
 
 import { Sidebar } from "./Sidebar";
 import { useUIStore } from "../store/useUIStore";
 
+vi.mock("../api/auth", () => ({
+  logout: vi.fn(),
+}));
+
 describe("Sidebar", () => {
   beforeEach(() => {
     localStorage.clear();
-    // El store de zustand es singleton a nivel módulo; sin reset, el estado se filtra entre tests.
-    useUIStore.setState({ sidebarCollapsed: true });
+    useUIStore.setState({ sidebarCollapsed: false, theme: "cedia" });
   });
 
-  test("renderiza items de navegación", () => {
+  test("renderiza los 5 items del menú FE1", () => {
     localStorage.setItem("user_name", "Agostina Torres");
 
     render(
@@ -20,68 +24,64 @@ describe("Sidebar", () => {
       </MemoryRouter>,
     );
 
+    expect(screen.getByText("Home")).toBeInTheDocument();
+    expect(screen.getByText("Buscar pliegos")).toBeInTheDocument();
     expect(screen.getByText("Analizar nuevo pliego")).toBeInTheDocument();
-    expect(screen.getByText("Historial")).toBeInTheDocument();
-    expect(screen.getByText("Dashboard (próximamente)")).toBeInTheDocument();
+    expect(screen.queryByText("Historial")).not.toBeInTheDocument();
+    expect(screen.queryByText("Seguimiento")).not.toBeInTheDocument();
     expect(screen.getByText("Agostina Torres")).toBeInTheDocument();
+    expect(screen.getByText("Análisis de pliegos")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /CEDI/i })).toBeInTheDocument();
   });
 
-  test("marca item activo", () => {
-    render(
-      <MemoryRouter initialEntries={["/dashboard"]}>
-        <Sidebar />
-      </MemoryRouter>,
-    );
-
-    const historialItem = screen.getByRole("link", { name: /historial/i });
-    expect(historialItem).toHaveClass("bg-primary-light");
-    expect(historialItem).toHaveAttribute("aria-current", "page");
-    expect(screen.queryByRole("link", { name: /^dashboard$/i })).not.toBeInTheDocument();
-  });
-
-  test("está colapsado por default", () => {
+  test("Buscar pliegos está deshabilitado con indicación de próximamente", () => {
     render(
       <MemoryRouter>
         <Sidebar />
       </MemoryRouter>,
     );
 
-    const aside = screen.getByLabelText("Barra lateral");
-    expect(aside).toHaveClass("w-16");
-    expect(screen.getByRole("button", { name: /expandir menú/i })).toBeInTheDocument();
+    const buscar = screen.getByRole("button", { name: /Buscar pliegos/i });
+    expect(buscar).toHaveAttribute("aria-disabled", "true");
+    expect(buscar).toHaveAttribute("title", "Próximamente");
   });
 
-  test("toggle collapse/expand", () => {
+  test("marca Home activo con accent bar mint", () => {
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <Sidebar />
+      </MemoryRouter>,
+    );
+
+    const home = screen.getByRole("link", { name: /Home/i });
+    expect(home).toHaveAttribute("aria-current", "page");
+    expect(home.className).toContain("[box-shadow:inset_3px_0_0_#7FF3DE]");
+  });
+
+  test("links principales apuntan a rutas FE1", () => {
     render(
       <MemoryRouter>
         <Sidebar />
       </MemoryRouter>,
     );
 
-    const aside = screen.getByLabelText("Barra lateral");
-    const toggle = screen.getByRole("button", { name: /expandir menú/i });
+    const home = screen.getByRole("link", { name: /^Home$/i });
+    const analizar = screen.getByRole("link", { name: /Analizar nuevo pliego/i });
 
-    expect(aside).toHaveClass("w-16");
-    fireEvent.click(toggle);
-    expect(aside).toHaveClass("w-52");
+    expect(home).toHaveAttribute("href", "/");
+    expect(analizar).toHaveAttribute("href", "/analyze");
   });
 
-  test("se vuelve a colapsar solo al elegir una sección (2026-09-01)", () => {
+  test("logout mantiene el botón funcional", () => {
     render(
       <MemoryRouter>
         <Sidebar />
       </MemoryRouter>,
     );
 
-    const aside = screen.getByLabelText("Barra lateral");
-    const expandToggle = screen.getByRole("button", { name: /expandir menú/i });
+    const logoutBtn = screen.getByRole("button", { name: /Cerrar sesión/i });
+    fireEvent.click(logoutBtn);
 
-    fireEvent.click(expandToggle);
-    expect(aside).toHaveClass("w-52");
-
-    const historialLink = screen.getByRole("link", { name: /historial/i });
-    fireEvent.click(historialLink);
-
-    expect(aside).toHaveClass("w-16");
+    expect(logoutBtn).toBeInTheDocument();
   });
 });

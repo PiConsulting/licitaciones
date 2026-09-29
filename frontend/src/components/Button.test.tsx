@@ -3,21 +3,21 @@ import { render, screen } from "@testing-library/react";
 import { Button } from "./Button";
 
 describe("Button", () => {
-  test("renderiza variantes", () => {
+  test("renderiza variantes CEDI", () => {
     const { rerender } = render(<Button variant="primary">Primary</Button>);
-    expect(screen.getByRole("button")).toHaveClass("bg-primary");
+    expect(screen.getByRole("button")).toHaveClass("bg-cedi-gradient-button", "text-cedi-white");
 
     rerender(<Button variant="secondary">Secondary</Button>);
-    expect(screen.getByRole("button")).toHaveClass("bg-white");
+    expect(screen.getByRole("button")).toHaveClass("bg-cedi-white", "text-cedi-navy");
 
     rerender(<Button variant="danger">Danger</Button>);
-    expect(screen.getByRole("button")).toHaveClass("bg-error");
+    expect(screen.getByRole("button")).toHaveClass("bg-error", "text-white");
 
     rerender(<Button variant="ghost">Ghost</Button>);
-    expect(screen.getByRole("button")).toHaveClass("bg-transparent");
+    expect(screen.getByRole("button")).toHaveClass("bg-transparent", "text-cedi-celeste");
   });
 
-  test("renderiza tamaños", () => {
+  test("renderiza tamaños con alturas del DS", () => {
     const { rerender } = render(<Button size="sm">Small</Button>);
     expect(screen.getByRole("button")).toHaveClass("h-8");
 
@@ -25,7 +25,12 @@ describe("Button", () => {
     expect(screen.getByRole("button")).toHaveClass("h-10");
 
     rerender(<Button size="lg">Large</Button>);
-    expect(screen.getByRole("button")).toHaveClass("h-12");
+    expect(screen.getByRole("button")).toHaveClass("h-11");
+  });
+
+  test("usa forma pill en todas las variantes", () => {
+    render(<Button>Label</Button>);
+    expect(screen.getByRole("button")).toHaveClass("rounded-full");
   });
 
   test("estado loading", () => {

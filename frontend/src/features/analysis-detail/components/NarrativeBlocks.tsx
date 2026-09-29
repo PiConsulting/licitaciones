@@ -1,7 +1,7 @@
-import { Check, Circle, CircleSlash, X } from "lucide-react";
+import { ChevronDown, Eye } from "lucide-react";
+import { useState } from "react";
 
-import type { TrackingItem, TrackingItemStatus } from "../../../types/tracking";
-import type { CategoryNarrative, Citation, NarrativeBlockData, NarrativeSource } from "../types";
+import type { CategoryNarrative, Citation, NarrativeSource } from "../types";
 import { splitLabelAndValue } from "../utils/splitLabelAndValue";
 import {
   collectParagraphSourceIds,
@@ -15,48 +15,7 @@ import { SourceEyeButton as EyeButton } from "./SourceEyeButton";
 interface NarrativeBlocksProps {
   narrative: CategoryNarrative;
   onViewSource?: (payload: { citation: Citation; citations: Citation[]; sources: NarrativeSource[] }) => void;
-  trackingItems?: TrackingItem[];
-  isTrackingClosed?: boolean;
-  onChangeTrackingItemStatus?: (trackingItemId: string, status: TrackingItemStatus) => void;
-  emphasizeLeadingLabel?: boolean;
 }
-
-const TRACKING_ITEM_STATUS_OPTIONS: Array<{
-  value: TrackingItemStatus;
-  label: string;
-  icon: typeof Circle;
-  selectedClassName: string;
-  idleClassName: string;
-}> = [
-  {
-    value: "not_evaluated",
-    label: "Sin evaluar",
-    icon: Circle,
-    selectedClassName: "border-gray-500 bg-gray-500 text-white",
-    idleClassName: "border-gray-200 bg-white text-gray-600 hover:border-gray-500 hover:text-gray-700",
-  },
-  {
-    value: "compliant",
-    label: "Cumple",
-    icon: Check,
-    selectedClassName: "border-success bg-success text-white",
-    idleClassName: "border-gray-200 bg-white text-success hover:border-success hover:bg-success-light",
-  },
-  {
-    value: "non_compliant",
-    label: "No cumple",
-    icon: X,
-    selectedClassName: "border-error bg-error text-white",
-    idleClassName: "border-gray-200 bg-white text-error hover:border-error hover:bg-error-light",
-  },
-  {
-    value: "not_applicable",
-    label: "No aplica",
-    icon: CircleSlash,
-    selectedClassName: "border-info bg-info text-white",
-    idleClassName: "border-gray-200 bg-white text-info hover:border-info hover:bg-info-light",
-  },
-];
 
 /** `source_ids` que referencian los bloques `paragraph`.
  *
@@ -67,73 +26,47 @@ const TRACKING_ITEM_STATUS_OPTIONS: Array<{
 /** Todos los `source_ids` que efectivamente usa algún bloque/bullet/fila.
  * Una fuente que ningún elemento referencia no puede aparecer en ningún lado:
  * mostrarla sugiere una trazabilidad que no existe. */
-function renderNarrativeText(text: string, emphasizeLeadingLabel: boolean) {
-  if (!emphasizeLeadingLabel) {
-    return text;
-  }
 
-  const split = splitLabelAndValue(text);
-  if (!split) {
-    return text;
+/** Título corto + detalle para un bullet. `titulo` es lo esperado (lo sintetiza
+ * la síntesis del backend); el split por ":" solo cubre narrativas viejas
+ * persistidas antes de que ese campo existiera -- nunca debería ser el camino
+ * normal en datos nuevos. Sin ninguno de los dos, el texto completo hace de
+ * título para no dejar la fila sin nada que mostrar. */
+function resolveTituloYDetalle(item: { titulo?: string; text: string }): { titulo: string; detalle: string } {
+  const titulo = item.titulo?.trim();
+  if (titulo) {
+    return { titulo, detalle: item.text };
   }
-
-  return (
-    <>
-      <strong className="font-semibold text-gray-900">{`${split.label}:`}</strong>
-      {` ${split.value}`}
-    </>
-  );
+  const split = splitLabelAndValue(item.text);
+  if (split) {
+    return { titulo: split.label, detalle: split.value };
+  }
+  return { titulo: item.text, detalle: "" };
 }
 
-interface TrackingItemControlsProps {
-  item: TrackingItem;
-  isClosed: boolean;
-  onChangeStatus?: (trackingItemId: string, status: TrackingItemStatus) => void;
-}
+// Porcentaje primero (el dato más habitual en garantías/multas); monto en
+// pesos como respaldo cuando no hay porcentaje (ej. "$ 40.000.000").
+const PERCENT_RE = /\d+(?:[.,]\d+)?\s?%/;
+// El grupo debe terminar en dígito, no en "." ni "," -- si no, un monto al
+// final de una oración ("... no supere $ 40.000.000.") arrastraba el punto
+// final como si fuera parte del número.
+const AMOUNT_RE = /\$\s?\d(?:[\d.,]*\d)?/;
 
-function TrackingItemControls({ item, isClosed, onChangeStatus }: TrackingItemControlsProps) {
-  if (isClosed) {
-    const selected = TRACKING_ITEM_STATUS_OPTIONS.find((option) => option.value === item.status);
-    if (!selected) {
-      return null;
-    }
-    const Icon = selected.icon;
-    return (
-      <div className="flex shrink-0 items-center gap-1" data-testid={`inline-tracking-item-${item.tracking_item_id}`}>
-        <span
-          className={`inline-flex h-7 w-7 items-center justify-center rounded border text-xs ${selected.selectedClassName}`}
-          aria-label={`${selected.label}: ${item.source_item_ref.field_name}`}
-          title={selected.label}
-        >
-          <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-        </span>
-      </div>
-    );
+/** El valor cuantificable más relevante del detalle (ej. "4%", "$ 40.000.000"),
+ * para mostrar junto al título -- alguien escaneando la lista de garantías
+ * quiere ver el porcentaje/monto sin tener que leer cada oración completa.
+ * Sin porcentaje ni monto (ej. una garantía técnica, o "formas de
+ * constitución" sin cifra propia), no se muestra nada -- nunca se inventa. */
+function resolveDetalleHighlight(detalle: string): string | null {
+  const percent = detalle.match(PERCENT_RE);
+  if (percent) {
+    return percent[0].replace(/\s+/g, "");
   }
-
-  return (
-    <div className="flex shrink-0 items-center gap-1" data-testid={`inline-tracking-item-${item.tracking_item_id}`}>
-      {TRACKING_ITEM_STATUS_OPTIONS.map((option) => {
-        const Icon = option.icon;
-        const isSelected = item.status === option.value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            className={`inline-flex h-7 w-7 items-center justify-center rounded border text-xs transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ${
-              isSelected ? option.selectedClassName : option.idleClassName
-            }`}
-            disabled={isClosed || !onChangeStatus}
-            onClick={() => onChangeStatus?.(item.tracking_item_id, option.value)}
-            aria-label={`${option.label}: ${item.source_item_ref.field_name}`}
-            title={option.label}
-          >
-            <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-          </button>
-        );
-      })}
-    </div>
-  );
+  const amount = detalle.match(AMOUNT_RE);
+  if (amount) {
+    return amount[0].replace(/\s+/g, "");
+  }
+  return null;
 }
 
 /**
@@ -157,11 +90,8 @@ function TrackingItemControls({ item, isClosed, onChangeStatus }: TrackingItemCo
 export function NarrativeBlocks({
   narrative,
   onViewSource,
-  trackingItems = [],
-  isTrackingClosed = false,
-  onChangeTrackingItemStatus,
-  emphasizeLeadingLabel = false,
 }: NarrativeBlocksProps) {
+  const [paragraphSourcesExpanded, setParagraphSourcesExpanded] = useState(false);
   const referencedSourceIds = collectReferencedSourceIds(narrative.blocks);
   const paragraphSourceIds = collectParagraphSourceIds(narrative.blocks);
 
@@ -217,35 +147,16 @@ export function NarrativeBlocks({
     );
   }
 
-  function InlineTrackingControls({ itemIndex }: { itemIndex: number }) {
-    const item = trackingItems[itemIndex];
-    if (!item) {
-      return null;
-    }
-    return (
-      <TrackingItemControls
-        item={item}
-        isClosed={isTrackingClosed}
-        onChangeStatus={onChangeTrackingItemStatus}
-      />
-    );
-  }
-
-  let trackingItemIndex = 0;
-
   return (
-    <section className="mt-3 rounded-md border border-gray-200 bg-gray-50 p-3" data-testid="narrative-blocks">
-      <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-700">Respuesta</h4>
-
-      <div className="mt-2 space-y-3">
+    <section className="p-0" data-testid="narrative-blocks">
+      <div className="space-y-3">
         {narrative.blocks.map((block, index) => {
           if (block.type === "paragraph") {
             return (
               <div key={index} className="flex items-start gap-2" data-testid="narrative-paragraph">
-                <p className="flex-1 text-sm leading-relaxed text-gray-800">
-                  {renderNarrativeText(block.text, false)}
+                <p className="flex-1 text-sm leading-relaxed text-[#003C6B]">
+                  {block.text}
                 </p>
-                {trackingItems.length === 1 ? <InlineTrackingControls itemIndex={0} /> : null}
               </div>
             );
           }
@@ -253,19 +164,37 @@ export function NarrativeBlocks({
           if (block.type === "bullet_list") {
             return (
               <div key={index} data-testid="narrative-bullet-list">
-                <ul className="space-y-1.5">
+                <ul className="divide-y divide-[rgba(0,60,107,.06)]">
                   {block.items.map((item, itemIndex) => {
-                    const currentTrackingItemIndex = trackingItemIndex;
-                    trackingItemIndex += 1;
+                    const { titulo, detalle } = resolveTituloYDetalle(item);
+                    const highlight = detalle ? resolveDetalleHighlight(detalle) : null;
 
                     return (
-                      <li key={itemIndex} className="flex items-start gap-2" data-testid="narrative-bullet-item">
-                        <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-gray-400" aria-hidden="true" />
-                        <span className="flex-1 text-sm leading-relaxed text-gray-800">
-                          {renderNarrativeText(item.text, emphasizeLeadingLabel)}
-                        </span>
-                        <InlineTrackingControls itemIndex={currentTrackingItemIndex} />
-                        <SourceEyeButton sourceIds={item.source_ids} />
+                      <li
+                        key={itemIndex}
+                        className="flex flex-col gap-1 py-3 first:pt-0 last:pb-0"
+                        data-testid="narrative-bullet-item"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-[#003C6B]">{titulo}</span>
+                          {highlight ? (
+                            <>
+                              <span className="text-3xl leading-none text-[rgba(0,60,107,.35)]" aria-hidden="true">
+                                •
+                              </span>
+                              <span
+                                className="text-sm font-bold text-[rgba(0,60,107,.85)]"
+                                data-testid="narrative-bullet-highlight"
+                              >
+                                {highlight}
+                              </span>
+                            </>
+                          ) : null}
+                          <SourceEyeButton sourceIds={item.source_ids} />
+                        </div>
+                        {detalle ? (
+                          <p className="text-[13px] leading-relaxed text-[rgba(0,60,107,.68)]">{detalle}</p>
+                        ) : null}
                       </li>
                     );
                   })}
@@ -280,33 +209,28 @@ export function NarrativeBlocks({
                 <thead>
                   <tr>
                     {block.headers.map((header, headerIndex) => (
-                      <th key={headerIndex} className="border-b border-gray-200 px-2 py-1 font-semibold text-gray-700">
+                      <th key={headerIndex} className="border-b border-[rgba(0,60,107,.12)] px-2 py-1 font-semibold text-[rgba(0,60,107,.68)]">
                         {header}
                       </th>
                     ))}
-                    <th className="border-b border-gray-200 px-2 py-1" aria-hidden="true" />
+                    <th className="border-b border-[rgba(0,60,107,.12)] px-2 py-1" aria-hidden="true" />
                   </tr>
                 </thead>
                 <tbody>
-                  {block.rows.map((row, rowIndex) => {
-                    const currentTrackingItemIndex = trackingItemIndex;
-                    trackingItemIndex += 1;
-                    return (
-                    <tr key={rowIndex} className="border-b border-gray-100">
+                  {block.rows.map((row, rowIndex) => (
+                    <tr key={rowIndex} className="border-b border-[rgba(0,60,107,.08)]">
                       {row.cells.map((cell, cellIndex) => (
-                        <td key={cellIndex} className="px-2 py-1.5 text-gray-800">
+                        <td key={cellIndex} className="px-2 py-1.5 text-[#003C6B]">
                           {cell}
                         </td>
                       ))}
                       <td className="px-2 py-1.5 align-top">
                         <div className="flex items-center justify-end gap-2">
-                          <InlineTrackingControls itemIndex={currentTrackingItemIndex} />
-                        <SourceEyeButton sourceIds={row.source_ids} />
+                          <SourceEyeButton sourceIds={row.source_ids} />
                         </div>
                       </td>
                     </tr>
-                    );
-                  })}
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -315,27 +239,47 @@ export function NarrativeBlocks({
       </div>
 
       {paragraphSources.length > 0 ? (
-        <div className="mt-3 rounded border border-gray-200 bg-white p-2" data-testid="category-sources">
-          <h5 className="text-xs font-semibold uppercase tracking-wide text-gray-700">Fuentes verificables</h5>
-          <ul className="mt-2 space-y-2" data-testid="category-sources-list">
-            {paragraphSources.map((source) => (
-              <li key={source.id}>
-                <button
-                  type="button"
-                  className="w-full rounded border border-gray-200 px-2 py-1 text-left text-xs text-blue-500 hover:border-primary"
-                  onClick={() => handleViewParagraphSource(source.id)}
-                >
-                  <span className="font-semibold">{source.document_name}</span>
-                  <span>{` · pág. ${source.page}`}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+        <div className="mt-2" data-testid="category-sources">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-2 text-left"
+            aria-expanded={paragraphSourcesExpanded}
+            data-testid="paragraph-sources-toggle"
+            onClick={() => setParagraphSourcesExpanded((prev) => !prev)}
+          >
+            <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[rgba(0,60,107,.68)]">
+              Fuentes verificables
+            </span>
+            <span className="inline-flex h-5 w-5 items-center justify-center text-[#003C6B]">
+              <ChevronDown
+                className={`h-3.5 w-3.5 transition-transform ${paragraphSourcesExpanded ? "rotate-180" : "rotate-0"}`}
+                aria-hidden="true"
+              />
+            </span>
+          </button>
+
+          {paragraphSourcesExpanded ? (
+            <ul className="mt-2 flex flex-wrap gap-2" data-testid="category-sources-list">
+              {paragraphSources.map((source) => (
+                <li key={source.id}>
+                  <button
+                    type="button"
+                    className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[rgba(0,60,107,.12)] bg-white px-2.5 text-xs font-semibold text-[#0099DB] transition-colors hover:border-[#0099DB]"
+                    onClick={() => handleViewParagraphSource(source.id)}
+                  >
+                    <Eye className="h-3 w-3" aria-hidden="true" />
+                    <span className="font-semibold">{source.document_name}</span>
+                    <span>{` · pág. ${source.page}`}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       ) : null}
 
       {verifiedSources.length === 0 ? (
-        <p className="mt-3 text-xs text-gray-600" data-testid="category-sources-empty">
+        <p className="mt-3 text-xs text-[rgba(0,60,107,.55)]" data-testid="category-sources-empty">
           Sin evidencia clickeable para esta categoría. No puede marcarse como revisada automáticamente.
         </p>
       ) : null}

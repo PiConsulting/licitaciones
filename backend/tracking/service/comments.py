@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
-from tracking.models import TrackingComment
+from tracking.models import TrackingComment, TrackingItem
 from tracking.service.categories import _ensure_category_not_closed, _get_category_row_or_raise
 from users.models import User
 
@@ -103,7 +103,13 @@ def create_comment(
     from infra.database import SessionLocal
     from tracking.service.service import _load_active_tracking_for_user
 
-    if scope != "category" or tracking_item_id:
+    if scope == "category":
+        if tracking_item_id:
+            raise ValueError("TRACKING_CATEGORY_COMMENT_ONLY")
+    elif scope == "checklist_item":
+        if not tracking_item_id:
+            raise ValueError("TRACKING_ITEM_REQUIRED")
+    else:
         raise ValueError("TRACKING_CATEGORY_COMMENT_ONLY")
 
     db = SessionLocal()
@@ -112,12 +118,24 @@ def create_comment(
         category = _get_category_row_or_raise(db, tracking.id, category_key)
         _ensure_category_not_closed(category)
 
+        if scope == "checklist_item":
+            item_exists = (
+                db.query(TrackingItem.id)
+                .filter(
+                    TrackingItem.id == tracking_item_id,
+                    TrackingItem.tracking_category_id == category.id,
+                )
+                .first()
+            )
+            if item_exists is None:
+                raise ValueError("TRACKING_ITEM_NOT_FOUND")
+
         row = TrackingComment(
             analysis_id=analysis_id,
             version_id=tracking.version_id,
             category_key=category_key,
-            scope="category",
-            tracking_item_id=None,
+            scope=scope,
+            tracking_item_id=tracking_item_id if scope == "checklist_item" else None,
             content=content.strip(),
             created_by=user_id,
             created_by_name=(created_by_name or "").strip()

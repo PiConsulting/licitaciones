@@ -2,50 +2,79 @@ import { render, screen } from "@testing-library/react";
 import { TimelineStats } from "./TimelineStats";
 
 describe("TimelineStats", () => {
-  test("renders stats with correct counts", () => {
-    render(<TimelineStats totalEvents={10} confirmedEvents={7} pendingEvents={3} />);
+  test("muestra cards KPI con labels del mockup", () => {
+    render(
+      <TimelineStats
+        totalEvents={10}
+        confirmedEvents={7}
+        pendingEvents={3}
+        completedEvents={4}
+        nextUpcomingEvent={{ name: "Apertura de sobres", date: "2026-09-18" }}
+      />,
+    );
 
-    expect(screen.getByText("Estado de Timeline")).toBeInTheDocument();
-    expect(screen.getByText(/7 de 10 eventos con fecha confirmada/)).toBeInTheDocument();
+    expect(screen.getByText("Hitos")).toBeInTheDocument();
+    expect(screen.getByText("Cumplidos")).toBeInTheDocument();
+    expect(screen.getByText("Próximo vencimiento")).toBeInTheDocument();
   });
 
-  test("calculates percentage correctly", () => {
-    render(<TimelineStats totalEvents={10} confirmedEvents={7} pendingEvents={3} />);
+  test("muestra total de hitos y cumplidos", () => {
+    render(
+      <TimelineStats
+        totalEvents={10}
+        confirmedEvents={7}
+        pendingEvents={3}
+        completedEvents={4}
+        nextUpcomingEvent={{ name: "Apertura de sobres", date: "2026-09-18" }}
+      />,
+    );
 
-    expect(screen.getByText(/70%/)).toBeInTheDocument();
+    expect(screen.getByText("10")).toBeInTheDocument();
+    expect(screen.getByText("4")).toBeInTheDocument();
   });
 
-  test("shows pending events count", () => {
-    render(<TimelineStats totalEvents={10} confirmedEvents={7} pendingEvents={3} />);
+  test("muestra evento próximo y detalle corto", () => {
+    render(
+      <TimelineStats
+        totalEvents={10}
+        confirmedEvents={7}
+        pendingEvents={3}
+        completedEvents={4}
+        nextUpcomingEvent={{ name: "Apertura de sobres", date: "2026-09-18" }}
+      />,
+    );
 
-    expect(screen.getByText("3")).toBeInTheDocument();
-    expect(screen.getByText("pendientes")).toBeInTheDocument();
+    expect(screen.getByText(/Apertura de sobres/)).toBeInTheDocument();
+    expect(screen.getByText(/18\/09/)).toBeInTheDocument();
   });
 
-  test("does not show pending count when zero", () => {
-    render(<TimelineStats totalEvents={7} confirmedEvents={7} pendingEvents={0} />);
+  test("muestra fallback cuando no hay próximos eventos", () => {
+    render(
+      <TimelineStats
+        totalEvents={7}
+        confirmedEvents={7}
+        pendingEvents={0}
+        completedEvents={7}
+        nextUpcomingEvent={null}
+      />,
+    );
 
-    expect(screen.queryByText("pendientes")).not.toBeInTheDocument();
+    expect(screen.getByText("Sin fecha")).toBeInTheDocument();
+    expect(screen.getByText("No hay hitos futuros confirmados")).toBeInTheDocument();
   });
 
-  test("handles 100% completion", () => {
-    render(<TimelineStats totalEvents={5} confirmedEvents={5} pendingEvents={0} />);
+  test("mantiene clase base timeline-stats", () => {
+    render(
+      <TimelineStats
+        totalEvents={5}
+        confirmedEvents={5}
+        pendingEvents={0}
+        completedEvents={5}
+        nextUpcomingEvent={null}
+      />,
+    );
 
-    expect(screen.getByText(/5 de 5 eventos con fecha confirmada/)).toBeInTheDocument();
-    expect(screen.getByText(/100%/)).toBeInTheDocument();
-  });
-
-  test("handles 0% completion", () => {
-    render(<TimelineStats totalEvents={5} confirmedEvents={0} pendingEvents={5} />);
-
-    expect(screen.getByText(/0 de 5 eventos con fecha confirmada/)).toBeInTheDocument();
-    expect(screen.getByText(/0%/)).toBeInTheDocument();
-  });
-
-  test("has correct styling", () => {
-    render(<TimelineStats totalEvents={10} confirmedEvents={7} pendingEvents={3} />);
-
-    const container = screen.getByText("Estado de Timeline").closest(".timeline-stats");
-    expect(container).toHaveClass("bg-blue-50", "border-blue-200");
+    const container = screen.getByTestId("timeline-stats");
+    expect(container).toHaveClass("timeline-stats");
   });
 });

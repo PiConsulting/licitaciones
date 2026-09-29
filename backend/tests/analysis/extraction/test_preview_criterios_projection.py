@@ -314,3 +314,43 @@ def test_apply_content_guards_not_found_pasa_intacto() -> None:
 
     assert guarded[0]["extraction_status"] == "not_found"
     assert guarded[0]["valor"] is None
+
+
+def test_apply_content_guards_descarta_forma_pago_que_es_descuento_de_multas() -> None:
+    """Bug real en producción (Bancor): un item de forma_pago con el mecanismo de
+    descuento de multas sobre facturación ("deducirá dicho importe de las
+    facturaciones") se colaba en la card junto con el item real de forma de pago,
+    contaminando el bullet de síntesis. Se descarta (no se reemplaza por
+    not_found) porque forma_pago SÍ puede tener legítimamente más de un item."""
+    items = [
+        _preview_item("forma_pago", "a los diez (10) días hábiles de presentada la factura", "..."),
+        _preview_item("forma_pago", "deducirá dicho importe de las facturaciones", "..."),
+    ]
+
+    guarded = _apply_content_guards(items)
+
+    assert len(guarded) == 1
+    assert "diez" in str(guarded[0]["valor"])
+
+
+def test_apply_content_guards_forma_pago_unico_y_malo_no_deja_placeholder() -> None:
+    """Si el único item de forma_pago es el mal tageado, se descarta del todo --
+    la red de seguridad de extractor_preview_criterios es la que agrega el
+    not_found faltante, no esta función."""
+    items = [_preview_item("forma_pago", "el BANCO deducirá dicho importe de las facturaciones", "...")]
+
+    guarded = _apply_content_guards(items)
+
+    assert guarded == []
+
+
+def test_apply_content_guards_no_falso_positivo_en_forma_pago_real() -> None:
+    """Caso real (Dell): "deducible del pago de la respectiva factura" es una
+    aclaración sobre el propio pago (no sobre descontar una multa) -- no debe
+    dispararse la guardia."""
+    items = [_preview_item("forma_pago", "lo cual podrá ser deducible del pago de la respectiva factura", "...")]
+
+    guarded = _apply_content_guards(items)
+
+    assert len(guarded) == 1
+    assert guarded[0]["extraction_status"] == "success"

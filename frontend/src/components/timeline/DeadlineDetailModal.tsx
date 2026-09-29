@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { ArrowRight } from "lucide-react";
 import { Badge, BadgeTone } from "../Badge";
 import { Button } from "../Button";
@@ -47,7 +47,7 @@ export function DeadlineDetailModal({
     }
   };
 
-  // Focus trap implementation
+  // Trampa de foco para accesibilidad.
   useEffect(() => {
     if (open && modalRef.current) {
       const previousActiveElement = document.activeElement as HTMLElement;

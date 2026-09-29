@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TimelineTab } from "./TimelineTab";
@@ -105,8 +105,10 @@ describe("TimelineTab", () => {
       });
 
       expect(screen.queryByText("Notificación de fuerza mayor")).not.toBeInTheDocument();
-      // Stats: 1 de 1 (el oculto no cuenta)
-      expect(screen.getByText(/1 de 1 eventos con fecha confirmada/)).toBeInTheDocument();
+      // Stats: hitos visibles (el oculto no cuenta)
+      const stats = screen.getByTestId("timeline-stats");
+      expect(within(stats).getByText("Hitos")).toBeInTheDocument();
+      expect(within(stats).getAllByText(/^1$/).length).toBeGreaterThan(0);
       expect(screen.getByRole("button", { name: /Mostrar ocultos \(1\)/i })).toBeInTheDocument();
     });
 
@@ -127,7 +129,9 @@ describe("TimelineTab", () => {
 
       expect(screen.getByText("Notificación de fuerza mayor")).toBeInTheDocument();
       // Stats no cambian por el toggle
-      expect(screen.getByText(/1 de 1 eventos con fecha confirmada/)).toBeInTheDocument();
+      const stats = screen.getByTestId("timeline-stats");
+      expect(within(stats).getByText("Hitos")).toBeInTheDocument();
+      expect(within(stats).getAllByText(/^1$/).length).toBeGreaterThan(0);
     });
   });
 

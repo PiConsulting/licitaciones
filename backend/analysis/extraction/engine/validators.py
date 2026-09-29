@@ -6,7 +6,6 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-# Términos exclusivos de cada categoría que señalan contaminación
 CATEGORY_EXCLUSIVE_TERMS = {
     "garantias": [
         "seguro de caucion",
@@ -81,7 +80,6 @@ def detect_cross_contamination(items: list[dict], category: str) -> list[dict]:
             if other_category == category:
                 continue
 
-            # Verificar si contiene términos de otra categoría
             for term in exclusive_terms:
                 normalized_term = _normalize_for_detection(term)
                 if normalized_term in combined_text:
@@ -91,7 +89,6 @@ def detect_cross_contamination(items: list[dict], category: str) -> list[dict]:
                     contaminated.append(item)
                     break
 
-            # Si ya marcado, no seguir buscando
             if item.get("_warning") == "cross_contamination":
                 break
 

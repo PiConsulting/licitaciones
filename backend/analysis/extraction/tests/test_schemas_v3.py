@@ -68,7 +68,7 @@ def valid_source_ref():
     return SourceReference(
         document_id="test-doc-123",
         page_number=5,
-        citation="a" * 50,  # Min 40 chars
+        citation="a" * 50,
     )
 
 
@@ -78,7 +78,7 @@ def short_citation_source():
     return {
         "document_id": "test",
         "page_number": 1,
-        "citation": "Muy corta",  # < 40 chars
+        "citation": "Muy corta",
     }
 
 
@@ -116,7 +116,7 @@ def test_source_reference_citation_too_long():
         SourceReference(
             document_id="test",
             page_number=1,
-            citation="x" * 301,  # Max 300 chars
+            citation="x" * 301,
         )
 
 
@@ -304,7 +304,6 @@ def test_requisito_default_metadata(valid_source_ref):
         confidence=0.8,
         source_references=[valid_source_ref],
     )
-    # Defaults definidos en schema
     assert requisito.metadata["obligatorio"] == "no_especificado"
     assert requisito.metadata["momento_presentacion"] == "no_especificado"
 

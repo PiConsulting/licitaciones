@@ -16,8 +16,8 @@ export function CompleteTrackingConfirmModal({
       <div className="w-full max-w-lg rounded-lg border border-gray-200 bg-white p-6 shadow-xl">
         <h2 className="text-xl font-semibold text-gray-900">Terminar seguimiento</h2>
         <p className="mt-2 text-sm text-gray-600">
-          Se guardarán los cambios realizados en categorías, checklist y comentarios. El seguimiento quedará
-          finalizado en modo solo lectura.
+          Se guardarán los cambios realizados en el checklist de categorías. El seguimiento quedará
+          finalizado en modo solo lectura, y si más adelante necesitás editarlo podés reanudarlo desde el checklist.
         </p>
 
         <div className="mt-6 flex justify-end gap-3">

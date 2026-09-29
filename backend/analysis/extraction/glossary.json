@@ -245,7 +245,6 @@
       "tipo de cambio",
       "forma de pago",
       "competencia",
-      "apertura",
       "cuenta"
     ],
     "aliases": [
@@ -375,6 +374,10 @@
       "adjudicacion",
       "apertura de ofertas",
       "acto de apertura",
+      "fecha de apertura",
+      "fecha apertura",
+      "hora de apertura",
+      "lugar de apertura",
       "firma de contrato",
       "recepcion del pliego",
       "presentacion de ofertas",

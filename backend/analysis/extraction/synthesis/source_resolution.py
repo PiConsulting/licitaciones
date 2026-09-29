@@ -241,8 +241,10 @@ def _resolve_narrative_sources(
                     {
                         "text": bullet.text,
                         "resumen": bullet.resumen,
+                        "titulo": bullet.titulo,
                         "confidence_level": bullet.confidence_level,
                         "source_ids": source_ids,
+                        "conflict_count": bullet.conflict_count,
                     }
                 )
             if kept_items:
@@ -269,9 +271,15 @@ def _resolve_narrative_sources(
 
     def remap(block_data: dict[str, Any]) -> dict[str, Any]:
         if isinstance(block_data.get("source_ids"), list):
-            block_data["source_ids"] = [
-                id_mapping.get(sid, sid) for sid in block_data["source_ids"]
-            ]
+            # `dict.fromkeys` no solo remapea, también deduplica: cuando dos ids
+            # temporales distintos (ej. 2 citas de un mismo item_refs) colapsan al
+            # mismo id final por `_dedupe_narrative_sources` (fusión por block_id o
+            # por texto), el id final queda repetido en la lista si no se
+            # deduplica acá -- causa real de cards que muestran "6 fuentes" cuando
+            # solo hay 4 distintas (auditoría preview_criterios 2026-09-25).
+            block_data["source_ids"] = list(
+                dict.fromkeys(id_mapping.get(sid, sid) for sid in block_data["source_ids"])
+            )
         for key in ("items", "rows"):
             nested = block_data.get(key)
             if isinstance(nested, list):

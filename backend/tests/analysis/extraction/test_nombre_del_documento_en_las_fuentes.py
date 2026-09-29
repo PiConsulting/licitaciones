@@ -108,17 +108,15 @@ def test_dos_fuentes_de_la_misma_pagina_de_documentos_distintos_se_distinguen() 
     ]
 
 
-def test_el_presupuesto_es_un_objeto_y_no_una_lista() -> None:
-    """`estimacion_presupuesto` no tiene la forma `categoria[].source_references[]`
-    del resto. Por eso el recorrido es genérico y no una lista de rutas."""
-    datos = {
-        "estimacion_presupuesto": {"monto": 100, "source_references": [_referencia(PRINCIPAL)]}
-    }
+def test_recorrido_soporta_una_categoria_con_forma_de_objeto() -> None:
+    """No todas las categorías son `categoria[].source_references[]`: el
+    recorrido es genérico (recursivo sobre dict/list), no una lista de rutas fijas."""
+    datos = {"alguna_categoria": {"monto": 100, "source_references": [_referencia(PRINCIPAL)]}}
 
     _stampar_nombre_de_documento(datos, ETIQUETAS)
 
     assert (
-        datos["estimacion_presupuesto"]["source_references"][0]["filename"]
+        datos["alguna_categoria"]["source_references"][0]["filename"]
         == "Pliego - Santa Fe.pdf"
     )
 

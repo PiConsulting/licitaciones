@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Maximize2, MapPin, X } from "lucide-react";
 
 import { getConfidenceLevel } from "../../../utils/confidence";
 import { SourceEyeButton } from "./SourceEyeButton";
 import { FieldBadge } from "../FieldBadge";
-import type { Citation, ConfidenceLevel, FieldItem, NarrativeSource } from "../types";
+import type { Citation, FieldItem, NarrativeBulletItem, NarrativeSource } from "../types";
 
 interface PlazosTimelineProps {
   items: FieldItem[];
@@ -13,6 +13,14 @@ interface PlazosTimelineProps {
    * legado por-campo), que no las trae; se emparejan por documento, página y
    * texto para no perder las coordenadas. */
   narrativeSources?: NarrativeSource[];
+  /** Bullets de la narrativa sintetizada (título corto + detalle), en el
+   * mismo orden que arma la síntesis del backend. `PlazoItem` no tiene un
+   * campo de título propio -- esta vista mostraba el `field_name` genérico
+   * seguido del `texto_original` completo, una oración larga sin separar
+   * título de detalle (bug real, ver auditoría UI 2026-09-28). Se resuelve
+   * el bullet correspondiente a cada ítem por superposición de citas, igual
+   * criterio que `matchSources` ya usa para las fuentes. */
+  narrativeBullets?: NarrativeBulletItem[];
   onViewSource?: (payload: { citation: Citation; citations: Citation[]; sources: NarrativeSource[] }) => void;
 }
 
@@ -34,6 +42,64 @@ function matchSources(sources: NarrativeSource[], citations: Citation[]): Narrat
       return a !== "" && b !== "" && (a.includes(b) || b.includes(a));
     }),
   );
+}
+
+interface IndexedBullet {
+  bullet: NarrativeBulletItem;
+  sources: NarrativeSource[];
+}
+
+function indexBulletsBySources(bullets: NarrativeBulletItem[], sources: NarrativeSource[]): IndexedBullet[] {
+  const byId = new Map(sources.map((source) => [source.id, source]));
+  return bullets.map((bullet) => ({
+    bullet,
+    sources: bullet.source_ids.map((id) => byId.get(id)).filter((source): source is NarrativeSource => Boolean(source)),
+  }));
+}
+
+/** Números + unidad de tiempo dentro del detalle (ej. "6 (seis) meses", "15
+ * días", "45 días corridos") resaltados en negrita -- el dato que alguien
+ * escaneando la lista busca primero, sin agregar una línea aparte. */
+const DURATION_RE = /\d+\s*(?:\([^)]+\))?\s*(?:d[ií]as?|mes(?:es)?|a[ñn]os?|horas?)(?:\s+(?:corridos?|h[áa]biles?))?/gi;
+
+function renderDetalleConNumerosEnNegrita(text: string) {
+  const regex = new RegExp(DURATION_RE.source, DURATION_RE.flags);
+  const nodes: ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index));
+    }
+    nodes.push(
+      <strong key={key++} className="font-semibold text-[rgba(0,60,107,.85)]">
+        {match[0]}
+      </strong>,
+    );
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+  return nodes;
+}
+
+/** Título corto + detalle para un `FieldItem`, resuelto contra la narrativa
+ * sintetizada cuando hay un bullet cuyas fuentes se superponen con las citas
+ * del ítem. Sin match (narrativa vieja, o el ítem no tiene citas todavía),
+ * cae al comportamiento anterior -- nunca deja la fila sin texto. */
+function resolvePlazoDisplay(item: FieldItem, indexedBullets: IndexedBullet[]): { label: string; value: string } {
+  const fallbackValue = undatedValue(item) ?? "Sin detalle";
+  if (item.citations.length === 0) {
+    return { label: item.field_name, value: fallbackValue };
+  }
+  const match = indexedBullets.find(({ sources }) => matchSources(sources, item.citations).length > 0);
+  const titulo = match?.bullet.titulo?.trim();
+  if (match && titulo) {
+    return { label: titulo, value: match.bullet.text };
+  }
+  return { label: item.field_name, value: fallbackValue };
 }
 
 const MIN_SPAN_DAYS = 14;
@@ -268,9 +334,14 @@ function TimelineChart({
  * quedan listados aparte. El marcador de "Hoy" se calcula en cada render con
  * la fecha real del dispositivo, no la fecha en la que se corrio el analisis.
  */
-export function PlazosTimeline({ items, narrativeSources = [], onViewSource }: PlazosTimelineProps) {
+export function PlazosTimeline({ items, narrativeSources = [], narrativeBullets = [], onViewSource }: PlazosTimelineProps) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const indexedBullets = useMemo(
+    () => indexBulletsBySources(narrativeBullets, narrativeSources),
+    [narrativeBullets, narrativeSources],
+  );
 
   const extracted = useMemo(() => items.filter((item) => item.field_state === "extraido"), [items]);
 
@@ -294,18 +365,14 @@ export function PlazosTimeline({ items, narrativeSources = [], onViewSource }: P
   const undatedEntries = useMemo<UndatedEntry[]>(() => {
     const entries: UndatedEntry[] = [];
     for (const item of undated) {
-      const value = undatedValue(item);
-      if (!value) {
+      if (!undatedValue(item)) {
         continue;
       }
-      entries.push({
-        item,
-        label: item.field_name,
-        value,
-      });
+      const { label, value } = resolvePlazoDisplay(item, indexedBullets);
+      entries.push({ item, label, value });
     }
     return entries;
-  }, [undated]);
+  }, [undated, indexedBullets]);
 
   if (dated.length === 0 && undated.length === 0) {
     return (
@@ -353,24 +420,28 @@ export function PlazosTimeline({ items, narrativeSources = [], onViewSource }: P
       ) : null}
 
       {undatedEntries.length > 0 ? (
-        <ul className={`${dated.length > 0 ? "mt-3 border-t border-gray-200 pt-3" : ""} space-y-1.5`} data-testid="plazos-sin-fecha">
+        <ul
+          className={`divide-y divide-[rgba(0,60,107,.06)] ${dated.length > 0 ? "mt-3 border-t border-gray-200 pt-1" : ""}`}
+          data-testid="plazos-sin-fecha"
+        >
           {undatedEntries.map(({ item, label, value }, index) => (
             <li
               key={`${item.field_name}-${index}`}
-              className="flex items-start gap-2"
+              className="flex flex-col gap-1 py-2.5 first:pt-0 last:pb-0"
               data-testid="plazos-sin-fecha-item"
             >
-              <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-gray-400" aria-hidden="true" />
-              <span className="flex-1 text-sm leading-relaxed text-gray-800">
-                <strong className="font-semibold text-gray-900">{`${label}:`}</strong>
-                {` ${value}`}
-              </span>
-              {item.citations[0] ? (
-                <SourceEyeButton
-                  pages={item.citations.map((citation) => citation.page)}
-                  onClick={() => handleViewSource(item)}
-                />
-              ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold text-[#003C6B]">{label}</span>
+                {item.citations[0] ? (
+                  <SourceEyeButton
+                    pages={item.citations.map((citation) => citation.page)}
+                    onClick={() => handleViewSource(item)}
+                  />
+                ) : null}
+              </div>
+              <p className="text-[13px] leading-relaxed text-[rgba(0,60,107,.68)]">
+                {renderDetalleConNumerosEnNegrita(value)}
+              </p>
             </li>
           ))}
         </ul>

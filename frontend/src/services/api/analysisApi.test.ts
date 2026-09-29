@@ -28,14 +28,8 @@ describe("analysisApi extraction_status parsing", () => {
           id: "v1",
           version_number: 1,
           extracted_data: {
-            objeto_alcance: {
-              items: [],
-              confidence: 0,
-              source_references: [],
-              extraction_status: "not_found",
-              summary: "Sin datos",
-              is_reviewed: false,
-            },
+            objeto_alcance: [],
+            objeto_alcance_extraction_status: "not_found",
           },
           conflicts: {},
           created_at: "2026-08-05T00:00:00Z",
@@ -59,20 +53,8 @@ describe("analysisApi extraction_status parsing", () => {
           id: "v1",
           version_number: 1,
           extracted_data: {
-            garantias: {
-              items: [],
-              confidence: 1,
-              source_references: [
-                {
-                  page: 3,
-                  document_id: "doc-1",
-                  text_snippet: "No se exige garantía de anticipo.",
-                },
-              ],
-              extraction_status: "not_applicable",
-              summary: "No aplica",
-              is_reviewed: false,
-            },
+            garantias: [],
+            garantias_extraction_status: "not_applicable",
           },
           conflicts: {},
           created_at: "2026-08-05T00:00:00Z",
@@ -96,47 +78,40 @@ describe("analysisApi extraction_status parsing", () => {
           id: "v1",
           version_number: 1,
           extracted_data: {
-            objeto_alcance: {
-              items: [
-                {
-                  field_name: "Objeto",
-                  field_value: "Servicio",
-                  field_state: "extraido",
-                  confidence: 0.9,
-                  citations: [
-                    {
-                      text: "Texto cita",
-                      page: 3,
-                      document_id: "doc-1",
-                      document_name: "Documento",
-                    },
-                  ],
-                },
-              ],
-              confidence: 0.9,
-              source_references: [],
-              extraction_status: "success",
-              summary: "Resumen",
-              is_reviewed: false,
-              narrative: {
-                blocks: [
+            objeto_alcance: [
+              {
+                tipo: "resumen_objeto",
+                valor: "Servicio",
+                confidence: 0.9,
+                extraction_status: "success",
+                source_references: [
                   {
-                    type: "paragraph",
-                    text: "Servicio requerido.",
-                    confidence_level: "high",
-                    source_ids: [0],
-                  },
-                ],
-                sources: [
-                  {
-                    id: 0,
                     document_id: "doc-1",
-                    document_name: "Documento",
-                    page: 3,
-                    text: "Texto cita",
+                    page_number: 3,
+                    citation: "Texto cita",
                   },
                 ],
               },
+            ],
+            objeto_alcance_extraction_status: "success",
+            objeto_alcance_narrative: {
+              blocks: [
+                {
+                  type: "paragraph",
+                  text: "Servicio requerido.",
+                  confidence_level: "high",
+                  source_ids: [0],
+                },
+              ],
+              sources: [
+                {
+                  id: 0,
+                  document_id: "doc-1",
+                  document_name: "Documento",
+                  page_number: 3,
+                  citation: "Texto cita",
+                },
+              ],
             },
           },
           conflicts: {},
@@ -205,6 +180,61 @@ describe("analysisApi extraction_status parsing", () => {
     expect(block?.type).toBe("bullet_list");
     if (block?.type === "bullet_list") {
       expect(block.items[0]?.resumen).toBe("60 días");
+    }
+  });
+
+  test("preserva `titulo` de cada bullet de una narrativa (bug real: se descartaba en el parseo, todas las categorías caían siempre a la fila sin título)", async () => {
+    getMock.mockResolvedValueOnce({
+      data: {
+        id: "analysis-5",
+        created_at: "2026-09-28T00:00:00Z",
+        status: "analyzed",
+        current_stage: "completed",
+        current_version: {
+          id: "v1",
+          version_number: 1,
+          extracted_data: {
+            requisitos_admisibilidad: [],
+            requisitos_admisibilidad_extraction_status: "success",
+            requisitos_admisibilidad_narrative: {
+              blocks: [
+                {
+                  type: "bullet_list",
+                  items: [
+                    {
+                      text: "Presentar constancia vigente al momento de la apertura.",
+                      titulo: "Constancia RUP vigente",
+                      confidence_level: "high",
+                      source_ids: [0],
+                    },
+                  ],
+                },
+              ],
+              sources: [
+                {
+                  id: 0,
+                  document_id: "doc-1",
+                  document_name: "Pliego Principal.pdf",
+                  page_number: 3,
+                  citation: "Constancia RUP vigente al momento de la apertura.",
+                },
+              ],
+            },
+          },
+          conflicts: {},
+          created_at: "2026-09-28T00:00:00Z",
+        },
+        documents: [{ id: "doc-1", filename: "Pliego Principal.pdf", is_primary: true }],
+      },
+    });
+
+    const result = await getAnalysisById("analysis-5");
+    const category = result.current_version.extracted_data.requisitos_admisibilidad;
+    const block = category?.narrative?.blocks[0];
+
+    expect(block?.type).toBe("bullet_list");
+    if (block?.type === "bullet_list") {
+      expect(block.items[0]?.titulo).toBe("Constancia RUP vigente");
     }
   });
 });

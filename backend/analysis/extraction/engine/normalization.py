@@ -42,19 +42,7 @@ _TIPOS_IDENTIFICACION_QUE_REQUIEREN_DIGITO = {
 }
 
 
-def _default_not_found_item() -> dict[str, Any]:
-    return {
-        "tipo": "No encontrado",
-        "valor": None,
-        "confidence": 0.0,
-        "source_references": [],
-        "extraction_status": "not_found",
-    }
-
-
-# Etiquetas legibles para GarantiaItem.tipo (schemas.TipoGarantia), usadas
-# solo para componer `valor` cuando el LLM lo devuelve vacío -- ver
-# `_fill_missing_valor_for_garantias`.
+# Etiquetas legibles usadas solo para componer `valor` cuando el LLM lo devuelve vacío (ver `_fill_missing_valor_for_garantias`).
 _GARANTIA_TIPO_LABELS: dict[str, str] = {
     "mantenimiento_oferta": "Garantía de Mantenimiento de Oferta",
     "cumplimiento_contrato": "Garantía de Cumplimiento de Contrato",
@@ -119,10 +107,7 @@ def _compose_garantia_valor(item: dict[str, Any]) -> str | None:
     if parts:
         return f"{label}: " + ", ".join(parts)
 
-    # Sin ningún campo estructurado (común en el caso de exención/
-    # not_applicable, donde no hay monto que constituir): la cita ya pasó por
-    # `_verify_citation_grounding`, así que es texto real del pliego -- mejor
-    # eso que un ítem en blanco.
+    # Sin campo estructurado (típico en exención/not_applicable): usar la cita, ya verificada, es mejor que un ítem en blanco.
     refs = item.get("source_references")
     if isinstance(refs, list):
         for ref in refs:
@@ -184,19 +169,7 @@ def _normalize_item(item: dict[str, Any], fallback: dict[str, Any] | None = None
         status = "partial" if normalized.get("source_references") else "not_found"
     normalized["extraction_status"] = status
 
-    # FIX (2026-09-11, bug encontrado auditando garantías/dell): varias
-    # prompts (ej. garantias.txt, Caso 4) exigen explícitamente que todo
-    # ítem `not_applicable` traiga `valor` ("es el único texto que le
-    # explica al oferente por qué no hay garantía... un not_applicable con
-    # valor: null no sirve") -- el LLM viola esa instrucción de todos modos
-    # (observado: ítem con cita real pero `valor: null`, mostrando un N/A al
-    # usuario sin ninguna explicación legible). Confiar en que el LLM cumpla
-    # su propia instrucción no alcanzó -- se lo baja acá de forma
-    # determinística en vez de persistir una afirmación N/A sin sustento.
-    # `_normalize_mixed_not_found_items`/`_drop_items_without_sources`, río
-    # abajo, deciden después si el ítem sobrevive (por sus fuentes) o se
-    # descarta -- acá solo se evita la mentira de un N/A "explicado" que no
-    # explica nada.
+    # El LLM a veces devuelve not_applicable con valor null pese a que el prompt lo prohíbe; se lo baja a partial acá para no persistir un N/A sin explicación.
     if normalized["extraction_status"] == "not_applicable" and not str(
         normalized.get("valor") or ""
     ).strip():
@@ -363,7 +336,6 @@ def _augment_identificacion_payload(
         if len(citation) < CITATION_MIN_CHARS:
             return
 
-        # Extraer block_id del chunk (de source.blocks o merged_blocks)
         block_id = None
         source_data = chunk.get("source", {})
         if isinstance(source_data, dict):

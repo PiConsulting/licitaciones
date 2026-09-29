@@ -401,7 +401,6 @@ def _merge_split_headings_across_pages(blocks: list[dict]) -> list[dict]:
             last_word_current = words_current[-1]
             first_word_next = words_next[0]
 
-            is_roman_current = bool(re.match(r"^[IVXLCDM]+$", last_word_current, re.IGNORECASE))
             is_roman_next = bool(re.match(r"^[IVXLCDM]+$", first_word_next, re.IGNORECASE))
 
             next_starts_lowercase = first_word_next[0].islower()

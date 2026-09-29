@@ -28,6 +28,7 @@ def _event_to_pydantic(row: EventORM) -> Event:
         source_document_id=row.source_document_id,
         source_page=row.source_page,
         source_fragment=row.source_fragment,
+        detalle=row.detalle,
         source_reference=row.source_reference,
         deleted=row.deleted,
         hidden=row.hidden,
@@ -47,6 +48,7 @@ def create_event(db: Session, event: Event) -> Event:
         source_document_id=event.source_document_id,
         source_page=event.source_page,
         source_fragment=event.source_fragment,
+        detalle=event.detalle,
         source_reference=event.source_reference,
         deleted=event.deleted,
         hidden=event.hidden,
@@ -80,6 +82,7 @@ def update_event(db: Session, event: Event) -> Event:
     row.source_document_id = event.source_document_id
     row.source_page = event.source_page
     row.source_fragment = event.source_fragment
+    row.detalle = event.detalle
     row.source_reference = event.source_reference
     row.deleted = event.deleted
     row.hidden = event.hidden

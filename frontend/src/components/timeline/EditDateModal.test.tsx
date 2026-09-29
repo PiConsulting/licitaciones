@@ -132,7 +132,6 @@ describe("EditDateModal", () => {
   });
 
   test("debe mostrar toast con eventos recalculados", async () => {
-    const { toast } = await import("../../components/Toast");
     const event = createEvent();
     const mockUpdate = vi.mocked(timelineApi.updateEvent);
     const mockRecalc = vi.mocked(timelineApi.recalculateDependentDates);
@@ -154,9 +153,7 @@ describe("EditDateModal", () => {
     fireEvent.click(screen.getByRole("button", { name: /Actualizar/i }));
 
     await waitFor(() => {
-      expect(toast.success).toHaveBeenCalledWith(
-        expect.stringContaining("3 eventos dependientes")
-      );
+      expect(screen.getByText(/3 eventos dependientes/i)).toBeInTheDocument();
     });
   });
 

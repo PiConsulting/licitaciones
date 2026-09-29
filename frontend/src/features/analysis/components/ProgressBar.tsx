@@ -27,10 +27,14 @@ export function ProgressBar({ stage, progress, stageProgress }: ProgressBarProps
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const doneIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Real progress from backend always wins
+  // Real progress from backend always wins, salvo que sea una corrida nueva (queued): ahí se
+  // reinicia a 0 en vez de conservar el % simulado de la corrida anterior (bug real: aprobar
+  // fase 2 después de que "analyzing" ya había simulado hasta 75% dejaba el próximo arranque
+  // pegado en 75% porque Math.max(75, 0) nunca vuelve a bajar). Mismo fix que ya tiene el
+  // ProgressBar de la pestaña de detalle (components/analysis/ProgressBar.tsx).
   useEffect(() => {
-    setDisplayProgress((prev) => Math.max(prev, progress));
-  }, [progress]);
+    setDisplayProgress((prev) => (stage === "queued" ? 0 : Math.max(prev, progress)));
+  }, [progress, stage]);
 
   // Simulate slow progress % during analyzing stage so the bar doesn't appear frozen
   useEffect(() => {
@@ -79,13 +83,16 @@ export function ProgressBar({ stage, progress, stageProgress }: ProgressBarProps
   }
 
   return (
-    <div className="w-full min-w-40">
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="truncate text-xs text-gray-600">{displayStageProgress || stageLabel}</span>
-        <span className="text-xs font-semibold text-gray-700">{safeProgress}%</span>
+    <div className="min-w-[150px]">
+      <div className="mb-[5px] flex items-center justify-between gap-2">
+        <span className="truncate text-[13px] text-cedi-navy-68">{displayStageProgress || stageLabel}</span>
+        <span className="text-[13px] font-bold text-cedi-navy">{safeProgress}%</span>
       </div>
-      <div className="h-2 w-full rounded bg-gray-100">
-        <div className="h-2 rounded bg-primary transition-all" style={{ width: `${safeProgress}%` }} />
+      <div className="h-[6px] w-full rounded-full bg-cedi-navy-10">
+        <div
+          className="h-[6px] rounded-full bg-gradient-to-r from-cedi-celeste to-cedi-mint transition-all"
+          style={{ width: `${safeProgress}%` }}
+        />
       </div>
     </div>
   );

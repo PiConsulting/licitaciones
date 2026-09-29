@@ -77,36 +77,34 @@ describe("PDFViewer selector de documentos", () => {
     pageProps.length = 0;
   });
 
-  test("muestra tabs con nombres limpios sin extension y activo destacado", async () => {
+  test("muestra un select con los documentos y el activo seleccionado", async () => {
     renderViewer();
 
-    const pliegoTab = await screen.findByRole("tab", { name: "Pliego Principal" });
-    const anexoTab = screen.getByRole("tab", { name: "Anexo I" });
-
-    expect(pliegoTab).toBeInTheDocument();
-    expect(anexoTab).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Pliego Principal.pdf" })).not.toBeInTheDocument();
-    expect(pliegoTab).toHaveAttribute("aria-pressed", "true");
-    expect(anexoTab).toHaveAttribute("aria-pressed", "false");
+    const select = await screen.findByRole("combobox", { name: "Documento" });
+    expect(select).toHaveValue("doc-1");
+    expect(screen.getByRole("option", { name: "Pliego Principal.pdf" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Anexo I.pdf" })).toBeInTheDocument();
   });
 
-  test("recuerda la ultima pagina por documento al alternar tabs", async () => {
+  test("recuerda la ultima pagina por documento al alternar en el select", async () => {
     const user = userEvent.setup();
     renderViewer();
 
     expect(await screen.findByText((text) => /Página\s*5\s*de\s*20/.test(text))).toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: "Anexo I" }));
+    const select = screen.getByRole("combobox", { name: "Documento" });
+
+    await user.selectOptions(select, "doc-2");
     expect(screen.getByText((text) => /Página\s*2\s*de\s*20/.test(text))).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Página siguiente" }));
     await user.click(screen.getByRole("button", { name: "Página siguiente" }));
     expect(screen.getByText((text) => /Página\s*4\s*de\s*20/.test(text))).toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: "Pliego Principal" }));
+    await user.selectOptions(select, "doc-1");
     expect(screen.getByText((text) => /Página\s*5\s*de\s*20/.test(text))).toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: "Anexo I" }));
+    await user.selectOptions(select, "doc-2");
     expect(screen.getByText((text) => /Página\s*4\s*de\s*20/.test(text))).toBeInTheDocument();
   });
 
@@ -114,7 +112,8 @@ describe("PDFViewer selector de documentos", () => {
     const user = userEvent.setup();
     renderViewerWithNonSourceDocument();
 
-    await user.click(screen.getByRole("tab", { name: "Anexo II" }));
+    const select = screen.getByRole("combobox", { name: "Documento" });
+    await user.selectOptions(select, "doc-3");
 
     await user.click(screen.getByRole("button", { name: "Página siguiente" }));
     await user.click(screen.getByRole("button", { name: "Página siguiente" }));

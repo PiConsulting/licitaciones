@@ -1,4 +1,4 @@
-const CURRENCY_TITLE = "Licitación en pesos o dólares";
+const CURRENCY_TITLE = "Moneda";
 const GARANTIAS_TITLE = "Garantías o cauciones";
 
 const PERCENT_PATTERN = /\d+(?:[.,]\d+)?\s?%/g;
@@ -41,9 +41,7 @@ function normalizeGarantias(detailText: string): string | null {
     return clean(matches[0]);
   }
 
-  // Varias garantías en el mismo texto: un título corto (si se reconoce el
-  // tipo) más su porcentaje, por cada una -- no un solo % suelto que no
-  // distinga a cuál corresponde.
+  // Varias garantías en el mismo texto: título corto + porcentaje por cada una, no un solo % suelto sin distinguir a cuál corresponde.
   const segments = detailText.split(/[,;]|\by\b/i);
   const parts: string[] = [];
   for (const segment of segments) {

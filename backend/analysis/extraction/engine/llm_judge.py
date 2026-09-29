@@ -18,8 +18,7 @@ from analysis.extraction.engine.llm_client import _call_llm
 
 logger = structlog.get_logger(__name__)
 
-# Qué tiene que buscar el juez en cada categoría. Frases derivadas del bloque
-# CONCEPTO de cada prompt de extracción (analysis/extraction/prompts/*.txt).
+# Qué tiene que buscar el juez en cada categoría; frases derivadas del bloque CONCEPTO de cada prompt de extracción.
 _CATEGORY_BRIEF: dict[str, str] = {
     "objeto_alcance": (
         "QUÉ se licita: objeto y alcance de la contratación, ítems/renglones/lotes y "

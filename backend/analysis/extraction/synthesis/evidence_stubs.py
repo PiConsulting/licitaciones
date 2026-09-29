@@ -23,8 +23,7 @@ def _stub_for_evidence(
     """Ancla una evidencia del LLM a una cita YA VERIFICADA del item que ella
     misma dice respaldar. Devuelve `(stub, citation)` o None.
     """
-    # Import diferido: source_resolution importa de este módulo a nivel de
-    # módulo (_resolve_from_evidence); importar acá arriba crearía un ciclo.
+    # Import diferido: source_resolution importa de este módulo a nivel de módulo; importar acá arriba crearía un ciclo.
     from analysis.extraction.synthesis.source_resolution import _item_source_stubs
 
     candidate_stubs: list[dict[str, Any]] = []
@@ -180,6 +179,7 @@ def _resolve_from_evidence(
                     {
                         "text": bullet.text,
                         "resumen": bullet.resumen,
+                        "titulo": bullet.titulo,
                         "confidence_level": bullet.confidence_level,
                         "source_ids": source_ids,
                     }

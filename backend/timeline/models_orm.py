@@ -49,6 +49,8 @@ class EventORM(Base):
     )
     source_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
     source_fragment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Descripción breve sintetizada (`accion_concreta` en la extracción) -- ver `timeline/models.py::Event.detalle`.
+    detalle: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_reference: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # No hay Alembic en este repo -- columna agregada por migración manual (ALTER TABLE).

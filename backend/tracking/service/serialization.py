@@ -70,6 +70,7 @@ def _to_tracking_payload(db: Session, tracking: Tracking) -> dict:
         "version_id": tracking.version_id,
         "status": tracking.status,
         "started_by": tracking.started_by,
+        "started_by_name": tracking.started_by_name,
         "started_at": tracking.started_at,
         "completed_by": tracking.completed_by,
         "completed_by_name": tracking.completed_by_name,

@@ -1,10 +1,29 @@
 import { useMemo, useState } from "react";
+import { PDFDocument } from "pdf-lib";
 
 import type { UploadedFile } from "../types/upload";
 import { formatFileSizeMb, validateFileCount, validateFileFormat, validateFileSize, validateTotalSize } from "../utils/fileValidation";
 
 function createFileId(file: File) {
   return `${file.name}-${file.size}-${file.lastModified}`;
+}
+
+function formatPagesLabel(pages: number | null): string {
+  if (!pages || pages <= 0) {
+    return "N/D páginas";
+  }
+  return `${pages} página${pages === 1 ? "" : "s"}`;
+}
+
+async function readPdfPageCount(file: File): Promise<number | null> {
+  try {
+    const data = await file.arrayBuffer();
+    const pdf = await PDFDocument.load(data, { ignoreEncryption: true });
+    const pages = Number(pdf.getPageCount());
+    return Number.isFinite(pages) && pages > 0 ? pages : null;
+  } catch {
+    return null;
+  }
 }
 
 export function useFileUpload() {
@@ -55,7 +74,7 @@ export function useFileUpload() {
       file,
       sizeMb: formatFileSizeMb(file.size),
       pagesLabel: "N/D páginas",
-      status: "validating",
+      status: "valid",
     }));
 
     if (mappedFiles.length === 0) {
@@ -63,25 +82,41 @@ export function useFileUpload() {
       return;
     }
 
-    setMessages(nextMessages);
-    setFiles((current) => {
-      const existing = new Set(current.map((item) => item.id));
-      const deduped = mappedFiles.filter((item) => !existing.has(item.id));
-      return [...current, ...deduped];
-    });
+    const existing = new Set(files.map((item) => item.id));
+    const deduped = mappedFiles.filter((item) => !existing.has(item.id));
 
-    window.setTimeout(() => {
-      setFiles((current) =>
-        current.map((item) =>
-          mappedFiles.some((added) => added.id === item.id)
-            ? {
-                ...item,
-                status: "valid",
-              }
-            : item,
-        ),
+    if (deduped.length === 0) {
+      setMessages(nextMessages);
+      return;
+    }
+
+    setMessages(nextMessages);
+    setFiles((current) => [...current, ...deduped]);
+
+    void (async () => {
+      const resolved = await Promise.all(
+        deduped.map(async (item) => {
+          const pages = await readPdfPageCount(item.file);
+          return {
+            id: item.id,
+            pagesLabel: formatPagesLabel(pages),
+          };
+        }),
       );
-    }, 200);
+
+      setFiles((current) =>
+        current.map((item) => {
+          const found = resolved.find((resolvedItem) => resolvedItem.id === item.id);
+          if (!found) {
+            return item;
+          }
+          return {
+            ...item,
+            pagesLabel: found.pagesLabel,
+          };
+        }),
+      );
+    })();
   };
 
   const removeFile = (id: string) => {

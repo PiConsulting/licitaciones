@@ -10,7 +10,6 @@ backend_dir = Path(__file__).parent
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
-from analysis.extraction.synthesis import CATEGORY_LABELS
 from analysis.extraction.synthesis.prompt_and_serialization import _empty_category_narrative
 from analysis.extraction.schemas import CategoryNarrative
 

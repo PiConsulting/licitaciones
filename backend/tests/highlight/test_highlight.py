@@ -1,7 +1,6 @@
 # Tests para highlight pre-computado
 
 import pytest
-from pathlib import Path
 
 from analysis.extraction.highlight import highlight as highlight_module
 from analysis.extraction.highlight import (

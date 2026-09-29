@@ -145,22 +145,7 @@ def _drop_items_without_sources(
             placeholders_kept += 1
             continue
 
-        # FIX (2026-09-03, bug reportado: preview mostraba solo 4/10
-        # criterios, algunos con dato real pero sin evidencia clickeable):
-        # un item puede llegar acá con status "success"/"partial" y sin
-        # embargo `source_references` vacío -- no porque no se haya
-        # encontrado nada, sino porque `_verify_citation_grounding` (engine/
-        # citation_grounding.py) no pudo confirmar la cita del LLM contra los
-        # chunks recuperados (parafraseo, chunk no recuperado, page_number
-        # mal formado) y la vació, degradando el item a "partial" con
-        # `_warning="cita_no_verificada"`. Antes esto se descartaba entero:
-        # el usuario veía como si el dato nunca se hubiera extraído, cuando
-        # el sistema SÍ lo encontró -- solo no pudo verificar la cita
-        # literal. Se conserva sin evidencia clickeable en vez de perderlo:
-        # el frontend ya sabe renderizar un item sin fuentes verificadas (no
-        # cuenta para "revisado automáticamente", no ofrece botón de ver
-        # fuente), así que el usuario ve el dato con esa salvedad, no un
-        # vacío indistinguible de "no está en el pliego".
+        # Un item con dato real puede llegar con source_references vacío porque no se pudo verificar la cita (no porque no se haya encontrado nada); se conserva sin evidencia clickeable en vez de descartarlo entero.
         if _item_has_substantive_content(item):
             filtered.append(item)
             unverified_kept += 1

@@ -344,7 +344,7 @@ def test_graph_execution_all_success(mock_state: dict, mock_search: None, mock_l
 
     result = graph.invoke(state)
     assert "extracted_data" in result
-    assert len(result["extracted_data"]["plazos"]) > 0
+    assert len(result["extracted_data"]["plazos_clave"]) > 0
     assert len(result["extracted_data"]["garantias"]) > 0
     assert "objeto_alcance" in result["extracted_data"]
     assert "anexos_obligatorios" in result["extracted_data"]
@@ -437,6 +437,96 @@ def test_merge_node_detects_conflicts() -> None:
     assert len(result["conflicts"]) > 0
     assert result["conflicts"][0]["category"] == "plazos"
     assert result["conflicts"][0]["reason"] == "Fechas diferentes en distintos documentos"
+
+
+def test_merge_node_detecta_conflicto_en_preview_criterios_singleton() -> None:
+    """preview_criterios.txt declara "un item exacto" para forma_pago (y otros 4
+    tipos), pero nada lo hacía cumplir -- dos items con `valor` distinto para el
+    mismo tipo se venían fusionando en la síntesis sin avisar. Mismo patrón que
+    plazos/garantias arriba, aplicado a preview_criterios."""
+    state = {
+        "analysis_id": "analysis-1",
+        "correlation_id": "corr-1",
+        "plazos": [],
+        "garantias": [],
+        "causales": [],
+        "requisitos_admisibilidad": [],
+        "criterios": [],
+        "preview_criterios": [
+            {
+                "tipo": "forma_pago",
+                "valor": "15 días de librado el Parte de Recepción Definitiva",
+                "extraction_status": "success",
+                "confidence": 0.8,
+                "source_references": [
+                    {"document_id": "doc-1", "page_number": 2, "citation": "a los 15 días de librado..."}
+                ],
+            },
+            {
+                "tipo": "forma_pago",
+                "valor": "Pago dentro de treinta (30) días",
+                "extraction_status": "success",
+                "confidence": 0.8,
+                "source_references": [
+                    {"document_id": "doc-1", "page_number": 12, "citation": "dentro de treinta (30) días..."}
+                ],
+            },
+        ],
+        "plazos_status": "success",
+        "garantias_status": "success",
+        "causales_status": "success",
+        "requisitos_admisibilidad_status": "success",
+        "criterios_status": "success",
+        "preview_criterios_status": "success",
+    }
+
+    result = merge_node(state)
+
+    preview_conflicts = [c for c in result["conflicts"] if c["category"] == "preview_criterios"]
+    assert len(preview_conflicts) == 1
+    assert preview_conflicts[0]["tipo"] == "forma_pago"
+    assert preview_conflicts[0]["reason"] == "Valores diferentes dentro del mismo documento"
+
+
+def test_merge_node_no_marca_conflicto_en_multas_penalidades_con_varios_items() -> None:
+    """multas_penalidades NO es un tipo singleton -- varias tasas distintas para
+    el mismo pliego son normales, no un conflicto a avisar."""
+    state = {
+        "analysis_id": "analysis-1",
+        "correlation_id": "corr-1",
+        "plazos": [],
+        "garantias": [],
+        "causales": [],
+        "requisitos_admisibilidad": [],
+        "criterios": [],
+        "preview_criterios": [
+            {
+                "tipo": "multas_penalidades",
+                "valor": "0,5% del monto total por día corrido de demora",
+                "extraction_status": "success",
+                "confidence": 0.8,
+                "source_references": [{"document_id": "doc-1", "page_number": 41, "citation": "0,5%..."}],
+            },
+            {
+                "tipo": "multas_penalidades",
+                "valor": "0,25% del monto total por día hábil de demora",
+                "extraction_status": "success",
+                "confidence": 0.8,
+                "source_references": [{"document_id": "doc-1", "page_number": 41, "citation": "0,25%..."}],
+            },
+        ],
+        "plazos_status": "success",
+        "garantias_status": "success",
+        "causales_status": "success",
+        "requisitos_admisibilidad_status": "success",
+        "criterios_status": "success",
+        "preview_criterios_status": "success",
+    }
+
+    result = merge_node(state)
+
+    preview_conflicts = [c for c in result["conflicts"] if c["category"] == "preview_criterios"]
+    assert preview_conflicts == []
 
 
 def test_merge_node_detecta_conflicto_dentro_del_mismo_documento() -> None:
@@ -579,7 +669,7 @@ def test_confidence_calculation() -> None:
 
 def test_json_contract_allows_not_applicable_status() -> None:
     payload = {
-        "plazos": [
+        "plazos_clave": [
             {
                 # FIX (2026-08-22): `TipoPlazo` se eliminó del schema -- `referencia` es texto libre, no un enum.
                 "referencia": "Mantenimiento de oferta",
@@ -601,11 +691,10 @@ def test_json_contract_allows_not_applicable_status() -> None:
         "requisitos_admisibilidad": [],
         "criterios_evaluacion": [],
         "anexos_obligatorios": [],
-        "estimacion_presupuesto": None,
     }
 
     validated = ExtractedData(**payload)
-    assert validated.plazos[0].extraction_status == "not_applicable"
+    assert validated.plazos_clave[0].extraction_status == "not_applicable"
 
 
 def test_merge_preserves_table_citation_header_and_row() -> None:
@@ -640,7 +729,7 @@ def test_merge_preserves_table_citation_header_and_row() -> None:
     }
 
     result = merge_node(state)
-    citation = result["extracted_data"]["plazos"][0]["source_references"][0]["citation"]
+    citation = result["extracted_data"]["plazos_clave"][0]["source_references"][0]["citation"]
     assert "Encabezado:" in citation
     assert "Fila:" in citation
 
@@ -780,41 +869,6 @@ def test_merge_exposes_ui_category_keys() -> None:
     assert "objeto_alcance" in data
     assert "anexos_obligatorios" in data
     assert data["requisitos_admisibilidad_extraction_status"] == "success"
-
-
-def test_merge_no_descarta_en_silencio_restricciones_cronograma_presupuesto() -> None:
-    """FIX (auditoría US-5.3, 2026-08-12): `merge_node` siempre escribe
-    'restricciones_participacion'/'cronograma_proceso'/'estimacion_presupuesto'
-    en el dict de extracted_data, pero `ExtractedData(**extracted_data)` los
-    descartaba en silencio porque no estaban declarados como campos del
-    schema -- mismo patron del incidente historico de primary_category/
-    secondary_categories. El frontend los espera como fallback
-    (`legacyToUiMap` en analysisApi.ts) para completar 'requisitos_admisibilidad'
-    y 'datos_procedimiento'."""
-    state = {
-        "analysis_id": "analysis-1",
-        "correlation_id": "corr-1",
-        "plazos": [],
-        "garantias": [],
-        "causales": [],
-        "requisitos_admisibilidad": [],
-        "criterios": [],
-        "plazos_status": "not_found",
-        "garantias_status": "not_found",
-        "causales_status": "not_found",
-        "requisitos_admisibilidad_status": "not_found",
-        "criterios_status": "not_found",
-    }
-
-    result = merge_node(state)
-    data = result["extracted_data"]
-
-    assert "restricciones_participacion" in data
-    assert "restricciones_extraction_status" in data
-    assert "cronograma_proceso" in data
-    assert "cronograma_extraction_status" in data
-    assert "estimacion_presupuesto" in data
-    assert "presupuesto_extraction_status" in data
 
 
 def test_merge_populates_datos_procedimiento_desde_identificacion() -> None:

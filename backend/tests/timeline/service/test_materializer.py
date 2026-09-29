@@ -121,6 +121,71 @@ class TestMaterializeFromPlazosRelativos:
             "mencion_propia": False
         }
 
+    def test_accion_concreta_se_persiste_como_detalle(self, db_session, analysis_id):
+        """Auditoría UI 2026-09-28: el Timeline mostraba `source_fragment` (la
+        cita literal, larga y burocrática) como si fuera la descripción del
+        evento. `accion_concreta` ya lo extrae el mismo LLM sin costo extra --
+        antes de este fix, el materializador lo descartaba en vez de
+        persistirlo."""
+        materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[
+                _evento_temporal(
+                    "Presentación de Ofertas",
+                    accion_concreta="El oferente presenta la oferta a través del portal.",
+                ),
+            ],
+            plazos_relativos=[],
+        )
+
+        events = {e.name: e for e in repository.list_events(db_session, analysis_id)}
+        assert events["Presentación de Ofertas"].detalle == "El oferente presenta la oferta a través del portal."
+
+    def test_sin_accion_concreta_detalle_queda_none_y_no_rompe(self, db_session, analysis_id):
+        """Extracciones viejas (antes de que el schema tuviera `accion_concreta`)
+        no deben romper -- `detalle` queda None, la UI cae a `source_fragment`."""
+        materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[_evento_temporal("Apertura de Ofertas")],
+            plazos_relativos=[],
+        )
+
+        events = {e.name: e for e in repository.list_events(db_session, analysis_id)}
+        assert events["Apertura de Ofertas"].detalle is None
+
+    def test_reanalisis_refresca_detalle_de_un_evento_existente(self, db_session, analysis_id):
+        """Mismo criterio que ya existe para `source_fragment` -- un reanálisis
+        con `accion_concreta` distinto debe actualizar el evento ya creado, no
+        quedar congelado en la primera corrida."""
+        materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[
+                _evento_temporal("Adjudicación", accion_concreta="El organismo adjudica el contrato.")
+            ],
+            plazos_relativos=[],
+        )
+        materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[
+                _evento_temporal(
+                    "Adjudicación",
+                    accion_concreta="El organismo notifica la adjudicación a los oferentes.",
+                )
+            ],
+            plazos_relativos=[],
+        )
+
+        events = {e.name: e for e in repository.list_events(db_session, analysis_id)}
+        assert events["Adjudicación"].detalle == "El organismo notifica la adjudicación a los oferentes."
+
     def test_two_deadlines_share_the_same_trigger_event(self, db_session, analysis_id):
         result = materialize_timeline_from_extraction(
             db_session,

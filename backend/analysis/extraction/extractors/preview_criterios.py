@@ -265,17 +265,18 @@ def _project_requisitos_tecnicos(requisitos: list[dict]) -> list[dict]:
     return [_merge_matches(matches, "requisitos_tecnicos_excluyentes", separator="\n", max_items=_REQUISITOS_TECNICOS_MAX_ITEMS)]
 
 
-# Guardia determinística (bug real: Bancor mostraba "llave en mano" como responsabilidad de costos): si el valor es solo la modalidad de contratación, buscar en las citas una frase que sí diga quién paga.
-_MODALIDAD_MENTION_RE = re.compile(
-    r"llave\s+en\s+mano|provisi[oó]n\s+(?:e\s+instalaci[oó]n\s+)?integral",
-    re.IGNORECASE,
-)
+# Guardia determinística (bug real: Bancor mostraba "llave en mano" como responsabilidad de costos): si el valor no dice quién paga, buscar en las citas una frase que sí lo diga.
 _COSTO_RESPONSABLE_SNIPPET_RE = re.compile(
     r"(?:a\s+cargo\s+(?:del|de\s+la)|por\s+cuenta\s+(?:del|de\s+la))\s+"
     r"(?:proveedor|oferente|adjudicatario|contratista)[^.;\n]{0,80}"
     r"|(?:el|la)\s+(?:proveedor|oferente|adjudicatario|contratista)\s+"
-    r"(?:asumir[aá]|asume|deber[aá]\s+asumir|correr[aá]\s+con)[^.;\n]{0,80}",
+    r"(?:asumir[aá]|asume|deber[aá]\s+asumir|(?:debe|deber[aá])\s+correr\s+con|"
+    r"correr[aá]\s+con|corre(?:r[aá])?\s+por\s+cuenta|absorbe|absorber[aá]|"
+    r"afronta|afrontar[aá])[^.;\n]{0,80}",
     re.IGNORECASE,
+)
+_COSTO_RESPONSABLE_PARTY_RE = re.compile(
+    r"proveedor|oferente|adjudicatario|contratista", re.IGNORECASE
 )
 
 
@@ -301,17 +302,8 @@ def _currency_name_snippet(item: dict) -> str | None:
     return None
 
 
-def _is_modalidad_only(valor: str | None) -> bool:
-    """True si el valor menciona la MODALIDAD de contratación (llave en mano/
-    provisión integral) pero no aporta ya, en el mismo texto, quién asume los
-    costos puntuales -- señal de que el valor describe el ALCANCE general, no
-    la responsabilidad de costos que pide este criterio de preview."""
-    if not valor:
-        return False
-    text = str(valor)
-    return bool(_MODALIDAD_MENTION_RE.search(text)) and not bool(
-        _COSTO_RESPONSABLE_SNIPPET_RE.search(text)
-    )
+def _has_cost_responsible_party(valor: str | None) -> bool:
+    return bool(valor) and bool(_COSTO_RESPONSABLE_SNIPPET_RE.search(str(valor)))
 
 
 def _cost_responsibility_snippet(item: dict) -> str | None:
@@ -323,17 +315,47 @@ def _cost_responsibility_snippet(item: dict) -> str | None:
     return None
 
 
+def cost_responsible_party_canonical(text: str | None) -> str | None:
+    match = _COSTO_RESPONSABLE_PARTY_RE.search(str(text or ""))
+    if not match:
+        return None
+    return "A cargo del adjudicatario" if match.group(0).lower() == "adjudicatario" else "A cargo del proveedor"
+
+
+# Guardia de contenido (Bancor, bug real en producción): `forma_pago` es sobre CUÁNDO/CÓMO
+# se paga, nunca sobre el mecanismo de DESCUENTO/RETENCIÓN de multas sobre facturación --
+# el LLM sigue confundiendo ambos pese a la aclaración explícita del prompt
+# (`preview_criterios.txt`, "NO es un mecanismo de descuento de penalidades sobre
+# facturas"). Genérico (verbo de descuento + importe/monto + factura), no depende de
+# ningún pliego puntual.
+_DESCUENTO_MULTAS_SOBRE_FACTURA_RE = re.compile(
+    r"\b(?:deducir[aá]?|descontar[aá]?|retendr[aá]?|retener[aá]?)\b[^.;\n]{0,60}\b"
+    r"(?:import(?:e|es)|monto(?:s)?)\b[^.;\n]{0,40}\bfactura",
+    re.IGNORECASE,
+)
+
+
+def _is_descuento_multas_sobre_factura(valor: str | None) -> bool:
+    return bool(valor) and bool(_DESCUENTO_MULTAS_SOBRE_FACTURA_RE.search(str(valor)))
+
+
 def _apply_content_guards(items: list[dict]) -> list[dict]:
     """Guardias de contenido determinísticas para `forma_pago`/`moneda`/
     `responsabilidad_costos_logisticos`, aplicadas al resultado final sin
     importar si el item vino de la extracción directa de `preview_criterios.txt`
     o del fallback de `riesgos` -- ambas fuentes pueden, de forma no
-    determinística, devolver un `valor` que describe la MODALIDAD de
-    contratación en vez de responder la pregunta puntual del criterio."""
+    determinística, devolver un `valor` que no dice quién paga los costos
+    puntuales que pide este criterio."""
     result = []
     for item in items:
         tipo = _tipo_value(item.get("tipo"))
-        if tipo == "responsabilidad_costos_logisticos" and _is_modalidad_only(item.get("valor")):
+        if tipo == "forma_pago" and _is_descuento_multas_sobre_factura(item.get("valor")):
+            # Se descarta (no se reemplaza por not_found): a diferencia de
+            # moneda/responsabilidad_costos_logisticos, forma_pago puede tener
+            # legítimamente más de un item -- si este era el único, la red de
+            # seguridad de extractor_preview_criterios agrega el not_found que falte.
+            continue
+        if tipo == "responsabilidad_costos_logisticos" and not _has_cost_responsible_party(item.get("valor")):
             snippet = _cost_responsibility_snippet(item)
             if snippet:
                 item = dict(item)

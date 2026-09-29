@@ -71,19 +71,7 @@ def get_category_top_k(category_key: str, default: int = 25) -> int:
     return int(top_k) if isinstance(top_k, (int, float, str)) and str(top_k).isdigit() else default
 
 
-# FIX (2026-09-03, Fase 1.4 del plan RAG): category_penalty configurable por
-# categoría, mismo patrón que get_category_top_k de arriba. Origen: el
-# dataset de evaluación (evaluation/datasets/retrieval_eval_v1.json, 9 casos
-# / 6 pliegos) mostró que el penalty default de -30% (`chunk_retrieval.py`)
-# perjudica activamente el recall de `preview_criterios` en chunks con
-# contenido multi-categoría (comportamiento monotónico y reproducible en
-# Bancor, Nucleoeléctrica y Bancor/Imperva: a menor penalty, mejor recall,
-# sin degradar ningún caso de control) -- pero esa evidencia sólo cubre
-# `preview_criterios` y `plazos_clave` (2 de 11 categorías). En vez de bajar
-# el default global (que afectaría a 9 categorías sin datos que lo validen),
-# se sobreescribe puntualmente por categoría acá, igual que ya se hace con
-# `top_k`. Ver docs/docu/PLAN-fix-preview-criterios-y-hardcodeo-rag.md,
-# sección 1.4, para el detalle del experimento.
+# category_penalty configurable por categoría: el default -30% perjudica el recall de preview_criterios/plazos_clave en chunks multi-categoría (medido), pero esa evidencia no cubre las otras 9 categorías, por eso es override puntual y no default global.
 def get_category_penalty(category_key: str, default: float = 0.30) -> float:
     """Obtiene el category_penalty configurado para una categoría en
     glossary.json. Si la categoría no define un override, devuelve `default`
@@ -242,10 +230,7 @@ def get_category_query_expansion(category_key: str, default: bool = False) -> bo
     return default
 
 
-# FASE 4 del plan RAG v2 (2026-08-24, sección 4.4): query expansion con
-# definición semántica. `category_definitions.json` ya existe desde la Fase 2
-# (4.3, clasificación semántica de chunks) -- acá se reutiliza la misma
-# definición versionada, no se inventa una segunda fuente de verdad.
+# Reutiliza `category_definitions.json` (ya existente para clasificación semántica de chunks) en vez de inventar una segunda fuente de verdad para la expansión de query.
 @lru_cache(maxsize=1)
 def _load_category_definitions() -> dict[str, dict]:
     """Carga category_definitions.json (mismo archivo que usa
@@ -289,7 +274,6 @@ def build_semantic_expanded_query(category_key: str, base_query: str) -> str:
     if not base_query:
         return definition
     if definition in base_query:
-        # Ya está incluida (p.ej. si en el futuro algún extractor arma su
-        # `_QUERY` copiando la definición) -- no duplicar.
+        # Ya está incluida (p.ej. si algún extractor copia la definición en su `_QUERY`) -- no duplicar.
         return base_query
     return f"{definition}\n\n{base_query}"

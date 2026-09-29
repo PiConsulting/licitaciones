@@ -299,7 +299,7 @@ def test_run_synthesis_preview_normaliza_titulos_y_orden_canonico(
                             {"text": "Anticipo financiero: x", "confidence_level": "alta", "item_refs": [7]},
                             {"text": "Requisitos técnicos excluyentes: x", "confidence_level": "alta", "item_refs": [8]},
                             {
-                                "text": "Responsabilidad por costos logísticos: x",
+                                "text": "Responsabilidad por costos logísticos: a cargo del proveedor",
                                 "confidence_level": "alta",
                                 "item_refs": [9],
                             },
@@ -361,9 +361,9 @@ def test_run_synthesis_preview_normaliza_titulos_y_orden_canonico(
         "Garantías o cauciones: x",
         # FIX (2026-09-17/18): estos dos tipos usan el `valor` verbatim (no la paráfrasis "x" mockeada) para no colapsar una lista de items reales en una sola oración.
         "Multas o penalidades: valor 6",
-        "Anticipo financiero requerido: x",
+        "Anticipo financiero: x",
         "Requisitos técnicos o certificaciones excluyentes: valor 8",
-        "Responsabilidad por costos logísticos o de instalación: x",
+        "Responsabilidad por costos logísticos o de instalación: a cargo del proveedor",
     ]
 
 
@@ -526,6 +526,161 @@ def test_run_synthesis_preview_multas_penalidades_not_found_no_usa_valor() -> No
 
     text = normalized.blocks[0].items[0].text
     assert "No se encontró información" in text or "no se encontraron" in text.lower()
+
+
+def _raw_bullet_list(text: str, item_refs: list[int]) -> dict:
+    return {
+        "blocks": [
+            {
+                "type": "bullet_list",
+                "items": [{"text": text, "confidence_level": "alta", "item_refs": item_refs}],
+            }
+        ],
+        "evidence": [],
+    }
+
+
+def _multa_item(valor: str, *, status: str = "success") -> dict:
+    return {
+        "tipo": "multas_penalidades",
+        "valor": valor,
+        "confidence": 0.9,
+        "source_references": [
+            {"document_id": "doc-1", "page_number": 6, "citation": "Cita suficientemente larga para verificar."}
+        ],
+        "extraction_status": status,
+    }
+
+
+def test_run_synthesis_preview_multas_resumen_junta_tasas_por_mil_y_porcentaje() -> None:
+    """Bug real en producción (Bancor): el resumen ('número grande' de la card)
+    solo reconocía '%' literal -- con 3 tasas reales (2 'por mil', 1 '%') mostraba
+    únicamente '1%', ignorando las dos primeras (que además eran las que
+    aparecían primero en el pliego)."""
+    from analysis.extraction.synthesis.synthesis import _normalize_preview_raw_narrative
+    from analysis.extraction.schemas import RawCategoryNarrative
+
+    raw = RawCategoryNarrative.model_validate(_raw_bullet_list("Multas o penalidades: varias", [0, 1, 2, 3]))
+    items = [
+        _multa_item("multa equivalente al medio por mil (1/2 por mil), por cada día de atraso"),
+        _multa_item("multa diaria del uno por ciento (1 %) por cada día de atraso"),
+        _multa_item("multas que podrán variar del medio por mil al uno por mil (1/2 al 1 por mil)"),
+        _multa_item("rechazo de su oferta"),
+    ]
+
+    normalized = _normalize_preview_raw_narrative(raw, items)
+
+    resumen = normalized.blocks[0].items[0].resumen
+    assert resumen == "1/2 por mil · 1% · 1/2 al 1 por mil"
+
+
+def test_run_synthesis_preview_multas_resumen_reconoce_multiplicador() -> None:
+    from analysis.extraction.synthesis.synthesis import _normalize_preview_raw_narrative
+    from analysis.extraction.schemas import RawCategoryNarrative
+
+    raw = RawCategoryNarrative.model_validate(_raw_bullet_list("Multas o penalidades: multiplicador", [0]))
+    items = [_multa_item("indemnizar con una suma igual a CUATRO (4) veces el valor mensual correspondiente")]
+
+    normalized = _normalize_preview_raw_narrative(raw, items)
+
+    assert normalized.blocks[0].items[0].resumen == "4 veces"
+
+
+def test_run_synthesis_preview_multas_resumen_sin_tasa_no_repite_titulo() -> None:
+    """Bug real: cuando ningún item tenía una tasa reconocible, el resumen caía
+    a repetir literalmente el título del h4 ("Multas o penalidades"),
+    desperdiciando el número grande de la card sin mostrar ningún dato."""
+    from analysis.extraction.synthesis.synthesis import _normalize_preview_raw_narrative
+    from analysis.extraction.schemas import RawCategoryNarrative
+
+    raw = RawCategoryNarrative.model_validate(_raw_bullet_list("Multas o penalidades: sin cifra", [0]))
+    items = [_multa_item("penalidades por mora o incumplimiento")]
+
+    normalized = _normalize_preview_raw_narrative(raw, items)
+
+    resumen = normalized.blocks[0].items[0].resumen
+    assert resumen == "Sin tasa especificada"
+    assert resumen != "Multas o penalidades"
+
+
+def test_run_synthesis_preview_multas_no_cuantificables_quedan_en_el_detalle() -> None:
+    """Decisión de producto: una consecuencia no cuantificable (pérdida de
+    garantía, rechazo de oferta) no debe implicar un "%" en el resumen, pero
+    tampoco debe perderse -- sigue en el detalle de la card."""
+    from analysis.extraction.synthesis.synthesis import _normalize_preview_raw_narrative
+    from analysis.extraction.schemas import RawCategoryNarrative
+
+    raw = RawCategoryNarrative.model_validate(_raw_bullet_list("Multas o penalidades: varias", [0, 1]))
+    items = [
+        _multa_item("tres por ciento (3%) del valor mensual por cada 24 horas de retraso"),
+        _multa_item("rechazo de su oferta"),
+    ]
+
+    normalized = _normalize_preview_raw_narrative(raw, items)
+
+    bullet = normalized.blocks[0].items[0]
+    assert bullet.resumen == "3%"
+    assert "rechazo de su oferta" in bullet.text
+
+
+def test_run_synthesis_preview_conflict_count_viaja_desde_merge_node() -> None:
+    """El contador de conflictos de la card ("N conflicto(s)") tiene que ser
+    estructurado -- viene de `conflicts` (ya armado por merge_node), no de que
+    el LLM de síntesis escriba la palabra "conflicto" en su prosa."""
+    from analysis.extraction.synthesis.synthesis import _normalize_preview_raw_narrative
+    from analysis.extraction.schemas import RawCategoryNarrative
+
+    raw = RawCategoryNarrative.model_validate(
+        _raw_bullet_list("Forma de Pago: 15 días; además, en otra cláusula, 30 días", [0, 1])
+    )
+    items = [
+        {
+            "tipo": "forma_pago",
+            "valor": "15 días",
+            "confidence": 0.7,
+            "source_references": [{"document_id": "doc-1", "page_number": 2, "citation": "a los 15 días..."}],
+            "extraction_status": "success",
+        },
+        {
+            "tipo": "forma_pago",
+            "valor": "30 días",
+            "confidence": 0.7,
+            "source_references": [{"document_id": "doc-1", "page_number": 12, "citation": "dentro de 30 días..."}],
+            "extraction_status": "success",
+        },
+    ]
+    conflicts = [
+        {
+            "category": "preview_criterios",
+            "tipo": "forma_pago",
+            "values": items,
+            "reason": "Valores diferentes dentro del mismo documento",
+        }
+    ]
+
+    normalized = _normalize_preview_raw_narrative(raw, items, conflicts)
+
+    assert normalized.blocks[0].items[0].conflict_count == 1
+
+
+def test_run_synthesis_preview_conflict_count_cero_sin_conflictos() -> None:
+    from analysis.extraction.synthesis.synthesis import _normalize_preview_raw_narrative
+    from analysis.extraction.schemas import RawCategoryNarrative
+
+    raw = RawCategoryNarrative.model_validate(_raw_bullet_list("Forma de Pago: 15 días", [0]))
+    items = [
+        {
+            "tipo": "forma_pago",
+            "valor": "15 días",
+            "confidence": 0.7,
+            "source_references": [{"document_id": "doc-1", "page_number": 2, "citation": "a los 15 días..."}],
+            "extraction_status": "success",
+        }
+    ]
+
+    normalized = _normalize_preview_raw_narrative(raw, items, conflicts=[])
+
+    assert normalized.blocks[0].items[0].conflict_count == 0
 
 
 def test_run_synthesis_preview_propaga_resumen_hasta_narrative_final(
@@ -802,3 +957,98 @@ def test_run_synthesis_categoria_no_preview_no_requiere_resumen(
 
     assert narrative.blocks[0].type == "bullet_list"
     assert narrative.blocks[0].items[0].resumen is None
+
+
+def _requisito_items() -> list[dict]:
+    return [
+        {
+            "tipo": "documento",
+            "valor": "Constancia de inscripción vigente.",
+            "confidence": 0.9,
+            "source_references": [
+                {
+                    "document_id": "doc-1",
+                    "page_number": 3,
+                    "citation": "Deberá acompañar constancia de inscripción vigente.",
+                }
+            ],
+            "extraction_status": "success",
+        }
+    ]
+
+
+def _fake_bullet_response() -> tuple[dict, dict]:
+    return (
+        {
+            "blocks": [
+                {
+                    "type": "bullet_list",
+                    "items": [
+                        {
+                            "text": "Presentar constancia de inscripción vigente.",
+                            "titulo": "Inscripción vigente",
+                            "confidence_level": "alta",
+                            "item_refs": [0],
+                        }
+                    ],
+                }
+            ],
+        },
+        {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+    )
+
+
+def test_run_synthesis_reintenta_una_vez_ante_fallo_transitorio(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Caso real (análisis 9e8b8155, `requisitos_admisibilidad` con 43 items):
+    la síntesis de la categoría con el prompt más grande falló una vez y no
+    volvió a intentarlo -- el frontend se quedó sin `titulo` por bullet y cayó
+    al nombre crudo del `tipo` ("Documento" para casi todos los ítems, porque
+    es el bucket genérico del schema). Reproducido en aislado, el mismo
+    prompt/items sí generó narrativa completa -- consistente con una falla
+    transitoria de capacidad/latencia bajo la concurrencia de las 8 categorías
+    sintetizando en paralelo, no con un problema determinístico de contenido."""
+    calls = {"count": 0}
+
+    def flaky_call_llm(*, messages, correlation_id):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise TimeoutError("Azure OpenAI request timed out")
+        return _fake_bullet_response()
+
+    monkeypatch.setattr("analysis.extraction.engine.base._call_llm", flaky_call_llm)
+    monkeypatch.setattr("analysis.extraction.synthesis.synthesis.time.sleep", lambda _seconds: None)
+
+    result = run_synthesis(
+        category_key="requisitos_admisibilidad",
+        items=_requisito_items(),
+        correlation_id="corr-retry",
+    )
+
+    assert calls["count"] == 2
+    assert result is not None
+    narrative, _token_usage = result
+    assert narrative.blocks[0].items[0].titulo == "Inscripción vigente"
+
+
+def test_run_synthesis_devuelve_none_si_fallan_todos_los_intentos(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {"count": 0}
+
+    def always_fails(*, messages, correlation_id):
+        calls["count"] += 1
+        raise TimeoutError("Azure OpenAI request timed out")
+
+    monkeypatch.setattr("analysis.extraction.engine.base._call_llm", always_fails)
+    monkeypatch.setattr("analysis.extraction.synthesis.synthesis.time.sleep", lambda _seconds: None)
+
+    result = run_synthesis(
+        category_key="requisitos_admisibilidad",
+        items=_requisito_items(),
+        correlation_id="corr-retry-exhausted",
+    )
+
+    assert calls["count"] == 2
+    assert result is None

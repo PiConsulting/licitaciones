@@ -102,6 +102,8 @@ def create_analysis_with_documents(
     user_id: str,
     files: list[IncomingUploadFile],
     primary_file_index: int,
+    analysis_name: str | None = None,
+    business_unit: str | None = None,
 ) -> tuple[Analysis, list[Document], list[DocumentWarning], list[dict]]:
     if len(files) == 0:
         raise HTTPException(
@@ -134,11 +136,19 @@ def create_analysis_with_documents(
             },
         )
 
+    settings = get_settings()
+    default_business_unit = settings.default_business_unit.strip() if settings.default_business_unit else ""
+    normalized_business_unit = business_unit.strip() if business_unit else ""
     blob_storage = _build_blob_storage()
     uploaded_blob_names: list[str] = []
 
     try:
-        analysis = Analysis(created_by=user_id, status="draft")
+        analysis = Analysis(
+            created_by=user_id,
+            status="draft",
+            analysis_name=analysis_name,
+            business_unit=normalized_business_unit or default_business_unit or None,
+        )
         db.add(analysis)
         db.flush()
 

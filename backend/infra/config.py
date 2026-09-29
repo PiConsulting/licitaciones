@@ -4,7 +4,7 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Project-root .env takes precedence; backend/.env kept as fallback for backward compatibility.
+# El .env de la raíz del proyecto tiene precedencia; backend/.env queda como fallback por compatibilidad.
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _ENV_FILES = (
@@ -27,6 +27,7 @@ class Settings(BaseSettings):
         default="replace-with-32-byte-random-secret-value",
         alias="SECRET_KEY",
     )
+    default_business_unit: str = Field(default="CEDI", alias="DEFAULT_BUSINESS_UNIT")
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
     jwt_expiration_hours: int = Field(default=24, alias="JWT_EXPIRATION_HOURS")
     local_blob_storage_path: str = Field(
@@ -61,7 +62,7 @@ class Settings(BaseSettings):
     )
     azure_openai_retry_attempts: int = Field(default=3, alias="AZURE_OPENAI_RETRY_ATTEMPTS")
 
-    # Concurrency defaults raised 2026-09-10 after measuring: 4/0/1 baseline ~102s -> 7/8/3 ~72s (-29% multi-doc).
+    # Concurrencia default subida 2026-09-10 tras medir: baseline 4/0/1 ~102s -> 7/8/3 ~72s (-29% multi-doc).
     extraction_max_concurrency: int = Field(
         default=7,
         alias="EXTRACTION_MAX_CONCURRENCY",

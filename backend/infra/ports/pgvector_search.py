@@ -10,10 +10,10 @@ from infra.database import _build_engine
 
 logger = structlog.get_logger(__name__)
 
-# Standard RRF constant (same as Azure AI Search's native fusion), not a tunable parameter (Cormack et al. 2009).
+# Constante RRF estándar (igual que la fusión nativa de Azure AI Search), no es un parámetro ajustable (Cormack et al. 2009).
 RRF_K = 60
 
-# Recalibrated from Azure's cosine-based threshold (0.032) to the RRF score scale; set conservatively (median single-signal score at fetch_top=30) to avoid dropping real content over aggressive cleanup. Revisit empirically once a real eval dataset exists (Historia 22.13).
+# Recalibrado del umbral coseno de Azure (0.032) a la escala RRF; conservador a propósito para no descartar contenido real (revisar con un dataset de eval real, Historia 22.13).
 MIN_SCORE_SMALL_ANALYSIS = 0.01
 _SMALL_ANALYSIS_THRESHOLD = 50
 
@@ -323,7 +323,7 @@ def search_hybrid(
 
         ranked_chunks = [_row_to_chunk(row) for row in raw_rows]
 
-        # RRF fusion doesn't discriminate well below ~50 chunks (Épica 22.4); see MIN_SCORE_SMALL_ANALYSIS above.
+        # La fusión RRF discrimina mal por debajo de ~50 chunks (Épica 22.4); ver MIN_SCORE_SMALL_ANALYSIS arriba.
         total_chunks_available = len(ranked_chunks)
         if total_chunks_available < _SMALL_ANALYSIS_THRESHOLD:
             logger.warning(
@@ -354,7 +354,7 @@ def search_hybrid(
     return expanded_chunks[:top_k]
 
 
-# Safety cap against a corrupt analysis_id pulling an entire table into memory; Postgres has no continuation tokens like Azure, so this is a defensive guard, not an engine limitation.
+# Tope de seguridad ante un analysis_id corrupto que traiga toda la tabla a memoria; Postgres no tiene continuation tokens como Azure, es una guarda defensiva, no una limitación del motor.
 _MAX_ENUMERABLE_CHUNKS = 50_000
 _ENUMERATION_PAGE_SIZE = 1000
 

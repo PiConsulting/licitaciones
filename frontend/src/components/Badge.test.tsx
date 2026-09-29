@@ -28,4 +28,9 @@ describe("Badge", () => {
     );
     expect(screen.getByText("Revisada").querySelector("svg")).toBeInTheDocument();
   });
+
+  test("usa forma pill y altura base del DS", () => {
+    render(<Badge tone="neutral">Tag</Badge>);
+    expect(screen.getByText("Tag")).toHaveClass("rounded-full", "h-8");
+  });
 });

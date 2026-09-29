@@ -24,11 +24,11 @@ export const PREVIEW_CRITERION_ICONS: Record<string, LucideIcon> = {
   "Mantenimiento de oferta": Clock,
   "Tiempo de entrega": Truck,
   "Forma de pago": CreditCard,
-  "Licitación en pesos o dólares": DollarSign,
+  Moneda: DollarSign,
   "Tipo de cambio": ArrowLeftRight,
   "Garantías o cauciones": ShieldCheck,
   "Multas o penalidades": AlertTriangle,
-  "Anticipo financiero requerido": Wallet,
+  "Anticipo financiero": Wallet,
   "Requisitos técnicos o certificaciones excluyentes": Award,
   "Responsabilidad por costos logísticos o de instalación": PackageCheck,
 };

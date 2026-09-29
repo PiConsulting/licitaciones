@@ -26,6 +26,34 @@ describe("SourceReference", () => {
     expect(screen.getByText(/El plazo de presentación es de 30 días corridos/)).toBeInTheDocument();
   });
 
+  test("con detalle disponible, lo muestra en vez del fragmento literal (evita mostrar los dos, redundante)", () => {
+    render(
+      <SourceReference
+        documentId="doc-123"
+        pageNumber={10}
+        fragment="Art. 12: El plazo para la presentación de las ofertas será hasta el día XX a las XX horas, debiendo los oferentes..."
+        detalle="El oferente presenta la oferta."
+      />,
+    );
+
+    expect(screen.getByText("El oferente presenta la oferta.")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/El plazo para la presentación de las ofertas será hasta el día XX/),
+    ).not.toBeInTheDocument();
+  });
+
+  test("sin detalle, cae al fragmento literal como antes (evento no reanalizado todavía)", () => {
+    render(
+      <SourceReference
+        documentId="doc-123"
+        pageNumber={10}
+        fragment="El plazo de presentación es de 30 días corridos"
+      />,
+    );
+
+    expect(screen.getByText(/El plazo de presentación es de 30 días corridos/)).toBeInTheDocument();
+  });
+
   test("does not display fragment section when not provided", () => {
     const { container } = render(
       <SourceReference

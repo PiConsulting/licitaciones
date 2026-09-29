@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { within } from "@testing-library/dom";
 
@@ -77,7 +77,7 @@ describe("PreviewTab", () => {
     expect(screen.getByTestId("preview-tab-legacy-note")).toBeInTheDocument();
   });
 
-  test("renderiza 10 cards colapsadas con título canónico, resumen y control de expansión", () => {
+  test("renderiza 10 cards con título canónico, resumen y detalle siempre visibles", () => {
     const analysis = makeAnalysis({
       previewCriterios: makeCategoryData([]),
     });
@@ -114,13 +114,12 @@ describe("PreviewTab", () => {
 
     const cards = screen.getAllByTestId("preview-criterion-card");
     expect(cards).toHaveLength(10);
-    expect(screen.getAllByRole("button", { name: /Expandir detalle/i })).toHaveLength(10);
+    expect(screen.queryByRole("button", { name: /Expandir detalle/i })).not.toBeInTheDocument();
     expect(screen.getByText("Mantenimiento de oferta")).toBeInTheDocument();
-    expect(screen.getByText("60 días")).toBeInTheDocument();
+    expect(screen.getAllByText("60 días").length).toBeGreaterThan(0);
   });
 
-  test("expande y colapsa una card sin alterar las demás", async () => {
-    const user = userEvent.setup();
+  test("muestra el detalle de cada card sin necesidad de desplegarla", () => {
     const analysis = makeAnalysis({
       previewCriterios: makeCategoryData([]),
     });
@@ -155,21 +154,18 @@ describe("PreviewTab", () => {
     const cards = screen.getAllByTestId("preview-criterion-card");
     expect(cards).toHaveLength(2);
 
-    await user.click(within(cards[0]).getByRole("button", { name: /Expandir detalle/i }));
-    expect(within(cards[0]).getByTestId("preview-criterion-detail")).toBeInTheDocument();
     expect(within(cards[0]).getByTestId("preview-criterion-detail")).toHaveTextContent(
       "La oferta deberá mantenerse por 60 días corridos.",
     );
     expect(within(cards[0]).getByTestId("preview-criterion-detail")).not.toHaveTextContent(
       "Mantenimiento de oferta:",
     );
-    expect(within(cards[1]).queryByTestId("preview-criterion-detail")).not.toBeInTheDocument();
-
-    await user.click(within(cards[0]).getByRole("button", { name: /Colapsar detalle/i }));
-    expect(within(cards[0]).queryByTestId("preview-criterion-detail")).not.toBeInTheDocument();
+    expect(within(cards[1]).getByTestId("preview-criterion-detail")).toHaveTextContent(
+      "Pago a 30 días contra entrega.",
+    );
   });
 
-  test("permite ver fuente desde una card expandida cuando hay evidencia", async () => {
+  test("permite ver fuente desde una card cuando hay evidencia", async () => {
     const user = userEvent.setup();
     const onViewSource = vi.fn();
     const analysis = makeAnalysis({
@@ -206,8 +202,7 @@ describe("PreviewTab", () => {
     render(<PreviewTab analysis={analysis} onViewSource={onViewSource} />);
 
     const card = screen.getAllByTestId("preview-criterion-card")[0];
-    await user.click(within(card).getByRole("button", { name: /Expandir detalle/i }));
-    await user.click(within(card).getByRole("button", { name: /Ver fuente en el pliego \(pág\. 7\)/i }));
+    await user.click(within(card).getAllByRole("button", { name: /Ver fuente en el pliego \(pág\. 7\)/i })[0]);
 
     expect(onViewSource).toHaveBeenCalledTimes(1);
     expect(onViewSource).toHaveBeenCalledWith(
@@ -296,7 +291,7 @@ describe("PreviewTab", () => {
     expect(screen.getAllByTestId("preview-criterion-card")).toHaveLength(1);
   });
 
-  test("objeto y alcance mantiene fuentes ocultas y las muestra al desplegar", async () => {
+  test("objeto y alcance muestra botón de fuente con página y permite abrir evidencia", async () => {
     const user = userEvent.setup();
     const onViewSource = vi.fn();
     const analysis = makeAnalysis({ previewCriterios: makeCategoryData([]) });
@@ -323,11 +318,7 @@ describe("PreviewTab", () => {
 
     render(<PreviewTab analysis={analysis} onViewSource={onViewSource} />);
 
-    expect(screen.queryByTestId("preview-object-sources-panel")).not.toBeInTheDocument();
-
-    await user.click(screen.getByTestId("preview-object-sources-toggle"));
-    expect(screen.getByTestId("preview-object-sources-panel")).toBeInTheDocument();
-
+    expect(screen.getByTestId("preview-object-source-button")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /pág\. 3/i }));
     expect(onViewSource).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -347,8 +338,7 @@ describe("PreviewTab", () => {
     expect(screen.getByTestId("preview-tab-empty")).toBeInTheDocument();
   });
 
-  test("muestra resumen No informado con estilo muted y detalle consistente", async () => {
-    const user = userEvent.setup();
+  test("muestra resumen No informado con estilo muted y detalle consistente", () => {
     const analysis = makeAnalysis({
       previewCriterios: makeCategoryData([]),
     });
@@ -377,10 +367,10 @@ describe("PreviewTab", () => {
 
     const card = screen.getAllByTestId("preview-criterion-card")[0];
     const summary = within(card).getByTestId("preview-criterion-summary");
-    expect(summary).toHaveTextContent("No informado");
-    expect(summary.className).toContain("text-gray-700");
+    expect(summary).toHaveTextContent("—");
+    expect(within(card).getByTestId("preview-criterion-unit")).toHaveTextContent("sin información");
+    expect(within(card).getByTestId("preview-criterion-value").className).toContain("cedi-preview-card-value-muted");
 
-    await user.click(within(card).getByRole("button", { name: /Expandir detalle/i }));
     expect(within(card).getByTestId("preview-criterion-detail")).toHaveTextContent(
       "No se encontró información sobre este criterio en el pliego.",
     );
@@ -415,7 +405,8 @@ describe("PreviewTab", () => {
     const card = screen.getAllByTestId("preview-criterion-card")[0];
     const summary = within(card).getByTestId("preview-criterion-summary");
     expect(summary).toHaveTextContent("—");
-    expect(summary.className).toContain("text-gray-700");
+    expect(within(card).getByTestId("preview-criterion-unit")).toHaveTextContent("sin información");
+    expect(within(card).getByTestId("preview-criterion-value").className).toContain("cedi-preview-card-value-muted");
   });
 
   test("cuando resumen tiene dato real usa estilo enfatizado", () => {
@@ -447,12 +438,13 @@ describe("PreviewTab", () => {
 
     const card = screen.getAllByTestId("preview-criterion-card")[0];
     const summary = within(card).getByTestId("preview-criterion-summary");
-    expect(summary).toHaveTextContent("60 días");
-    expect(summary.className).toContain("font-bold");
-    expect(summary.className).toContain("text-cedia-primary");
+    expect(within(card).getByTestId("preview-criterion-value")).toHaveTextContent("60");
+    expect(within(card).getByTestId("preview-criterion-unit")).toHaveTextContent("días");
+    expect(within(card).getByTestId("preview-criterion-value").className).toContain("cedi-preview-card-value");
+    expect(summary).toBeInTheDocument();
   });
 
-  test("listado de cards usa layout responsive de una sola columna sin overflow horizontal", () => {
+  test("listado de cards usa grid responsive auto-fill de 210px", () => {
     const analysis = makeAnalysis({
       previewCriterios: makeCategoryData([]),
     });
@@ -479,51 +471,12 @@ describe("PreviewTab", () => {
 
     render(<PreviewTab analysis={analysis} />);
 
-    expect(screen.getByTestId("preview-criteria-cards").className).toContain("overflow-x-hidden");
-    expect(screen.getByTestId("preview-criteria-cards").className).toContain("flex-wrap");
-    expect(screen.getByTestId("preview-criterion-card").className).toContain("flex-[1_1_220px]");
+    expect(screen.getByTestId("preview-criteria-cards").className).toContain("grid");
+    expect(screen.getByTestId("preview-criteria-cards").className).toContain("grid-cols-[repeat(auto-fill,minmax(210px,1fr))]");
+    expect(screen.getByTestId("preview-criterion-card").className).toContain("min-h-[132px]");
   });
 
-  test("mantiene card expandida al redimensionar viewport", async () => {
-    const user = userEvent.setup();
-    const analysis = makeAnalysis({
-      previewCriterios: makeCategoryData([]),
-    });
-
-    analysis.current_version.extracted_data.preview_criterios = {
-      ...analysis.current_version.extracted_data.preview_criterios,
-      narrative: {
-        blocks: [
-          {
-            type: "bullet_list",
-            items: [
-              {
-                text: "Tiempo de entrega: Entrega dentro de 45 días corridos.",
-                resumen: "45 días",
-                confidence_level: "high",
-                source_ids: [],
-              },
-            ],
-          },
-        ],
-        sources: [],
-      },
-    };
-
-    render(<PreviewTab analysis={analysis} />);
-
-    const card = screen.getByTestId("preview-criterion-card");
-    await user.click(within(card).getByRole("button", { name: /Expandir detalle/i }));
-    expect(within(card).getByTestId("preview-criterion-detail")).toBeInTheDocument();
-
-    fireEvent(window, new Event("resize"));
-
-    expect(within(card).getByTestId("preview-criterion-detail")).toBeInTheDocument();
-    expect(within(card).getByRole("button", { name: /Colapsar detalle/i })).toHaveAttribute("aria-expanded", "true");
-  });
-
-  test("consistencia resumen-detalle para 10 criterios con mix success/not_found", async () => {
-    const user = userEvent.setup();
+  test("consistencia resumen-detalle para 10 criterios con mix success/not_found", () => {
     const analysis = makeAnalysis({ previewCriterios: makeCategoryData([]) });
 
     analysis.current_version.extracted_data.preview_criterios = {
@@ -566,11 +519,10 @@ describe("PreviewTab", () => {
     expect(cards).toHaveLength(10);
 
     for (const card of cards) {
-      const summary = within(card).getByTestId("preview-criterion-summary").textContent?.trim() ?? "";
-      await user.click(within(card).getByRole("button", { name: /Expandir detalle/i }));
+      const unit = within(card).queryByTestId("preview-criterion-unit")?.textContent?.trim() ?? "";
       const detail = within(card).getByTestId("preview-criterion-detail").textContent ?? "";
 
-      if (summary === "No informado") {
+      if (unit === "sin información") {
         expect(detail).toContain("No se encontró información");
       } else {
         expect(detail).not.toContain("No se encontró información");
@@ -578,8 +530,7 @@ describe("PreviewTab", () => {
     }
   });
 
-  test("multas o penalidades con varias filas se renderiza como lista, no un párrafo", async () => {
-    const user = userEvent.setup();
+  test("multas o penalidades con varias filas muestra todos los hechos en el detalle", () => {
     const analysis = makeAnalysis({ previewCriterios: makeCategoryData([]) });
 
     analysis.current_version.extracted_data.preview_criterios = {
@@ -608,18 +559,13 @@ describe("PreviewTab", () => {
     render(<PreviewTab analysis={analysis} />);
 
     const card = screen.getByTestId("preview-criterion-card");
-    await user.click(within(card).getByRole("button", { name: /Expandir detalle/i }));
-
-    const list = within(card).getByTestId("preview-criterion-detail-list");
-    const items = within(list).getAllByRole("listitem");
-    expect(items).toHaveLength(3);
-    expect(items[0]).toHaveTextContent("0,5% del abono mensual por hora.");
-    expect(items[1]).toHaveTextContent("0,5% del monto total por día corrido de demora.");
-    expect(items[2]).toHaveTextContent("0,25% del monto total por día hábil de demora.");
+    const detail = within(card).getByTestId("preview-criterion-detail");
+    expect(detail).toHaveTextContent("0,5% del abono mensual por hora.");
+    expect(detail).toHaveTextContent("0,5% del monto total por día corrido de demora.");
+    expect(detail).toHaveTextContent("0,25% del monto total por día hábil de demora.");
   });
 
-  test("no pierde criterios ni fuentes respecto del bullet_list plano pre-epic-p5", async () => {
-    const user = userEvent.setup();
+  test("no pierde criterios ni fuentes respecto del bullet_list plano pre-epic-p5", () => {
     const analysis = makeAnalysis({ previewCriterios: makeCategoryData([]) });
 
     analysis.current_version.extracted_data.preview_criterios = {
@@ -665,14 +611,116 @@ describe("PreviewTab", () => {
     for (const card of cards) {
       const title = within(card).getByTestId("preview-criterion-title").textContent?.trim() ?? "";
       const expectedPages = expectedSourcePagesByTitle.get(title) ?? [];
-      await user.click(within(card).getByRole("button", { name: /Expandir detalle/i }));
 
       if (expectedPages.length === 0) {
-        expect(within(card).queryByTestId("item-source-button")).not.toBeInTheDocument();
+        expect(within(card).queryByRole("button", { name: /Ver fuente en el pliego|Ver fuentes en el pliego/i })).not.toBeInTheDocument();
       } else {
-        const pageToken = expectedPages.length === 1 ? `pág. ${expectedPages[0]}` : `págs. ${expectedPages.join(", ")}`;
-        expect(within(card).getByRole("button", { name: new RegExp(pageToken, "i") })).toBeInTheDocument();
+        const pageToken = expectedPages.length === 1 ? `pág. ${expectedPages[0]}` : `${expectedPages.length} fuentes`;
+        expect(within(card).getAllByRole("button", { name: new RegExp(pageToken, "i") }).length).toBeGreaterThan(0);
       }
     }
+  });
+
+  test("con varias fuentes muestra la cantidad en vez de listar todas las páginas juntas", async () => {
+    const user = userEvent.setup();
+    const onViewSource = vi.fn();
+    const analysis = makeAnalysis({ previewCriterios: makeCategoryData([]) });
+
+    analysis.current_version.extracted_data.preview_criterios = {
+      ...analysis.current_version.extracted_data.preview_criterios,
+      narrative: {
+        blocks: [
+          {
+            type: "bullet_list",
+            items: [
+              {
+                text: "Garantías o cauciones: Integración en 15 días (art. 21) vs 10 días (anexo I).",
+                resumen: "1 conflicto",
+                confidence_level: "low",
+                source_ids: [0, 1],
+              },
+            ],
+          },
+        ],
+        sources: [
+          { id: 0, document_id: "doc-1", document_name: "Pliego.pdf", page: 22, text: "Integración en 15 días." },
+          { id: 1, document_id: "doc-1", document_name: "Anexo.pdf", page: 41, text: "Integración en 10 días." },
+        ],
+      },
+    };
+
+    render(<PreviewTab analysis={analysis} onViewSource={onViewSource} />);
+
+    const card = screen.getByTestId("preview-criterion-card");
+    const sourceButton = within(card).getByRole("button", { name: /Ver fuentes en el pliego/i });
+    expect(sourceButton).toHaveTextContent("2 fuentes");
+    expect(sourceButton).not.toHaveTextContent("22");
+    expect(sourceButton).not.toHaveTextContent("41");
+
+    await user.click(sourceButton);
+    expect(onViewSource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        citations: expect.arrayContaining([
+          expect.objectContaining({ page: 22 }),
+          expect.objectContaining({ page: 41 }),
+        ]),
+      }),
+    );
+  });
+
+  test("muestra el panel de decisión (mismo componente que la pestaña Estado) cuando el estado de negocio está pendiente", async () => {
+    const user = userEvent.setup();
+    const onApproveDecision = vi.fn();
+    const analysis = makeAnalysis({ previewCriterios: makeCategoryData([]) });
+    analysis.business_status = "pendiente_decision";
+
+    render(<PreviewTab analysis={analysis} onApproveDecision={onApproveDecision} />);
+
+    expect(screen.getByTestId("business-decision-panel")).toBeInTheDocument();
+    expect(screen.getByText("¿Aprobamos esta licitación para el análisis completo?")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Aprobar y analizar Fase 2/i }));
+    expect(onApproveDecision).toHaveBeenCalledTimes(1);
+  });
+
+  test("permite rechazar el panel de decisión con un motivo", async () => {
+    const user = userEvent.setup();
+    const onRejectDecision = vi.fn();
+    const analysis = makeAnalysis({ previewCriterios: makeCategoryData([]) });
+    analysis.business_status = "pendiente_decision";
+
+    render(<PreviewTab analysis={analysis} onRejectDecision={onRejectDecision} />);
+
+    expect(screen.getByTestId("business-decision-panel")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "No aprobar" }));
+    await user.type(screen.getByLabelText("Motivo (opcional)"), "Fuera de alcance");
+    await user.click(screen.getByRole("button", { name: "Confirmar: no aprobar" }));
+    expect(onRejectDecision).toHaveBeenCalledWith("Fuera de alcance");
+  });
+
+  test("no muestra el panel de decisión cuando el estado de negocio no está pendiente", () => {
+    const analysis = makeAnalysis({ previewCriterios: makeCategoryData([]) });
+    analysis.business_status = "en_revision";
+
+    render(<PreviewTab analysis={analysis} />);
+
+    expect(screen.queryByTestId("business-decision-panel")).not.toBeInTheDocument();
+  });
+
+  test("muestra un aviso cuando la decisión ya fue rechazada", () => {
+    const analysis = makeAnalysis({ previewCriterios: makeCategoryData([]) });
+
+    render(
+      <PreviewTab
+        analysis={analysis}
+        categoriesDecision="rejected"
+        categoriesDecisionByName="Agostina Torres"
+        categoriesDecisionAt="2026-09-25T12:00:00Z"
+      />,
+    );
+
+    expect(screen.getByTestId("categories-decision-rejected-banner")).toHaveTextContent(
+      "Rechazado por Agostina Torres",
+    );
   });
 });

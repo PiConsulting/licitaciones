@@ -24,9 +24,7 @@ from analysis.extraction.engine.llm_client import (
 from analysis.extraction.engine.normalization import (
     _aggregate_status,
     _augment_identificacion_payload,
-    _default_not_found_item,
     _fill_missing_valor_for_garantias,
-    _item_has_substantive_content,
     _normalize_item,
     _normalize_mixed_not_found_items,
 )
@@ -59,7 +57,6 @@ def run_extractor(
     status_field: str,
     prompt_file_name: str,
     query: str,
-    is_object_result: bool = False,
 ) -> GraphState:
     correlation_id = state["correlation_id"]
     analysis_id = state["analysis_id"]
@@ -105,7 +102,7 @@ def run_extractor(
                     category=result_key,
                 )
 
-        # FIX MEDIUM (#14): Top-K configurable por categoría desde glossary.json
+        # Top-K configurable por categoría desde glossary.json.
         from analysis.extraction.glossary import (
             get_category_penalty,
             get_category_relevance_min_chunks,
@@ -179,7 +176,7 @@ def run_extractor(
                 category=result_key,
                 query=query[:160],
             )
-            delta[state_field] = _default_not_found_item() if is_object_result else []
+            delta[state_field] = []
             delta[status_field] = "not_found"
             delta[token_usage_key] = {
                 "prompt_tokens": 0,
@@ -190,212 +187,162 @@ def run_extractor(
 
         document_labels = state.get("document_labels")
 
-        if is_object_result:
-            # Resultado de un solo objeto agregado: no aplica map-reduce por documento.
-            messages = _build_messages(
+        # Map-reduce por documento evita "lost in the middle" (medido: solo 1/8 categorías daba el mismo resultado en 5 corridas con un solo llamado).
+        groups = _group_chunks_by_document(chunks)
+        group_max_chunks = int(
+            getattr(settings, "extraction_group_max_chunks", None)
+            or _DEFAULT_EXTRACTION_GROUP_MAX_CHUNKS
+        )
+        all_items: list[Any] = []
+        accumulated_usage = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "llm_calls": 0,
+        }
+        groups_failed = 0
+
+        def _run_group(group_chunks: list[dict[str, Any]]):
+            group_messages = _build_messages(
                 prompt_file_name=prompt_file_name,
-                chunks_block=_format_chunks(chunks, document_labels),
+                chunks_block=_format_chunks(group_chunks, document_labels),
                 glossary_block=build_prompt_glossary_block(result_key),
                 root_key=result_key,
             )
-            llm_result, token_usage = _call_llm(messages=messages, correlation_id=correlation_id)
-            token_usage["llm_calls"] = 1
-            delta[token_usage_key] = token_usage
-            if llm_result.get("_diagnostic") == "sin_contenido_recuperado":
-                logger.error(
-                    "extractor_empty_content_reported_by_llm",
-                    correlation_id=correlation_id,
-                    analysis_id=analysis_id,
-                    category=result_key,
-                )
-            payload = llm_result.get(result_key)
+            return _call_llm(messages=group_messages, correlation_id=correlation_id)
+
+        # Se indexa por POSICIÓN, no document_id: un documento partido en varios lotes repite document_id, y una clave por id pisaría el lote anterior.
+        groups_items = _split_oversized_groups(groups, max_chunks_per_call=group_max_chunks)
+
+        # Self-consistency: repite cada grupo N veces como "un grupo más"; el dedup existente de merge_node fusiona o separa igual que entre documentos distintos. Opt-in, default 1 = sin cambios.
+        self_consistency_runs = get_category_self_consistency_runs(result_key)
+        if self_consistency_runs > 1:
+            groups_items = [item for item in groups_items for _ in range(self_consistency_runs)]
+
+        # Llamadas en paralelo, ensamblado luego en orden original (mismo resultado que secuencial).
+        # Nunca se fusionan chunks de documentos distintos en una llamada: el LLM podría "reconciliar" una contradicción principal-vs-anexo y perderse el aviso de conflicto (merge_node).
+        mapreduce_workers = min(
+            len(groups_items),
+            max(1, int(settings.extraction_mapreduce_concurrency or 1)),
+        )
+        results_by_index: dict[int, Any] = {}
+        if mapreduce_workers <= 1:
+            for index, (document_id, group_chunks) in enumerate(groups_items):
+                try:
+                    results_by_index[index] = _run_group(group_chunks)
+                except Exception as exc:  # noqa: BLE001
+                    results_by_index[index] = exc
         else:
-            # Map-reduce por documento evita "lost in the middle" (medido: solo 1/8 categorías daba el mismo resultado en 5 corridas con un solo llamado).
-            groups = _group_chunks_by_document(chunks)
-            group_max_chunks = int(
-                getattr(settings, "extraction_group_max_chunks", None)
-                or _DEFAULT_EXTRACTION_GROUP_MAX_CHUNKS
-            )
-            all_items: list[Any] = []
-            accumulated_usage = {
-                "prompt_tokens": 0,
-                "completion_tokens": 0,
-                "total_tokens": 0,
-                "llm_calls": 0,
-            }
-            groups_failed = 0
+            from concurrent.futures import ThreadPoolExecutor
 
-            def _run_group(group_chunks: list[dict[str, Any]]):
-                group_messages = _build_messages(
-                    prompt_file_name=prompt_file_name,
-                    chunks_block=_format_chunks(group_chunks, document_labels),
-                    glossary_block=build_prompt_glossary_block(result_key),
-                    root_key=result_key,
-                )
-                return _call_llm(messages=group_messages, correlation_id=correlation_id)
-
-            # Se indexa por POSICIÓN, no document_id: un documento partido en varios lotes repite document_id, y una clave por id pisaría el lote anterior.
-            groups_items = _split_oversized_groups(groups, max_chunks_per_call=group_max_chunks)
-
-            # Self-consistency: repite cada grupo N veces como "un grupo más"; el dedup existente de merge_node fusiona o separa igual que entre documentos distintos. Opt-in, default 1 = sin cambios.
-            self_consistency_runs = get_category_self_consistency_runs(result_key)
-            if self_consistency_runs > 1:
-                groups_items = [item for item in groups_items for _ in range(self_consistency_runs)]
-
-            # Llamadas en paralelo, ensamblado luego en orden original (mismo resultado que secuencial).
-            # Nunca se fusionan chunks de documentos distintos en una llamada: el LLM podría "reconciliar" una contradicción principal-vs-anexo y perderse el aviso de conflicto (merge_node).
-            mapreduce_workers = min(
-                len(groups_items),
-                max(1, int(settings.extraction_mapreduce_concurrency or 1)),
-            )
-            results_by_index: dict[int, Any] = {}
-            if mapreduce_workers <= 1:
-                for index, (document_id, group_chunks) in enumerate(groups_items):
+            with ThreadPoolExecutor(
+                max_workers=mapreduce_workers,
+                thread_name_prefix=f"mapreduce-{result_key}",
+            ) as pool:
+                future_to_index = {
+                    pool.submit(_run_group, group_chunks): index
+                    for index, (document_id, group_chunks) in enumerate(groups_items)
+                }
+                for future, index in future_to_index.items():
                     try:
-                        results_by_index[index] = _run_group(group_chunks)
+                        results_by_index[index] = future.result()
                     except Exception as exc:  # noqa: BLE001
                         results_by_index[index] = exc
-            else:
-                from concurrent.futures import ThreadPoolExecutor
 
-                with ThreadPoolExecutor(
-                    max_workers=mapreduce_workers,
-                    thread_name_prefix=f"mapreduce-{result_key}",
-                ) as pool:
-                    future_to_index = {
-                        pool.submit(_run_group, group_chunks): index
-                        for index, (document_id, group_chunks) in enumerate(groups_items)
-                    }
-                    for future, index in future_to_index.items():
-                        try:
-                            results_by_index[index] = future.result()
-                        except Exception as exc:  # noqa: BLE001
-                            results_by_index[index] = exc
-
-            # Ensamblado determinístico: orden original de los grupos, no orden de llegada.
-            for index, (document_id, group_chunks) in enumerate(groups_items):
-                outcome = results_by_index.get(index)
-                if isinstance(outcome, BaseException):
-                    groups_failed += 1
-                    logger.warning(
-                        "extractor_map_reduce_group_failed",
-                        correlation_id=correlation_id,
-                        category=result_key,
-                        document_id=document_id,
-                        chunks_en_grupo=len(group_chunks),
-                        error=str(outcome),
-                    )
-                    continue
-
-                group_result, group_usage = outcome
-
-                for key in accumulated_usage:
-                    accumulated_usage[key] += int(group_usage.get(key, 0) or 0)
-                # Cuenta para costo/latencia aunque el resultado sea "sin_contenido".
-                accumulated_usage["llm_calls"] += 1
-
-                if group_result.get("_diagnostic") == "sin_contenido_recuperado":
-                    continue
-
-                group_payload = group_result.get(result_key)
-                # Etiqueta cada ítem con el document_id del grupo: única pista para fusionar ítems sin cita verificable en `_merge_items_by_document_section` (no se persiste como fuente de verdad).
-                if isinstance(group_payload, list):
-                    for item in group_payload:
-                        if isinstance(item, dict):
-                            item.setdefault("_source_document_id", document_id)
-                            all_items.append(item)
-                elif isinstance(group_payload, dict):
-                    group_payload.setdefault("_source_document_id", document_id)
-                    all_items.append(group_payload)
-
-            # Falla real del sistema (no "not_found") si TODOS los grupos fallaron; se eleva para que el except de abajo marque "failed". Compara contra groups_items (lotes reales), no groups (documentos).
-            if groups_items and groups_failed == len(groups_items):
-                raise RuntimeError(
-                    f"Todos los grupos ({groups_failed}/{len(groups_items)}) fallaron al "
-                    f"llamar al LLM para la categoría {result_key}"
-                )
-
-            delta[token_usage_key] = accumulated_usage
-            logger.info(
-                "extractor_map_reduce_completed",
-                correlation_id=correlation_id,
-                category=result_key,
-                documentos=len(groups),
-                llamadas_llm=len(groups_items),
-                documentos_fallidos=groups_failed,
-                items_crudos=len(all_items),
-            )
-            payload = all_items
-
-        if is_object_result:
-            if not isinstance(payload, dict):
-                payload = _default_not_found_item()
-            normalized_object = _normalize_item(
-                payload, fallback={"tipo": "estimacion_presupuesto"}
-            )
-            if normalized_object.get(
-                "extraction_status"
-            ) == "not_found" and _item_has_substantive_content(normalized_object):
-                normalized_object["extraction_status"] = "partial"
-            delta[state_field] = normalized_object
-        else:
-            if not isinstance(payload, list):
+        # Ensamblado determinístico: orden original de los grupos, no orden de llegada.
+        for index, (document_id, group_chunks) in enumerate(groups_items):
+            outcome = results_by_index.get(index)
+            if isinstance(outcome, BaseException):
+                groups_failed += 1
                 logger.warning(
-                    "payload_no_es_lista", category=result_key, tipo=type(payload).__name__
+                    "extractor_map_reduce_group_failed",
+                    correlation_id=correlation_id,
+                    category=result_key,
+                    document_id=document_id,
+                    chunks_en_grupo=len(group_chunks),
+                    error=str(outcome),
                 )
-                payload = []
-            if result_key == "identificacion_procedimiento":
-                payload = _augment_identificacion_payload(payload, chunks)
-            if result_key == "garantias":
-                payload = _fill_missing_valor_for_garantias(payload)
-            normalized_items = [_normalize_item(item) for item in payload if isinstance(item, dict)]
-            normalized_items = _normalize_mixed_not_found_items(
-                normalized_items, category=result_key
+                continue
+
+            group_result, group_usage = outcome
+
+            for key in accumulated_usage:
+                accumulated_usage[key] += int(group_usage.get(key, 0) or 0)
+            # Cuenta para costo/latencia aunque el resultado sea "sin_contenido".
+            accumulated_usage["llm_calls"] += 1
+
+            if group_result.get("_diagnostic") == "sin_contenido_recuperado":
+                continue
+
+            group_payload = group_result.get(result_key)
+            # Etiqueta cada ítem con el document_id del grupo: única pista para fusionar ítems sin cita verificable en `_merge_items_by_document_section` (no se persiste como fuente de verdad).
+            if isinstance(group_payload, list):
+                for item in group_payload:
+                    if isinstance(item, dict):
+                        item.setdefault("_source_document_id", document_id)
+                        all_items.append(item)
+            elif isinstance(group_payload, dict):
+                group_payload.setdefault("_source_document_id", document_id)
+                all_items.append(group_payload)
+
+        # Falla real del sistema (no "not_found") si TODOS los grupos fallaron; se eleva para que el except de abajo marque "failed". Compara contra groups_items (lotes reales), no groups (documentos).
+        if groups_items and groups_failed == len(groups_items):
+            raise RuntimeError(
+                f"Todos los grupos ({groups_failed}/{len(groups_items)}) fallaron al "
+                f"llamar al LLM para la categoría {result_key}"
             )
-            # Fusiona hechos partidos en dos ítems ANTES de verificar citas, para que trabaje sobre el ítem ya consolidado.
-            normalized_items = _merge_split_fact_items(
+
+        delta[token_usage_key] = accumulated_usage
+        logger.info(
+            "extractor_map_reduce_completed",
+            correlation_id=correlation_id,
+            category=result_key,
+            documentos=len(groups),
+            llamadas_llm=len(groups_items),
+            documentos_fallidos=groups_failed,
+            items_crudos=len(all_items),
+        )
+        payload = all_items
+
+        if not isinstance(payload, list):
+            logger.warning(
+                "payload_no_es_lista", category=result_key, tipo=type(payload).__name__
+            )
+            payload = []
+        if result_key == "identificacion_procedimiento":
+            payload = _augment_identificacion_payload(payload, chunks)
+        if result_key == "garantias":
+            payload = _fill_missing_valor_for_garantias(payload)
+        normalized_items = [_normalize_item(item) for item in payload if isinstance(item, dict)]
+        normalized_items = _normalize_mixed_not_found_items(
+            normalized_items, category=result_key
+        )
+        # Fusiona hechos partidos en dos ítems ANTES de verificar citas, para que trabaje sobre el ítem ya consolidado.
+        normalized_items = _merge_split_fact_items(
+            normalized_items, chunks, category=result_key, correlation_id=correlation_id
+        )
+        if result_key in _DOCUMENT_SECTION_MERGE_CATEGORIES:
+            normalized_items = _merge_items_by_document_section(
                 normalized_items, chunks, category=result_key, correlation_id=correlation_id
             )
-            if result_key in _DOCUMENT_SECTION_MERGE_CATEGORIES:
-                normalized_items = _merge_items_by_document_section(
-                    normalized_items, chunks, category=result_key, correlation_id=correlation_id
-                )
-            delta[state_field] = normalized_items
+        delta[state_field] = normalized_items
 
-        if is_object_result:
-            _verify_citation_grounding(
-                [delta[state_field]], chunks, category=result_key, correlation_id=correlation_id
+        _verify_citation_grounding(
+            delta[state_field], chunks, category=result_key, correlation_id=correlation_id
+        )
+
+        from analysis.extraction.engine.validators import detect_cross_contamination
+
+        contaminated = detect_cross_contamination(delta[state_field], category=result_key)
+        if contaminated:
+            logger.warning(
+                "cross_contamination_detected",
+                correlation_id=correlation_id,
+                category=result_key,
+                contaminated_count=len(contaminated),
             )
 
-            from analysis.extraction.engine.validators import detect_cross_contamination
-
-            contaminated = detect_cross_contamination([delta[state_field]], category=result_key)
-            if contaminated:
-                logger.warning(
-                    "cross_contamination_detected",
-                    correlation_id=correlation_id,
-                    category=result_key,
-                    contaminated_count=len(contaminated),
-                )
-
-            delta[status_field] = str(delta[state_field].get("extraction_status", "not_found"))
-        else:
-            _verify_citation_grounding(
-                delta[state_field], chunks, category=result_key, correlation_id=correlation_id
-            )
-
-            from analysis.extraction.engine.validators import detect_cross_contamination
-
-            contaminated = detect_cross_contamination(delta[state_field], category=result_key)
-            if contaminated:
-                logger.warning(
-                    "cross_contamination_detected",
-                    correlation_id=correlation_id,
-                    category=result_key,
-                    contaminated_count=len(contaminated),
-                )
-
-            delta[status_field] = _aggregate_status(delta[state_field])
+        delta[status_field] = _aggregate_status(delta[state_field])
         logger.info(
             "extractor_completed",
             correlation_id=correlation_id,
@@ -411,7 +358,7 @@ def run_extractor(
             category=result_key,
             error=str(exc),
         )
-        delta[state_field] = _default_not_found_item() if is_object_result else []
+        delta[state_field] = []
         delta[status_field] = "failed"
 
     return _stamp_metrics(delta)

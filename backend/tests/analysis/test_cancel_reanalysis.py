@@ -4,8 +4,6 @@ analisis nuevo (la otra seccion). Cancelar un reanalisis en curso debe
 descartar el intento y dejar el analisis como si nunca se hubiera disparado."""
 from uuid import uuid4
 
-import pytest
-
 from analysis.models import Analysis, AnalysisVersion
 from analysis.service.lifecycle import request_cancellation
 from infra.database import SessionLocal

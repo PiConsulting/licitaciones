@@ -46,7 +46,6 @@ def inventario_tests_backend():
         print(f"\n{categoria}:")
         for f in files:
             count_match = [int(s) for s in f.split() if s.isdigit()]
-            count = count_match[0] if count_match else "N"
             print(f"  • {f}")
             total_files += 1
             if count_match:

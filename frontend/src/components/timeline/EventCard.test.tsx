@@ -113,7 +113,7 @@ describe("EventCard", () => {
     render(<EventCard analysisId={ANALYSIS_ID} event={event} />, { wrapper: createWrapper() });
 
     const card = screen.getByText("Apertura de ofertas").closest(".event-card");
-    expect(card).toHaveClass("rounded-lg", "border", "cursor-pointer");
+    expect(card).toHaveClass("rounded-2xl", "border", "cursor-pointer");
   });
 
   test("shows dependency indicator when deadline and triggerEvent provided", () => {

@@ -92,7 +92,7 @@ async def start_analysis_tracking(
 ) -> StartTrackingResponse:
     current_user = get_current_user(credentials, None)
     try:
-        tracking = start_tracking(analysis_id, current_user.id)
+        tracking = start_tracking(analysis_id, current_user.id, started_by_name=current_user.name)
     except (ValueError, PermissionError, RuntimeError) as exc:
         raise _http_error_from_code(str(exc)) from exc
     return StartTrackingResponse(tracking=AnalysisTracking(**tracking))

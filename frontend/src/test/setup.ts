@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom";
 
-// jsdom doesn't implement scrollIntoView; several components call it as a side effect.
+// jsdom no implementa scrollIntoView; varios componentes lo llaman como efecto secundario.
 if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {};
 }

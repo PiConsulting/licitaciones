@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { normalizePreviewSummary } from "./normalizePreviewSummary";
 
-const CURRENCY_TITLE = "Licitación en pesos o dólares";
+const CURRENCY_TITLE = "Moneda";
 const GARANTIAS_TITLE = "Garantías o cauciones";
 
 describe("normalizePreviewSummary", () => {

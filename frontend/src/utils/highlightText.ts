@@ -110,7 +110,7 @@ export function isPartOfCitation(itemText: string, citationTexts: string[]): boo
 
 // Semitransparente para no tapar el texto del canvas; box-decoration-break:clone une los spans de una misma línea en un solo bloque.
 const HIGHLIGHT_STYLE =
-  "background-color:rgba(250,204,21,0.35);color:inherit;padding:0.05em 0;" +
+  "background-color:rgba(127,243,222,0.45);color:inherit;padding:0.05em 0;" +
   "box-decoration-break:clone;-webkit-box-decoration-break:clone;";
 
 export function createCitationTextRenderer(citationTexts: string[]) {
