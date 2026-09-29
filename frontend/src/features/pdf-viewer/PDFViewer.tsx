@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import {
   focusIsStillPending,
@@ -15,8 +16,11 @@ import "../../utils/pdfWorker";
 import { DocumentSelector } from "./DocumentSelector";
 import { PDFCitationNav } from "./PDFCitationNav";
 import { PDFControls } from "./PDFControls";
+import { PDFLensLayer } from "./PDFLensLayer";
 import { PDFPage } from "./PDFPage";
+import { DEFAULT_LENS_CONFIG, formatLensZoom, stepLensZoom, type LensConfig } from "./lens";
 import { useContainerWidth } from "./hooks/useContainerWidth";
+import { useLensShortcuts } from "./hooks/useLensShortcuts";
 import { useSASUrl } from "./hooks/useSASUrl";
 import type { Citation, ViewerDocument } from "./types";
 import type { NarrativeSource } from "../analysis-detail/types";
@@ -47,6 +51,8 @@ interface PDFViewerProps {
    * heurísticas frágiles. */
   sources?: NarrativeSource[];
   onClose?: () => void;
+  variant?: "panel" | "modal";
+  initialScroll?: { page: number; fraction: number };
 }
 
 /** Misma cita: mismo documento, página, y texto igual o uno subcadena del
@@ -95,16 +101,48 @@ export function PDFViewer({
   focusCitation,
   sources,
   onClose,
+  variant = "panel",
+  initialScroll,
 }: PDFViewerProps) {
+  const isModalVariant = variant === "modal";
+  const [fullscreenOpen, setFullscreenOpen] = useState(false);
+  const [fullscreenStart, setFullscreenStart] = useState<{ page: number; fraction: number } | null>(null);
+  const initialScrollRef = useRef(initialScroll ?? null);
   const [activeDocumentId, setActiveDocumentId] = useState(documentId);
   const initialIndex = findFocusIndex(citations, focusCitation);
-  const initialPage = citations[initialIndex]?.page ?? focusCitation?.page ?? 1;
+  const initialPage = initialScroll?.page ?? citations[initialIndex]?.page ?? focusCitation?.page ?? 1;
   const [currentCitationIndex, setCurrentCitationIndex] = useState(initialIndex);
   const [currentPage, setCurrentPage] = useState(initialPage);
   const [pagePositions, setPagePositions] = useState<Record<string, number>>(() => ({ [documentId]: initialPage }));
   const [numPages, setNumPages] = useState(0);
-  const [zoomMode, setZoomMode] = useState<ZoomMode>("fit");
+  const [zoomMode, setZoomMode] = useState<ZoomMode>(variant === "modal" ? 1 : "fit");
   const [displayScale, setDisplayScale] = useState(1);
+  const [lens, setLens] = useState<LensConfig>(DEFAULT_LENS_CONFIG);
+  const toggleLens = useCallback(() => setLens((previous) => ({ ...previous, enabled: !previous.enabled })), []);
+  const exitLens = useCallback(() => setLens((previous) => ({ ...previous, enabled: false })), []);
+  const changeLens = useCallback(
+    (patch: Partial<Omit<LensConfig, "enabled">>) => setLens((previous) => ({ ...previous, ...patch })),
+    [],
+  );
+  const stepLens = useCallback(
+    (direction: 1 | -1) => setLens((previous) => ({ ...previous, zoom: stepLensZoom(previous.zoom, direction) })),
+    [],
+  );
+  useLensShortcuts({ enabled: lens.enabled, paused: fullscreenOpen, onToggle: toggleLens, onExit: exitLens });
+  const closeFullscreen = useCallback(() => setFullscreenOpen(false), []);
+
+  useEffect(() => {
+    if (!isModalVariant || lens.enabled || !onClose) {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isModalVariant, lens.enabled, onClose]);
   const [error, setError] = useState<string | null>(null);
   const { ref: measureContainerRef, width: containerWidth } = useContainerWidth<HTMLDivElement>();
 
@@ -129,7 +167,8 @@ export function PDFViewer({
     const firstCitationInTarget = citations.find((citation) => citation.document_id === documentId);
     const focusPage = focusedCitation?.page ?? 1;
     const restoredPage = pagePositions[documentId] ?? firstCitationInTarget?.page ?? 1;
-    const nextPage = focusBelongsToTarget ? focusPage : restoredPage;
+    const pendingStart = initialScrollRef.current;
+    const nextPage = pendingStart ? pendingStart.page : focusBelongsToTarget ? focusPage : restoredPage;
 
     setCurrentCitationIndex(focusIndex);
     setCurrentPage(nextPage);
@@ -262,12 +301,26 @@ export function PDFViewer({
     }
 
     const container = pdfContainerRef.current;
-    const pageElement = document.getElementById(`pdf-page-${currentPage}`);
+    const pageElement = container?.querySelector<HTMLElement>(`[id="pdf-page-${currentPage}"]`);
     if (!container || !pageElement) {
       return;
     }
 
     const pending = focusIsStillPending(pagesToRender, currentPage, renderedPagesRef.current);
+
+    const startPosition = initialScrollRef.current;
+    if (startPosition && startPosition.page === currentPage) {
+      scrollContainerTo(
+        container,
+        offsetWithinContainer(container, pageElement) + startPosition.fraction * pageElement.offsetHeight,
+        { behavior: "auto" },
+      );
+      if (!pending) {
+        initialScrollRef.current = null;
+        focusDoneRef.current = focusKey;
+      }
+      return;
+    }
 
     scrollContainerTo(
       container,
@@ -285,6 +338,24 @@ export function PDFViewer({
       focusDoneRef.current = focusKey;
     }
   }, [focusKey, renderTick, currentPage, pagesToRender, activeRegionTop, displayScale]);
+
+  const openFullscreen = () => {
+    const container = pdfContainerRef.current;
+    let start = { page: currentPage, fraction: 0 };
+    if (container) {
+      const containerTop = container.getBoundingClientRect().top;
+      const pageElements = Array.from(container.querySelectorAll<HTMLElement>('[id^="pdf-page-"]'));
+      const visible = pageElements.find((element) => element.getBoundingClientRect().bottom > containerTop);
+      const pageNumber = Number(visible?.id.replace("pdf-page-", ""));
+      if (visible && Number.isFinite(pageNumber)) {
+        const rect = visible.getBoundingClientRect();
+        const fraction = rect.height > 0 ? Math.min(1, Math.max(0, (containerTop - rect.top) / rect.height)) : 0;
+        start = { page: pageNumber, fraction };
+      }
+    }
+    setFullscreenStart(start);
+    setFullscreenOpen(true);
+  };
 
   const activeDocumentName = documents.find((doc) => doc.id === activeDocumentId)?.filename ?? documentName;
   const hasMultipleDocuments = documents.length > 1;
@@ -348,6 +419,7 @@ export function PDFViewer({
   }
 
   return (
+    <>
     <div className="flex h-full min-w-0 flex-col overflow-hidden" data-testid="pdf-viewer">
       <div className="flex items-center justify-between gap-2 border-b border-[rgba(0,60,107,.12)] px-4 py-2.5">
         <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -376,8 +448,8 @@ export function PDFViewer({
             type="button"
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[rgba(0,60,107,.55)] transition-colors hover:bg-[#F4F9FC] hover:text-[#003C6B] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0099DB]"
             onClick={onClose}
-            aria-label="Ocultar visor PDF"
-            title="Ocultar visor PDF"
+            aria-label={isModalVariant ? "Cerrar pantalla completa" : "Ocultar visor PDF"}
+            title={isModalVariant ? "Cerrar pantalla completa" : "Ocultar visor PDF"}
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
@@ -404,6 +476,10 @@ export function PDFViewer({
           )
         }
         onFitToWidth={() => setZoomMode("fit")}
+        lens={lens}
+        onLensToggle={toggleLens}
+        onLensChange={changeLens}
+        onFullscreen={isModalVariant ? undefined : openFullscreen}
         citationSlot={
           <PDFCitationNav
             currentIndex={currentCitationIndex}
@@ -414,49 +490,94 @@ export function PDFViewer({
         }
       />
 
-      <div
-        ref={setPdfContainer}
-        className={`min-w-0 flex-1 overflow-y-auto bg-[rgba(0,60,107,.06)] p-4 ${zoomMode === "fit" ? "overflow-x-hidden" : "overflow-x-auto"}`}
-        data-testid="pdf-container"
-      >
-        <Document
-          file={data.url}
-          onLoadSuccess={({ numPages: pages }) => {
-            setNumPages(pages);
-            setError(null);
-          }}
-          onLoadError={(loadError) => {
-            if (isForbiddenError(loadError)) {
-              void refetch();
-              return;
-            }
-            setError("No se pudo cargar el documento. Intente nuevamente o contacte soporte.");
-          }}
-          loading={<Loader2 className="mx-auto h-6 w-6 animate-spin text-[#0099DB]" />}
-          data-testid="pdf-document"
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {lens.enabled ? (
+          <div
+            role="status"
+            className="pointer-events-none absolute left-1/2 top-2.5 z-[75] -translate-x-1/2 whitespace-nowrap rounded-full bg-[#003C6B] px-3.5 py-[7px] text-[11.5px] font-semibold text-white shadow-[0_6px_18px_rgba(0,60,107,.3)]"
+          >
+            Modo lupa <span className="ml-1.5 text-[#7FF3DE]">{formatLensZoom(lens.zoom)}</span> · Esc para salir
+          </div>
+        ) : null}
+        <div
+          ref={setPdfContainer}
+          className={`min-h-0 min-w-0 flex-1 overflow-y-auto bg-[rgba(0,60,107,.06)] p-4 ${zoomMode === "fit" ? "overflow-x-hidden" : "overflow-x-auto"} ${lens.enabled ? "select-none [&_.react-pdf__Page]:cursor-none" : ""}`}
+          data-testid="pdf-container"
         >
-          {pagesToRender.map((page) => (
-            <PDFPage
-              key={page}
-              pageNumber={page}
-              scale={typeof zoomMode === "number" ? zoomMode : undefined}
-              fitWidth={
-                zoomMode === "fit" && containerWidth > 0
-                  ? Math.floor(Math.max(containerWidth - PAGE_FIT_SAFETY_MARGIN, 0))
-                  : undefined
+          <Document
+            file={data.url}
+            onLoadSuccess={({ numPages: pages }) => {
+              setNumPages(pages);
+              setError(null);
+            }}
+            onLoadError={(loadError) => {
+              if (isForbiddenError(loadError)) {
+                void refetch();
+                return;
               }
-              citationTexts={
-                activeCitationInDocument && activeCitationInDocument.page === page
-                  ? [activeCitationInDocument.text]
-                  : []
-              }
+              setError("No se pudo cargar el documento. Intente nuevamente o contacte soporte.");
+            }}
+            loading={<Loader2 className="mx-auto h-6 w-6 animate-spin text-[#0099DB]" />}
+            data-testid="pdf-document"
+          >
+            {pagesToRender.map((page) => (
+              <PDFPage
+                key={page}
+                pageNumber={page}
+                scale={typeof zoomMode === "number" ? zoomMode : undefined}
+                fitWidth={
+                  zoomMode === "fit" && containerWidth > 0
+                    ? Math.floor(Math.max(containerWidth - PAGE_FIT_SAFETY_MARGIN, 0))
+                    : undefined
+                }
+                citationTexts={
+                  activeCitationInDocument && activeCitationInDocument.page === page
+                    ? [activeCitationInDocument.text]
+                    : []
+                }
+                sources={activeSources}
+                onScaleResolved={setDisplayScale}
+                onRendered={handlePageRendered}
+              />
+            ))}
+            <PDFLensLayer
+              containerRef={pdfContainerRef}
+              config={lens}
+              displayScale={displayScale}
               sources={activeSources}
-              onScaleResolved={setDisplayScale}
-              onRendered={handlePageRendered}
+              activeCitation={activeCitationInDocument ? { page: activeCitationInDocument.page, text: activeCitationInDocument.text } : null}
+              onZoomStep={stepLens}
             />
-          ))}
-        </Document>
+          </Document>
+        </div>
       </div>
     </div>
+    {fullscreenOpen && !isModalVariant
+      ? createPortal(
+          <div className="fixed inset-0 z-[60] bg-[rgba(0,20,40,.6)] p-3 sm:p-6">
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="PDF a pantalla completa"
+              className="mx-auto h-full w-full max-w-[680px] overflow-hidden rounded-2xl bg-white shadow-[0_24px_64px_rgba(0,20,40,.35)]"
+            >
+              <PDFViewer
+                variant="modal"
+                documentId={activeDocumentId}
+                documentName={documentName}
+                citations={citations}
+                documents={documents}
+                showDocumentSelector={showDocumentSelector}
+                focusCitation={citations[currentCitationIndex] ?? focusCitation}
+                initialScroll={fullscreenStart ?? { page: currentPage, fraction: 0 }}
+                sources={sources}
+                onClose={closeFullscreen}
+              />
+            </div>
+          </div>,
+          document.body,
+        )
+      : null}
+    </>
   );
 }
