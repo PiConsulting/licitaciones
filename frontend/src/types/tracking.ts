@@ -49,6 +49,7 @@ export interface AnalysisTracking {
   version_id: string;
   status: TrackingStatus;
   started_by: string;
+  started_by_name?: string | null;
   started_at: string;
   completed_by?: string | null;
   completed_by_name?: string | null;

@@ -5,7 +5,6 @@ Valida que solo se persistan riesgos con evidencia verificable,
 descartando hallazgos sin respaldo.
 """
 
-import pytest
 from analysis.extraction.graph.validation import _drop_items_without_sources, _enforce_citation_contract
 
 

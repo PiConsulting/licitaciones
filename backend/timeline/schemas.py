@@ -85,6 +85,7 @@ class EventResponse(BaseModel):
     source_document_id: Optional[str]
     source_page: Optional[int]
     source_fragment: Optional[str]
+    detalle: Optional[str] = None
     source_reference: Optional[dict] = None
     deleted: bool
     hidden: bool = False

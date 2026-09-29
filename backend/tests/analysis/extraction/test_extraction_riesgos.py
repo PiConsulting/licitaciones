@@ -5,7 +5,6 @@ Valida que la categoría Riesgos se integre correctamente en el pipeline
 de extracción siguiendo el mismo patrón que las categorías existentes.
 """
 
-import pytest
 from analysis.extraction.schemas import ExtractedData, RiesgoItem, SourceReference, TipoRiesgo
 from analysis.extraction.extractors import extractor_riesgos
 

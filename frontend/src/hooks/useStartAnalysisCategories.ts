@@ -1,14 +1,15 @@
 import { useMutation } from "@tanstack/react-query";
 
-import { startAnalysisCategories } from "../api/analyses";
-import type { AnalysisStartResponse } from "../types/analysis";
+import { decideAnalysisCategories } from "../api/analyses";
+import type { CategoriesDecision, CategoriesDecisionResponse } from "../types/analysis";
 
-interface StartAnalysisCategoriesVariables {
+interface CategoriesDecisionVariables {
   analysisId: string;
+  decision: CategoriesDecision;
 }
 
-export function useStartAnalysisCategories() {
-  return useMutation<AnalysisStartResponse, Error, StartAnalysisCategoriesVariables>({
-    mutationFn: async ({ analysisId }) => startAnalysisCategories(analysisId),
+export function useCategoriesDecision() {
+  return useMutation<CategoriesDecisionResponse, Error, CategoriesDecisionVariables>({
+    mutationFn: async ({ analysisId, decision }) => decideAnalysisCategories(analysisId, decision),
   });
 }

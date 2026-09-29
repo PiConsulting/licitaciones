@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { ToastProvider } from "../../components/ToastContainer";
 import { AnalysisDetailPage } from "./AnalysisDetailPage";
@@ -9,18 +10,27 @@ import type { AnalysisTracking } from "../../types/tracking";
 
 const mockGetAnalysisById = vi.fn();
 const mockGetAnalysisStatus = vi.fn();
-const mockStartAnalysisCategories = vi.fn();
+const mockDecideAnalysisCategories = vi.fn();
 const mockReanalyzeAnalysis = vi.fn();
+const mockStartTracking = vi.fn();
 vi.mock("../../services/api/analysisApi", () => ({
   getAnalysisById: (...args: unknown[]) => mockGetAnalysisById(...args),
 }));
+
+vi.mock("../../api/tracking", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/tracking")>();
+  return {
+    ...actual,
+    startTracking: (...args: unknown[]) => mockStartTracking(...args),
+  };
+});
 
 vi.mock("../../api/analyses", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../api/analyses")>();
   return {
     ...actual,
     getAnalysisStatus: (...args: unknown[]) => mockGetAnalysisStatus(...args),
-    startAnalysisCategories: (...args: unknown[]) => mockStartAnalysisCategories(...args),
+    decideAnalysisCategories: (...args: unknown[]) => mockDecideAnalysisCategories(...args),
     reanalyzeAnalysis: (...args: unknown[]) => mockReanalyzeAnalysis(...args),
   };
 });
@@ -181,6 +191,10 @@ function createAnalysisInReview(): AnalysisDetail {
   return {
     ...createAnalysis(),
     status: "en_revision",
+    // El backend real sincroniza business_status a "pendiente_decision" en cuanto la fase 1
+    // llega a en_revision (analysis/service/business_lifecycle.py::sync_business_status),
+    // antes de responder /analyses/{id} -- este mock reproduce esa respuesta ya sincronizada.
+    business_status: "pendiente_decision",
   };
 }
 
@@ -194,18 +208,19 @@ function renderPage() {
   return render(
     <ToastProvider>
       <QueryClientProvider client={queryClient}>
-        <AnalysisDetailPage analysisId="analysis-1" />
+        <MemoryRouter initialEntries={["/analysis/analysis-1"]}>
+          <Routes>
+            <Route path="/analysis/:analysisId" element={<AnalysisDetailPage analysisId="analysis-1" />} />
+            <Route path="/analysis/:analysisId/checklist" element={<p>Checklist de cumplimiento</p>} />
+          </Routes>
+        </MemoryRouter>
       </QueryClientProvider>
     </ToastProvider>,
   );
 }
 
-function getPreviewSourceToggleButton() {
-  return screen.queryByRole("button", { name: /Mostrar fuentes|Ocultar fuentes/i });
-}
-
-function getPreviewSourceItemButton() {
-  return screen.queryByRole("button", { name: /Pliego Principal\.pdf · pág\. 15/i });
+function getPreviewObjectSourceButton() {
+  return screen.queryByRole("button", { name: /Ver fuente en el pliego \(pág\. 15\)/i });
 }
 
 describe("AnalysisDetailPage PDF integration", () => {
@@ -218,13 +233,13 @@ describe("AnalysisDetailPage PDF integration", () => {
       progress_percentage: 55,
       stage_progress: "Analizando Preview (2 de 3)",
     });
-    mockStartAnalysisCategories.mockResolvedValue({
+    mockDecideAnalysisCategories.mockResolvedValue({
       id: "analysis-1",
       status: "queued",
       message: "Análisis de categorías encolado exitosamente.",
-      requires_resolution: false,
-      duplicates: [],
-      redirect_analysis_id: null,
+      decision: "approved",
+      decision_by_name: "Agostina Torres",
+      decision_at: new Date().toISOString(),
     });
     mockReanalyzeAnalysis.mockResolvedValue({
       id: "analysis-1",
@@ -236,6 +251,7 @@ describe("AnalysisDetailPage PDF integration", () => {
       target_version_id: "v3",
       target_version_number: 3,
     });
+    mockStartTracking.mockResolvedValue(createTracking("active"));
     sessionStorage.clear();
   });
 
@@ -314,7 +330,9 @@ describe("AnalysisDetailPage PDF integration", () => {
     expect(screen.queryByTestId("pdf-viewer-panel")).not.toBeInTheDocument();
     expect(screen.getByTestId("analysis-content-panel")).toHaveClass("xl:w-full");
 
-    await user.click(screen.getByRole("button", { name: "Mostrar PDF" }));
+    act(() => {
+      window.dispatchEvent(new CustomEvent("analysis-detail:toggle-pdf"));
+    });
 
     expect(screen.getByTestId("pdf-viewer-panel")).toBeInTheDocument();
     expect(screen.getByTestId("analysis-content-panel")).toHaveClass("xl:w-[60%]");
@@ -326,16 +344,10 @@ describe("AnalysisDetailPage PDF integration", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(getPreviewSourceToggleButton()).toBeInTheDocument();
+      expect(getPreviewObjectSourceButton()).toBeInTheDocument();
     });
 
-    await user.click(getPreviewSourceToggleButton()!);
-
-    await waitFor(() => {
-      expect(getPreviewSourceItemButton()).toBeInTheDocument();
-    });
-
-    await user.click(getPreviewSourceItemButton()!);
+    await user.click(getPreviewObjectSourceButton()!);
 
     expect(screen.getByTestId("pdf-viewer-mock")).toHaveTextContent("viewer:doc-1:1");
   });
@@ -352,39 +364,30 @@ describe("AnalysisDetailPage PDF integration", () => {
     await user.click(screen.getByRole("button", { name: "Ocultar visor PDF" }));
     expect(screen.queryByTestId("pdf-viewer-panel")).not.toBeInTheDocument();
 
-    await user.click(getPreviewSourceToggleButton()!);
-
-    await waitFor(() => {
-      expect(getPreviewSourceItemButton()).toBeInTheDocument();
-    });
-
-    await user.click(getPreviewSourceItemButton()!);
+    await user.click(getPreviewObjectSourceButton()!);
 
     expect(screen.getByTestId("pdf-viewer-panel")).toBeInTheDocument();
     expect(screen.getByTestId("pdf-viewer-mock")).toHaveTextContent("viewer:doc-1:1");
   });
 
-  test("muestra acción flotante de terminar seguimiento cuando tracking está activo", async () => {
-    const user = userEvent.setup();
+  test("al recibir el evento global de abrir checklist con tracking activo, navega al checklist", async () => {
     mockGetAnalysisById.mockResolvedValue(createAnalysis({ tracking: createTracking("active") }));
 
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Terminar seguimiento" })).toBeInTheDocument();
+      expect(screen.getByTestId("analysis-content-panel")).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole("button", { name: "Terminar seguimiento" }));
+    window.dispatchEvent(new CustomEvent("analysis-detail:open-checklist"));
 
-    expect(screen.getByRole("heading", { name: "Terminar seguimiento" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Seguir editando" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Confirmar finalización" })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Seguir editando" }));
-    expect(screen.queryByRole("button", { name: "Confirmar finalización" })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("Checklist de cumplimiento")).toBeInTheDocument();
+    });
   });
 
-  test("oculta acción terminar seguimiento cuando tracking está completado", async () => {
+  test("al abrir el checklist con el seguimiento finalizado, navega en modo vista sin reanudarlo", async () => {
+    mockStartTracking.mockClear();
     mockGetAnalysisById.mockResolvedValue(createAnalysis({ tracking: createTracking("completed") }));
 
     renderPage();
@@ -393,7 +396,67 @@ describe("AnalysisDetailPage PDF integration", () => {
       expect(screen.getByTestId("analysis-content-panel")).toBeInTheDocument();
     });
 
-    expect(screen.queryByRole("button", { name: "Terminar seguimiento" })).not.toBeInTheDocument();
+    window.dispatchEvent(new CustomEvent("analysis-detail:open-checklist"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Checklist de cumplimiento")).toBeInTheDocument();
+    });
+    expect(mockStartTracking).not.toHaveBeenCalled();
+  });
+
+  test("al recibir el evento global de abrir checklist sin tracking iniciado, inicia el seguimiento y navega directamente al checklist", async () => {
+    mockGetAnalysisById.mockResolvedValue(createAnalysis({ tracking: null }));
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("analysis-content-panel")).toBeInTheDocument();
+    });
+
+    window.dispatchEvent(new CustomEvent("analysis-detail:open-checklist"));
+
+    await waitFor(() => {
+      expect(mockStartTracking).toHaveBeenCalledWith("analysis-1");
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Checklist de cumplimiento")).toBeInTheDocument();
+    });
+  });
+
+  test("al recibir el evento global de reanalizar, abre el modal de reanálisis", async () => {
+    mockGetAnalysisById.mockResolvedValue(createAnalysis());
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("analysis-content-panel")).toBeInTheDocument();
+    });
+
+    window.dispatchEvent(new CustomEvent("analysis-detail:open-reanalyze"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Reanalizar" })).toBeInTheDocument();
+    });
+  });
+
+  test("al recibir el evento global de abrir checklist cuando el análisis todavía no terminó, avisa por toast", async () => {
+    mockGetAnalysisById.mockResolvedValue(createAnalysisInReview());
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("analysis-content-panel")).toBeInTheDocument();
+    });
+
+    window.dispatchEvent(new CustomEvent("analysis-detail:open-checklist"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("El seguimiento se puede iniciar una vez que el análisis está completado."),
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("heading", { name: "Iniciar seguimiento" })).not.toBeInTheDocument();
   });
 
   test("muestra acción para iniciar análisis de categorías cuando el análisis está en revisión", async () => {
@@ -402,7 +465,7 @@ describe("AnalysisDetailPage PDF integration", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Iniciar análisis de categorías restantes" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Aprobar y analizar Fase 2/i })).toBeInTheDocument();
     });
   });
 
@@ -415,7 +478,7 @@ describe("AnalysisDetailPage PDF integration", () => {
       expect(screen.getByTestId("analysis-content-panel")).toBeInTheDocument();
     });
 
-    expect(screen.queryByRole("button", { name: "Iniciar análisis de categorías restantes" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Aprobar y analizar Fase 2/i })).not.toBeInTheDocument();
   });
 
   test("al iniciar análisis de categorías, muestra barra de progreso del mismo componente", async () => {
@@ -425,10 +488,10 @@ describe("AnalysisDetailPage PDF integration", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Iniciar análisis de categorías restantes" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Aprobar y analizar Fase 2/i })).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole("button", { name: "Iniciar análisis de categorías restantes" }));
+    await user.click(screen.getByRole("button", { name: /Aprobar y analizar Fase 2/i }));
 
     await waitFor(() => {
       expect(screen.getByTestId("categories-progress-panel")).toBeInTheDocument();
@@ -466,11 +529,13 @@ describe("AnalysisDetailPage PDF integration", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Reanalizar" })).toBeInTheDocument();
+      expect(screen.getByTestId("analysis-content-panel")).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole("button", { name: "Reanalizar" }));
-    expect(screen.getByTestId("reanalyze-modal")).toBeInTheDocument();
+    window.dispatchEvent(new CustomEvent("analysis-detail:open-reanalyze"));
+    await waitFor(() => {
+      expect(screen.getByTestId("reanalyze-modal")).toBeInTheDocument();
+    });
 
     await user.click(screen.getByRole("radio", { name: "Seleccionar categorías" }));
 

@@ -6,7 +6,7 @@ import pytest
 
 from indexing.chunking import create_chunks
 from indexing.chunking.block_merging import _merge_intermediate_blocks, _to_intermediate_blocks
-from indexing.chunking.text_splitting import _split_block_into_chunks, _split_into_paragraphs
+from indexing.chunking.text_splitting import _split_block_into_chunks
 
 
 class TestParagraphPreservation:
@@ -78,7 +78,6 @@ class TestParagraphPreservation:
         if len(chunks) >= 2:
             has_uno = "uno" in chunks[1]
             has_dos = "dos" in chunks[1]
-            has_tres = "tres" in chunks[1]
 
             if has_uno or has_dos:
                 assert "\n\n" in chunks[1] or len(chunks[1].split()) > 100

@@ -5,7 +5,6 @@ Valida que los riesgos se clasifican correctamente en subtipos
 para facilitar la priorización de mitigación.
 """
 
-import pytest
 from analysis.extraction.schemas import RiesgoItem, SubtipoRiesgo, SourceReference
 
 

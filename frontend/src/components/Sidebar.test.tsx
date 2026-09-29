@@ -27,8 +27,8 @@ describe("Sidebar", () => {
     expect(screen.getByText("Home")).toBeInTheDocument();
     expect(screen.getByText("Buscar pliegos")).toBeInTheDocument();
     expect(screen.getByText("Analizar nuevo pliego")).toBeInTheDocument();
-    expect(screen.getByText("Historial")).toBeInTheDocument();
-    expect(screen.getByText("Seguimiento")).toBeInTheDocument();
+    expect(screen.queryByText("Historial")).not.toBeInTheDocument();
+    expect(screen.queryByText("Seguimiento")).not.toBeInTheDocument();
     expect(screen.getByText("Agostina Torres")).toBeInTheDocument();
     expect(screen.getByText("Análisis de pliegos")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /CEDI/i })).toBeInTheDocument();
@@ -67,13 +67,9 @@ describe("Sidebar", () => {
 
     const home = screen.getByRole("link", { name: /^Home$/i });
     const analizar = screen.getByRole("link", { name: /Analizar nuevo pliego/i });
-    const historialLink = screen.getByRole("link", { name: /historial/i });
-    const seguimiento = screen.getByRole("link", { name: /Seguimiento/i });
 
     expect(home).toHaveAttribute("href", "/");
     expect(analizar).toHaveAttribute("href", "/analyze");
-    expect(historialLink).toHaveAttribute("href", "/dashboard");
-    expect(seguimiento).toHaveAttribute("href", "/seguimiento");
   });
 
   test("logout mantiene el botón funcional", () => {

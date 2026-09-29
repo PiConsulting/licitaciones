@@ -37,7 +37,7 @@ describe("DropZone", () => {
     render(<DropZone onFilesSelected={() => undefined} />);
 
     const dropzone = screen.getByTestId("dropzone");
-    expect(dropzone.className).toContain("border-primary");
+    expect(dropzone.className).toContain("border-[#0099DB]");
   });
 
   test("dispara onFilesSelected cuando se seleccionan archivos", async () => {

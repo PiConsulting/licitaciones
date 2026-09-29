@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "../Button";
-import { Input } from "../Input";
+import { DatePicker } from "../DatePicker";
 import { updateEvent, recalculateDependentDates } from "../../api/timeline";
 import { useToast } from "../ToastContainer";
 import type { EventResponse } from "../../types/timeline";
+import { useTimelineMarkedDates } from "./markedDates";
 
 interface AddDateModalProps {
   event: EventResponse;
@@ -16,6 +17,7 @@ export function AddDateModal({ event, open, onClose }: AddDateModalProps) {
   const [date, setDate] = useState("");
   const queryClient = useQueryClient();
   const { addToast } = useToast();
+  const markedDates = useTimelineMarkedDates(event.analysis_id, event.event_id);
 
   const updateMutation = useMutation({
     mutationFn: async (newDate: string) => {
@@ -92,12 +94,18 @@ export function AddDateModal({ event, open, onClose }: AddDateModalProps) {
         </h2>
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4" noValidate>
-          <Input
-            label="Fecha"
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
+          <div>
+            <label htmlFor="add-date" className="mb-1.5 block text-[13px] font-semibold text-[#003C6B]">
+              Fecha
+            </label>
+            <DatePicker
+              id="add-date"
+              value={date || null}
+              onChange={setDate}
+              markedDates={markedDates}
+              aria-label="Fecha"
+            />
+          </div>
 
           <div className="rounded-md bg-blue-50 border border-blue-200 p-3">
             <p className="text-sm text-blue-800">

@@ -10,7 +10,6 @@ backend_dir = Path(__file__).parent
 if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
-from pydantic import ValidationError
 from analysis.extraction.schemas import (
     RiesgoItem,
     TipoRiesgo,
@@ -220,46 +219,3 @@ def test_riesgo_item_serializacion():
     assert riesgo_dict["metadata"]["severidad"] == "alta"
     print("   ✓ Serialización a dict correcta")
     print(f"   ✓ Enums serializados como strings")
-
-
-if __name__ == "__main__":
-    print("\n" + "=" * 70)
-    print("TESTS DE SCHEMA DE CATEGORÍA RIESGOS")
-    print("=" * 70)
-
-    try:
-        test_riesgo_item_campos_obligatorios()
-        test_riesgo_item_subtipo_default()
-        test_tipo_riesgo_enum_valores()
-        test_subtipo_riesgo_enum_valores()
-        test_extracted_data_campos_riesgos()
-        test_extracted_data_sin_riesgos()
-        test_riesgo_item_source_references_min_1()
-        test_riesgo_item_metadata_opcional()
-        test_riesgo_item_serializacion()
-
-        print("\n" + "=" * 70)
-        print("✅ TODOS LOS TESTS PASARON")
-        print("=" * 70)
-        print("\nEl schema de Riesgos cumple todos los criterios:")
-        print("  ✓ AC1: Cada item cumple campos obligatorios")
-        print("  ✓ AC2: Contrato válido con y sin hallazgos")
-        print("\nDetalles del schema:")
-        print("  • RiesgoItem con tipo, subtipo, valor, metadata")
-        print("  • 6 valores de TipoRiesgo")
-        print("  • 8 valores de SubtipoRiesgo")
-        print("  • Subtipo con default OTRO_EXPLICITO")
-        print("  • ExtractedData con riesgos, status, narrative")
-        print("  • source_references mínimo 1 (validado)")
-        print("  • Serialización correcta de enums")
-        print("=" * 70 + "\n")
-
-    except AssertionError as e:
-        print(f"\n❌ TEST FALLÓ: {e}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\n❌ ERROR: {e}")
-        import traceback
-
-        traceback.print_exc()
-        sys.exit(1)

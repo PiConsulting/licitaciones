@@ -57,8 +57,6 @@ def _select_best_instance(
 ) -> list[Any]:
     """Selecciona la instancia más relevante cuando hay múltiples matches."""
     try:
-        import fitz
-
         blocks = page.get_text("dict")["blocks"]
 
         section_words = _heading_tokens(section_hint)

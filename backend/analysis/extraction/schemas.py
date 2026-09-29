@@ -18,7 +18,7 @@ import re
 from typing import Annotated, Any, Literal, Union
 import unicodedata
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 CITATION_MIN_CHARS = 12
@@ -72,8 +72,6 @@ class SourceReference(BaseModel):
     )
 
 
-NOT_ANALYZED_STATUS = "not_analyzed"
-
 ConfidenceLevel = Literal["alta", "media", "baja"]
 ExtractionStatus = Literal["success", "failed", "not_found", "partial", "not_applicable"]
 
@@ -84,8 +82,7 @@ class ExtractedItem(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
 
     confidence_llm: float | None = Field(default=None, ge=0.0, le=1.0)
-    # FIX 2026-09-03: sin min_length=1 -- un item sin fuentes (placeholder "not_found", o
-    # cita no verificable) moría silenciosamente en pydantic antes de que `_drop_items_without_sources` pudiera decidir qué hacer con él.
+    # Sin min_length=1: un item sin fuentes (placeholder "not_found", cita no verificable) moriría silenciosamente en pydantic antes de que `_drop_items_without_sources` decida qué hacer con él.
     source_references: list[SourceReference] = Field(default_factory=list)
     extraction_status: ExtractionStatus = "success"
 
@@ -120,8 +117,26 @@ class NarrativeParagraphBlock(BaseModel):
 class NarrativeBulletItem(BaseModel):
     text: str
     resumen: str | None = None
+    titulo: str | None = Field(
+        default=None,
+        description=(
+            "Título corto (3-8 palabras) que identifica DE QUÉ trata este ítem, "
+            "autocontenido y sin ':' -- se muestra como encabezado separado de "
+            "`text` en la UI (ver `_output_schema.txt`). None solo en narrativas "
+            "viejas generadas antes de este campo, o si la síntesis no lo emitió."
+        ),
+    )
     confidence_level: ConfidenceLevel
     source_ids: list[int] = Field(default_factory=list)
+    conflict_count: int = Field(
+        default=0,
+        description=(
+            "Cuántos conflictos detectó `merge_node` (estructurado, no texto libre "
+            "del LLM) para el dato que respalda este ítem -- 0 si no hay ninguno. "
+            "Hoy solo se completa para `preview_criterios`; el resto de categorías "
+            "queda en 0 aunque tengan su propio bloque de conflictos en el prompt."
+        ),
+    )
 
 
 class NarrativeBulletListBlock(BaseModel):
@@ -164,8 +179,12 @@ class RawNarrativeParagraphBlock(BaseModel):
 class RawNarrativeBulletItem(BaseModel):
     text: str
     resumen: str | None = None
+    titulo: str | None = None
     confidence_level: ConfidenceLevel
     item_refs: list[int] = Field(default_factory=list)
+    # Completado en código por `_normalize_preview_raw_narrative` (preview_criterios),
+    # nunca por el LLM -- ver `NarrativeBulletItem.conflict_count`.
+    conflict_count: int = 0
 
 
 class RawNarrativeBulletListBlock(BaseModel):
@@ -656,7 +675,7 @@ class HitoTemporalExtracted(BaseModel):
         ),
     )
 
-    # Estos 3 campos reemplazan ~10 funciones de post-filtrado por regex que no generalizaban (releer memoria `eventos-temporales-auditoria-completa-2026-09-21`): el LLM las autodeclara por ítem en vez de inferirlas después por texto libre.
+    # Estos 3 campos reemplazan ~10 funciones de post-filtrado por regex que no generalizaban: el LLM las autodeclara por ítem en vez de inferirlas después por texto libre.
     accion_concreta: str = Field(
         description=(
             "La acción concreta que ocurre en este hito, con sujeto y verbo "
@@ -759,15 +778,6 @@ class GenericCategoryItem(ExtractedItem):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class PresupuestoItem(ExtractedItem):
-    """Item de presupuesto (legacy)."""
-
-    monto: float | None = None
-    moneda: str | None = None
-    forma_pago: str | None = None
-    ajustes: str | None = None
-
-
 class ExtractedData(BaseModel):
     """
     Contenedor de todas las categorías extraídas.
@@ -794,7 +804,6 @@ class ExtractedData(BaseModel):
     causales_rechazo: list[CausalRechazoItem] = Field(default_factory=list)
     causales_rechazo_extraction_status: str = "unknown"
     causales_rechazo_narrative: CategoryNarrative | None = None
-    causales_extraction_status: str = "unknown"
     criterios_evaluacion: list[CriterioEvaluacionItem] = Field(default_factory=list)
     criterios_evaluacion_extraction_status: str = "unknown"
     criterios_evaluacion_narrative: CategoryNarrative | None = None
@@ -826,34 +835,16 @@ class ExtractedData(BaseModel):
     )
     plazos_relativos_extraction_status: str = "unknown"
 
-    plazos: list[PlazoItem] = Field(
-        default_factory=list,
-        description="DEPRECATED: Usar 'plazos_clave' en su lugar. Será eliminado en Q2 2027.",
-    )
-    plazos_extraction_status: str = "unknown"
-
     datos_procedimiento: list[GenericCategoryItem] = Field(
         default_factory=list,
         description=(
-            "NO DEPRECAR TODAVÍA: pese al nombre 'legacy', es la fuente primaria que usa "
-            "el frontend para organismo/expediente (nunca lee 'identificacion_procedimiento', "
-            "que además es un subconjunto filtrado, no equivalente). Ver "
+            "Pese al nombre, es la fuente primaria que usa el frontend para "
+            "organismo/expediente (nunca lee 'identificacion_procedimiento', que además "
+            "es un subconjunto filtrado, no equivalente). Ver "
             "_bmad-output/us-5.3-legacy-fields-migration-plan.md antes de tocar este campo."
         ),
     )
     datos_procedimiento_extraction_status: str = "unknown"
-
-    documentos_requeridos: list[GenericCategoryItem] = Field(
-        default_factory=list,
-        description="DEPRECATED: Usar 'requisitos_admisibilidad' en su lugar. Será eliminado en Q2 2027.",
-    )
-    documentos_extraction_status: str = NOT_ANALYZED_STATUS
-    restricciones_participacion: list[GenericCategoryItem] = Field(default_factory=list)
-    restricciones_extraction_status: str = NOT_ANALYZED_STATUS
-    cronograma_proceso: list[GenericCategoryItem] = Field(default_factory=list)
-    cronograma_extraction_status: str = NOT_ANALYZED_STATUS
-    estimacion_presupuesto: PresupuestoItem | None = None
-    presupuesto_extraction_status: str = NOT_ANALYZED_STATUS
 
 
 __all__ = [
@@ -901,6 +892,5 @@ __all__ = [
     "HitoTemporalExtracted",
     "HitosTemporalesResponse",
     "GenericCategoryItem",
-    "PresupuestoItem",
     "ExtractedData",
 ]

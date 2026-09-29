@@ -4,8 +4,6 @@ Tests para el motor de recálculo de fechas en cascada.
 from datetime import date
 from unittest.mock import Mock
 
-import pytest
-
 from timeline.calculation_engine import recalculate_dependent_dates
 from timeline.models import Deadline, Event
 
@@ -24,15 +22,6 @@ class TestCalculationEngine:
             name="Adjudicación",
             event_date=date(2026, 9, 10),
             date_source="user_input"
-        )
-        
-        event_entrega = Event(
-            analysis_id="analysis-1",
-            partition_key="analysis-1",
-            event_id="entrega-1",
-            name="Entrega",
-            event_date=None,
-            date_source="pending"
         )
         
         deadline = Deadline(
@@ -129,16 +118,7 @@ class TestCalculationEngine:
     def test_recalculate_detects_cycle(self):
         """AC4: Debe detectar ciclo A→B→C→A"""
         mock_service = Mock()
-        
-        event_a = Event(
-            analysis_id="analysis-1",
-            partition_key="analysis-1",
-            event_id="a",
-            name="A",
-            event_date=date(2026, 9, 1),
-            date_source="user_input"
-        )
-        
+
         result = recalculate_dependent_dates(
             mock_service,
             "analysis-1",

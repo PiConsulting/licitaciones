@@ -34,14 +34,4 @@ describe("App routes FE1.2", () => {
 
     expect(screen.getByText("Dashboard Page")).toBeInTheDocument();
   });
-
-  test("resuelve Seguimiento en /seguimiento", () => {
-    render(
-      <MemoryRouter initialEntries={["/seguimiento"]}>
-        <App />
-      </MemoryRouter>,
-    );
-
-    expect(screen.getByText("Dashboard Page")).toBeInTheDocument();
-  });
 });

@@ -39,6 +39,17 @@ export interface AnalysisStartResponse {
   redirect_analysis_id: string | null;
 }
 
+export type CategoriesDecision = "approved" | "rejected";
+
+export interface CategoriesDecisionResponse {
+  id: string;
+  status: string;
+  message: string;
+  decision: CategoriesDecision;
+  decision_by_name: string | null;
+  decision_at: string | null;
+}
+
 export interface AnalysisStatusResponse {
   id: string;
   status: "draft" | "queued" | "processing" | "en_revision" | "analyzed" | "error" | "cancelled";
@@ -74,12 +85,26 @@ export interface ReanalyzeResponse {
   target_version_number: number | null;
 }
 
+export interface PatchAnalysisRequest {
+  monto_estimado: number;
+  moneda: string;
+}
+
+export interface PatchAnalysisResponse {
+  id: string;
+  monto_estimado: number;
+  moneda: string;
+  monto_estimado_source: "manual";
+  message: string;
+}
+
 export type AnalysisListSortBy = "created_at" | "status" | "current_stage";
 export type AnalysisListSortOrder = "asc" | "desc";
 
 export interface AnalysisListFilters {
   search?: string;
   status?: string;
+  business_unit?: string;
   date_from?: string;
   date_to?: string;
   page?: number;
@@ -91,6 +116,12 @@ export interface AnalysisListFilters {
 export interface AnalysisListItem {
   id: string;
   analysis_name?: string | null;
+  business_unit?: string | null;
+  business_status?: string | null;
+  monto_estimado?: number | null;
+  moneda?: string | null;
+  opening_date?: string | null;
+  closing_date?: string | null;
   status: string;
   current_stage: string;
   stage_progress?: string | null;
@@ -107,4 +138,9 @@ export interface AnalysisListResponse {
   per_page: number;
   total: number;
   total_pages: number;
+}
+
+export interface AnalysisBusinessUnitItem {
+  business_unit: string;
+  count: number;
 }

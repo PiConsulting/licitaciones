@@ -11,37 +11,7 @@ from analysis.extraction.state import GraphState
 
 logger = structlog.get_logger(__name__)
 
-# REDISEÑO (2026-09-18, pedido explícito de la usuaria tras auditar por qué
-# `riesgos` era la categoría con peor desempeño de las 11): la versión
-# anterior escaneaba chunks crudos igual que cualquier otra categoría, y le
-# pedía al LLM juzgar por su cuenta "¿esto es un riesgo?" sobre texto sin
-# procesar -- una tarea inherentemente subjetiva (casi cualquier cláusula
-# puede sonar riesgosa si se le agrega una consecuencia negativa). 3 intentos
-# de arreglarlo a puro prompt fallaron (ver memoria: regla "NO INCLUIR",
-# segunda pasada de verificación -- empeoró todo, ajuste de consolidación).
-#
-# El propio golden set de referencia reveló el patrón real: cada riesgo
-# "bueno" es en realidad un COMENTARIO sobre un hecho que YA está en otra
-# categoría (garantías, plazos, requisitos, causales, criterios) -- nunca un
-# descubrimiento nuevo del texto crudo. Este extractor ahora refleja eso:
-# en vez de volver a leer el pliego, arma un "digest" numerado de lo que esas
-# 5 categorías YA extrajeron (y ya verificaron sus propias citas) y le pide
-# al LLM que seleccione/priorice los 3-5 MÁS materialmente riesgosos --
-# tarea de selección/síntesis, no de juicio sobre texto libre.
-#
-# `source_references` de cada riesgo final se RESUELVEN EN CÓDIGO a partir
-# de los hechos referenciados (`indices`), reusando sus citas ya verificadas
-# -- el LLM nunca inventa ni repite una cita, solo apunta a qué hecho(s) se
-# refiere. Si no hay ningún hecho fuente con cita real, el riesgo se
-# descarta (no se inventa evidencia).
-#
-# `forma_pago`/`moneda`/`tipo_cambio`/`anticipo_financiero`/
-# `responsabilidad_costos_logisticos`/`multas_penalidades` YA NO son
-# responsabilidad de esta categoría -- se extraen directo en
-# `preview_criterios.txt` (ver ese prompt). El scope de `riesgos` se acota a
-# condiciones ESTRUCTURALES: plazos ajustados, garantías onerosas, requisitos
-# que direccionan a un proveedor específico, causales de descalificación
-# severas, criterios de evaluación desfavorables.
+# Riesgos sintetiza un digest numerado de garantías/plazos/requisitos/causales/criterios YA extraídos (el LLM selecciona/prioriza los 3-5 más materiales) en vez de juzgar texto crudo directamente; forma_pago/moneda/tipo_cambio/anticipo_financiero/responsabilidad_costos_logisticos/multas_penalidades se extraen aparte en preview_criterios. `source_references` se resuelve en código reusando citas ya verificadas del hecho fuente, nunca inventadas por el LLM.
 _MAX_DIGEST_ITEMS_PER_CATEGORY = 20
 _MAX_VALOR_CHARS = 220
 
@@ -168,8 +138,7 @@ def extractor_riesgos(state: GraphState) -> GraphState:
             continue
         source_refs = _resolve_source_references(digest, indices)
         if not source_refs:
-            # Sin ninguna cita ya verificada para respaldarlo -- se descarta
-            # en vez de inventar evidencia.
+            # Sin cita ya verificada que lo respalde, se descarta (no se inventa evidencia).
             continue
         explicacion = str(raw.get("explicacion") or "").strip()
         if not explicacion:

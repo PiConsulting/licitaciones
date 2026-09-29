@@ -39,7 +39,7 @@ def _load_active_tracking_for_user(db: Session, analysis_id: str, user_id: str) 
     return tracking
 
 
-def start_tracking(analysis_id: str, user_id: str) -> dict:
+def start_tracking(analysis_id: str, user_id: str, *, started_by_name: str | None = None) -> dict:
     db = SessionLocal()
     try:
         analysis = _load_analysis_or_raise(db, analysis_id, user_id)
@@ -74,6 +74,8 @@ def start_tracking(analysis_id: str, user_id: str) -> dict:
             version_id=version_id,
             status="active",
             started_by=user_id,
+            started_by_name=(started_by_name or "").strip()
+            or _resolve_user_display_name(db, user_id),
             started_at=now,
             updated_at=now,
             categories=_build_default_category_rows(

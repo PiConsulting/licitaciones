@@ -7,6 +7,7 @@ import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
 import NewAnalysisWizard from "./pages/NewAnalysis/NewAnalysisWizard";
 import Register from "./pages/Register";
+import { ChecklistPage } from "./features/checklist/ChecklistPage";
 import { useUIStore } from "./store/useUIStore";
 
 function ProtectedRoute({ children }: { children: ReactElement }) {
@@ -36,10 +37,9 @@ export default function App() {
         }
       >
         <Route path="/" element={<Dashboard />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/seguimiento" element={<Dashboard />} />
         <Route path="/analyze" element={<NewAnalysisWizard />} />
         <Route path="/analysis/:analysisId" element={<AnalysisDetail />} />
+        <Route path="/analysis/:analysisId/checklist" element={<ChecklistPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>

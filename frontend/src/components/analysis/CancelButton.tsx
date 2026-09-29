@@ -6,9 +6,10 @@ import { cancelAnalysis } from "../../api/analyses";
 interface CancelButtonProps {
   analysisId: string;
   disabled?: boolean;
+  label?: string;
 }
 
-export function CancelButton({ analysisId, disabled = false }: CancelButtonProps) {
+export function CancelButton({ analysisId, disabled = false, label = "Cancelar análisis" }: CancelButtonProps) {
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
@@ -24,10 +25,10 @@ export function CancelButton({ analysisId, disabled = false }: CancelButtonProps
       type="button"
       onClick={() => mutation.mutate()}
       disabled={disabled || mutation.isPending}
-      className="inline-flex items-center gap-2 rounded-md border border-red-300 px-3 py-2 text-sm font-medium text-red-700 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+      className="inline-flex h-9 flex-shrink-0 items-center gap-2 whitespace-nowrap rounded-full border-[1.5px] border-[rgba(220,38,38,.4)] bg-white px-4 text-[13px] font-semibold text-[#DC2626] hover:bg-[#FEE2E2] disabled:cursor-not-allowed disabled:opacity-50"
     >
-      <X className="h-4 w-4" />
-      {mutation.isPending ? "Cancelando..." : "Cancelar analisis"}
+      <X className="h-3.5 w-3.5" strokeWidth={2.5} />
+      {mutation.isPending ? "Cancelando..." : label}
     </button>
   );
 }

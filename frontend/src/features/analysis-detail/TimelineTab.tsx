@@ -1,4 +1,4 @@
-import { Plus, Eye, EyeOff, List, Clock } from "lucide-react";
+import { Plus, Eye, EyeOff, List, Clock, ChevronDown, ChevronUp } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "../../components/Button";
@@ -24,12 +24,10 @@ interface TimelineTabProps {
 export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedEventForDate, setSelectedEventForDate] = useState<EventResponse | null>(null);
-  // Por default los eventos ocultados a mano no se muestran ni influyen en nada; este toggle los trae de vuelta atenuados, sin perder trazabilidad.
   const [showHidden, setShowHidden] = useState(false);
-  // "Lista" es el detalle de siempre; "Línea de tiempo" es una vista vertical cronológica de solo lectura, con HOY marcado (ver TimelineVerticalView).
   const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [pendingExpanded, setPendingExpanded] = useState(true);
 
-  // Se pide siempre con include_hidden para togglear visibilidad al instante; el filtrado real pasa del lado del cliente (ver `displayEvents`).
   const { data: events, isLoading: eventsLoading, isError: eventsError } = useQuery({
     queryKey: ["timeline", analysisId],
     queryFn: () => getTimelineEvents(analysisId, { includeHidden: true }),
@@ -54,10 +52,9 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
     }
   };
 
-  // Si un evento tiene múltiples deadlines, solo retorna el primero encontrado.
   const getEventDependency = (eventId: string) => {
     if (!deadlines) return null;
-    
+
     const deadline = deadlines.find((d) => d.target_event_id === eventId && !d.deleted);
     if (!deadline) return null;
 
@@ -79,24 +76,20 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
     );
   };
 
-  // Nombres de los eventos que usan este como evento_disparador, para mostrar "Usado por: X, Y" en vez de un genérico "otros eventos dependen de esto".
   const getDependentEventNames = (eventId: string): string[] =>
     getDependentDeadlines(eventId)
       .map((d) => events?.find((e) => e.event_id === d.target_event_id)?.name?.trim())
       .filter((name): name is string => Boolean(name));
 
-  // Evento "inferido": el pliego no lo menciona, se creó porque otro evento lo necesita como disparador (ver mencion_propia); van primero para que el usuario los verifique.
   const isInferred = (e: EventResponse): boolean => e.source_reference?.mencion_propia === false;
   const byInferredFirst = (a: EventResponse, b: EventResponse) =>
     (isInferred(a) ? 0 : 1) - (isInferred(b) ? 0 : 1);
 
-  // Base de las estadísticas del timeline: NUNCA cuentan un evento oculto, se muestre o no en la lista (ver "Mostrar ocultos").
   const activeEvents = events?.filter((e) => !e.deleted && !e.hidden) || [];
   const hiddenEvents = events?.filter((e) => !e.deleted && e.hidden) || [];
 
   const displayEvents = showHidden ? [...activeEvents, ...hiddenEvents] : activeEvents;
 
-  // Prioriza los inferidos, ordena el resto cronológicamente.
   const eventsWithDate = displayEvents
     .filter((e) => e.event_date !== null)
     .sort((a, b) => {
@@ -105,18 +98,15 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
       return new Date(a.event_date!).getTime() - new Date(b.event_date!).getTime();
     });
 
-  // Orden puramente cronológico (sin prioridad de inferidos): la línea de tiempo necesita el orden real para insertar "HOY" en el lugar correcto.
   const chronologicalEventsWithDate = [...eventsWithDate].sort(
     (a, b) => new Date(a.event_date!).getTime() - new Date(b.event_date!).getTime(),
   );
 
   const pendingEvents = displayEvents.filter((e) => e.event_date === null);
 
-  // Siempre sobre `activeEvents`: un evento oculto no debe influir en el estado general del timeline aunque el usuario lo esté mirando.
   const statsWithDateCount = activeEvents.filter((e) => e.event_date !== null).length;
   const statsPendingCount = activeEvents.filter((e) => e.event_date === null).length;
 
-  // Eventos "ancla": pendientes de los que depende al menos un plazo; van al panel compacto (no card grande) para no repetir la misma acción dos veces.
   const anchorEvents = pendingEvents
     .filter((e) => hasEventDependents(e.event_id))
     .sort(byInferredFirst);
@@ -132,85 +122,80 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
     dependentEventNamesByEventId[anchor.event_id] = getDependentEventNames(anchor.event_id);
   }
 
-  // Cuenta los ocultos también: un análisis con solo eventos ocultos no está "vacío", solo hace falta prender "Mostrar ocultos".
   const hasAnyEvents = activeEvents.length > 0 || hiddenEvents.length > 0;
   const hasVisibleEvents = eventsWithDate.length > 0 || pendingEvents.length > 0;
+  const today = new Date();
+  const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const completedEventsCount = activeEvents.filter((e) => e.event_date !== null && e.event_date < todayIso).length;
+  const nextUpcomingEvent = [...activeEvents]
+    .filter((e) => e.event_date !== null && e.event_date >= todayIso)
+    .sort((a, b) => new Date(a.event_date!).getTime() - new Date(b.event_date!).getTime())[0];
 
   return (
     <div className="timeline-tab">
-      <div className="mb-6">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900">Timeline</h2>
-            <p className="text-sm text-gray-600 mt-1">Eventos y plazos del proceso de licitación</p>
-          </div>
-          <Button variant="primary" size="sm" className="whitespace-nowrap text-xs" onClick={handleAddEvent}>
-            <Plus className="w-3.5 h-3.5 mr-1" />
-            Agregar evento
-          </Button>
-        </div>
-
-        {/* Fila propia para "qué ver", separada de "Agregar evento" (la acción principal, arriba a la derecha). */}
-        {(activeEvents.length > 0 || hiddenEvents.length > 0) && (
-          <div className="mt-3 flex items-center gap-2">
-            {activeEvents.length > 0 ? (
-              <div
-                className="flex items-center rounded-md border border-gray-200 p-0.5 text-xs"
-                role="group"
-                aria-label="Modo de vista del Timeline"
-              >
-                <button
-                  type="button"
-                  onClick={() => setViewMode("list")}
-                  aria-pressed={viewMode === "list"}
-                  className={cn(
-                    "flex items-center gap-1 rounded px-2 py-1 font-medium transition-colors",
-                    viewMode === "list" ? "bg-primary text-primary-fg" : "text-gray-600 hover:bg-gray-50",
-                  )}
-                >
-                  <List className="h-3.5 w-3.5" />
-                  Lista
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewMode("timeline")}
-                  aria-pressed={viewMode === "timeline"}
-                  className={cn(
-                    "flex items-center gap-1 rounded px-2 py-1 font-medium transition-colors",
-                    viewMode === "timeline" ? "bg-primary text-primary-fg" : "text-gray-600 hover:bg-gray-50",
-                  )}
-                >
-                  <Clock className="h-3.5 w-3.5" />
-                  Línea de tiempo
-                </button>
-              </div>
-            ) : null}
-            {hiddenEvents.length > 0 ? (
-              <Button
-                variant="secondary"
-                size="sm"
-                className="whitespace-nowrap text-xs"
-                onClick={() => setShowHidden((prev) => !prev)}
-              >
-                {showHidden ? (
-                  <EyeOff className="w-3.5 h-3.5 mr-1" />
-                ) : (
-                  <Eye className="w-3.5 h-3.5 mr-1" />
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {activeEvents.length > 0 ? (
+            <nav
+              className="inline-flex gap-1 rounded-full border border-[rgba(0,60,107,.12)] bg-white p-1"
+              aria-label="Modo de vista del Timeline"
+            >
+              <button
+                type="button"
+                onClick={() => setViewMode("list")}
+                aria-pressed={viewMode === "list"}
+                className={cn(
+                  "inline-flex h-8 items-center gap-[7px] rounded-full px-3.5 text-[12.5px] font-semibold transition-colors",
+                  viewMode === "list" ? "bg-[#003C6B] text-white" : "bg-transparent text-[#003C6B]",
                 )}
-                {showHidden ? "Ocultar ocultos" : `Mostrar ocultos (${hiddenEvents.length})`}
-              </Button>
-            ) : null}
-          </div>
-        )}
+              >
+                <List className="h-3.5 w-3.5" />
+                Lista
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("timeline")}
+                aria-pressed={viewMode === "timeline"}
+                className={cn(
+                  "inline-flex h-8 items-center gap-[7px] rounded-full px-3.5 text-[12.5px] font-semibold transition-colors",
+                  viewMode === "timeline" ? "bg-[#003C6B] text-white" : "bg-transparent text-[#003C6B]",
+                )}
+              >
+                <Clock className="h-3.5 w-3.5" />
+                Línea de tiempo
+              </button>
+            </nav>
+          ) : null}
+          {hiddenEvents.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setShowHidden((prev) => !prev)}
+              className="inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full border-[1.5px] border-[rgba(0,60,107,.2)] bg-white px-3 text-xs font-semibold text-[rgba(0,60,107,.68)] hover:border-[#0099DB] hover:text-[#003C6B]"
+            >
+              {showHidden ? <EyeOff className="h-[13px] w-[13px]" /> : <Eye className="h-[13px] w-[13px]" />}
+              {showHidden ? "Ocultar ocultos" : `Mostrar ocultos (${hiddenEvents.length})`}
+            </button>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          onClick={handleAddEvent}
+          className="inline-flex h-9 items-center gap-2 whitespace-nowrap rounded-full border-0 bg-[#003C6B] px-[18px] text-[13px] font-semibold text-white hover:bg-[#0099DB]"
+        >
+          <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
+          Agregar evento
+        </button>
       </div>
 
-      {activeEvents.length > 0 && (
+      {activeEvents.length > 0 ? (
         <TimelineStats
           totalEvents={activeEvents.length}
           confirmedEvents={statsWithDateCount}
           pendingEvents={statsPendingCount}
+          completedEvents={completedEventsCount}
+          nextUpcomingEvent={nextUpcomingEvent ? { name: nextUpcomingEvent.name, date: nextUpcomingEvent.event_date! } : null}
         />
-      )}
+      ) : null}
 
       {isLoading ? (
         <div className="min-h-[200px] flex items-center justify-center">
@@ -238,7 +223,6 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
           </Button>
         </div>
       ) : viewMode === "timeline" ? (
-        // La línea de tiempo muestra SOLO eventos confirmados (con fecha) -- nada de anclas por cargar ni pendientes, para no mezclar con lo que no tiene dónde ubicarse.
         eventsWithDate.length > 0 ? (
           <TimelineVerticalView
             events={chronologicalEventsWithDate as ConfirmedEvent[]}
@@ -265,15 +249,21 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
 
           {eventsWithDate.length > 0 ? (
             <section>
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-600">
-                Eventos Confirmados
-              </h3>
-              <div className="space-y-3">
+              <div className="mb-3 flex items-center gap-2">
+                <h3 className="text-[11px] font-bold uppercase tracking-[0.14em] text-[rgba(0,60,107,.68)]">
+                  Eventos Confirmados
+                </h3>
+                <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[rgba(0,60,107,.08)] px-1.5 text-[11px] font-bold text-[rgba(0,60,107,.68)]">
+                  {eventsWithDate.length}
+                </span>
+              </div>
+              <div className="space-y-2.5">
                 {eventsWithDate.map((event) => {
                   const dependency = getEventDependency(event.event_id);
                   const dependentDeadlines = getDependentDeadlines(event.event_id);
-                  // Type assertion segura: eventsWithDate filtra event_date !== null
                   const confirmedEvent = event as ConfirmedEvent;
+                  const isPast = event.event_date !== null && event.event_date < todayIso;
+                  const isNext = nextUpcomingEvent?.event_id === event.event_id;
                   return (
                     <EventCard
                       key={event.event_id}
@@ -283,6 +273,8 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
                       triggerEvent={dependency?.triggerEvent}
                       dependentDeadlines={dependentDeadlines}
                       dependentEventNames={getDependentEventNames(event.event_id)}
+                      isPast={isPast}
+                      isNext={isNext}
                       onViewSource={onViewSource}
                     />
                   );
@@ -291,30 +283,45 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
             </section>
           ) : null}
 
-          {/* Los que ya son targets de un plazo muestran la fórmula de cálculo; los ancla no se repiten acá, ya están arriba en el panel compacto. */}
           {otherPendingEvents.length > 0 ? (
             <section>
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-600">
-                Eventos Pendientes
-              </h3>
-              <div className="space-y-2">
-                {otherPendingEvents.map((event) => {
-                  const dependency = getEventDependency(event.event_id);
-                  return (
-                    <PendingEventCard
-                      key={event.event_id}
-                      analysisId={analysisId}
-                      event={event}
-                      hasDependents={hasEventDependents(event.event_id)}
-                      dependentEventNames={getDependentEventNames(event.event_id)}
-                      deadline={dependency?.deadline}
-                      triggerEvent={dependency?.triggerEvent}
-                      onAddDate={() => handleAddDate(event.event_id)}
-                      onViewSource={onViewSource}
-                    />
-                  );
-                })}
-              </div>
+              <button
+                type="button"
+                onClick={() => setPendingExpanded((prev) => !prev)}
+                aria-expanded={pendingExpanded}
+                className="mb-3 flex w-full items-center gap-2 border-0 bg-transparent p-0"
+              >
+                <h3 className="text-[11px] font-bold uppercase tracking-[0.14em] text-[rgba(0,60,107,.68)]">
+                  Eventos Pendientes
+                </h3>
+                <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[rgba(0,60,107,.08)] px-1.5 text-[11px] font-bold text-[rgba(0,60,107,.68)]">
+                  {otherPendingEvents.length}
+                </span>
+                {pendingExpanded ? (
+                  <ChevronUp className="h-3.5 w-3.5 text-[rgba(0,60,107,.55)]" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5 text-[rgba(0,60,107,.55)]" />
+                )}
+              </button>
+              {pendingExpanded ? (
+                <div className="space-y-2.5">
+                  {otherPendingEvents.map((event) => {
+                    const dependency = getEventDependency(event.event_id);
+                    return (
+                      <PendingEventCard
+                        key={event.event_id}
+                        event={event}
+                        hasDependents={hasEventDependents(event.event_id)}
+                        dependentEventNames={getDependentEventNames(event.event_id)}
+                        deadline={dependency?.deadline}
+                        triggerEvent={dependency?.triggerEvent}
+                        onAddDate={() => handleAddDate(event.event_id)}
+                        onViewSource={onViewSource}
+                      />
+                    );
+                  })}
+                </div>
+              ) : null}
             </section>
           ) : null}
         </div>

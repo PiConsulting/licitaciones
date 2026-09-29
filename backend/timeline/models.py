@@ -43,6 +43,15 @@ class Event(BaseModel):
         source_document_id: ID del documento de origen (requerido si detected)
         source_page: Página del documento donde se detectó
         source_fragment: Fragmento de texto que evidencia el evento
+        detalle: Descripción breve en lenguaje natural de qué ocurre en este
+            hito (ej. "El oferente presenta la oferta"), sintetizada por el
+            mismo LLM de extracción (`accion_concreta` en
+            `EventoTemporalItem`) -- sin costo extra, es el mismo llamado que
+            ya extrae el evento. Reemplaza mostrar `source_fragment` (la cita
+            literal del pliego, larga y burocrática) como si fuera la
+            descripción del evento; `source_fragment` sigue existiendo para
+            el matching de highlight y como fallback si `detalle` es None
+            (eventos de análisis previos al 2026-09-28, sin reanalizar).
         source_reference: Metadatos adicionales de la fuente
         deleted: Flag de soft delete
         hidden: Flag de "ocultar sin borrar" (2026-09-01): distinto de
@@ -71,12 +80,13 @@ class Event(BaseModel):
     source_document_id: Optional[str] = None
     source_page: Optional[int] = None
     source_fragment: Optional[str] = None
+    detalle: Optional[str] = None
     source_reference: Optional[dict[str, Any]] = None
     deleted: bool = False
     hidden: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    
+
     @model_validator(mode="after")
     def validate_date_and_source_consistency(self) -> "Event":
         """

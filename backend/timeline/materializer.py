@@ -351,6 +351,7 @@ def _refresh_stale_source(
     source_document_id: str | None,
     source_page: int | None,
     source_fragment: str | None,
+    detalle: str | None = None,
 ) -> None:
     """
     BUG real (Santa Fe, encontrado 2026-09-21): un evento que ya existe
@@ -376,12 +377,15 @@ def _refresh_stale_source(
         return
 
     trimmed_fragment = source_fragment[:500] if source_fragment else None
+    trimmed_detalle = detalle[:500] if detalle else None
     changed = (
         bool(source_document_id) and event.source_document_id != source_document_id
     ) or (
         source_page is not None and event.source_page != source_page
     ) or (
         bool(trimmed_fragment) and event.source_fragment != trimmed_fragment
+    ) or (
+        bool(trimmed_detalle) and event.detalle != trimmed_detalle
     )
     if not changed:
         return
@@ -392,6 +396,8 @@ def _refresh_stale_source(
         event.source_page = source_page
     if trimmed_fragment:
         event.source_fragment = trimmed_fragment
+    if trimmed_detalle:
+        event.detalle = trimmed_detalle
     event.updated_at = datetime.now(UTC)
     repository.update_event(db, event)
 
@@ -407,6 +413,7 @@ def _find_or_create_event(
     source_document_id: str | None = None,
     source_page: int | None = None,
     source_fragment: str | None = None,
+    detalle: str | None = None,
     result: MaterializeResult,
     mencion_propia: bool = True,
 ) -> Event:
@@ -448,6 +455,7 @@ def _find_or_create_event(
             source_document_id=source_document_id,
             source_page=source_page,
             source_fragment=source_fragment,
+            detalle=detalle,
         )
         return match
 
@@ -462,6 +470,7 @@ def _find_or_create_event(
         source_document_id=source_document_id,
         source_page=source_page,
         source_fragment=source_fragment[:500] if source_fragment else None,
+        detalle=detalle[:500] if detalle else None,
         source_reference={"mencion_propia": mencion_propia},
     )
     created = repository.create_event(db, event)
@@ -547,6 +556,7 @@ def materialize_timeline_from_extraction(
             source_document_id=item.get("fuente_documento_id") or item.get("_source_document_id"),
             source_page=item.get("fuente_pagina"),
             source_fragment=item.get("fuente_fragmento"),
+            detalle=item.get("accion_concreta"),
             result=result,
             mencion_propia=bool(item.get("mencion_propia", True)),
         )

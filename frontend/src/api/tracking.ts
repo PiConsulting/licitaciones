@@ -16,11 +16,6 @@ export async function startTracking(analysisId: string): Promise<AnalysisTrackin
   return response.data.tracking;
 }
 
-export async function getTracking(analysisId: string): Promise<AnalysisTracking | null> {
-  const response = await apiClient.get<AnalysisTracking | null>(`/analyses/${analysisId}/tracking`);
-  return response.data;
-}
-
 export async function completeTracking(analysisId: string): Promise<AnalysisTracking> {
   const response = await apiClient.post<AnalysisTracking>(`/analyses/${analysisId}/tracking/complete`);
   return response.data;
@@ -73,14 +68,13 @@ export async function listTrackingComments(
 export async function createTrackingComment(
   analysisId: string,
   categoryKey: string,
-  payload: { content: string },
+  payload: { content: string; trackingItemId?: string },
 ): Promise<TrackingComment> {
   const response = await apiClient.post<TrackingComment>(
     `/analyses/${analysisId}/tracking/categories/${categoryKey}/comments`,
-    {
-      scope: "category",
-      content: payload.content,
-    },
+    payload.trackingItemId
+      ? { scope: "checklist_item", tracking_item_id: payload.trackingItemId, content: payload.content }
+      : { scope: "category", content: payload.content },
   );
   return response.data;
 }

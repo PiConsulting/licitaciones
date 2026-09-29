@@ -62,9 +62,9 @@ export function HighlightOverlay({ regions, scale }: HighlightOverlayProps): JSX
             top: `${region.y * scale}px`,
             width: `${region.width * scale}px`,
             height: `${region.height * scale}px`,
-            backgroundColor: 'rgba(250, 204, 21, 0.35)',
+            backgroundColor: 'rgba(127, 243, 222, 0.45)',
             pointerEvents: 'none',
-            border: '1px solid rgba(250, 204, 21, 0.6)',
+            border: '1px solid rgba(11, 107, 88, 0.5)',
           }}
         />
       ))}

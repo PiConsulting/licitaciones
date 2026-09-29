@@ -22,16 +22,7 @@ _PROMPT_COST_PER_1K = 0.00015
 _COMPLETION_COST_PER_1K = 0.0006
 _SETUP_CACHE_KEY = "setup_cache"
 
-# FIX (2026-09-03): garantias, plazos_clave/plazos, requisitos_admisibilidad
-# y riesgos se promueven a fase 1 -- preview_criterios ahora proyecta 5 de
-# sus 10 items desde los resultados de estas 4 categorias (ver
-# `analysis/extraction/extractors/preview_criterios.py` y
-# `analysis/extraction/graph/nodes.py`), así que necesitan haber corrido (y
-# haber quedado persistidas) ya en fase 1, no en fase 2. "calidad_por_categoria"
-# se mueve/agrega acá también -- antes solo vivía en fase 2 y el merge de
-# fase 2 con fase 1 solo la traía si YA existía en la versión (ver
-# `extract_categories_phase2` más abajo); si no se persiste desde fase 1, las
-# entradas de calidad de estas 4 categorías se pierden.
+# garantias/plazos/requisitos_admisibilidad se promovieron a fase 1 porque preview_criterios proyecta 5 de sus 10 items desde ellas; calidad_por_categoria se persiste acá también o se pierde en el merge de fase 2.
 _PHASE1_EXTRACTED_KEYS = {
     "preview_criterios",
     "preview_criterios_extraction_status",
@@ -56,24 +47,18 @@ _PHASE1_EXTRACTED_KEYS = {
     "plazos_clave_extraction_status",
     "plazos_clave_narrative",
     "plazos_clave_confidence",
-    "plazos",
-    "plazos_extraction_status",
     "garantias",
     "garantias_extraction_status",
     "garantias_narrative",
     "garantias_confidence",
 }
 
-# FIX (2026-09-18, rediseño de `riesgos`): movido de fase 1 a fase 2 -- ahora
-# sintetiza desde garantias/plazos/requisitos (fase 1, sembrados a mano en
-# `extract_categories_phase2`) + causales/criterios (fase 2, recién
-# calculados), así que su OUTPUT también se persiste como resultado de fase 2.
+# `riesgos` está en fase 2: sintetiza desde garantias/plazos/requisitos (fase 1, sembrados a mano) + causales/criterios (fase 2), así que su output se persiste acá.
 _PHASE2_EXTRACTED_KEYS = {
     "calidad_por_categoria",
     "causales_rechazo",
     "causales_rechazo_extraction_status",
     "causales_rechazo_narrative",
-    "causales_extraction_status",
     "causales_rechazo_confidence",
     "anexos_obligatorios",
     "anexos_obligatorios_extraction_status",
@@ -121,9 +106,7 @@ def _compute_cost(metadata: dict) -> dict:
     total_cost = ((prompt_tokens / 1000) * _PROMPT_COST_PER_1K) + (
         (completion_tokens / 1000) * _COMPLETION_COST_PER_1K
     )
-    # Instrumentación (Paso 0.1, plan rag-plan-latencia-2026-09-09): nº total
-    # de llamadas al LLM (extracción map-reduce + síntesis) y wall-time por
-    # categoría, para medir el efecto de cada cambio de paralelización.
+    # Instrumentación para medir el efecto de cambios de paralelización (llamadas LLM y wall-time por categoría).
     llm_calls_total = sum(int(item.get("llm_calls", 0)) for item in usage_by_category.values())
     wall_time_by_category = {
         name: item["wall_time_seconds"]
@@ -312,9 +295,7 @@ def extract_categories(db: Session, analysis: Analysis) -> GraphState:
             skipped_count=len(materialize_result.skipped),
         )
     except Exception:
-        # No debe bloquear que el análisis se marque como analizado -- el
-        # Timeline queda vacío para este análisis (como hoy), pero el resto
-        # de los resultados de la extracción se guardan igual.
+        # No debe bloquear que el análisis se marque como analizado; el Timeline queda vacío pero el resto se guarda igual.
         logger.exception(
             "timeline_materialization_failed",
             correlation_id=analysis.correlation_id,
@@ -467,16 +448,7 @@ def extract_categories_phase2(
     if current_version is None:
         raise RuntimeError("No se encontró la AnalysisVersion de fase 1 para completar fase 2")
 
-    # FIX (2026-09-18, rediseño de `riesgos`): `riesgos` se movió a fase 2 para
-    # poder sintetizar a partir de HECHOS YA EXTRAÍDOS en vez de escanear
-    # chunks crudos (ver `extractor_riesgos`) -- necesita `garantias`/`plazos`/
-    # `requisitos_admisibilidad`, que son de fase 1 y no vuelven a correr acá.
-    # `_build_initial_state` no los precarga (solo trae `setup_cache`, la
-    # infraestructura de retrieval) -- se siembran a mano desde lo ya
-    # persistido en fase 1, mismo patrón que `_PREVIEW_CRITERIOS_SOURCE_STATE_KEYS`
-    # en `lifecycle.py` para el reanálisis de una sola categoría. `setup_node`
-    # (compartido por las 3 fases) ya solo inicializa un campo si está vacío
-    # -- no pisa estos valores sembrados (fix de Fase 2 de la sesión anterior).
+    # `riesgos` necesita garantias/plazos/requisitos_admisibilidad de fase 1, que `_build_initial_state` no precarga; se siembran a mano (setup_node solo inicializa campos vacíos, no pisa esto).
     _phase1_data = current_version.extracted_data or {}
     for _key in ("garantias", "plazos", "requisitos_admisibilidad"):
         _value = _phase1_data.get(_key)
@@ -507,8 +479,7 @@ def extract_categories_phase2(
     metadata["wall_time_seconds"] = round(time.monotonic() - _invoke_started, 2)
     metadata["cost"] = _compute_cost(metadata)
 
-    # Decisión de diseño (Epic P1, 2026-09-02): fase 2 NO crea versión nueva.
-    # Solo completa la primera corrida y actualiza in-place la version_number=1.
+    # Fase 2 no crea versión nueva: completa la primera corrida in-place sobre version_number=1.
     merged_extracted_data = dict(current_version.extracted_data or {})
     calidad_existente = merged_extracted_data.get("calidad_por_categoria")
     calidad_nueva = phase2_extracted_data.get("calidad_por_categoria")

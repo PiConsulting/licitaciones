@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import time
 from datetime import UTC, datetime
 from copy import deepcopy
 
@@ -51,9 +50,7 @@ _PHASE1_CATEGORY_IDS = [
     "garantias",
 ]
 
-# FIX (2026-09-18, rediseño de `riesgos`): movido de fase 1 a fase 2 -- ya no
-# scanea chunks crudos, sintetiza desde garantias/plazos/requisitos (fase 1) +
-# causales/criterios (fase 2, recién calculados en la misma fase).
+# `riesgos` está en fase 2 porque sintetiza desde garantias/plazos/requisitos (fase 1) + causales/criterios (fase 2), no escanea chunks crudos.
 _PHASE2_CATEGORY_IDS = [
     "causales_rechazo",
     "anexos_obligatorios",
@@ -63,39 +60,14 @@ _PHASE2_CATEGORY_IDS = [
     "riesgos",
 ]
 
-# `extractor_preview_criterios` no vuelve a llamar al LLM para estos 3 tipos
-# de preview -- los PROYECTA leyendo `state["garantias"]`/`state["plazos"]`/
-# `state["requisitos_admisibilidad"]` ya calculados (ver
-# `analysis/extraction/extractors/preview_criterios.py`). Si `preview_criterios`
-# se reanaliza solo (sin esas 3 categorías en el mismo batch), el grafo de una
-# sola categoria arranca con un `GraphState` vacío y esos `state.get(...)`
-# devuelven `[]`, así que la proyección da `not_found` para items que en
-# realidad SÍ están extraídos y persistidos en la versión -- pisando el
-# preview bueno que ya existía (bug reportado 2026-09-11: "mantenimiento de
-# oferta" aparecía y desaparecía entre reanálisis sin que cambiara el pliego).
-# `riesgos` salió de esta lista 2026-09-18: `multas_penalidades` (lo único que
-# preview necesitaba de riesgos) pasó a extracción directa en
-# `preview_criterios.txt` -- preview ya no depende de riesgos en absoluto.
+# Preview PROYECTA estos 3 tipos desde garantias/plazos/requisitos ya calculados; si se reanaliza preview solo, hay que sembrar el state con lo persistido o la proyección da not_found y pisa un preview bueno (bug 2026-09-11).
 _PREVIEW_CRITERIOS_SOURCE_STATE_KEYS = [
     "garantias",
     "plazos",
     "requisitos_admisibilidad",
 ]
 
-# FIX (2026-09-18, mismo rediseño): `riesgos` ahora sintetiza desde estas 5
-# categorías ya extraídas en vez de escanear chunks crudos -- si se reanaliza
-# SOLO "riesgos" (mini-grafo aislado, ver `_build_single_category_graph`), hay
-# que sembrar `initial_state` con lo ya persistido en la versión, igual que ya
-# se hace arriba para `preview_criterios`. Sin esto, `extractor_riesgos`
-# arrancaría con las 5 fuentes vacías y no tendría nada para sintetizar.
-#
-# Mapa (nombre del campo en `GraphState` -> clave con la que se persiste en
-# `AnalysisVersion.extracted_data`): para garantias/plazos/requisitos_
-# admisibilidad son el mismo string, pero `causales`/`criterios` (nombres de
-# `state_field` en sus extractores) se persisten como `causales_rechazo`/
-# `criterios_evaluacion` (ver `_CATEGORY_TO_DATA_KEYS` debajo) -- sembrar con
-# el nombre equivocado dejaría `state["causales"]`/`state["criterios"]`
-# siempre vacíos sin que ningún test lo notara si no se distingue esto.
+# (campo en GraphState, clave persistida en extracted_data): si se reanaliza solo "riesgos" hay que sembrar initial_state con esto o extractor_riesgos arranca vacío; causales/criterios se persisten bajo nombres distintos al state_field.
 _RIESGOS_SOURCE_STATE_KEYS: list[tuple[str, str]] = [
     ("garantias", "garantias"),
     ("plazos", "plazos"),
@@ -136,8 +108,6 @@ _CATEGORY_TO_DATA_KEYS = {
         "plazos_clave_extraction_status",
         "plazos_clave_narrative",
         "plazos_clave_confidence",
-        "plazos",
-        "plazos_extraction_status",
     ],
     "garantias": [
         "garantias",
@@ -156,7 +126,6 @@ _CATEGORY_TO_DATA_KEYS = {
         "causales_rechazo_extraction_status",
         "causales_rechazo_narrative",
         "causales_rechazo_confidence",
-        "causales_extraction_status",
     ],
     "anexos_obligatorios": [
         "anexos_obligatorios",
@@ -850,10 +819,7 @@ def request_cancellation(db: Session, analysis_id: str, user_id: str) -> Analysi
         raise PermissionError("Only the owner can cancel this analysis")
 
     analysis.cancellation_requested = True
-    # `en_revision` no es terminal: el usuario todavía puede continuar a fase 2.
-    # Si hay un reanálisis en curso, cancelar descarta el intento y vuelve al
-    # status/versión previos en vez de marcar todo el análisis "cancelled"
-    # (ver `revert_or_mark_cancelled`).
+    # Si hay un reanálisis en curso, cancelar revierte al status/versión previos en vez de marcar "cancelled" todo el análisis.
     revert_or_mark_cancelled(analysis, db)
 
     db.commit()
@@ -866,7 +832,7 @@ def delete_analysis(db: Session, analysis_id: str, user_id: str) -> str:
     current_status = analysis.status.lower()
 
     # `en_revision` no bloquea eliminación: ya terminó fase 1 y no hay trabajo activo.
-    if current_status in {"queued", "analyzing", "processing"}:
+    if current_status in {"queued", "processing"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
@@ -896,39 +862,3 @@ def delete_analysis(db: Session, analysis_id: str, user_id: str) -> str:
     )
     db.commit()
     return "soft"
-
-
-def run_analysis_stub(analysis_id: str) -> None:
-    """STUB sync processor for Story 2.3 background execution."""
-    db = SessionLocal()
-    try:
-        analysis = (
-            db.query(Analysis)
-            .filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None))
-            .first()
-        )
-        if analysis is None:
-            logger.error("[STUB] Analysis %s not found", analysis_id)
-            return
-
-        analysis.status = "analyzing"
-        analysis.current_stage = "stub_processing"
-        analysis.updated_at = datetime.now(UTC)
-        db.commit()
-        time.sleep(0.2)
-
-        analysis.status = "completed"
-        analysis.current_stage = None
-        analysis.updated_at = datetime.now(UTC)
-        db.commit()
-    except Exception:
-        db.rollback()
-        analysis = db.query(Analysis).filter(Analysis.id == analysis_id).first()
-        if analysis is not None:
-            analysis.status = "error"
-            analysis.current_stage = None
-            analysis.updated_at = datetime.now(UTC)
-            db.commit()
-        raise
-    finally:
-        db.close()

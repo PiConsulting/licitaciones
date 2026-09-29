@@ -140,7 +140,7 @@ describe("PendingEventCard", () => {
     expect(screen.queryByText("Otros eventos dependen de esta fecha")).not.toBeInTheDocument();
   });
 
-  test("has correct styling with dashed border", () => {
+  test("has correct styling with cedi border and card background", () => {
     const event = createMockPendingEvent();
     const handleAddDate = vi.fn();
 
@@ -149,7 +149,7 @@ describe("PendingEventCard", () => {
     });
 
     const card = screen.getByText("Adjudicación").closest(".pending-event-card");
-    expect(card).toHaveClass("border-dashed", "border-gray-300", "bg-gray-50/50");
+    expect(card).toHaveClass("rounded-2xl", "bg-white");
   });
 
   describe("ocultar/mostrar evento (2026-09-01)", () => {

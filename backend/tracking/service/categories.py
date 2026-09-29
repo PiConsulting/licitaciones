@@ -64,6 +64,7 @@ def _extract_tracking_items_from_version(
                 id=_build_tracking_item_id(
                     version_id=version_id, category_key=category_key, item=raw_item, position=idx
                 ),
+                position=idx,
                 status="not_evaluated",
                 source_version_id=version_id,
                 source_field_name=str(raw_item.get("tipo") or f"item_{idx + 1}"),

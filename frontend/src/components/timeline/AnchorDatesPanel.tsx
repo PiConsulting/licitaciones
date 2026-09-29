@@ -1,33 +1,20 @@
 import { useState } from "react";
 import { CalendarClock, ChevronDown, ChevronUp, Eye, EyeOff, HelpCircle } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Badge } from "../Badge";
-import { Button } from "../Button";
+import { DatePicker } from "../DatePicker";
 import { updateEvent, recalculateDependentDates, setEventHidden } from "../../api/timeline";
 import { useToast } from "../ToastContainer";
 import type { EventResponse } from "../../types/timeline";
+import { buildMarkedDates } from "./markedDates";
 
 interface AnchorDatesPanelProps {
   analysisId: string;
-  /** Eventos pendientes que son disparadores de al menos un plazo -- las
-   * "fechas ancla" que hay que cargar para que el resto se calcule solo. */
   anchorEvents: EventResponse[];
-  /** Cuántos plazos dependen de cada evento, para el texto de ayuda. */
   dependentCountByEventId: Record<string, number>;
-  /** Nombres de los eventos que dependen de cada ancla (lo usan como
-   * evento_disparador) -- se muestran en vez del conteo genérico cuando
-   * están disponibles. */
   dependentEventNamesByEventId?: Record<string, string[]>;
-  /** Abre el highlight del PDF de donde salió el evento, si tiene fuente. */
   onViewSource?: (documentId: string, page: number, fragment?: string) => void;
 }
 
-/**
- * Panel compacto para cargar las fechas "ancla" del Timeline: eventos sin
- * fecha de los que dependen uno o más plazos relativos. Es la contraparte
- * chica y rápida de las cards de "Eventos Pendientes" -- una fila por
- * evento, con su propio input de fecha, sin ocupar media pantalla.
- */
 export function AnchorDatesPanel({
   analysisId,
   anchorEvents,
@@ -39,6 +26,7 @@ export function AnchorDatesPanel({
   const [isExpanded, setIsExpanded] = useState(true);
   const queryClient = useQueryClient();
   const { addToast } = useToast();
+  const cachedEvents = queryClient.getQueryData<EventResponse[]>(["timeline", analysisId]);
 
   const saveMutation = useMutation({
     mutationFn: async ({ event, newDate }: { event: EventResponse; newDate: string }) => {
@@ -109,36 +97,38 @@ export function AnchorDatesPanel({
 
   return (
     <section
-      className="mb-6 rounded-lg border border-blue-200 bg-blue-50/50 p-3"
+      className="flex flex-col gap-1 rounded-2xl border border-[rgba(0,60,107,.12)] bg-white px-5 py-[18px]"
       data-testid="anchor-dates-panel"
     >
       <button
         type="button"
         onClick={() => setIsExpanded((prev) => !prev)}
-        className="flex w-full items-center justify-between gap-1.5"
+        className="flex w-full items-center justify-between gap-2 border-0 bg-transparent p-0"
         aria-expanded={isExpanded}
         data-testid="anchor-dates-panel-toggle"
       >
-        <span className="flex items-center gap-1.5">
-          <CalendarClock className="h-4 w-4 text-blue-700" />
-          <h3 className="text-sm font-semibold text-blue-900">
+        <span className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[rgba(0,153,219,.12)] text-[#0099DB]">
+            <CalendarClock className="h-[15px] w-[15px]" />
+          </span>
+          <span className="font-display text-base font-semibold text-[#003C6B]">
             Fechas por cargar ({anchorEvents.length})
-          </h3>
+          </span>
         </span>
         {isExpanded ? (
-          <ChevronUp className="h-4 w-4 text-blue-700" />
+          <ChevronUp className="h-4 w-4 text-[rgba(0,60,107,.55)]" />
         ) : (
-          <ChevronDown className="h-4 w-4 text-blue-700" />
+          <ChevronDown className="h-4 w-4 text-[rgba(0,60,107,.55)]" />
         )}
       </button>
 
       {isExpanded ? (
         <>
-          <p className="mb-2 mt-2 text-xs text-blue-800">
+          <p className="mb-1 mt-1.5 text-[13px] leading-[1.5] text-[rgba(0,60,107,.68)]">
             Cargá estas fechas una sola vez: el resto de los plazos que dependen de ellas se
             calculan solos.
           </p>
-          <div className="space-y-1.5">
+          <div className="mt-1.5 flex flex-col gap-2">
             {anchorEvents.map((event) => {
               const dependentCount = dependentCountByEventId[event.event_id] ?? 0;
               const dependentNames = dependentEventNamesByEventId?.[event.event_id] ?? [];
@@ -146,32 +136,29 @@ export function AnchorDatesPanel({
                 saveMutation.isPending && saveMutation.variables?.event.event_id === event.event_id;
               const isHidingThis =
                 hideMutation.isPending && hideMutation.variables?.event.event_id === event.event_id;
+              const canViewSource =
+                Boolean(onViewSource) && Boolean(event.source_document_id) && Boolean(event.source_page);
               return (
                 <div
                   key={event.event_id}
-                  className={`flex flex-wrap items-center gap-2 rounded-md border border-blue-100 bg-white px-2.5 py-1.5 ${
+                  className={`flex flex-wrap items-center gap-2.5 rounded-xl border border-[rgba(0,60,107,.12)] bg-[#F4F9FC] px-3.5 py-2.5 ${
                     event.hidden ? "opacity-50" : ""
                   }`}
                 >
                   <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-1.5 truncate text-sm font-medium text-gray-900">
-                      {event.name}
-                      {event.hidden ? (
-                        <Badge tone="neutral" className="px-1.5 py-0.5 text-[10px]">
-                          Oculto
-                        </Badge>
-                      ) : null}
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate text-sm font-semibold text-[#003C6B]">{event.name}</span>
                       {event.source_reference?.mencion_propia === false ? (
                         <span
                           title="El pliego no menciona este evento por sí mismo -- se creó porque otro evento depende de su fecha para calcularse."
                           aria-label="Evento inferido, sin mención propia en el pliego"
-                          className="inline-flex shrink-0 items-center text-gray-400"
+                          className="inline-flex shrink-0 items-center text-[rgba(0,60,107,.4)]"
                         >
-                          <HelpCircle className="h-3.5 w-3.5" />
+                          <HelpCircle className="h-[13px] w-[13px]" />
                         </span>
                       ) : null}
-                    </p>
-                    <p className="truncate text-xs text-gray-500">
+                    </div>
+                    <p className="truncate text-xs text-[rgba(0,60,107,.55)]">
                       {dependentNames.length > 0
                         ? `Usado por: ${dependentNames.join(", ")}`
                         : dependentCount === 1
@@ -179,46 +166,44 @@ export function AnchorDatesPanel({
                           : `${dependentCount} plazos dependen de esta fecha`}
                     </p>
                   </div>
-                  <input
-                    type="date"
-                    value={drafts[event.event_id] ?? ""}
-                    onChange={(e) =>
-                      setDrafts((prev) => ({ ...prev, [event.event_id]: e.target.value }))
-                    }
-                    className="h-7 w-[9.5rem] rounded-md border border-gray-200 px-1.5 text-xs focus-visible:border-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                  <DatePicker
+                    variant="pill"
+                    value={drafts[event.event_id] ?? null}
+                    onChange={(iso) => setDrafts((prev) => ({ ...prev, [event.event_id]: iso }))}
+                    markedDates={buildMarkedDates(cachedEvents, event.event_id)}
+                    placeholder="Elegir fecha"
                     aria-label={`Fecha de ${event.name}`}
                   />
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    className="whitespace-nowrap text-xs"
+                  <button
+                    type="button"
                     onClick={() => handleSave(event)}
-                    loading={isSavingThis}
+                    disabled={isSavingThis}
+                    className="inline-flex h-[30px] items-center whitespace-nowrap rounded-full border-0 bg-[#003C6B] px-3.5 text-xs font-semibold text-white hover:bg-[#0099DB] disabled:opacity-50"
                   >
-                    Guardar
-                  </Button>
-                  {onViewSource && event.source_document_id && event.source_page ? (
+                    {isSavingThis ? "Guardando..." : "Guardar"}
+                  </button>
+                  {canViewSource ? (
                     <button
+                      type="button"
                       onClick={() =>
-                        onViewSource(event.source_document_id!, event.source_page!, event.source_fragment)
+                        onViewSource!(event.source_document_id!, event.source_page!, event.source_fragment)
                       }
-                      className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600"
-                      title={`Ver fuente de ${event.name}`}
-                      aria-label={`Ver fuente de ${event.name}`}
+                      title={`Ver fuente en el pliego (pág. ${event.source_page})`}
+                      className="inline-flex h-[26px] items-center gap-[5px] rounded-full border border-[rgba(0,60,107,.12)] bg-white px-2.5 text-[11px] font-semibold text-[#0099DB] hover:border-[#0099DB]"
                     >
-                      <Eye className="h-3.5 w-3.5" />
-                      Ver fuente
+                      <Eye className="h-3 w-3" />
+                      pág. {event.source_page}
                     </button>
                   ) : null}
                   <button
+                    type="button"
                     onClick={() => hideMutation.mutate({ event, hidden: !event.hidden })}
                     disabled={isHidingThis}
-                    className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 disabled:opacity-50"
                     title={event.hidden ? `Mostrar evento ${event.name}` : `Ocultar evento ${event.name}`}
                     aria-label={event.hidden ? `Mostrar evento ${event.name}` : `Ocultar evento ${event.name}`}
+                    className="flex h-7 w-7 items-center justify-center rounded-lg border-0 bg-transparent text-[rgba(0,60,107,.4)] hover:bg-white hover:text-[#003C6B] disabled:opacity-50"
                   >
                     {event.hidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                    {event.hidden ? "Mostrar" : "Ocultar"}
                   </button>
                 </div>
               );

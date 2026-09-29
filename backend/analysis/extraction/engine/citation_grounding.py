@@ -204,6 +204,25 @@ def _canonical_number(token: str) -> str:
     return "".join(ch for ch in text if ch.isdigit())
 
 
+_NUMBER_UNIT_WORDS = ("dia", "dias", "mes", "meses", "ano", "anos", "hora", "horas")
+
+
+def _number_signal(valor_normalized: str) -> str | None:
+    if "%" in valor_normalized:
+        return "%"
+    for word in _NUMBER_UNIT_WORDS:
+        if re.search(rf"\b{word}\b", valor_normalized):
+            return word
+    return None
+
+
+def _signal_present_near(citation: str, position: int, signal: str) -> bool:
+    window = citation[position : position + 25]
+    if signal == "%":
+        return "%" in window
+    return bool(re.search(rf"\b{signal}s?\b", _normalize_for_grounding(window)))
+
+
 def _citation_anchor_position(citation: str, item: dict[str, Any]) -> int | None:
     """Dónde, dentro de la cita, está el dato que el item afirma.
 
@@ -215,7 +234,9 @@ def _citation_anchor_position(citation: str, item: dict[str, Any]) -> int | None
          apuntaría a cualquier lado menos a "Jurisdicción: Municipal";
       2. el `valor` como subcadena, para valores largos (un `causal_rechazo` o
          un `resumen_objeto` son frases enteras que rara vez están literales);
-      3. si el valor tiene dígitos, el número, comparado en forma canónica.
+      3. si el valor tiene dígitos, el número, comparado en forma canónica --
+         exigiendo además que el mismo tipo de dato (%, día/mes/año/hora) que
+         acompaña al número en `valor` aparezca cerca del match en la cita.
 
     Devuelve None si no se puede ubicar: ahí el recorte cae al prefijo, que es
     el comportamiento de siempre.
@@ -242,10 +263,14 @@ def _citation_anchor_position(citation: str, item: dict[str, Any]) -> int | None
                 return position
 
     valor_number = _canonical_number(valor.split()[0] if valor.split() else "")
-    if len(valor_number) >= 3:
+    if len(valor_number) >= 1:
+        signal = _number_signal(needle)
         for match in _DIGITS_RE.finditer(citation):
-            if _canonical_number(match.group(0)) == valor_number:
-                return match.start()
+            if _canonical_number(match.group(0)) != valor_number:
+                continue
+            if signal and not _signal_present_near(citation, match.start(), signal):
+                continue
+            return match.start()
 
     return None
 
@@ -300,8 +325,7 @@ def _find_grounding_chunk(
                 return chunk
         return None
 
-    # Si el LLM devuelve una cita textual "normal" para un dato que cayó en un
-    # chunk de tabla (caso frecuente en carátulas), también debe validarse.
+    # Una cita textual "normal" para un dato que cayó en un chunk de tabla (frecuente en carátulas) también debe validarse.
     for chunk in candidate_chunks:
         if _citation_verified_in_paragraph_chunk(citation, chunk):
             return chunk
@@ -476,11 +500,7 @@ def _verify_citation_grounding(
             rescued_citation: str | None = None
             grounding_chunk = _find_grounding_chunk(citation_for_verification, candidates)
 
-            # FIX 2026-09-03: el chunking nunca fusiona un bloque a través de un salto de página,
-            # así que una oración real partida en dos chunks con page_number distinto no es
-            # substring literal de ningún chunk individual aunque exista tal cual en el pliego.
-            # Antes de dar la cita por no-verificada: (a) buscar entera en la página vecina, o
-            # (b) concatenar chunks de páginas vecinas en orden de lectura. Ninguna es alucinación.
+            # El chunking nunca fusiona un bloque a través de un salto de página, así que antes de dar la cita por no-verificada se busca en la página vecina o se concatenan chunks vecinos en orden de lectura.
             if grounding_chunk is None:
                 adjacent_candidates = [
                     *chunks_by_doc_page.get((document_id, page_number - 1), []),

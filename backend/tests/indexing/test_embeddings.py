@@ -55,10 +55,10 @@ def test_embed_query_cache_miss_on_different_query(mock_adapter):
     analysis_id = "test-analysis-123"
     category = "plazos"
     
-    result_1 = embed_query("query 1", analysis_id=analysis_id, category=category)
+    embed_query("query 1", analysis_id=analysis_id, category=category)
     assert mock_adapter.generate_embeddings.call_count == 1
 
-    result_2 = embed_query("query 2", analysis_id=analysis_id, category=category)
+    embed_query("query 2", analysis_id=analysis_id, category=category)
     assert mock_adapter.generate_embeddings.call_count == 2
 
     # el mock retorna lo mismo siempre; en producción los resultados sí diferirían
@@ -73,10 +73,10 @@ def test_embed_query_cache_miss_on_different_category(mock_adapter):
     query = "¿Cuál es el plazo de presentación de ofertas?"
     analysis_id = "test-analysis-123"
     
-    result_1 = embed_query(query, analysis_id=analysis_id, category="plazos")
+    embed_query(query, analysis_id=analysis_id, category="plazos")
     assert mock_adapter.generate_embeddings.call_count == 1
 
-    result_2 = embed_query(query, analysis_id=analysis_id, category="requisitos")
+    embed_query(query, analysis_id=analysis_id, category="requisitos")
     assert mock_adapter.generate_embeddings.call_count == 2
 
 
@@ -89,10 +89,10 @@ def test_embed_query_cache_miss_on_different_analysis(mock_adapter):
     query = "¿Cuál es el plazo de presentación de ofertas?"
     category = "plazos"
     
-    result_1 = embed_query(query, analysis_id="A", category=category)
+    embed_query(query, analysis_id="A", category=category)
     assert mock_adapter.generate_embeddings.call_count == 1
 
-    result_2 = embed_query(query, analysis_id="B", category=category)
+    embed_query(query, analysis_id="B", category=category)
     assert mock_adapter.generate_embeddings.call_count == 2
 
 
@@ -108,7 +108,7 @@ def test_embed_query_backwards_compatibility(mock_adapter):
     assert len(result) == 3072
     assert mock_adapter.generate_embeddings.call_count == 1
 
-    result_2 = embed_query(query)
+    embed_query(query)
     assert mock_adapter.generate_embeddings.call_count == 1
 
 

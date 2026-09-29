@@ -22,16 +22,16 @@ function buildUploadedFile(name: string): UploadedFile {
 }
 
 describe("Step3Confirmation", () => {
-  test("renderiza primero el archivo designado como principal", () => {
-    const files = [
-      buildUploadedFile("anexo-a.pdf"),
-      buildUploadedFile("pliego.pdf"),
-      buildUploadedFile("anexo-b.pdf"),
-    ];
+  const baseFiles = [
+    buildUploadedFile("anexo-a.pdf"),
+    buildUploadedFile("pliego.pdf"),
+    buildUploadedFile("anexo-b.pdf"),
+  ];
 
+  test("renderiza primero el archivo designado como principal", () => {
     render(
       <Step3Confirmation
-        files={files}
+        files={baseFiles}
         primaryIndex={1}
         onBack={() => undefined}
         onContinueToStart={() => undefined}
@@ -39,8 +39,41 @@ describe("Step3Confirmation", () => {
     );
 
     const items = screen.getAllByRole("listitem");
-    expect(items[0]).toHaveTextContent("pliego.pdf (Principal)");
+    expect(items[0]).toHaveTextContent("pliego.pdf");
+    expect(items[0]).toHaveTextContent("Principal");
     expect(items[1]).toHaveTextContent("anexo-a.pdf");
+    expect(items[1]).toHaveTextContent("Anexo");
     expect(items[2]).toHaveTextContent("anexo-b.pdf");
+    expect(items[2]).toHaveTextContent("Anexo");
+  });
+
+  test("muestra campo de nombre de analisis", () => {
+    render(
+      <Step3Confirmation
+        files={baseFiles}
+        primaryIndex={1}
+        onBack={() => undefined}
+        onContinueToStart={() => undefined}
+      />,
+    );
+
+    expect(screen.getByLabelText(/nombre del análisis/i)).toBeInTheDocument();
+  });
+
+  test("muestra todas las unidades de negocio del mockup", () => {
+    render(
+      <Step3Confirmation
+        files={baseFiles}
+        primaryIndex={1}
+        onBack={() => undefined}
+        onContinueToStart={() => undefined}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /cedi/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /pi/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /wemox/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /vulps/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /korex/i })).toBeInTheDocument();
   });
 });

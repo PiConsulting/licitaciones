@@ -1,7 +1,8 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { vi } from "vitest";
 
 import { AnalysisDetailHeader } from "./AnalysisDetailHeader";
-import type { AnalysisDetail, CategoryData, CategoryId } from "./types";
+import type { AnalysisDetail, CategoryData, CategoryId, Citation } from "./types";
 
 const EMPTY_CATEGORY: CategoryData = {
   items: [],
@@ -20,6 +21,7 @@ function createAnalysis(overrides?: {
   tipoProcedimiento?: string;
   denominacion?: string;
   presupuestoOficial?: string;
+  presupuestoCitations?: Citation[];
 }): AnalysisDetail {
   const extracted_data = {
     objeto_alcance: EMPTY_CATEGORY,
@@ -122,7 +124,7 @@ function createAnalysis(overrides?: {
                 field_value: overrides.presupuestoOficial,
                 field_state: "extraido" as const,
                 confidence: 0.9,
-                citations: [],
+                citations: overrides.presupuestoCitations ?? [],
               },
             ]
           : []),
@@ -165,7 +167,8 @@ describe("AnalysisDetailHeader", () => {
     expect(title.tagName).toBe("H1");
 
     expect(screen.getByText("Municipalidad de Villa Nueva · 0100-EXP-2026")).toBeInTheDocument();
-    expect(screen.getByText("Presupuesto oficial: $ 3.850.000")).toBeInTheDocument();
+    expect(screen.getByText("Presupuesto oficial")).toBeInTheDocument();
+    expect(screen.getByText("$ 3.850.000")).toBeInTheDocument();
 
     // El objeto ya no se muestra en el header -- queda solo en la tarjeta de "Objeto y Alcance".
     expect(
@@ -201,7 +204,8 @@ describe("AnalysisDetailHeader", () => {
     const title = screen.getByText("Licitación Privada");
     expect(title.tagName).toBe("H1");
     expect(screen.getByText("Municipalidad de Rosario")).toBeInTheDocument();
-    expect(screen.getByText("Presupuesto oficial: $ X")).toBeInTheDocument();
+    expect(screen.getByText("Presupuesto oficial")).toBeInTheDocument();
+    expect(screen.getByText("$ X")).toBeInTheDocument();
     // Nada de "N°" inventado ni texto cortado a mitad de oración.
     expect(screen.queryByText(/N°/)).not.toBeInTheDocument();
   });
@@ -222,7 +226,8 @@ describe("AnalysisDetailHeader", () => {
     );
     expect(title.tagName).toBe("H1");
     expect(screen.getByText("Municipalidad de Rosario")).toBeInTheDocument();
-    expect(screen.getByText("Presupuesto oficial: $ X")).toBeInTheDocument();
+    expect(screen.getByText("Presupuesto oficial")).toBeInTheDocument();
+    expect(screen.getByText("$ X")).toBeInTheDocument();
     expect(screen.queryByText(/N°/)).not.toBeInTheDocument();
   });
 
@@ -266,10 +271,98 @@ describe("AnalysisDetailHeader", () => {
 
     const { container } = render(<AnalysisDetailHeader analysis={analysis} />);
 
-    expect(screen.getByText("En revisión")).toBeInTheDocument();
+    expect(screen.getByText("Estado negocio pendiente")).toBeInTheDocument();
     expect(screen.getByText("Licitación Pública — N° 58/2026")).toBeInTheDocument();
     expect(screen.getByText("Ministerio de Salud · EXP-2026-331")).toBeInTheDocument();
     const title = container.querySelector("h1");
     expect(title?.textContent).toBe("Licitación Pública — N° 58/2026");
+  });
+
+  test("presupuesto oficial con citas muestra el ícono de ver fuente y abre el mismo visor que las otras pestañas", () => {
+    const citation: Citation = {
+      text: "Presupuesto oficial: U$S 19.800,00",
+      page: 4,
+      document_id: "doc-1",
+      document_name: "pliego.pdf",
+    };
+    const analysis = createAnalysis({
+      presupuestoOficial: "U$S 19.800,00",
+      presupuestoCitations: [citation],
+    });
+    const onViewSource = vi.fn();
+
+    render(<AnalysisDetailHeader analysis={analysis} onViewSource={onViewSource} />);
+
+    const button = screen.getByRole("button", { name: /ver fuente en el pliego/i });
+    expect(screen.getByRole("button", { name: /editar presupuesto oficial/i })).toBeInTheDocument();
+    // Ícono minimalista: ni "Fuente" ni "Ver fuente" como texto visible.
+    expect(button.textContent).toBe("");
+
+    fireEvent.click(button);
+
+    expect(onViewSource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        citation,
+        citations: [citation],
+        sources: [expect.objectContaining({ id: 0, document_id: "doc-1", page: 4 })],
+      }),
+    );
+  });
+
+  test("presupuesto oficial sin citas no muestra el ícono de ver fuente", () => {
+    const analysis = createAnalysis({ presupuestoOficial: "U$S 19.800,00" });
+
+    render(<AnalysisDetailHeader analysis={analysis} onViewSource={vi.fn()} />);
+
+    expect(screen.queryByRole("button", { name: /ver fuente en el pliego/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /editar presupuesto oficial/i })).toBeInTheDocument();
+  });
+
+  test("sin presupuesto extraído renderiza solo el lápiz de edición", () => {
+    const analysis = createAnalysis({});
+
+    render(<AnalysisDetailHeader analysis={analysis} onViewSource={vi.fn()} />);
+
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ver fuente en el pliego/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /editar presupuesto oficial/i })).toBeInTheDocument();
+  });
+
+  test("editar presupuesto envía monto/moneda y cierra modal al guardar", async () => {
+    const analysis = createAnalysis({ presupuestoOficial: "U$S 19.800,00" });
+    const onEditPresupuesto = vi.fn().mockResolvedValue(undefined);
+
+    render(<AnalysisDetailHeader analysis={analysis} onEditPresupuesto={onEditPresupuesto} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /editar presupuesto oficial/i }));
+    expect(screen.getByRole("dialog", { name: /editar presupuesto oficial/i })).toBeInTheDocument();
+
+    const montoInput = screen.getByLabelText("Monto") as HTMLInputElement;
+    const monedaInput = screen.getByLabelText("Moneda") as HTMLInputElement;
+    expect(montoInput.value).toBe("19.800");
+    expect(monedaInput.value).toBe("USD");
+
+    fireEvent.change(montoInput, { target: { value: "2500075" } });
+    expect(montoInput.value).toBe("2.500.075");
+    fireEvent.change(monedaInput, { target: { value: "ars" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() =>
+      expect(onEditPresupuesto).toHaveBeenCalledWith({ monto_estimado: 2500075, moneda: "ARS" }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: /editar presupuesto oficial/i })).not.toBeInTheDocument(),
+    );
+  });
+
+  test("muestra quien creo el analisis cuando el backend lo informa", () => {
+    const analysis = {
+      ...createAnalysis(),
+      created_by_name: "Agostina Torres",
+    };
+
+    render(<AnalysisDetailHeader analysis={analysis} />);
+
+    expect(screen.getByText(/creado por Agostina Torres/i)).toBeInTheDocument();
   });
 });

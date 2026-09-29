@@ -6,7 +6,6 @@ import sys
 
 import pytest
 from unittest.mock import Mock, MagicMock, patch
-from pathlib import Path
 
 from analysis.extraction.synthesis import enrich_narrative_with_highlights
 from analysis.extraction.synthesis.prompt_and_serialization import _empty_category_narrative
@@ -14,7 +13,6 @@ from analysis.extraction.synthesis.source_resolution import _resolve_narrative_s
 from analysis.extraction.highlight import (
     _normalize_for_search,
     compute_highlight_regions,
-    compute_highlights_for_sources,
 )
 from analysis.extraction.schemas import (
     CONFIDENCE_NO_EVIDENCE,

@@ -61,14 +61,7 @@ class GraphState(TypedDict, total=False):
     document_id_to_blob_path: dict[str, str]  # Para highlight pre-computado
     document_labels: dict[str, dict[str, Any]]
 
-    # FASE 3 del plan RAG v2 (2026-08-24, sección 4.2): candidate pool
-    # compartido entre las 9 ramas de extracción. `setup_node` lo puebla UNA
-    # sola vez con una query de alto recall, sin boost de categoría, si
-    # `USE_SHARED_CANDIDATE_POOL=true`. `_retrieve_with_category_priority`
-    # (extractors/base.py) lo usa para evitar un round-trip a Azure por
-    # categoría cuando el pool ya alcanza. Ausente o `[]` si el flag está
-    # apagado o si la query global falló -- en ambos casos el retrieval por
-    # categoría se comporta exactamente igual que antes de esta fase.
+    # Candidate pool compartido entre ramas de extracción; `setup_node` lo puebla una vez (si USE_SHARED_CANDIDATE_POOL=true) para evitar un round-trip a Azure por categoría. Ausente o `[]` si el flag está apagado.
     global_candidates: list[dict[str, Any]]
 
     plazos_token_usage: dict[str, int]

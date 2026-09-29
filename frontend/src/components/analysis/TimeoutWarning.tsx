@@ -10,10 +10,10 @@ export function TimeoutWarning({ show }: TimeoutWarningProps) {
   }
 
   return (
-    <div className="flex items-start gap-2 rounded-md border border-yellow-200 bg-yellow-50 p-3">
-      <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-yellow-600" />
-      <p className="text-sm text-yellow-800">
-        El analisis esta demorando mas de lo esperado pero continua procesandose
+    <div className="flex items-start gap-2 rounded-2xl border border-[rgba(217,119,6,.3)] bg-[#FFFBEB] px-4 py-3">
+      <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-[#B45309]" />
+      <p className="text-sm text-[#B45309]">
+        El análisis está demorando más de lo esperado pero continúa procesándose
       </p>
     </div>
   );

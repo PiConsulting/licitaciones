@@ -54,7 +54,6 @@ from analysis.extraction.graph.validation import (
     _sort_items_by_primary_document,
 )
 from analysis.extraction.schemas import (
-    NOT_ANALYZED_STATUS,
     AnexoObligatorioItem,
     CausalRechazoItem,
     CriterioEvaluacionItem,
@@ -433,7 +432,7 @@ def merge_node(state: GraphState) -> GraphState:
     )
     preview_criterios = _merge_duplicate_items_by_key(
         preview_criterios,
-        lambda item: (str(item.get("tipo", "")),),
+        lambda item: (str(item.get("tipo", "")), _normalized_valor_key(item)),
     )
     for riesgo in riesgos:
         riesgo["subtipo"] = _canonical_riesgo_subtipo(str(riesgo.get("subtipo", "")))
@@ -606,14 +605,11 @@ def merge_node(state: GraphState) -> GraphState:
         "plazos_clave": plazos,
         "plazos_clave_extraction_status": plazos_status,
         "plazos_clave_confidence": _category_confidence(plazos),
-        "plazos": plazos,
-        "plazos_extraction_status": plazos_status,
         "garantias": garantias,
         "garantias_extraction_status": garantias_status,
         "garantias_confidence": _category_confidence(garantias),
         "causales_rechazo": causales,
         "causales_rechazo_extraction_status": causales_status,
-        "causales_extraction_status": causales_status,
         "causales_rechazo_confidence": _category_confidence(causales),
         "anexos_obligatorios": anexos,
         "anexos_obligatorios_extraction_status": anexos_status,
@@ -632,19 +628,11 @@ def merge_node(state: GraphState) -> GraphState:
         "eventos_temporales": eventos_temporales,
         "eventos_temporales_extraction_status": state.get("eventos_temporales_status", "unknown"),
         "plazos_relativos": plazos_relativos,
-        # Ambas vistas legacy derivan de la misma extracción fusionada, comparten status.
+        # Ambas vistas derivan de la misma extracción fusionada, comparten status.
         "plazos_relativos_extraction_status": state.get("eventos_temporales_status", "unknown"),
-        "documentos_requeridos": [],
-        "documentos_extraction_status": NOT_ANALYZED_STATUS,
         "criterios_evaluacion": criterios,
         "criterios_evaluacion_extraction_status": criterios_status,
         "criterios_evaluacion_confidence": _category_confidence(criterios),
-        "restricciones_participacion": [],
-        "restricciones_extraction_status": NOT_ANALYZED_STATUS,
-        "cronograma_proceso": [],
-        "cronograma_extraction_status": NOT_ANALYZED_STATUS,
-        "estimacion_presupuesto": None,
-        "presupuesto_extraction_status": NOT_ANALYZED_STATUS,
     }
 
     token_usage = {
@@ -670,8 +658,7 @@ def merge_node(state: GraphState) -> GraphState:
                     ids.add(str(ref["document_id"]))
         return ids
 
-    # FIX 2026-09-11: el texto de conflicto mentía "en distintos documentos"; ahora usa document_id real.
-    # FIX 2026-08-22: agrupar por `tipo` daba falsos conflictos (casi todo cae en "otro"); ahora agrupa por `referencia`.
+    # Agrupa por `referencia` (agrupar por `tipo` daba falsos conflictos, casi todo cae en "otro") y usa document_id real para el texto del conflicto.
     plazos_by_referencia: dict[str, list[dict]] = defaultdict(list)
     for plazo in plazos:
         clave = _normalized_referencia_key(plazo)
@@ -714,6 +701,44 @@ def merge_node(state: GraphState) -> GraphState:
                             "Montos diferentes dentro del mismo documento"
                             if mismo_tipo_en_un_solo_documento
                             else "Montos diferentes en distintos documentos"
+                        ),
+                    }
+                )
+
+    # preview_criterios declara "un item exacto" para estos 5 tipos (prompt,
+    # preview_criterios.txt), pero nada lo fuerza -- cuando sobreviven 2+ items con
+    # `valor` distinto para el mismo tipo (ej. "15 días" y "30 días" de forma_pago en
+    # cláusulas distintas del mismo pliego), la síntesis los venía fusionando en
+    # silencio ("además, en otra cláusula..."). Mismo patrón que plazos/garantias
+    # arriba, aplicado a los tipos que el propio prompt define como singleton.
+    _PREVIEW_SINGLETON_TIPOS = {
+        "forma_pago",
+        "moneda",
+        "tipo_cambio",
+        "anticipo_financiero",
+        "responsabilidad_costos_logisticos",
+    }
+    preview_criterios_by_tipo: dict[str, list[dict]] = defaultdict(list)
+    for item in preview_criterios:
+        tipo = str(item.get("tipo", ""))
+        if tipo in _PREVIEW_SINGLETON_TIPOS and item.get("valor"):
+            if str(item.get("extraction_status", "")) not in ("not_found", "failed"):
+                preview_criterios_by_tipo[tipo].append(item)
+
+    for tipo, items in preview_criterios_by_tipo.items():
+        if len(items) > 1:
+            valores = {_normalized_valor_key(item) for item in items}
+            if len(valores) > 1:
+                mismo_tipo_en_un_solo_documento = len(_conflict_document_ids(items)) <= 1
+                conflicts.append(
+                    {
+                        "category": "preview_criterios",
+                        "tipo": tipo,
+                        "values": items,
+                        "reason": (
+                            "Valores diferentes dentro del mismo documento"
+                            if mismo_tipo_en_un_solo_documento
+                            else "Valores diferentes en distintos documentos"
                         ),
                     }
                 )
@@ -1024,8 +1049,7 @@ builder_phase1.add_edge("synthesize", END)
 graph_phase1 = builder_phase1.compile()
 
 
-# Fase 2 corre `riesgos`: sintetiza desde garantias/plazos/requisitos (sembrados en fase 1)
-# y causales/criterios (de esta fase), por eso espera a que esos dos terminen primero.
+# `riesgos` sintetiza desde garantias/plazos/requisitos (fase 1) y causales/criterios (esta fase), por eso espera a que esos dos terminen primero.
 extractor_nodes_phase2 = [
     "extract_causales",
     "extract_anexos",
@@ -1054,9 +1078,8 @@ for node in _DIRECT_SOURCE_NODES_PHASE2:
 # Fan-in real: extract_riesgos espera a causales Y criterios (mismo patrón que fase 1).
 builder_phase2.add_edge(_RIESGOS_SOURCE_NODES_PHASE2, "extract_riesgos")
 
-for node in _DIRECT_SOURCE_NODES_PHASE2:
-    builder_phase2.add_edge(node, "merge")
-builder_phase2.add_edge("extract_riesgos", "merge")
+# Fan-in real: merge espera a los 5, no al primero en terminar.
+builder_phase2.add_edge([*_DIRECT_SOURCE_NODES_PHASE2, "extract_riesgos"], "merge")
 
 builder_phase2.add_edge("merge", "synthesize")
 builder_phase2.add_edge("synthesize", END)

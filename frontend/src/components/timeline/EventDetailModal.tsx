@@ -44,7 +44,6 @@ export function EventDetailModal({
     }
   };
 
-  // Reset nested modal states when main modal closes
   useEffect(() => {
     if (!open) {
       setShowEditModal(false);
@@ -52,7 +51,7 @@ export function EventDetailModal({
     }
   }, [open]);
 
-  // Focus trap implementation
+  // Trampa de foco para accesibilidad.
   useEffect(() => {
     if (open && modalRef.current) {
       const previousActiveElement = document.activeElement as HTMLElement;
@@ -117,6 +116,7 @@ export function EventDetailModal({
                 documentId={event.source_document_id!}
                 pageNumber={event.source_page!}
                 fragment={event.source_fragment}
+                detalle={event.detalle}
                 onView={onViewSource ? handleViewSource : undefined}
               />
             )}

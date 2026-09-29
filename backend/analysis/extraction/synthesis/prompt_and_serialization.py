@@ -20,10 +20,13 @@ _PREVIEW_BULLET_RESUMEN_SCHEMA = (
     "- En cada item de bullet_list incluir también `resumen` (string corto, ideal <= 6 palabras).\n"
     "- `resumen` debe salir del mismo dato usado en `text` (sin invención).\n"
     "- Si extraction_status del item referenciado es not_found o failed, `resumen` debe ser exactamente \"No informado\".\n"
+    "- Para tipo_cambio, `resumen` debe ser la cotización/entidad concreta usada (ej. 'BNA vendedor', "
+    "'BCRA comprador'), nunca una frase genérica como 'tipo de cambio' o 'según cotización'.\n"
 )
 _CONFLICT_CATEGORY_TO_NARRATIVE = {
     "plazos": "plazos_clave",
     "garantias": "garantias",
+    "preview_criterios": "preview_criterios",
 }
 
 
@@ -38,7 +41,7 @@ def _empty_category_narrative(category_label: str) -> CategoryNarrative:
                 {
                     "type": "paragraph",
                     "text": f"No se encontró información sobre {category_label} en los documentos del pliego.",
-                    "confidence_level": CONFIDENCE_NO_EVIDENCE,  # Constante desde schemas
+                    "confidence_level": CONFIDENCE_NO_EVIDENCE,
                     "source_ids": [],
                 }
             ],
@@ -50,9 +53,7 @@ def _empty_category_narrative(category_label: str) -> CategoryNarrative:
 @lru_cache(maxsize=1)
 def _load_response_base_prompt(category_key: str | None = None) -> str:
     """Carga el prompt base y el schema de output, concatenándolos."""
-    # Este módulo vive en analysis/extraction/synthesis/ (un nivel más
-    # profundo que el synthesis.py original) -- parent.parent sigue
-    # apuntando a analysis/extraction/.
+    # Este módulo vive un nivel más profundo (synthesis/); parent.parent apunta a analysis/extraction/.
     prompts_dir = Path(__file__).resolve().parent.parent / "prompts"
     base_prompt = (prompts_dir / RESPONSE_BASE_PROMPT_FILE).read_text(encoding="utf-8")
     output_schema = (prompts_dir / OUTPUT_SCHEMA_FILE).read_text(encoding="utf-8")

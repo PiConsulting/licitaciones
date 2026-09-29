@@ -229,36 +229,3 @@ def test_preview_not_found_placeholders_se_conservan_si_se_habilita_flag():
     assert status == "not_found"
     assert quality["preview_criterios"]["placeholders_not_found_conservados"] == 2
     assert quality["preview_criterios"]["conservados"] == 2
-
-
-if __name__ == "__main__":
-    print("\n" + "=" * 60)
-    print("TESTS DE REGLA ANTI-INVENCIÓN DE RIESGOS")
-    print("=" * 60)
-
-    try:
-        test_riesgo_sin_fuentes_se_descarta()
-        test_riesgo_con_fuentes_validas_se_conserva()
-        test_mezcla_con_y_sin_fuentes()
-        test_todos_sin_fuentes_resulta_en_lista_vacia()
-        test_enforce_citation_contract()
-
-        print("\n" + "=" * 60)
-        print("✅ TODOS LOS TESTS PASARON")
-        print("=" * 60)
-        print("\nLa regla anti-invención está funcionando correctamente:")
-        print("  • Items sin fuentes son descartados")
-        print("  • Items con fuentes se conservan")
-        print("  • Status cambia a 'partial' cuando se descartan items")
-        print("  • Métricas de calidad se registran correctamente")
-        print("=" * 60 + "\n")
-
-    except AssertionError as e:
-        print(f"\n❌ TEST FALLÓ: {e}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\n❌ ERROR: {e}")
-        import traceback
-
-        traceback.print_exc()
-        sys.exit(1)

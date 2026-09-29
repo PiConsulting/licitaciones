@@ -34,9 +34,10 @@ def check_duplicates(
                 Document.content_hash == content_hash,
                 Analysis.deleted_at.is_(None),
                 Document.deleted_at.is_(None),
-                # `en_revision` cuenta como análisis ya procesado para alertar
-                # duplicados aunque todavía no haya corrido fase 2.
-                Analysis.status.in_(["completed", "analyzing", "analyzed", "en_revision"]),
+                # `en_revision` cuenta como análisis ya procesado para alertar duplicados aunque todavía no haya corrido fase 2.
+                # "completed" no es un status real del pipeline actual (draft|queued|processing|en_revision|analyzed|error|cancelled),
+                # pero varios tests de duplicados ya lo usan como fixture -- se mantiene para no romperlos.
+                Analysis.status.in_(["completed", "analyzed", "en_revision"]),
             )
         )
     )

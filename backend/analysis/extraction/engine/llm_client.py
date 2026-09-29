@@ -62,9 +62,7 @@ def _call_llm(
     try:
         return _call_llm_inner(messages, correlation_id)
     finally:
-        # Se libera ANTES de que tenacity haga su backoff entre reintentos
-        # (el sleep ocurre fuera de esta función), así el slot no queda
-        # tomado durante la espera exponencial.
+        # Se libera antes del backoff de tenacity (ocurre fuera de esta función) para no retener el slot durante la espera.
         if gate is not None:
             gate.release()
 
@@ -105,10 +103,7 @@ def _call_llm_inner(
         or 0
     )
     total_tokens = int(usage.get("total_tokens", prompt_tokens + completion_tokens) or 0)
-    # Azure OpenAI cachea automáticamente el prefijo estático de prompts >=1024
-    # tokens (TTL ~5-10 min). Reporta el hit en prompt_tokens_details.cached_tokens.
-    # Se loguea para verificar que el prefijo quedó byte-idéntico (los `{chunks}`
-    # son lo único al final de cada prompt de extracción, plan 6.2).
+    # Azure cachea automáticamente el prefijo estático de prompts >=1024 tokens; se loguea el hit para verificar que el prefijo quedó byte-idéntico.
     details = usage.get("prompt_tokens_details") or usage.get("input_tokens_details") or {}
     cached_tokens = int(
         (details.get("cached_tokens") if isinstance(details, dict) else 0)
@@ -140,13 +135,7 @@ def _parse_json_response(content: str) -> dict[str, Any]:
         raw = re.sub(r"^```[a-zA-Z]*\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw).strip()
 
-    # `strict=False` tolera caracteres de control crudos dentro de los strings.
-    # Las citas son texto copiado literal del pliego, y el texto de un PDF trae
-    # los saltos de linea del maquetado ("...el importe de las garantias de\nla
-    # contratacion..."). Si el modelo no los escapa, el JSON es invalido y se
-    # pierde la categoria entera tras agotar los reintentos -- y que una cita
-    # caiga o no sobre un salto de renglon depende de como esta maquetado cada
-    # pliego, con lo cual el mismo dato se extrae en un PDF y falla en otro.
+    # `strict=False` tolera saltos de línea crudos sin escapar dentro de citas copiadas de PDFs maquetados; sin esto el JSON es inválido y se pierde la categoría.
     try:
         return json.loads(raw, strict=False)
     except json.JSONDecodeError:
@@ -253,9 +242,7 @@ def _drop_low_relevance_chunks(
         return chunks
 
     def score_de(chunk: dict[str, Any]) -> float | None:
-        # `retrieval_score` preserva la señal ajustada del retrieval
-        # (boost/penalty y posible reranking). Si no está, cae al score
-        # híbrido crudo por compatibilidad.
+        # `retrieval_score` preserva boost/penalty/reranking; sin eso, cae al score híbrido crudo por compatibilidad.
         valor = chunk.get("retrieval_score", chunk.get("search_score"))
         try:
             numero = float(valor)  # type: ignore[arg-type]
@@ -266,13 +253,11 @@ def _drop_low_relevance_chunks(
     scores = [score_de(chunk) for chunk in chunks]
     conocidos = [s for s in scores if s is not None]
     if not conocidos:
-        # Mocks y fuentes legacy no traen `search_score`. Sin score no hay
-        # criterio, y no tenerlo no puede costar chunks.
+        # Mocks y fuentes legacy no traen `search_score`; sin score no hay criterio para descartar.
         return chunks
 
     umbral = max(conocidos) * effective_min_ratio
-    # El piso se cuenta por score, no por posición: la expansión
-    # children→parent puede alterar el orden de la lista.
+    # Por score, no por posición: la expansión children→parent puede alterar el orden de la lista.
     protegidos = {
         indice
         for indice, _score in sorted(

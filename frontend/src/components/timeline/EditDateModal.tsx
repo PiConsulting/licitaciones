@@ -2,10 +2,11 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
 import { Button } from "../Button";
-import { Input } from "../Input";
+import { DatePicker } from "../DatePicker";
 import { updateEvent, recalculateDependentDates } from "../../api/timeline";
 import { useToast } from "../ToastContainer";
 import type { EventResponse } from "../../types/timeline";
+import { useTimelineMarkedDates } from "./markedDates";
 
 interface EditDateModalProps {
   event: EventResponse;
@@ -17,6 +18,7 @@ export function EditDateModal({ event, open, onClose }: EditDateModalProps) {
   const [date, setDate] = useState(event.event_date || "");
   const queryClient = useQueryClient();
   const { addToast } = useToast();
+  const markedDates = useTimelineMarkedDates(event.analysis_id, event.event_id);
 
   const wasCalculated = event.date_source === "calculated";
 
@@ -86,18 +88,24 @@ export function EditDateModal({ event, open, onClose }: EditDateModalProps) {
       role="dialog"
       aria-modal="true"
     >
-      <div className="w-full max-w-md rounded-lg border border-gray-200 bg-white p-6 shadow-xl">
-        <h2 className="text-xl font-semibold text-gray-900">
+      <div className="w-full max-w-md rounded-2xl border border-[rgba(0,60,107,.12)] bg-white p-6 shadow-xl">
+        <h2 className="font-display text-xl font-semibold text-[#003C6B]">
           Editar fecha de &quot;{event.name}&quot;
         </h2>
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4" noValidate>
-          <Input
-            label="Fecha"
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
+          <div>
+            <label htmlFor="edit-date" className="mb-1.5 block text-[13px] font-semibold text-[#003C6B]">
+              Fecha
+            </label>
+            <DatePicker
+              id="edit-date"
+              value={date || null}
+              onChange={setDate}
+              markedDates={markedDates}
+              aria-label="Fecha"
+            />
+          </div>
 
           {wasCalculated && (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex items-start gap-2">

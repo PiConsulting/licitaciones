@@ -37,6 +37,10 @@ export function trackingCommentsQueryKey(analysisId: string, categoryKey: string
   return ["tracking-comments", analysisId, categoryKey] as const;
 }
 
+export function trackingItemCommentsQueryKey(analysisId: string, categoryKey: string) {
+  return ["tracking-comments", analysisId, categoryKey, "items"] as const;
+}
+
 export function useStartTracking() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -159,19 +163,24 @@ export function useCreateTrackingComment() {
       analysisId,
       categoryKey,
       content,
+      trackingItemId,
     }: {
       analysisId: string;
       categoryKey: string;
       content: string;
+      trackingItemId?: string;
     }) =>
       createTrackingComment(analysisId, categoryKey, {
         content,
+        trackingItemId,
       }),
     onSuccess: (comment, variables) => {
-      queryClient.setQueryData<TrackingComment[]>(
-        trackingCommentsQueryKey(variables.analysisId, variables.categoryKey),
-        (current = []) => [...current, comment],
-      );
+      if (!variables.trackingItemId) {
+        queryClient.setQueryData<TrackingComment[]>(
+          trackingCommentsQueryKey(variables.analysisId, variables.categoryKey),
+          (current = []) => [...current, comment],
+        );
+      }
       void queryClient.invalidateQueries({ queryKey: trackingCommentsQueryKey(variables.analysisId, variables.categoryKey) });
       void queryClient.invalidateQueries({ queryKey: ["analysis", variables.analysisId, "detail"] });
     },

@@ -6,7 +6,9 @@ import { AnalysisTable } from "./AnalysisTable";
 function buildItem(overrides?: Partial<AnalysisListItem>): AnalysisListItem {
   return {
     id: "analysis-1",
-    status: "analyzing",
+    // "processing" es el status real que usa el pipeline mientras corre
+    // (current_stage sí puede valer "analyzing", ese es un campo aparte).
+    status: "processing",
     current_stage: "analyzing",
     stage_progress: "Analizando categorías",
     progress_percentage: 45,
@@ -33,30 +35,123 @@ describe("AnalysisTable", () => {
     );
 
     expect(screen.getByText("Pliego Hospital.pdf")).toBeInTheDocument();
-    expect(screen.getByText("Ministerio de Salud")).toBeInTheDocument();
+    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("45%")).toBeInTheDocument();
   });
 
-  test("click en encabezado dispara sorting server-side", () => {
-    const onSort = vi.fn();
-
+  test("encabezado de etapa no es clickeable", () => {
     render(
       <AnalysisTable
         items={[buildItem()]}
         sortBy="created_at"
         sortOrder="desc"
-        onSort={onSort}
+        onSort={() => undefined}
         onRowClick={() => undefined}
         onRetryAnalysis={() => undefined}
         retryingAnalysisId={null}
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /estado/i }));
-    expect(onSort).toHaveBeenCalledWith("status");
+    expect(screen.queryByRole("button", { name: /etapa/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "ETAPA" })).toBeInTheDocument();
   });
 
-  test("badges de estado aplican colores del design system", () => {
+  test("renderiza columnas nuevas con placeholders cuando faltan datos", () => {
+    render(
+      <AnalysisTable
+        items={[buildItem({ status: "completed", current_stage: "completed", progress_percentage: 100 })]}
+        sortBy="created_at"
+        sortOrder="desc"
+        onSort={() => undefined}
+        onRowClick={() => undefined}
+        retryingAnalysisId={null}
+      />,
+    );
+
+    expect(screen.getByRole("columnheader", { name: "UNIDAD" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "ESTADO" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "MONTO ESTIMADO" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "APERTURA / CIERRE" })).toBeInTheDocument();
+
+    expect(screen.getByText("Sin informar")).toBeInTheDocument();
+    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(3);
+  });
+
+  test("consume datos reales de unidad, estado de negocio, monto y fechas cuando existen", () => {
+    render(
+      <AnalysisTable
+        items={[
+          buildItem({
+            status: "completed",
+            current_stage: "completed",
+            progress_percentage: 100,
+            business_unit: "CEDI",
+            business_status: "en_revision",
+            monto_estimado: 184500000,
+            moneda: "ARS",
+            opening_date: "2026-09-03",
+            closing_date: "2026-09-18",
+          }),
+        ]}
+        sortBy="created_at"
+        sortOrder="desc"
+        onSort={() => undefined}
+        onRowClick={() => undefined}
+        retryingAnalysisId={null}
+      />,
+    );
+
+    expect(screen.getByText("CEDI")).toBeInTheDocument();
+    expect(screen.getByText("En revisión")).toBeInTheDocument();
+    expect(screen.getByText(/\$\s*184\.500\.000/i)).toBeInTheDocument();
+    expect(screen.getByText("03/09/2026")).toBeInTheDocument();
+    expect(screen.getByText("18/09/2026")).toBeInTheDocument();
+  });
+
+  test.each([
+    ["en_analisis", "En análisis"],
+    ["pendiente_decision", "Pendiente de decisión"],
+    ["no_aprobada", "No aprobada"],
+  ])(
+    "business_status '%s' muestra su etiqueta real en vez de caer en el placeholder (bug real 2026-09-29: el mapa se había quedado con los 5 valores viejos de FE5.1, sin estos 3 del enum real de 7)",
+    (businessStatus, expectedLabel) => {
+      render(
+        <AnalysisTable
+          items={[buildItem({ business_status: businessStatus })]}
+          sortBy="created_at"
+          sortOrder="desc"
+          onSort={() => undefined}
+          onRowClick={() => undefined}
+          retryingAnalysisId={null}
+        />,
+      );
+
+      expect(screen.getByText(expectedLabel)).toBeInTheDocument();
+      expect(screen.queryByText("Sin informar")).not.toBeInTheDocument();
+    },
+  );
+
+  test("monto estimado con centavos no los redondea a cero (bug real: maximumFractionDigits: 0 los descartaba)", () => {
+    render(
+      <AnalysisTable
+        items={[
+          buildItem({
+            monto_estimado: 654484.26,
+            moneda: "USD",
+          }),
+        ]}
+        sortBy="created_at"
+        sortOrder="desc"
+        onSort={() => undefined}
+        onRowClick={() => undefined}
+        retryingAnalysisId={null}
+      />,
+    );
+
+    expect(screen.getByText(/654[.,]?484[.,]26/)).toBeInTheDocument();
+  });
+
+  test("estado de negocio ausente renderiza placeholder neutro", () => {
     render(
       <AnalysisTable
         items={[buildItem({ status: "error" })]}
@@ -69,8 +164,8 @@ describe("AnalysisTable", () => {
       />,
     );
 
-    const badge = screen.getByText("Error");
-    expect(badge).toHaveClass("bg-error-light", "text-error");
+    const badge = screen.getByText("Sin informar");
+    expect(badge).toHaveClass("bg-cedi-navy-8", "text-cedi-navy-68");
   });
 
   test("click en fila navega al detalle", () => {
@@ -155,10 +250,10 @@ describe("AnalysisTable", () => {
     expect(onStartAnalysis).toHaveBeenCalledWith("analysis-1");
   });
 
-  test("muestra icono eliminar cuando el análisis no está en curso", () => {
+  test("oculta el icono eliminar mientras el análisis está en curso", () => {
     render(
       <AnalysisTable
-        items={[buildItem({ status: "analyzing" })]}
+        items={[buildItem({ status: "processing" })]}
         sortBy="created_at"
         sortOrder="desc"
         onSort={() => undefined}

@@ -2,11 +2,12 @@ import { useQuery } from "@tanstack/react-query";
 
 import { fetchAnalyses } from "../../../api/analyses";
 import type { AnalysisListFilters, AnalysisListItem } from "../../../types/analysis";
+import { isRunningAnalysisStatus } from "../../../utils/analysisStatus";
 
 const POLLING_INTERVAL_MS = 3000;
 
 function hasRunningItems(items: AnalysisListItem[]): boolean {
-  return items.some((item) => item.status === "queued" || item.status === "analyzing");
+  return items.some((item) => isRunningAnalysisStatus(item.status));
 }
 
 export function useAnalysesQuery(filters: AnalysisListFilters) {

@@ -99,24 +99,6 @@ export function Sidebar() {
         </SidebarIcon>
       ),
     },
-    {
-      to: "/dashboard",
-      label: "Historial",
-      icon: (
-        <SidebarIcon>
-          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8 M3 3v5h5 M12 7v5l4 2" />
-        </SidebarIcon>
-      ),
-    },
-    {
-      to: "/seguimiento",
-      label: "Seguimiento",
-      icon: (
-        <SidebarIcon>
-          <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2 M8 2h8v4H8z M9 16l2 2 4-4" />
-        </SidebarIcon>
-      ),
-    },
   ];
 
   const handleLogout = () => {
@@ -171,7 +153,7 @@ export function Sidebar() {
                 title="Próximamente"
                 className={cn(
                   "group flex min-h-[44px] w-full items-center rounded-[10px] bg-transparent text-left text-[13px] font-semibold text-white/75",
-                  sidebarCollapsed ? "justify-center px-0" : "gap-3 px-3",
+                  sidebarCollapsed ? "justify-center px-0" : "gap-3 pl-4 pr-3",
                 )}
               >
                 {icon}
@@ -185,7 +167,7 @@ export function Sidebar() {
                 className={({ isActive }) =>
                   cn(
                     "flex min-h-[44px] items-center rounded-[10px] text-[13px] font-semibold no-underline transition-colors",
-                    sidebarCollapsed ? "justify-center px-0" : "gap-3 px-3",
+                    sidebarCollapsed ? "justify-center px-0" : "gap-3 pl-4 pr-3",
                     isActive
                       ? "bg-white/[.12] text-white [box-shadow:inset_3px_0_0_#7FF3DE]"
                       : "bg-transparent text-white/75 hover:bg-white/10 hover:text-white",

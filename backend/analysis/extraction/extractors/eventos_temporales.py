@@ -31,9 +31,7 @@ def _referenced_as_trigger(nombre: str | None, items: list[dict]) -> bool:
     return any(other.get("evento_disparador") == nombre for other in items)
 
 
-# Reemplaza ~6 regex de post-filtrado que no generalizaban (releer memoria
-# `eventos-temporales-auditoria-completa-2026-09-21`): el LLM ahora autodeclara 3 ejes
-# semánticos (accion_concreta/es_ocurrencia_unica/depende_de_decision_discrecional) por ítem.
+# Reemplaza ~6 regex de post-filtrado que no generalizaban: el LLM ahora autodeclara 3 ejes semánticos (accion_concreta/es_ocurrencia_unica/depende_de_decision_discrecional) por ítem.
 def _fails_structural_relevance(item: dict) -> bool:
     accion = str(item.get("accion_concreta") or "").strip()
     if len(accion) < 8:
@@ -97,9 +95,7 @@ def _strip_dangling_disparador(item: dict) -> dict:
     return item
 
 
-# NO CONECTADA a `_filter_non_hitos` (ver nota grande ahí): fuzzy matching de texto
-# probado INSEGURO contra los 10 pliegos reales (fusiona pares que solo comparten
-# vocabulario) -- queda documentada para retomar con un diseño distinto (síntesis LLM).
+# NO CONECTADA a `_filter_non_hitos`: fuzzy matching probado INSEGURO en los 10 pliegos reales (fusiona pares que solo comparten vocabulario); queda para retomar con otro diseño.
 _STOPWORDS = {
     "de", "del", "la", "el", "los", "las", "en", "y", "o", "u", "a", "al",
     "un", "una", "unos", "unas", "para", "por", "con", "su", "sus", "que",
@@ -253,10 +249,7 @@ def _consolidate_duplicate_hitos(items: list[dict]) -> list[dict]:
     return merged_items
 
 
-# Agrupa por compartir el mismo `fuente_fragmento` (nombres totalmente distintos, no
-# similitud de texto). 3 condiciones para no confundir con garantía+firma en la misma
-# oración o disparador+dependiente: substring literal + sin dependencia circular +
-# tramo corto del texto (calibrado en 3 casos reales de Bancor: ~45/~114/~74 chars).
+# Agrupa por compartir `fuente_fragmento` (no similitud de texto); 3 condiciones para no confundir con garantía+firma en la misma oración: substring literal + sin dependencia circular + tramo corto (calibrado en Bancor: ~45/~114/~74 chars).
 _MIN_ENUMERATED_NAME_LEN = 5
 _MAX_ENUMERATED_SPAN = 55
 
@@ -324,10 +317,7 @@ def _merge_enumerated_fragment_duplicates(items: list[dict]) -> list[dict]:
 
 
 def _filter_non_hitos(items: list[dict]) -> list[dict]:
-    # Consolida duplicados primero para que el resto del pipeline opere sobre nombres finales.
-    # NO se llama acá `_consolidate_duplicate_hitos` (más abajo): fusionaba "Adjudicación"/
-    # "Preadjudicación" y "Cumplimiento"/"Vencimiento del Contrato" -- mismo algoritmo seguro
-    # en timeline/materializer.py (reconcilia contra corrida ya revisada) es agresivo acá.
+    # Consolida duplicados antes que el resto del pipeline; NO usar `_consolidate_duplicate_hitos` (más abajo) acá: fusionaba "Adjudicación"/"Preadjudicación" y "Cumplimiento"/"Vencimiento del Contrato" -- seguro en timeline/materializer.py, agresivo acá.
     items = _merge_enumerated_fragment_duplicates(items)
 
     cleaned = [_strip_dangling_disparador(item) for item in items]
@@ -345,9 +335,7 @@ def _filter_non_hitos(items: list[dict]) -> list[dict]:
     return _apply_reference_aware_filters(survivors)
 
 
-# Resuelve duplicados con nombres completamente distintos (map-reduce redacta el mismo
-# hito distinto en cada lote): similitud de texto puro no es segura para este vocabulario,
-# por eso es un paso de síntesis LLM que decide semánticamente (mismo patrón que riesgos.py).
+# Resuelve duplicados con nombres distintos (map-reduce redacta el mismo hito distinto por lote); similitud de texto no es segura para este vocabulario, por eso es síntesis LLM (mismo patrón que riesgos.py).
 _MAX_DUPLICATE_REDUCE_ITEMS = 60
 _MAX_DUPLICATE_DIGEST_CHARS = 220
 

@@ -172,6 +172,46 @@ class TestItemStatusUpdate:
                 analysis_id, OWNER_USER_ID, "requisitos_admisibilidad", "no-existe", "compliant"
             )
 
+    def test_actualizar_un_item_no_reordena_los_demas(self, analyzed_analysis):
+        """Bug real reportado 2026-09-28: sin `position`/ORDER BY explícito, la
+        fila `tracking_items` no garantizaba orden entre selects -- marcar un
+        item podía mover su fila físicamente y hacer que, al releer, pareciera
+        que OTRO item (el de abajo en la UI) había cambiado de estado. El
+        orden (por `field_name`, acá único por item) tiene que ser idéntico
+        antes y después de actualizar cualquiera de los dos items."""
+        analysis_id, _version_id = analyzed_analysis
+        tracking = start_tracking(analysis_id, OWNER_USER_ID)
+        category = next(
+            c for c in tracking["categories"] if c["category_key"] == "requisitos_admisibilidad"
+        )
+        original_order = [item["source_item_ref"]["field_name"] for item in category["items"]]
+        assert len(original_order) == 2
+
+        first_item_id = category["items"][0]["tracking_item_id"]
+        second_item_id = category["items"][1]["tracking_item_id"]
+
+        # Actualizar varias veces, en distinto orden, no debe reordenar la lista.
+        update_tracking_item_status(
+            analysis_id, OWNER_USER_ID, "requisitos_admisibilidad", second_item_id, "compliant"
+        )
+        update_tracking_item_status(
+            analysis_id, OWNER_USER_ID, "requisitos_admisibilidad", first_item_id, "non_compliant"
+        )
+        updated = update_tracking_item_status(
+            analysis_id, OWNER_USER_ID, "requisitos_admisibilidad", second_item_id, "not_applicable"
+        )
+
+        category_after = next(
+            c for c in updated["categories"] if c["category_key"] == "requisitos_admisibilidad"
+        )
+        order_after = [item["source_item_ref"]["field_name"] for item in category_after["items"]]
+        assert order_after == original_order
+
+        # Y el estado de cada item quedó donde corresponde, no cruzado con el del vecino.
+        by_id = {item["tracking_item_id"]: item["status"] for item in category_after["items"]}
+        assert by_id[first_item_id] == "non_compliant"
+        assert by_id[second_item_id] == "not_applicable"
+
 
 class TestComments:
     def test_create_list_update_delete_roundtrip(self, analyzed_analysis):
@@ -206,10 +246,23 @@ class TestComments:
         after_delete = list_comments(analysis_id, OWNER_USER_ID, "requisitos_admisibilidad")
         assert after_delete == []
 
-    def test_item_scope_comment_rejected(self, analyzed_analysis):
+    def test_item_scope_comment_requires_item_id(self, analyzed_analysis):
         analysis_id, _version_id = analyzed_analysis
         start_tracking(analysis_id, OWNER_USER_ID)
-        with pytest.raises(ValueError, match="TRACKING_CATEGORY_COMMENT_ONLY"):
+        with pytest.raises(ValueError, match="TRACKING_ITEM_REQUIRED"):
+            create_comment(
+                analysis_id,
+                OWNER_USER_ID,
+                "requisitos_admisibilidad",
+                scope="checklist_item",
+                content="x",
+                tracking_item_id=None,
+            )
+
+    def test_item_scope_comment_rejects_unknown_item(self, analyzed_analysis):
+        analysis_id, _version_id = analyzed_analysis
+        start_tracking(analysis_id, OWNER_USER_ID)
+        with pytest.raises(ValueError, match="TRACKING_ITEM_NOT_FOUND"):
             create_comment(
                 analysis_id,
                 OWNER_USER_ID,
@@ -219,37 +272,65 @@ class TestComments:
                 tracking_item_id="some-item",
             )
 
-    def test_comment_on_closed_category_rejected(self, analyzed_analysis):
+    def test_category_scope_comment_rejects_item_id(self, analyzed_analysis):
         analysis_id, _version_id = analyzed_analysis
         start_tracking(analysis_id, OWNER_USER_ID)
-        update_category_status(analysis_id, OWNER_USER_ID, "requisitos_admisibilidad", "closed")
-
-        with pytest.raises(RuntimeError, match="TRACKING_CATEGORY_CLOSED"):
+        with pytest.raises(ValueError, match="TRACKING_CATEGORY_COMMENT_ONLY"):
             create_comment(
                 analysis_id,
                 OWNER_USER_ID,
                 "requisitos_admisibilidad",
                 scope="category",
                 content="x",
-                tracking_item_id=None,
+                tracking_item_id="some-item",
             )
 
-    def test_comments_count_reflected_in_tracking_payload(self, analyzed_analysis):
+    def test_item_comment_is_listed_per_item_and_counted(self, analyzed_analysis):
         analysis_id, _version_id = analyzed_analysis
-        start_tracking(analysis_id, OWNER_USER_ID)
-        create_comment(
-            analysis_id,
-            OWNER_USER_ID,
-            "requisitos_admisibilidad",
-            scope="category",
-            content="comentario",
-            tracking_item_id=None,
-        )
-        tracking = get_tracking(analysis_id, OWNER_USER_ID)
+        tracking = start_tracking(analysis_id, OWNER_USER_ID)
         category = next(
             c for c in tracking["categories"] if c["category_key"] == "requisitos_admisibilidad"
         )
-        assert category["comments_count"] == 1
+        first_id = category["items"][0]["tracking_item_id"]
+        second_id = category["items"][1]["tracking_item_id"]
+
+        created = create_comment(
+            analysis_id,
+            OWNER_USER_ID,
+            "requisitos_admisibilidad",
+            scope="checklist_item",
+            content="Pedir constancia",
+            tracking_item_id=first_id,
+        )
+        assert created["scope"] == "checklist_item"
+        assert created["tracking_item_id"] == first_id
+
+        only_first = list_comments(
+            analysis_id,
+            OWNER_USER_ID,
+            "requisitos_admisibilidad",
+            scope="checklist_item",
+            tracking_item_id=first_id,
+        )
+        assert [c["id"] for c in only_first] == [created["id"]]
+        assert (
+            list_comments(
+                analysis_id,
+                OWNER_USER_ID,
+                "requisitos_admisibilidad",
+                scope="checklist_item",
+                tracking_item_id=second_id,
+            )
+            == []
+        )
+
+        refreshed = get_tracking(analysis_id, OWNER_USER_ID)
+        refreshed_category = next(
+            c for c in refreshed["categories"] if c["category_key"] == "requisitos_admisibilidad"
+        )
+        counts = {i["tracking_item_id"]: i["comments_count"] for i in refreshed_category["items"]}
+        assert counts[first_id] == 1
+        assert counts[second_id] == 0
 
 
 class TestConcurrencyConflict:

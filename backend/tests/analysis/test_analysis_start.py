@@ -13,7 +13,7 @@ from documents.models import Document
 from documents.service import calculate_content_hash
 from infra.database import SessionLocal
 from users.models import User
-from users.service import create_access_token, get_password_hash
+from users.service import get_password_hash
 
 
 def _build_pdf() -> bytes:
@@ -321,6 +321,115 @@ def test_get_analysis_detail_legacy_without_preview_criterios(client: TestClient
     db.close()
 
 
+def test_patch_analysis_creates_presupuesto_when_missing(client: TestClient, auth_token: str) -> None:
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == "test@cedia.com").first()
+    assert user is not None
+
+    analysis = Analysis(
+        created_by=user.id,
+        status="analyzed",
+        current_stage="completed",
+        correlation_id=str(uuid4()),
+    )
+    db.add(analysis)
+    db.flush()
+
+    version = AnalysisVersion(
+        analysis_id=analysis.id,
+        version_number=1,
+        extracted_data={},
+        conflicts=[],
+        created_by=user.id,
+    )
+    db.add(version)
+    db.flush()
+    analysis.current_version_id = version.id
+    db.commit()
+
+    response = client.patch(
+        f"/api/v1/analyses/{analysis.id}",
+        headers={"Authorization": f"Bearer {auth_token}"},
+        json={"monto_estimado": 15000000, "moneda": "ars"},
+    )
+
+    assert response.status_code == 200
+
+    db.refresh(version)
+    datos_procedimiento = version.extracted_data["datos_procedimiento"]
+    assert isinstance(datos_procedimiento, list)
+    assert len(datos_procedimiento) == 1
+    assert datos_procedimiento[0]["tipo"] == "presupuesto_oficial"
+    assert datos_procedimiento[0]["valor"] == "ARS 15.000.000,00"
+    assert datos_procedimiento[0]["monto_estimado_source"] == "manual"
+
+    db.close()
+
+
+def test_patch_analysis_updates_presupuesto_when_datos_procedimiento_is_array(
+    client: TestClient, auth_token: str
+) -> None:
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == "test@cedia.com").first()
+    assert user is not None
+
+    analysis = Analysis(
+        created_by=user.id,
+        status="analyzed",
+        current_stage="completed",
+        correlation_id=str(uuid4()),
+    )
+    db.add(analysis)
+    db.flush()
+
+    version = AnalysisVersion(
+        analysis_id=analysis.id,
+        version_number=1,
+        extracted_data={
+            "datos_procedimiento": [
+                {
+                    "tipo": "presupuesto_oficial",
+                    "valor": "AR$ 12.000.000",
+                    "confidence": 0.8,
+                    "extraction_status": "success",
+                    "source_references": [
+                        {
+                            "document_id": "doc-1",
+                            "page_number": 3,
+                            "citation": "presupuesto oficial",
+                        }
+                    ],
+                }
+            ],
+            "datos_procedimiento_extraction_status": "success",
+        },
+        conflicts=[],
+        created_by=user.id,
+    )
+    db.add(version)
+    db.flush()
+    analysis.current_version_id = version.id
+    db.commit()
+
+    response = client.patch(
+        f"/api/v1/analyses/{analysis.id}",
+        headers={"Authorization": f"Bearer {auth_token}"},
+        json={"monto_estimado": 21000000, "moneda": "ars"},
+    )
+
+    assert response.status_code == 200
+
+    db.refresh(version)
+    updated_items = version.extracted_data["datos_procedimiento"]
+    assert isinstance(updated_items, list)
+    assert updated_items[0]["tipo"] == "presupuesto_oficial"
+    assert updated_items[0]["valor"] == "ARS 21.000.000,00"
+    assert updated_items[0]["source_references"] == []
+    assert updated_items[0]["monto_estimado_source"] == "manual"
+
+    db.close()
+
+
 def test_delete_error_analysis_hard_deletes_records(
     client: TestClient, auth_token: str, monkeypatch
 ) -> None:
@@ -443,7 +552,8 @@ def test_start_categories_rejects_non_review_status(
     db.commit()
 
     response = client.post(
-        f"/api/v1/analyses/{analysis.id}/start-categories",
+        f"/api/v1/analyses/{analysis.id}/categories-decision",
+        json={"decision": "approved"},
         headers={"Authorization": f"Bearer {auth_token}"},
     )
 
@@ -476,18 +586,71 @@ def test_start_categories_enqueues_phase2(client: TestClient, auth_token: str, m
     db.commit()
 
     response = client.post(
-        f"/api/v1/analyses/{analysis.id}/start-categories",
+        f"/api/v1/analyses/{analysis.id}/categories-decision",
+        json={"decision": "approved"},
         headers={"Authorization": f"Bearer {auth_token}"},
     )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "queued"
+    assert payload["decision"] == "approved"
+    assert payload["decision_by_name"] == user.name
     assert queued_ids == [analysis.id]
 
     db.refresh(analysis)
     assert analysis.progress_percentage == 0
     assert (analysis.extraction_metadata or {}).get("stage_progress") == "En cola"
+    assert analysis.categories_decision == "approved"
+    assert analysis.categories_decision_by == user.id
+    assert analysis.categories_decision_by_name == user.name
+    assert analysis.categories_decision_at is not None
+    db.close()
+
+
+def test_reject_categories_records_decision_without_enqueueing(
+    client: TestClient, auth_token: str, monkeypatch
+) -> None:
+    from analysis import routes as analysis_routes
+
+    queued_ids: list[str] = []
+    monkeypatch.setattr(
+        analysis_routes,
+        "enqueue_analysis_categories",
+        lambda _background_tasks, analysis_id: queued_ids.append(analysis_id),
+    )
+
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == "test@cedia.com").first()
+    assert user is not None
+
+    analysis = Analysis(
+        created_by=user.id,
+        status="en_revision",
+        correlation_id=str(uuid4()),
+    )
+    db.add(analysis)
+    db.commit()
+
+    response = client.post(
+        f"/api/v1/analyses/{analysis.id}/categories-decision",
+        json={"decision": "rejected"},
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "en_revision"
+    assert payload["decision"] == "rejected"
+    assert payload["decision_by_name"] == user.name
+    assert queued_ids == []
+
+    db.refresh(analysis)
+    assert analysis.status == "en_revision"
+    assert analysis.categories_decision == "rejected"
+    assert analysis.categories_decision_by == user.id
+    assert analysis.categories_decision_by_name == user.name
+    assert analysis.categories_decision_at is not None
     db.close()
 
 
@@ -530,7 +693,8 @@ def test_start_categories_returns_conflict_when_already_transitioned(
     )
 
     response = client.post(
-        f"/api/v1/analyses/{analysis_id}/start-categories",
+        f"/api/v1/analyses/{analysis_id}/categories-decision",
+        json={"decision": "approved"},
         headers={"Authorization": f"Bearer {auth_token}"},
     )
 

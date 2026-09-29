@@ -29,10 +29,10 @@ def get_azure_openai_client() -> Any:
         api_version=settings.azure_openai_api_version,
         deployment_name=settings.azure_openai_chat_deployment,
         temperature=0.0,
-        # temperature=0.0 alone doesn't guarantee determinism; seed is what actually helps (EXT-01). Value is arbitrary, just needs to stay constant across calls.
+        # temperature=0.0 sola no garantiza determinismo; el seed es lo que ayuda (EXT-01), el valor es arbitrario pero debe mantenerse constante.
         seed=42,
-        # 4000 tokens truncated JSON for categories with many items (e.g. requisitos_admisibilidad, 30-40 items), which made run_extractor mark the category as failed (seen 2026-08-14).
+        # 4000 tokens truncaba el JSON en categorías con muchos ítems (ej. requisitos_admisibilidad), lo que hacía fallar run_extractor (visto 2026-08-14).
         max_tokens=12000,
-        # Raised alongside max_tokens: the longest responses also take the longest, and 60s was the other ceiling being hit.
+        # Subido junto con max_tokens: las respuestas más largas también tardan más y 60s era el otro techo que se golpeaba.
         timeout=180,
     )

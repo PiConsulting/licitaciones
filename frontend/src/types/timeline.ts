@@ -16,6 +16,8 @@ export interface EventResponse {
   source_document_id?: string;
   source_page?: number;
   source_fragment?: string;
+  // Descripción breve sintetizada (ej. "El oferente presenta la oferta"), no la cita literal del pliego -- ver EventResponse.detalle (backend). Ausente en eventos de análisis previos al 2026-09-28, sin reanalizar: la UI cae a source_fragment.
+  detalle?: string;
   source_reference?: Record<string, unknown>;
   deleted: boolean;
   // Opcional (default false en backend) para no romper mocks de tests viejos sin este campo -- ver EventResponse.hidden.

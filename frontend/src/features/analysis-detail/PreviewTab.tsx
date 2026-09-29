@@ -1,27 +1,41 @@
-import { ChevronDown, ChevronUp } from "lucide-react";
-import { useState } from "react";
+import { Ban, Eye } from "lucide-react";
 
+import { BusinessDecisionPanel } from "./components/BusinessDecisionPanel";
 import { PreviewCriterionCard } from "./components/PreviewCriterionCard";
-import type { AnalysisDetail, CategoryData, CategoryNarrative, Citation, NarrativeSource } from "./types";
+import type {
+  AnalysisDetail,
+  CategoriesDecision,
+  CategoryData,
+  CategoryNarrative,
+  Citation,
+  NarrativeSource,
+} from "./types";
 import { filterVerifiedSources, collectReferencedSourceIds, resolveSourceIdsToSources } from "./utils/resolveNarrativeSources";
 import { normalizePreviewSummary } from "./utils/normalizePreviewSummary";
+import { resolveBusinessStatus } from "./utils/businessStatus";
 import { splitLabelAndValue } from "./utils/splitLabelAndValue";
 import { buildNarrativeBlocks } from "./utils/narrativeSynthesis";
 
 interface PreviewTabProps {
   analysis: AnalysisDetail;
   onViewSource?: (payload: { citation: Citation; citations: Citation[]; sources: NarrativeSource[] }) => void;
+  decisionLoading?: boolean;
+  onApproveDecision?: () => Promise<void> | void;
+  onRejectDecision?: (note: string) => Promise<void> | void;
+  categoriesDecision?: CategoriesDecision | null;
+  categoriesDecisionByName?: string | null;
+  categoriesDecisionAt?: string | null;
 }
 
 const PREVIEW_TITLES = [
   "Mantenimiento de oferta",
   "Tiempo de entrega",
   "Forma de pago",
-  "Licitación en pesos o dólares",
+  "Moneda",
   "Tipo de cambio",
   "Garantías o cauciones",
   "Multas o penalidades",
-  "Anticipo financiero requerido",
+  "Anticipo financiero",
   "Requisitos técnicos o certificaciones excluyentes",
   "Responsabilidad por costos logísticos o de instalación",
 ] as const;
@@ -33,11 +47,11 @@ const PREVIEW_ALIASES: Record<string, (typeof PREVIEW_TITLES)[number] | null> = 
   "plazo y lugar de entrega": "Tiempo de entrega",
   "plazo de entrega": "Tiempo de entrega",
   "forma de pago": "Forma de pago",
-  moneda: "Licitación en pesos o dólares",
-  "moneda de cotizacion": "Licitación en pesos o dólares",
-  "moneda de cotización": "Licitación en pesos o dólares",
-  "licitacion en pesos o dolares": "Licitación en pesos o dólares",
-  "licitación en pesos o dólares": "Licitación en pesos o dólares",
+  moneda: "Moneda",
+  "moneda de cotizacion": "Moneda",
+  "moneda de cotización": "Moneda",
+  "licitacion en pesos o dolares": "Moneda",
+  "licitación en pesos o dólares": "Moneda",
   "tipo de cambio": "Tipo de cambio",
   garantias: "Garantías o cauciones",
   "garantías": "Garantías o cauciones",
@@ -47,8 +61,8 @@ const PREVIEW_ALIASES: Record<string, (typeof PREVIEW_TITLES)[number] | null> = 
   "garantías o cauciones": "Garantías o cauciones",
   "multas y penalidades": "Multas o penalidades",
   "multas o penalidades": "Multas o penalidades",
-  "anticipo financiero": "Anticipo financiero requerido",
-  "anticipo financiero requerido": "Anticipo financiero requerido",
+  "anticipo financiero": "Anticipo financiero",
+  "anticipo financiero requerido": "Anticipo financiero",
   "requisitos tecnicos excluyentes": "Requisitos técnicos o certificaciones excluyentes",
   "requisitos técnicos excluyentes": "Requisitos técnicos o certificaciones excluyentes",
   "requisitos tecnicos o certificaciones excluyentes": "Requisitos técnicos o certificaciones excluyentes",
@@ -199,9 +213,34 @@ function categoryNarrativeOrFallback(
   return buildNarrativeBlocks(category, fallbackCategoryId, options);
 }
 
-export function PreviewTab({ analysis, onViewSource }: PreviewTabProps) {
-  const [showObjectSources, setShowObjectSources] = useState(false);
+function formatDecisionDate(value: string | null | undefined): string {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return new Intl.DateTimeFormat("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
 
+export function PreviewTab({
+  analysis,
+  onViewSource,
+  decisionLoading = false,
+  onApproveDecision,
+  onRejectDecision,
+  categoriesDecision = null,
+  categoriesDecisionByName,
+  categoriesDecisionAt,
+}: PreviewTabProps) {
+  const isPendingDecision = resolveBusinessStatus(analysis.business_status) === "pendiente_decision";
   const extractedData = analysis.current_version.extracted_data;
   const objetoAlcance = extractedData.objeto_alcance;
   const previewCriterios = normalizePreviewCategory(extractedData.preview_criterios);
@@ -271,58 +310,34 @@ export function PreviewTab({ analysis, onViewSource }: PreviewTabProps) {
         <>
           {objetoNarrative ? (
             <article
-              className="relative mt-3 overflow-hidden rounded-xl border border-white/50 bg-white/35 p-4 pb-12 shadow-md backdrop-blur-md sm:p-5 sm:pb-12"
+              className="mt-3 flex flex-col gap-[10px] rounded-2xl border border-[rgba(0,60,107,.12)] bg-white px-6 py-5"
               data-testid="preview-object-card"
             >
-              <div className="flex items-start gap-3">
-                <div className="min-w-0 flex-1">
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-cedia-primary">Objeto y Alcance</h3>
-                  <p className="mt-2 whitespace-pre-line break-words text-sm leading-relaxed text-gray-800" data-testid="preview-object-text">
-                    {objectDetailText}
-                  </p>
-                </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-[rgba(0,60,107,.68)]">Objeto y alcance</span>
+                {objectSources.length > 0 ? (
+                  <button
+                    type="button"
+                    title={`Ver fuente en el pliego (pág. ${objectSources[0].page})`}
+                    aria-label={`Ver fuente en el pliego (pág. ${objectSources[0].page})`}
+                    className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[rgba(0,60,107,.12)] bg-white px-[10px] text-[11px] font-semibold text-[#0099DB] transition-colors hover:border-[#0099DB]"
+                    onClick={() => handleViewObjectSource(objectSources[0])}
+                    data-testid="preview-object-source-button"
+                  >
+                    <Eye className="h-[13px] w-[13px]" aria-hidden="true" />
+                    {`pág. ${objectSources[0].page}`}
+                  </button>
+                ) : null}
               </div>
 
-              {showObjectSources ? (
-                <div id="preview-object-sources" className="mt-3 rounded-md border border-white/60 bg-white/75 p-2 backdrop-blur" data-testid="preview-object-sources-panel">
-                  {objectSources.length > 0 ? (
-                    <ul className="space-y-2" data-testid="preview-object-sources-list">
-                      {objectSources.map((source) => (
-                        <li key={source.id}>
-                          <button
-                            type="button"
-                            className="w-full rounded border border-gray-200 px-2 py-1 text-left text-xs text-cedia-primary hover:border-cedia-primary"
-                            onClick={() => handleViewObjectSource(source)}
-                          >
-                            <span className="font-semibold">{source.document_name}</span>
-                            <span>{` · pág. ${source.page}`}</span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-xs text-gray-600">Sin fuentes verificables para Objeto y Alcance.</p>
-                  )}
-                </div>
-              ) : null}
-
-              <button
-                type="button"
-                className="absolute bottom-2 right-2 inline-flex h-7 w-7 items-center justify-center rounded-full border border-cedia-primary/40 bg-white/75 text-cedia-primary transition-colors hover:border-cedia-primary hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-                aria-expanded={showObjectSources}
-                aria-controls="preview-object-sources"
-                aria-label={showObjectSources ? "Ocultar fuentes" : "Mostrar fuentes"}
-                title={showObjectSources ? "Ocultar fuentes" : "Mostrar fuentes"}
-                onClick={() => setShowObjectSources((value) => !value)}
-                data-testid="preview-object-sources-toggle"
-              >
-                {showObjectSources ? <ChevronUp className="h-4 w-4" aria-hidden="true" /> : <ChevronDown className="h-4 w-4" aria-hidden="true" />}
-              </button>
+              <p className="m-0 whitespace-pre-line break-words text-[15px] leading-[1.6] text-[#003C6B]" data-testid="preview-object-text">
+                {objectDetailText}
+              </p>
             </article>
           ) : null}
 
           {previewBullets.length > 0 ? (
-            <div className="mt-3 flex w-full flex-wrap gap-2 overflow-x-hidden" data-testid="preview-criteria-cards">
+            <div className="mt-3 grid w-full grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3" data-testid="preview-criteria-cards">
               {previewBullets.map((item, index) => {
                 const split = splitLabelAndValue(item.text);
                 const title = split?.label || PREVIEW_TITLES[index] || `Criterio ${index + 1}`;
@@ -336,7 +351,6 @@ export function PreviewTab({ analysis, onViewSource }: PreviewTabProps) {
                     resumen={summary}
                     bulletItem={item}
                     sources={sources}
-                    contentId={`preview-criterion-content-${index}`}
                     onViewSource={onViewSource}
                   />
                 );
@@ -364,6 +378,30 @@ export function PreviewTab({ analysis, onViewSource }: PreviewTabProps) {
           Este preview es un resumen. Podés ver el detalle completo de requisitos de admisibilidad y garantías,
           con todas sus fuentes, en la sección Categorías.
         </p>
+      ) : null}
+
+      {isPendingDecision ? (
+        <div className="mt-4">
+          <BusinessDecisionPanel
+            loading={decisionLoading}
+            onApprove={onApproveDecision ?? (() => undefined)}
+            onReject={onRejectDecision ?? (() => undefined)}
+          />
+        </div>
+      ) : null}
+
+      {categoriesDecision === "rejected" ? (
+        <div
+          className="mt-4 flex items-center gap-3 rounded-2xl border border-[rgba(220,38,38,.3)] bg-[#FEF2F2] px-6 py-4 text-[#B91C1C]"
+          data-testid="categories-decision-rejected-banner"
+        >
+          <Ban className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+          <p className="text-[13px]">
+            Rechazado{categoriesDecisionByName ? ` por ${categoriesDecisionByName}` : ""}
+            {formatDecisionDate(categoriesDecisionAt) ? ` el ${formatDecisionDate(categoriesDecisionAt)}` : ""}. No se
+            van a analizar las categorías restantes.
+          </p>
+        </div>
       ) : null}
     </section>
   );

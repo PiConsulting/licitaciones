@@ -7,7 +7,6 @@ import {
   type CategoryData,
   type CategoryId,
   type CategoryNarrative,
-  type CategoryQuality,
   type ConfidenceLevel,
   type FieldItem,
   type HighlightRegion,
@@ -25,19 +24,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function toSourceReference(value: unknown): SourceReference | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  return {
-    page: Number(value.page ?? 0),
-    document_id: String(value.document_id ?? ""),
-    text_snippet: String(value.text_snippet ?? ""),
-  };
-}
-
-/** CTX-06: nombre de archivo de la cita; usa `filename` del backend con fallback a `document_name` legacy y "Documento" por defecto. */
+/** CTX-06: nombre de archivo de la cita; usa `filename` del backend con fallback al mapa de documentos del análisis. */
 function toDocumentName(value: Record<string, unknown>): string {
   const documentId = String(value.document_id ?? "").trim();
   const fromDocuments = documentId ? currentDocumentNameById.get(documentId) : undefined;
@@ -45,11 +32,7 @@ function toDocumentName(value: Record<string, unknown>): string {
   if (fromBackend) {
     return fromBackend;
   }
-  const alreadyMapped = String(value.document_name ?? "").trim();
-  if (alreadyMapped && alreadyMapped.toLowerCase() !== "documento") {
-    return alreadyMapped;
-  }
-  return fromDocuments || alreadyMapped || "Documento";
+  return fromDocuments || "Documento";
 }
 
 function buildDocumentNameById(documents: unknown): Map<string, string> {
@@ -156,8 +139,13 @@ function toNarrativeBlock(value: unknown): NarrativeBlockData | null {
       .map((item) => ({
         text: String(item.text ?? "").trim(),
         resumen: item.resumen == null ? undefined : String(item.resumen),
+        // Bug real: nunca se leía `titulo` acá -- el backend lo sintetiza bien
+        // (título corto + detalle) pero la UI caía SIEMPRE a la fila sin
+        // título (bullet + primera frase en negrita), en TODAS las categorías.
+        titulo: item.titulo == null ? undefined : String(item.titulo),
         confidence_level: toConfidenceLevel(item.confidence_level),
         source_ids: toSourceIds(item.source_ids),
+        conflict_count: typeof item.conflict_count === "number" ? item.conflict_count : 0,
       }))
       .filter((item) => item.text !== "");
     if (items.length === 0) {
@@ -240,37 +228,6 @@ function toPlazoRawFields(item: Record<string, unknown>): PlazoRawFields | undef
   };
 }
 
-function toFieldItem(value: unknown): FieldItem | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  const stateValue = String(value.field_state ?? "extraido") as FieldItem["field_state"];
-  const fieldState = ["extraido", "no_encontrado", "no_aplica", "en_conflicto"].includes(stateValue)
-    ? stateValue
-    : "extraido";
-
-  const citationsRaw = Array.isArray(value.citations) ? value.citations : [];
-
-  return {
-    field_name: String(value.field_name ?? "Campo sin nombre"),
-    field_value: value.field_value == null ? null : String(value.field_value),
-    field_state: fieldState,
-    confidence: Number(value.confidence ?? 0),
-    citations: citationsRaw
-      .filter(isRecord)
-      .map((citation) => ({
-        text: String(citation.text ?? ""),
-        page: Number(citation.page ?? 0),
-        document_id: String(citation.document_id ?? ""),
-        document_name: toDocumentName(citation),
-        value: citation.value == null ? undefined : String(citation.value),
-      })),
-    modified_by: value.modified_by == null ? undefined : String(value.modified_by),
-    modified_at: value.modified_at == null ? undefined : String(value.modified_at),
-  };
-}
-
 function emptyCategoryData(): CategoryData {
   return {
     items: [],
@@ -282,7 +239,7 @@ function emptyCategoryData(): CategoryData {
   };
 }
 
-/** El estado agregado viaja en clave hermana; campos legacy (anexos_/criterios_/causales_extraction_status) funcionan hasta Q2 2027, usar los canónicos. */
+/** El estado agregado de cada categoría viaja en una clave hermana (`${categoryId}_extraction_status`). */
 const BACKEND_STATUS_KEY: Record<CategoryId, string> = {
   plazos_clave: "plazos_clave_extraction_status",
   garantias: "garantias_extraction_status",
@@ -308,7 +265,7 @@ const FIELD_LABELS: Record<string, string> = {
   tipo_cambio: "Tipo de cambio",
   garantias_cauciones: "Garantías o cauciones",
   multas_penalidades: "Multas y penalidades",
-  anticipo_financiero: "Anticipo financiero requerido",
+  anticipo_financiero: "Anticipo financiero",
   requisitos_tecnicos_excluyentes: "Requisitos técnicos o certificaciones excluyentes",
   responsabilidad_costos_logisticos: "Responsabilidad por costos logísticos o de instalación",
   adjudicacion: "Adjudicación",
@@ -436,7 +393,7 @@ function fromBackendItem(value: unknown): FieldItem | null {
   const shouldOverrideNotFound = (status === "not_found" || status === "failed") && (fieldValue != null || hasEvidence);
   const fieldState = shouldOverrideNotFound ? "extraido" : (STATE_BY_STATUS[status] ?? "extraido");
 
-  // FIX 2026-08-22: PlazoItem ya no tiene `tipo` (reemplazado por `referencia`, texto legible del LLM); `value.tipo` queda como fallback para análisis viejos en Cosmos.
+  // PlazoItem usa `referencia` (texto libre del LLM) en vez de `tipo`; el resto de las categorías sí usan `tipo`.
   const referencia = value.referencia == null ? "" : String(value.referencia).trim();
 
   // Para RiesgoItem, incluir subtipo en el field_name para permitir agrupamiento
@@ -479,14 +436,6 @@ function summarize(items: FieldItem[]): string {
     parts.push(`${notApplicable} no aplica${notApplicable === 1 ? "" : "n"}`);
   }
   return parts.join(" · ");
-}
-
-function hasClickableEvidence(items: FieldItem[]): boolean {
-  return items.some((item) =>
-    item.citations.some(
-      (citation) => citation.document_id.trim() !== "" && citation.page > 0 && citation.text.trim() !== "",
-    ),
-  );
 }
 
 /** Construye CategoryData a partir del array de ítems que emite el backend. */
@@ -545,26 +494,6 @@ const NORMALIZE_CATEGORY_IDS: Array<CategoryId | "preview_criterios"> = [
   "datos_procedimiento",
 ];
 
-/** Los contadores de calidad que emite `merge_node` por categoría (ATR-03). */
-function toCategoryQuality(value: unknown): CategoryQuality | undefined {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-  const quality: CategoryQuality = {};
-  for (const key of [
-    "descartados_sin_evidencia",
-    "descartados_por_formato",
-    "con_evidencia_rescatada",
-    "conservados",
-  ] as const) {
-    const raw = Number(value[key]);
-    if (Number.isFinite(raw) && raw > 0) {
-      quality[key] = raw;
-    }
-  }
-  return Object.keys(quality).length > 0 ? quality : undefined;
-}
-
 function normalizeCategories(extractedData: unknown): Record<CategoryId, CategoryData> & {
   preview_criterios?: CategoryData;
 } {
@@ -579,107 +508,25 @@ function normalizeCategories(extractedData: unknown): Record<CategoryId, Categor
     return result;
   }
 
-  // Mapeo legacy de retrocompatibilidad para análisis viejos con solo nombres antiguos; eliminar después de Q2 2027.
-  const legacyToUiMap: Partial<Record<CategoryId | "preview_criterios", string[]>> = {
-    plazos_clave: ["plazos"],
-    requisitos_admisibilidad: ["documentos_requeridos", "restricciones_participacion"],
-    datos_procedimiento: ["cronograma_proceso", "estimacion_presupuesto"],
-  };
-
-  // causales_rechazo usaba la clave rota `causales_extraction_status`; fallback para análisis viejos en Cosmos, retirar junto al resto de legacy (Q2 2027).
-  const legacyStatusKey: Partial<Record<CategoryId | "preview_criterios", string>> = {
-    causales_rechazo: "causales_extraction_status",
-  };
-  const getStatusValue = (categoryId: CategoryId | "preview_criterios"): unknown => {
-    const primaryKey =
-      categoryId === "preview_criterios"
-        ? "preview_criterios_extraction_status"
-        : BACKEND_STATUS_KEY[categoryId];
-    const primary = extractedData[primaryKey];
-    if (primary !== undefined) {
-      return primary;
-    }
-    const legacyKey = legacyStatusKey[categoryId];
-    return legacyKey ? extractedData[legacyKey] : undefined;
-  };
-
-  const calidadPorCategoria = isRecord(extractedData.calidad_por_categoria)
-    ? (extractedData.calidad_por_categoria as Record<string, unknown>)
-    : {};
+  const getStatusValue = (categoryId: CategoryId | "preview_criterios"): unknown =>
+    categoryId === "preview_criterios"
+      ? extractedData.preview_criterios_extraction_status
+      : extractedData[BACKEND_STATUS_KEY[categoryId]];
 
   for (const categoryId of NORMALIZE_CATEGORY_IDS) {
-    let rawCategory = extractedData[categoryId];
+    const rawCategory = extractedData[categoryId];
 
-    // Forma actual del backend: categoría=array de ítems, estado en clave hermana, narrativa en `${categoryId}_narrative`.
-    if (Array.isArray(rawCategory)) {
-      result[categoryId] = fromBackendArray(
-        rawCategory,
-        getStatusValue(categoryId),
-        extractedData[`${categoryId}_narrative`],
-        extractedData[`${categoryId}_confidence`],
-      );
+    // El backend siempre emite: categoría=array de ítems, estado en clave hermana, narrativa en `${categoryId}_narrative`.
+    if (!Array.isArray(rawCategory)) {
       continue;
     }
 
-    if (!isRecord(rawCategory) && legacyToUiMap[categoryId]) {
-      const legacyKeys = legacyToUiMap[categoryId] as string[];
-      const arrayCandidates = legacyKeys
-        .map((key) => extractedData[key])
-        .filter((value): value is unknown[] => Array.isArray(value));
-
-      if (arrayCandidates.length > 0) {
-        result[categoryId] = fromBackendArray(
-          arrayCandidates.flat(),
-          getStatusValue(categoryId),
-          extractedData[`${categoryId}_narrative`],
-          extractedData[`${categoryId}_confidence`],
-        );
-        continue;
-      }
-
-      const candidates = legacyKeys
-        .map((key) => extractedData[key])
-        .filter((value) => isRecord(value));
-
-      if (candidates.length > 0) {
-        rawCategory = candidates[0];
-      }
-    }
-
-    if (!isRecord(rawCategory)) {
-      continue;
-    }
-
-    const rawItems = Array.isArray(rawCategory.items) ? rawCategory.items : [];
-    const items = rawItems.map(toFieldItem).filter((item): item is FieldItem => item !== null);
-
-    const rawRefs = Array.isArray(rawCategory.source_references) ? rawCategory.source_references : [];
-    const refs = rawRefs
-      .map(toSourceReference)
-      .filter((ref): ref is SourceReference => ref !== null);
-
-    const statusValue = String(rawCategory.extraction_status ?? "partial");
-    const extractionStatus = [
-      "success",
-      "partial",
-      "failed",
-      "not_found",
-      "not_applicable",
-      "not_analyzed",
-    ].includes(statusValue)
-      ? (statusValue as CategoryData["extraction_status"])
-      : "partial";
-
-    result[categoryId] = {
-      items,
-      confidence: Number(rawCategory.confidence ?? 0),
-      source_references: refs,
-      extraction_status: extractionStatus,
-      summary: String(rawCategory.summary ?? "Sin resumen disponible."),
-      is_reviewed: Boolean(rawCategory.is_reviewed) && hasClickableEvidence(items),
-      narrative: toCategoryNarrative(rawCategory.narrative),
-      quality: toCategoryQuality(calidadPorCategoria[categoryId]),
-    };
+    result[categoryId] = fromBackendArray(
+      rawCategory,
+      getStatusValue(categoryId),
+      extractedData[`${categoryId}_narrative`],
+      extractedData[`${categoryId}_confidence`],
+    );
   }
 
   return result;

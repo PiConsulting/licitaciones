@@ -94,7 +94,6 @@ export function buildNarrativeBlocks(
 ): CategoryNarrative {
   let items = category.items;
 
-  // Para riesgos, ordenar primero los comerciales, luego el resto
   if (categoryId === "riesgos") {
     const comerciales = items.filter((item) => item.field_name.toLowerCase().includes("comercial"));
     const otros = items.filter((item) => !item.field_name.toLowerCase().includes("comercial"));

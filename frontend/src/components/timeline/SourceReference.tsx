@@ -7,6 +7,13 @@ export interface SourceReferenceProps {
   pageNumber: number;
   /** Fragmento de texto citado (opcional) */
   fragment?: string;
+  /** Descripción breve sintetizada del hito (ej. "El oferente presenta la
+   * oferta"), no la cita literal del pliego. Cuando está presente reemplaza
+   * el fragmento como texto mostrado -- mostrar ambos es redundante (la cita
+   * literal ya es un click de distancia con "Ver fuente"). Sin `detalle`
+   * (eventos de análisis previos al 2026-09-28, sin reanalizar), cae al
+   * fragmento como antes. */
+  detalle?: string;
   /** Callback para abrir el visor PDF */
   onView?: () => void;
 }
@@ -15,11 +22,12 @@ export interface SourceReferenceProps {
  * Componente reutilizable para mostrar referencias a fuentes verificables
  * en documentos. Muestra la página y fragmento de texto, con un botón para
  * abrir el visor PDF en la ubicación exacta.
- * 
+ *
  * Usado en EventDetailModal y DeadlineDetailModal para mantener consistencia
  * en la UX de acceso a fuentes.
  */
-export function SourceReference({ pageNumber, fragment, onView }: SourceReferenceProps) {
+export function SourceReference({ pageNumber, fragment, detalle, onView }: SourceReferenceProps) {
+  const trimmedDetalle = detalle?.trim();
   return (
     <div>
       <h4 className="text-sm font-semibold text-gray-700 mb-3">
@@ -31,11 +39,13 @@ export function SourceReference({ pageNumber, fragment, onView }: SourceReferenc
             <p className="text-sm text-gray-600 mb-1">
               Página {pageNumber}
             </p>
-            {fragment && (
+            {trimmedDetalle ? (
+              <p className="text-sm text-gray-800">{trimmedDetalle}</p>
+            ) : fragment ? (
               <p className="text-sm text-gray-800 italic line-clamp-3">
                 &quot;{fragment}&quot;
               </p>
-            )}
+            ) : null}
           </div>
           {onView && (
             <button

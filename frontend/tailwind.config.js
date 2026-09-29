@@ -23,10 +23,6 @@ export default {
           "white-75": "rgba(255,255,255,.75)",
           "white-72": "rgba(255,255,255,.72)",
           "focus-ring": "rgba(0,153,219,.2)",
-          "gradient-accent": "linear-gradient(90deg,#0099DB,#2F4EF8,#A966FF)",
-          "gradient-button": "linear-gradient(90deg,#2F4EF8,#A966FF)",
-          "gradient-icon": "linear-gradient(145deg,#0099DB,#2F4EF8)",
-          "gradient-progress": "linear-gradient(90deg,#0099DB,#7FF3DE)",
         },
         cedia: {
           primary: "#2b6aae",
@@ -86,6 +82,12 @@ export default {
         },
         background: "#F9FAFB",
         surface: "#FFFFFF",
+      },
+      backgroundImage: {
+        "cedi-gradient-accent": "linear-gradient(90deg,#0099DB,#2F4EF8,#A966FF)",
+        "cedi-gradient-button": "linear-gradient(90deg,#2F4EF8,#A966FF)",
+        "cedi-gradient-icon": "linear-gradient(145deg,#0099DB,#2F4EF8)",
+        "cedi-gradient-progress": "linear-gradient(90deg,#0099DB,#7FF3DE)",
       },
       fontFamily: {
         display: ["Space Grotesk", "system-ui", "sans-serif"],

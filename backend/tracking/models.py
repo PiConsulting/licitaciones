@@ -47,6 +47,7 @@ class Tracking(Base):
     started_by: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("users.id"), nullable=True
     )
+    started_by_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
@@ -94,7 +95,12 @@ class TrackingCategory(Base):
     events: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
 
     tracking = relationship("Tracking", back_populates="categories")
-    items = relationship("TrackingItem", back_populates="category", cascade="all, delete-orphan")
+    items = relationship(
+        "TrackingItem",
+        back_populates="category",
+        cascade="all, delete-orphan",
+        order_by="TrackingItem.position",
+    )
 
 
 class TrackingItem(Base):
@@ -112,6 +118,16 @@ class TrackingItem(Base):
     tracking_category_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("tracking_categories.id", ondelete="CASCADE"), nullable=False
     )
+    # Posición del item en la extracción al momento de crear el tracking (ver
+    # `_extract_tracking_items_from_version`). Sin esto, la relación de abajo
+    # no tenía ORDER BY -- Postgres no garantiza el orden de un SELECT sin
+    # ordenar explícitamente, y cada UPDATE de status (por ejemplo, tocar
+    # "Cumple"/"No cumple") puede mover la fila físicamente y cambiar el
+    # orden devuelto. El frontend empareja cada tracking item con SU
+    # descripción por posición (`buildChecklistItemContents`), así que un
+    # reorden silencioso hacía que, después de marcar un ítem, la fila de
+    # OTRO ítem pareciera cambiar de estado (bug real reportado 2026-09-28).
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="not_evaluated")
     source_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     source_field_name: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -131,7 +147,9 @@ class TrackingItem(Base):
 class TrackingComment(Base):
     __tablename__ = "tracking_comments"
     __table_args__ = (
-        CheckConstraint("scope = 'category'", name="ck_tracking_comments_scope"),
+        CheckConstraint(
+            "scope IN ('category', 'checklist_item')", name="ck_tracking_comments_scope"
+        ),
         Index("ix_tracking_comments_analysis_category", "analysis_id", "category_key"),
     )
 

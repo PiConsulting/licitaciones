@@ -36,10 +36,10 @@ export function DependencyIndicator({
       <>
         <button
           type="button"
-          className="mt-2 flex w-full items-center gap-2 text-left text-sm text-gray-500 hover:text-gray-700"
+          className="mt-2 flex w-full items-center gap-[6px] text-left text-[12.5px] text-[rgba(0,60,107,.68)] hover:text-[#003C6B]"
           onClick={handleClick}
         >
-          <ArrowRight className="h-4 w-4" />
+          <ArrowRight className="h-[13px] w-[13px] flex-shrink-0" />
           <span>Pendiente de fecha de {triggerEvent?.name?.trim() || "evento anterior"}</span>
         </button>
 
@@ -61,10 +61,10 @@ export function DependencyIndicator({
     <>
       <button
         type="button"
-        className="mt-2 flex w-full items-center gap-2 text-left text-sm text-gray-600 hover:text-blue-600"
+        className="mt-2 flex w-full items-center gap-[6px] text-left text-[12.5px] text-[rgba(0,60,107,.68)] hover:text-[#0099DB]"
         onClick={handleClick}
       >
-        <ArrowRight className="h-4 w-4" />
+        <ArrowRight className="h-[13px] w-[13px] flex-shrink-0" />
         <span>
           {deadline.duration} días {dayTypeLabel} desde {triggerEvent.name?.trim() || "evento"}
         </span>

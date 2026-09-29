@@ -43,16 +43,11 @@ export function PDFPage({
   onRendered,
 }: PDFPageProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
-  // Escala EFECTIVA de la página renderizada respecto de su tamaño nativo en
-  // puntos. FIX (auditoría 2026-08-13, hallazgos HL-01 y HL-08): no alcanza con
-  // la prop `scale`, que es el zoom elegido por el usuario y queda `undefined`
-  // en modo ancho-de-columna -- el modo por defecto del visor. Con `scale`
-  // undefined la condición de abajo era falsa y el overlay NUNCA se dibujaba.
+  // Escala efectiva del render vs. tamaño nativo: `scale` queda undefined en modo ancho-de-columna, y sin esto el overlay nunca se dibujaba (HL-01/HL-08).
   const [effectiveScale, setEffectiveScale] = useState<number>(0);
   const customTextRenderer = useMemo(() => createCitationTextRenderer(citationTexts), [citationTexts]);
   const hasActiveCitation = citationTexts.length > 0;
-  
-  // FIX CRÍTICO: Usar coordenadas pre-computadas si están disponibles
+
   const highlightRegions = useMemo(
     () => (sources ? getCombinedHighlightRegions(sources, pageNumber) : []),
     [sources, pageNumber]
@@ -87,8 +82,7 @@ export function PDFPage({
         onLoadSuccess={handleLoadSuccess}
       />
       
-      {/* Highlight por coordenadas pre-computadas. Ver el CONTRATO DE
-          COORDENADAS en `coordinateBasedHighlight.tsx`. */}
+      {/* Ver el CONTRATO DE COORDENADAS en `coordinateBasedHighlight.tsx`. */}
       {useCoordinateHighlight && (
         <HighlightOverlay regions={highlightRegions} scale={effectiveScale} />
       )}

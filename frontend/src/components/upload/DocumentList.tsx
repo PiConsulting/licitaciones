@@ -9,7 +9,7 @@ interface DocumentListProps {
 
 export function DocumentList({ files, selectedIndex, onSelect }: DocumentListProps) {
   return (
-    <div className="space-y-3" aria-label="Lista de documentos para designar principal">
+    <div className="space-y-2.5" aria-label="Lista de documentos para designar principal">
       {files.map((item, index) => (
         <DocumentListItem
           key={item.id}
