@@ -1,5 +1,8 @@
 import type { ReactNode } from "react";
-import { ChevronLeft, ChevronRight, Minus, Plus, Scan } from "lucide-react";
+import { ArrowLeftRight, ChevronLeft, ChevronRight, Maximize, Minus, Plus } from "lucide-react";
+
+import type { LensConfig } from "./lens";
+import { PDFLensControls } from "./PDFLensControls";
 
 interface PDFControlsProps {
   currentPage: number;
@@ -14,6 +17,10 @@ interface PDFControlsProps {
    * en vez de tener su propia franja completa, igual al patrón `metaSlot` de
    * `ProgressBar`. */
   citationSlot?: ReactNode;
+  lens?: LensConfig;
+  onLensToggle?: () => void;
+  onLensChange?: (patch: Partial<Omit<LensConfig, "enabled">>) => void;
+  onFullscreen?: () => void;
 }
 
 export function PDFControls({
@@ -26,9 +33,13 @@ export function PDFControls({
   onZoomOut,
   onFitToWidth,
   citationSlot,
+  lens,
+  onLensToggle,
+  onLensChange,
+  onFullscreen,
 }: PDFControlsProps) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5 border-b border-[rgba(0,60,107,.12)] bg-[#F4F9FC] px-3 py-2">
+    <div className="relative flex flex-wrap items-center gap-1.5 border-b border-[rgba(0,60,107,.12)] bg-[#F4F9FC] px-3 py-2">
       <button
         type="button"
         onClick={() => onPageChange(currentPage - 1)}
@@ -56,6 +67,17 @@ export function PDFControls({
       {citationSlot}
 
       <div className="ml-auto flex items-center gap-0.5">
+        {onFullscreen ? (
+          <button
+            type="button"
+            onClick={onFullscreen}
+            className="flex h-[30px] w-[30px] items-center justify-center rounded-lg text-[#003C6B] transition-colors hover:bg-white"
+            aria-label="Pantalla completa"
+            title="Pantalla completa"
+          >
+            <Maximize className="h-4 w-4" />
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={onFitToWidth}
@@ -64,7 +86,7 @@ export function PDFControls({
           aria-label="Ajustar al ancho"
           title="Ajustar al ancho"
         >
-          <Scan className="h-4 w-4" />
+          <ArrowLeftRight className="h-4 w-4" />
         </button>
         <button
           type="button"
@@ -87,6 +109,9 @@ export function PDFControls({
         >
           <Plus className="h-4 w-4" />
         </button>
+        {lens && onLensToggle && onLensChange ? (
+          <PDFLensControls config={lens} onToggle={onLensToggle} onChange={onLensChange} />
+        ) : null}
       </div>
     </div>
   );
