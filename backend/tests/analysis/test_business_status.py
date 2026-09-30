@@ -4,9 +4,9 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from analysis.models import Analysis, BusinessStatusHistory
+from infra.business_units import BUSINESS_UNITS
 from infra.database import SessionLocal
 from users.models import User
-from users.service import get_password_hash
 
 
 def _auth_headers(token: str) -> dict[str, str]:
@@ -27,20 +27,6 @@ def _create_analysis(user_id: str, *, business_status: str | None = None, **kwar
     db.refresh(analysis)
     db.close()
     return analysis
-
-
-def _create_other_user() -> User:
-    db = SessionLocal()
-    user = User(
-        email="other-fe5@cedia.com",
-        password_hash=get_password_hash("Test1234!"),
-        name="Other User",
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    db.close()
-    return user
 
 
 def test_update_business_status_first_transition_requires_en_analisis(
@@ -212,19 +198,21 @@ def test_update_business_status_invalid_enum_value_returns_422(
     assert response.status_code == 422
 
 
-def test_update_business_status_forbidden_for_other_user(
-    client: TestClient, auth_token: str
+def test_update_business_status_hidden_for_member_of_other_unit(
+    client: TestClient, auth_token: str, other_unit_member_token: str
 ) -> None:
-    other_user = _create_other_user()
-    analysis = _create_analysis(other_user.id)
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == "test@cedia.com").first()
+    db.close()
+    analysis = _create_analysis(user.id, business_unit=BUSINESS_UNITS[0])
 
     response = client.patch(
         f"/api/v1/analyses/{analysis.id}/business-status",
-        headers=_auth_headers(auth_token),
+        headers=_auth_headers(other_unit_member_token),
         json={"business_status": "en_analisis"},
     )
-    assert response.status_code == 403
-    assert response.json()["error"]["code"] == "FORBIDDEN"
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "ANALYSIS_NOT_FOUND"
 
 
 def test_business_status_summary_counts_by_status_and_total(
@@ -310,14 +298,17 @@ def test_business_status_summary_filters_by_date_range(
     assert payload["by_status"]["presentada"] == 0
 
 
-def test_business_status_summary_scoped_to_current_user(
-    client: TestClient, auth_token: str
+def test_business_status_summary_scoped_to_member_unit(
+    client: TestClient, auth_token: str, other_unit_member_token: str
 ) -> None:
-    other_user = _create_other_user()
-    _create_analysis(other_user.id, business_status="ganada")
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == "test@cedia.com").first()
+    db.close()
+    _create_analysis(user.id, business_status="ganada", business_unit=BUSINESS_UNITS[0])
 
     response = client.get(
-        "/api/v1/analyses/business-status-summary", headers=_auth_headers(auth_token)
+        "/api/v1/analyses/business-status-summary",
+        headers=_auth_headers(other_unit_member_token),
     )
     assert response.status_code == 200
     payload = response.json()

@@ -2,6 +2,9 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { vi } from "vitest";
 
+import { saveSession } from "../auth/session";
+import { BUSINESS_UNITS } from "../config/businessUnits";
+import { DEFAULT_USER_ROLE, SUPERADMIN_ROLE } from "../config/userRoles";
 import { Sidebar } from "./Sidebar";
 import { useUIStore } from "../store/useUIStore";
 
@@ -83,5 +86,34 @@ describe("Sidebar", () => {
     fireEvent.click(logoutBtn);
 
     expect(logoutBtn).toBeInTheDocument();
+  });
+
+  test("el superadmin ve el grupo Superadmin con Usuarios del sistema", () => {
+    saveSession({ name: "Admin", email: "admin@cedia.com", role: SUPERADMIN_ROLE, business_unit: BUSINESS_UNITS[0] });
+
+    render(
+      <MemoryRouter initialEntries={["/usuarios"]}>
+        <Sidebar />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Superadmin", { selector: "div span" })).toBeInTheDocument();
+    const usuarios = screen.getByRole("link", { name: /Usuarios del sistema/i });
+    expect(usuarios).toHaveAttribute("href", "/usuarios");
+    expect(usuarios).toHaveAttribute("aria-current", "page");
+  });
+
+  test("el miembro no ve el grupo Superadmin y muestra su unidad", () => {
+    saveSession({ name: "Lucía", email: "lucia@cedia.com", role: DEFAULT_USER_ROLE, business_unit: BUSINESS_UNITS[1] });
+
+    render(
+      <MemoryRouter>
+        <Sidebar />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText(/Usuarios del sistema/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Usuarios/i })).not.toBeInTheDocument();
+    expect(screen.getByText(`Miembro · ${BUSINESS_UNITS[1]}`)).toBeInTheDocument();
   });
 });

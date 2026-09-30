@@ -1,6 +1,7 @@
 import type { MouseEvent } from "react";
 import { Play, RotateCcw, Trash2 } from "lucide-react";
 
+import { getBusinessUnitColor } from "../../../config/businessUnits";
 import type { AnalysisListItem, AnalysisListSortBy, AnalysisListSortOrder } from "../../../types/analysis";
 import { isRunningAnalysisStatus } from "../../../utils/analysisStatus";
 import { ProgressBar } from "./ProgressBar";
@@ -16,18 +17,6 @@ interface AnalysisTableProps {
   onDeleteAnalysis?: (item: AnalysisListItem) => void;
   retryingAnalysisId?: string | null;
   deletingAnalysisId?: string | null;
-}
-
-const UNIT_DOT_COLORS: Record<string, string> = {
-  CEDI: "bg-[#0099DB]",
-  PI: "bg-[#003C6B]",
-  Wemox: "bg-[#2F4EF8]",
-  Vulps: "bg-[#A966FF]",
-  Korex: "bg-[#7FF3DE]",
-};
-
-function getUnitDotClass(unitName: string): string {
-  return UNIT_DOT_COLORS[unitName] ?? "bg-cedi-celeste";
 }
 
 function formatDate(value: string): string {
@@ -183,7 +172,7 @@ export function AnalysisTable({
                 <td className="whitespace-nowrap px-4 py-3.5 text-sm font-semibold text-cedi-navy">
                   {item.business_unit ? (
                     <span className="inline-flex items-center gap-[7px] text-[13px] font-semibold">
-                      <span className={["h-2 w-2 rounded-full", getUnitDotClass(item.business_unit)].join(" ")} aria-hidden="true" />
+                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: getBusinessUnitColor(item.business_unit) }} aria-hidden="true" />
                       {item.business_unit}
                     </span>
                   ) : (

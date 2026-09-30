@@ -1,16 +1,9 @@
 import { useMemo, useState } from "react";
 import { Play } from "lucide-react";
 
+import { useSession } from "../../auth/session";
+import { BUSINESS_UNITS, DEFAULT_BUSINESS_UNIT, getBusinessUnitColor } from "../../config/businessUnits";
 import type { UploadedFile } from "../../types/upload";
-
-const BUSINESS_UNITS = ["CEDI", "PI", "Wemox", "Vulps", "Korex"] as const;
-const UNIT_DOT_COLORS: Record<(typeof BUSINESS_UNITS)[number], string> = {
-  CEDI: "#0099DB",
-  PI: "#003C6B",
-  Wemox: "#2F4EF8",
-  Vulps: "#A966FF",
-  Korex: "#7FF3DE",
-};
 
 interface Step3ConfirmationProps {
   files: UploadedFile[];
@@ -21,7 +14,8 @@ interface Step3ConfirmationProps {
 
 export function Step3Confirmation({ files, primaryIndex, onBack, onContinueToStart }: Step3ConfirmationProps) {
   const [analysisName, setAnalysisName] = useState("");
-  const [businessUnit, setBusinessUnit] = useState<(typeof BUSINESS_UNITS)[number]>("CEDI");
+  const session = useSession();
+  const [businessUnit, setBusinessUnit] = useState<string>(DEFAULT_BUSINESS_UNIT);
 
   const filesForDisplay = useMemo(
     () =>
@@ -48,7 +42,7 @@ export function Step3Confirmation({ files, primaryIndex, onBack, onContinueToSta
         </p>
       </div>
 
-      <div className="grid gap-5 md:grid-cols-2">
+      <div className={session.isSuperadmin ? "grid gap-5 md:grid-cols-2" : "grid gap-5"}>
         <div className="flex flex-col gap-2">
           <label
             htmlFor="analysis-name"
@@ -70,31 +64,33 @@ export function Step3Confirmation({ files, primaryIndex, onBack, onContinueToSta
           </span>
         </div>
 
-        <div className="flex flex-col gap-2">
-          <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-[rgba(0,60,107,.68)]">Unidad de negocio</span>
-          <div className="flex flex-wrap gap-2">
-            {BUSINESS_UNITS.map((unit) => {
-              const active = businessUnit === unit;
-              return (
-                <button
-                  key={unit}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => setBusinessUnit(unit)}
-                  className={[
-                    "inline-flex h-8 items-center gap-2 rounded-full border-[1.5px] px-[14px] text-[13px] font-semibold",
-                    active
-                      ? "border-[#003C6B] bg-[#003C6B] text-white"
-                      : "border-[rgba(0,60,107,.2)] bg-white text-[#003C6B] hover:border-[#0099DB]",
-                  ].join(" ")}
-                >
-                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: UNIT_DOT_COLORS[unit] }} aria-hidden="true" />
-                  {unit}
-                </button>
-              );
-            })}
+        {session.isSuperadmin ? (
+          <div className="flex flex-col gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-[rgba(0,60,107,.68)]">Unidad de negocio</span>
+            <div className="flex flex-wrap gap-2">
+              {BUSINESS_UNITS.map((unit) => {
+                const active = businessUnit === unit;
+                return (
+                  <button
+                    key={unit}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setBusinessUnit(unit)}
+                    className={[
+                      "inline-flex h-8 items-center gap-2 rounded-full border-[1.5px] px-[14px] text-[13px] font-semibold",
+                      active
+                        ? "border-[#003C6B] bg-[#003C6B] text-white"
+                        : "border-[rgba(0,60,107,.2)] bg-white text-[#003C6B] hover:border-[#0099DB]",
+                    ].join(" ")}
+                  >
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: getBusinessUnitColor(unit) }} aria-hidden="true" />
+                    {unit}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-2">
@@ -137,7 +133,7 @@ export function Step3Confirmation({ files, primaryIndex, onBack, onContinueToSta
           onClick={() => {
             onContinueToStart({
               analysisName: analysisName.trim(),
-              businessUnit,
+              businessUnit: session.isSuperadmin ? businessUnit : session.businessUnit,
             });
           }}
           className="inline-flex h-11 items-center gap-2 rounded-full border-0 bg-[linear-gradient(90deg,#2F4EF8,#A966FF)] px-[26px] text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"

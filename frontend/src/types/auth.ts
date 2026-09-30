@@ -8,6 +8,17 @@ export interface LoginResponse {
   token_type: string;
   name: string;
   email: string;
+  role: string;
+  business_unit: string | null;
+}
+
+export interface CurrentUserResponse {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  business_unit: string | null;
+  is_active: boolean;
 }
 
 export interface RegisterRequest {

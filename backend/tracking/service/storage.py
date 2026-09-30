@@ -12,18 +12,13 @@ from sqlalchemy.orm import Session
 
 from analysis.models import Analysis, AnalysisVersion
 from tracking.models import Tracking
+from users.access import get_visible_analysis
 
 
 def _load_analysis_or_raise(db: Session, analysis_id: str, user_id: str) -> Analysis:
-    analysis = (
-        db.query(Analysis)
-        .filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None))
-        .first()
-    )
+    analysis = get_visible_analysis(db, analysis_id, user_id)
     if analysis is None:
         raise ValueError("ANALYSIS_NOT_FOUND")
-    if analysis.created_by != user_id:
-        raise PermissionError("FORBIDDEN")
     return analysis
 
 

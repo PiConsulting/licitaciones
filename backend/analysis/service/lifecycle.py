@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import UTC, datetime
 from copy import deepcopy
 
@@ -38,6 +39,7 @@ from infra.adapters.pgvector_search import delete_analysis_chunks
 from infra.config import get_settings
 from infra.database import SessionLocal
 from timeline.materializer import materialize_timeline_from_extraction
+from users.access import get_visible_analysis
 
 logger = logging.getLogger(__name__)
 
@@ -644,29 +646,12 @@ def _append_reanalysis_audit_event(
 
 
 def validate_analysis_ownership(db: Session, analysis_id: str, user_id: str) -> Analysis:
-    analysis = (
-        db.query(Analysis).filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None)).first()
-    )
+    analysis = get_visible_analysis(db, analysis_id, user_id)
     if analysis is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": {"code": "ANALYSIS_NOT_FOUND", "message": "Análisis no encontrado"}},
         )
-
-    if analysis.created_by != user_id:
-        logger.warning(
-            "Unauthorized access to analysis. user_id=%s analysis_id=%s owner_id=%s",
-            user_id,
-            analysis_id,
-            analysis.created_by,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": {"code": "FORBIDDEN", "message": "No tenés permisos para este análisis"}
-            },
-        )
-
     return analysis
 
 
@@ -809,14 +794,9 @@ def enqueue_reanalyze(
 
 
 def request_cancellation(db: Session, analysis_id: str, user_id: str) -> Analysis:
-    analysis = (
-        db.query(Analysis).filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None)).first()
-    )
+    analysis = get_visible_analysis(db, analysis_id, user_id)
     if analysis is None:
         raise ValueError("Analysis not found")
-
-    if analysis.created_by != user_id:
-        raise PermissionError("Only the owner can cancel this analysis")
 
     analysis.cancellation_requested = True
     # Si hay un reanálisis en curso, cancelar revierte al status/versión previos en vez de marcar "cancelled" todo el análisis.
@@ -832,7 +812,7 @@ def delete_analysis(db: Session, analysis_id: str, user_id: str) -> str:
     current_status = analysis.status.lower()
 
     # `en_revision` no bloquea eliminación: ya terminó fase 1 y no hay trabajo activo.
-    if current_status in {"queued", "processing"}:
+    if current_status in {"queued", "analyzing", "processing"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
@@ -862,3 +842,39 @@ def delete_analysis(db: Session, analysis_id: str, user_id: str) -> str:
     )
     db.commit()
     return "soft"
+
+
+def run_analysis_stub(analysis_id: str) -> None:
+    """STUB sync processor for Story 2.3 background execution."""
+    db = SessionLocal()
+    try:
+        analysis = (
+            db.query(Analysis)
+            .filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None))
+            .first()
+        )
+        if analysis is None:
+            logger.error("[STUB] Analysis %s not found", analysis_id)
+            return
+
+        analysis.status = "analyzing"
+        analysis.current_stage = "stub_processing"
+        analysis.updated_at = datetime.now(UTC)
+        db.commit()
+        time.sleep(0.2)
+
+        analysis.status = "completed"
+        analysis.current_stage = None
+        analysis.updated_at = datetime.now(UTC)
+        db.commit()
+    except Exception:
+        db.rollback()
+        analysis = db.query(Analysis).filter(Analysis.id == analysis_id).first()
+        if analysis is not None:
+            analysis.status = "error"
+            analysis.current_stage = None
+            analysis.updated_at = datetime.now(UTC)
+            db.commit()
+        raise
+    finally:
+        db.close()

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from analysis.models import Analysis
 from documents.models import Document
+from users.access import analysis_scope_filter
 from users.models import User
 
 
@@ -46,7 +47,7 @@ def check_duplicates(
         stmt = stmt.where(Analysis.id != exclude_analysis_id)
 
     if user_id:
-        stmt = stmt.where(Analysis.created_by == user_id)
+        stmt = stmt.where(analysis_scope_filter(db, user_id))
 
     result = db.execute(stmt.order_by(Analysis.created_at.desc()).limit(1)).first()
     if result is None:

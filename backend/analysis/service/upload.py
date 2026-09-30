@@ -15,9 +15,12 @@ from documents.models import Document
 from documents.schemas import DocumentResponse, DocumentWarning
 from documents.service import calculate_content_hash
 from infra.adapters.azure_blob_storage import AzureBlobStorageAdapter
+from infra.business_units import normalize_business_unit
 from infra.config import get_settings
 from infra.pdf_utils import get_pdf_metadata
 from infra.ports.blob_storage import BlobStoragePort
+from users.access import is_superadmin
+from users.models import User
 
 MAX_FILES = 10
 MAX_PAGES = 300
@@ -28,6 +31,52 @@ WARNING_PAGES_THRESHOLD = 100
 class IncomingUploadFile:
     filename: str
     content: bytes
+
+
+def resolve_upload_business_unit(db: Session, user_id: str, requested: str | None) -> str:
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": {"code": "INVALID_TOKEN", "message": "No autorizado"}},
+        )
+
+    if not is_superadmin(user):
+        if not user.business_unit:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": {
+                        "code": "USER_WITHOUT_BUSINESS_UNIT",
+                        "message": "Tu usuario no tiene unidad de negocio asignada",
+                    }
+                },
+            )
+        return user.business_unit
+
+    if requested is None or not requested.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": {
+                    "code": "BUSINESS_UNIT_REQUIRED",
+                    "message": "Seleccioná la unidad de negocio",
+                }
+            },
+        )
+
+    resolved = normalize_business_unit(requested)
+    if resolved is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": {
+                    "code": "BUSINESS_UNIT_INVALID",
+                    "message": "La unidad de negocio no es válida",
+                }
+            },
+        )
+    return resolved
 
 
 def _sanitize_filename(filename: str) -> str:
@@ -136,9 +185,7 @@ def create_analysis_with_documents(
             },
         )
 
-    settings = get_settings()
-    default_business_unit = settings.default_business_unit.strip() if settings.default_business_unit else ""
-    normalized_business_unit = business_unit.strip() if business_unit else ""
+    resolved_business_unit = resolve_upload_business_unit(db, user_id, business_unit)
     blob_storage = _build_blob_storage()
     uploaded_blob_names: list[str] = []
 
@@ -147,7 +194,7 @@ def create_analysis_with_documents(
             created_by=user_id,
             status="draft",
             analysis_name=analysis_name,
-            business_unit=normalized_business_unit or default_business_unit or None,
+            business_unit=resolved_business_unit,
         )
         db.add(analysis)
         db.flush()

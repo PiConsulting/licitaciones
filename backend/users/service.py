@@ -3,7 +3,7 @@ from typing import NoReturn
 
 import jwt
 import structlog
-from fastapi import HTTPException, status
+from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from passlib.hash import bcrypt
 from sqlalchemy import Select, select
@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from infra.config import get_settings
 from infra.database import SessionLocal
 from users.models import User
+from users.roles import UserRole
 
 logger = structlog.get_logger(__name__)
 
@@ -31,6 +32,18 @@ def _raise_auth_backend_unavailable(exc: Exception) -> NoReturn:
             }
         },
     ) from exc
+
+
+def raise_user_suspended(status_code: int) -> NoReturn:
+    raise HTTPException(
+        status_code=status_code,
+        detail={
+            "error": {
+                "code": "USER_SUSPENDED",
+                "message": "Tu cuenta está suspendida. Contactá a un superadmin",
+            }
+        },
+    )
 
 
 def get_password_hash(password: str) -> str:
@@ -69,6 +82,8 @@ def authenticate_user(db: Session | None, email: str, password: str) -> User | N
         return None
     if not verify_password(password, user.password_hash):
         return None
+    if not user.is_active:
+        raise_user_suspended(status.HTTP_403_FORBIDDEN)
     return user
 
 
@@ -116,6 +131,26 @@ def get_current_user(
             detail={"error": {"code": "INVALID_TOKEN", "message": "No autorizado"}},
         )
 
+    if not user.is_active:
+        raise_user_suspended(status.HTTP_401_UNAUTHORIZED)
+
+    return user
+
+
+def require_superadmin(
+    credentials: HTTPAuthorizationCredentials | None = Depends(http_bearer),
+) -> User:
+    user = get_current_user(credentials, None)
+    if user.role != UserRole.SUPERADMIN.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": {
+                    "code": "FORBIDDEN",
+                    "message": "No tenés permisos para realizar esta acción",
+                }
+            },
+        )
     return user
 
 

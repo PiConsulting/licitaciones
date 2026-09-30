@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { DEFAULT_BUSINESS_UNIT } from "../../config/businessUnits";
 import { StepIndicator } from "../../components/StepIndicator";
 import type { UploadedFile } from "../../types/upload";
 import { Step1UploadFiles } from "./Step1UploadFiles";
@@ -14,7 +15,7 @@ export default function NewAnalysisWizard() {
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [primaryIndex, setPrimaryIndex] = useState<number | null>(null);
   const [analysisName, setAnalysisName] = useState("");
-  const [businessUnit, setBusinessUnit] = useState("CEDI");
+  const [businessUnit, setBusinessUnit] = useState<string>(DEFAULT_BUSINESS_UNIT);
 
   const handleStep1Next = (selectedFiles: UploadedFile[]) => {
     setFiles(selectedFiles);

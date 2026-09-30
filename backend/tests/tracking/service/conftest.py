@@ -5,14 +5,18 @@ from __future__ import annotations
 import pytest
 
 from analysis.models import Analysis, AnalysisVersion
+from infra.business_units import BUSINESS_UNITS
 from infra.config import get_settings
 from infra.database import Base, SessionLocal, engine
 from tracking.models import Tracking, TrackingCategory, TrackingComment, TrackingItem  # noqa: F401
 from users.models import User
+from users.roles import UserRole
 from users.service import get_password_hash
 
 OWNER_USER_ID = "tracking-owner"
 OTHER_USER_ID = "tracking-other"
+OWNER_BUSINESS_UNIT = BUSINESS_UNITS[0]
+OTHER_BUSINESS_UNIT = BUSINESS_UNITS[1]
 
 
 @pytest.fixture(autouse=True)
@@ -27,6 +31,8 @@ def setup_db():
             email="tracking-owner@cedia.com",
             password_hash=get_password_hash("Test1234!"),
             name="Tracking Owner",
+            role=UserRole.MIEMBRO.value,
+            business_unit=OWNER_BUSINESS_UNIT,
         )
     )
     db.add(
@@ -35,6 +41,8 @@ def setup_db():
             email="tracking-other@cedia.com",
             password_hash=get_password_hash("Test1234!"),
             name="Tracking Other",
+            role=UserRole.MIEMBRO.value,
+            business_unit=OTHER_BUSINESS_UNIT,
         )
     )
     db.commit()
@@ -59,6 +67,7 @@ def analyzed_analysis(db_session) -> tuple[str, str]:
         id="tracking-test-analysis",
         created_by=OWNER_USER_ID,
         status="analyzed",
+        business_unit=OWNER_BUSINESS_UNIT,
     )
     db_session.add(analysis)
     db_session.commit()

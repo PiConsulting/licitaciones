@@ -4,9 +4,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from analysis.models import Analysis, AnalysisVersion, BusinessStatusHistory
+from infra.business_units import BUSINESS_UNITS
 from infra.database import SessionLocal
 from users.models import User
-from users.service import get_password_hash
 
 
 def _auth_headers(token: str) -> dict[str, str]:
@@ -411,23 +411,21 @@ def test_categories_decision_backfills_business_status_for_legacy_analysis(
     assert _history_statuses(analysis_id) == ["en_analisis", "pendiente_decision", "en_revision"]
 
 
-def test_business_endpoints_forbidden_for_other_user(client: TestClient, auth_token: str) -> None:
+def test_business_endpoints_hidden_for_member_of_other_unit(
+    client: TestClient, auth_token: str, other_unit_member_token: str
+) -> None:
     db = SessionLocal()
-    other = User(
-        email="other-lifecycle@cedia.com",
-        password_hash=get_password_hash("Test1234!"),
-        name="Other User",
-    )
-    db.add(other)
-    db.commit()
-    other_id = other.id
+    owner = db.query(User).filter(User.email == "test@cedia.com").first()
+    owner_id = owner.id
     db.close()
-    analysis_id = _create_analysis(other_id, business_status="en_revision")
-    headers = _auth_headers(auth_token)
+    analysis_id = _create_analysis(
+        owner_id, business_status="en_revision", business_unit=BUSINESS_UNITS[0]
+    )
+    headers = _auth_headers(other_unit_member_token)
 
     assert (
         client.get(f"/api/v1/analyses/{analysis_id}/business-status", headers=headers).status_code
-        == 403
+        == 404
     )
     assert (
         client.put(
@@ -435,7 +433,7 @@ def test_business_endpoints_forbidden_for_other_user(client: TestClient, auth_to
             headers=headers,
             json=_presentation_payload(),
         ).status_code
-        == 403
+        == 404
     )
     assert (
         client.put(
@@ -443,7 +441,7 @@ def test_business_endpoints_forbidden_for_other_user(client: TestClient, auth_to
             headers=headers,
             json={"outcome": "ganada", "resulted_at": "2026-10-05"},
         ).status_code
-        == 403
+        == 404
     )
 
 

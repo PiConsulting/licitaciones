@@ -4,6 +4,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from analysis.models import Analysis
+from infra.business_units import BUSINESS_UNITS
 from infra.database import SessionLocal
 from timeline.models_orm import EventORM
 from users.models import User
@@ -27,7 +28,10 @@ def _user_id() -> str:
 
 
 def _analysis(
-    business_status: str | None, name: str = "Licitación", owner: str | None = None
+    business_status: str | None,
+    name: str = "Licitación",
+    owner: str | None = None,
+    business_unit: str | None = None,
 ) -> str:
     db = SessionLocal()
     analysis = Analysis(
@@ -36,6 +40,7 @@ def _analysis(
         correlation_id=str(uuid4()),
         business_status=business_status,
         analysis_name=name,
+        business_unit=business_unit,
     )
     db.add(analysis)
     db.commit()
@@ -138,16 +143,14 @@ def test_upcoming_events_window_includes_today_and_day_fifteen(
     ]
 
 
-def test_upcoming_events_scoped_to_current_user(client: TestClient, auth_token: str) -> None:
-    db = SessionLocal()
-    other = User(email="otro@cedia.com", password_hash="x", name="Otro")
-    db.add(other)
-    db.commit()
-    other_id = other.id
-    db.close()
-    _event(_analysis("en_revision", owner=other_id), "Presentación", 2)
+def test_upcoming_events_scoped_to_member_unit(
+    client: TestClient, auth_token: str, other_unit_member_token: str
+) -> None:
+    _event(_analysis("en_revision", business_unit=BUSINESS_UNITS[0]), "Presentación", 2)
 
-    response = client.get("/api/v1/analyses/upcoming-events", headers=_headers(auth_token))
+    response = client.get(
+        "/api/v1/analyses/upcoming-events", headers=_headers(other_unit_member_token)
+    )
 
     assert response.json() == []
 

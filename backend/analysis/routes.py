@@ -76,6 +76,7 @@ from infra.config import get_settings
 from infra.database import SessionLocal
 from tracking.service import get_tracking
 from users.models import User
+from users.access import analysis_scope_filter
 from users.service import get_current_user, http_bearer
 
 analysis_router = APIRouter(prefix="/analyses", tags=["analyses"])
@@ -467,7 +468,7 @@ async def create_analysis(
             files=incoming_files,
             primary_file_index=primary_file_index,
             analysis_name=_normalize_analysis_name(analysis_name),
-            business_unit=business_unit.strip()[:80] if business_unit and business_unit.strip() else None,
+            business_unit=business_unit,
         )
     finally:
         db.close()
@@ -787,7 +788,7 @@ async def decide_analysis_categories(
             db.query(Analysis)
             .filter(
                 Analysis.id == analysis.id,
-                Analysis.created_by == current_user.id,
+                analysis_scope_filter(db, current_user.id),
                 Analysis.deleted_at.is_(None),
                 Analysis.status == "en_revision",
             )
