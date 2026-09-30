@@ -3,6 +3,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, test, vi } from "vitest";
 
+import { BUSINESS_UNITS } from "../../config/businessUnits";
 import { ChecklistPage } from "./ChecklistPage";
 
 vi.mock("../../api/tracking", () => ({
@@ -76,7 +77,7 @@ vi.mock("../analysis-detail/hooks/useAnalysisDetail", () => ({
     data: {
       id: "an-1",
       analysis_name: "LP 1/2026",
-      business_unit: "CEDI",
+      business_unit: BUSINESS_UNITS[0],
       tracking,
       current_version: { extracted_data: {} },
     },

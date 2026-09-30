@@ -10,9 +10,8 @@ from sqlalchemy.orm import Session
 from analysis.models import Analysis, AnalysisVersion, BusinessStatus
 from analysis.utils import calculate_confidence_avg
 from documents.models import Document
-
-
-BUSINESS_UNIT_CATALOG: tuple[str, ...] = ("CEDI", "PI", "Wemox", "Vulps", "Korex")
+from infra.business_units import BUSINESS_UNITS
+from users.access import analysis_scope_filter, visible_business_units
 
 
 def list_analyses(
@@ -58,7 +57,7 @@ def list_analyses(
         .outerjoin(AnalysisVersion, AnalysisVersion.id == Analysis.current_version_id)
         .outerjoin(User, User.id == Analysis.created_by)
         .filter(
-            Analysis.created_by == user_id,
+            analysis_scope_filter(db, user_id),
             Analysis.deleted_at.is_(None),
         )
     )
@@ -157,7 +156,7 @@ def list_business_units(
         )
         .outerjoin(AnalysisVersion, AnalysisVersion.id == Analysis.current_version_id)
         .filter(
-            Analysis.created_by == user_id,
+            analysis_scope_filter(db, user_id),
             Analysis.deleted_at.is_(None),
             Analysis.business_unit.is_not(None),
             Analysis.business_unit != "",
@@ -200,16 +199,17 @@ def list_business_units(
         if isinstance(row.business_unit, str) and row.business_unit.strip()
     }
 
+    visible_units = visible_business_units(db, user_id)
     units: list[dict] = [
         {
             "business_unit": business_unit,
             "count": counts.get(business_unit, 0),
         }
-        for business_unit in BUSINESS_UNIT_CATALOG
+        for business_unit in visible_units
     ]
 
     # Mantener compatibilidad con unidades históricas fuera del catálogo oficial.
-    extra_units = sorted(unit for unit in counts if unit not in BUSINESS_UNIT_CATALOG)
+    extra_units = sorted(unit for unit in counts if unit not in BUSINESS_UNITS)
     units.extend(
         {
             "business_unit": unit,
@@ -236,7 +236,7 @@ def get_business_status_summary(
         Analysis.business_status.label("business_status"),
         func.count(Analysis.id).label("count"),
     ).filter(
-        Analysis.created_by == user_id,
+        analysis_scope_filter(db, user_id),
         Analysis.deleted_at.is_(None),
     )
 

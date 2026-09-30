@@ -1,5 +1,21 @@
-from fastapi.testclient import TestClient
 import fitz
+import pytest
+from fastapi.testclient import TestClient
+
+from infra.business_units import BUSINESS_UNITS
+
+
+class _FakeStorage:
+    def upload(self, blob_name: str, content: bytes) -> None:
+        return None
+
+    def delete(self, blob_name: str) -> None:
+        return None
+
+
+@pytest.fixture(autouse=True)
+def fake_storage(monkeypatch):
+    monkeypatch.setattr("analysis.service.upload._build_blob_storage", lambda: _FakeStorage())
 
 
 def _build_pdf(pages: int, encrypted: bool = False) -> bytes:
@@ -26,7 +42,7 @@ def test_upload_single_pdf_success(client: TestClient, auth_token: str):
     response = client.post(
         "/api/v1/analyses",
         headers={"Authorization": f"Bearer {auth_token}"},
-        data={"primary_file_index": "0"},
+        data={"primary_file_index": "0", "business_unit": BUSINESS_UNITS[0]},
         files=[("files", ("single.pdf", pdf_bytes, "application/pdf"))],
     )
 
@@ -46,7 +62,7 @@ def test_upload_multiple_pdfs_manual_primary(client: TestClient, auth_token: str
     response = client.post(
         "/api/v1/analyses",
         headers={"Authorization": f"Bearer {auth_token}"},
-        data={"primary_file_index": "1"},
+        data={"primary_file_index": "1", "business_unit": BUSINESS_UNITS[0]},
         files=files,
     )
 
@@ -60,7 +76,7 @@ def test_upload_corrupted_pdf(client: TestClient, auth_token: str):
     response = client.post(
         "/api/v1/analyses",
         headers={"Authorization": f"Bearer {auth_token}"},
-        data={"primary_file_index": "0"},
+        data={"primary_file_index": "0", "business_unit": BUSINESS_UNITS[0]},
         files=[("files", ("corrupted.pdf", b"not-a-pdf", "application/pdf"))],
     )
 
@@ -74,7 +90,7 @@ def test_upload_password_protected_pdf(client: TestClient, auth_token: str):
     response = client.post(
         "/api/v1/analyses",
         headers={"Authorization": f"Bearer {auth_token}"},
-        data={"primary_file_index": "0"},
+        data={"primary_file_index": "0", "business_unit": BUSINESS_UNITS[0]},
         files=[("files", ("protected.pdf", protected_pdf, "application/pdf"))],
     )
 
@@ -88,7 +104,7 @@ def test_upload_over_300_pages(client: TestClient, auth_token: str):
     response = client.post(
         "/api/v1/analyses",
         headers={"Authorization": f"Bearer {auth_token}"},
-        data={"primary_file_index": "0"},
+        data={"primary_file_index": "0", "business_unit": BUSINESS_UNITS[0]},
         files=[("files", ("too-long.pdf", large_pdf, "application/pdf"))],
     )
 
@@ -102,7 +118,7 @@ def test_upload_large_document_warning(client: TestClient, auth_token: str):
     response = client.post(
         "/api/v1/analyses",
         headers={"Authorization": f"Bearer {auth_token}"},
-        data={"primary_file_index": "0"},
+        data={"primary_file_index": "0", "business_unit": BUSINESS_UNITS[0]},
         files=[("files", ("long.pdf", warning_pdf, "application/pdf"))],
     )
 
@@ -121,7 +137,7 @@ def test_upload_requires_primary_for_multiple_files(client: TestClient, auth_tok
     response = client.post(
         "/api/v1/analyses",
         headers={"Authorization": f"Bearer {auth_token}"},
-        data={"primary_file_index": "-1"},
+        data={"primary_file_index": "-1", "business_unit": BUSINESS_UNITS[0]},
         files=files,
     )
 

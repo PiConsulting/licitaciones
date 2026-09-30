@@ -3,7 +3,14 @@ import { MemoryRouter } from "react-router-dom";
 import { vi } from "vitest";
 
 import App from "./App";
+import { saveSession } from "./auth/session";
+import { DEFAULT_USER_ROLE, SUPERADMIN_ROLE } from "./config/userRoles";
 
+vi.mock("./api/auth", () => ({
+  fetchCurrentUser: vi.fn().mockReturnValue(new Promise(() => undefined)),
+  logout: vi.fn(),
+}));
+vi.mock("./features/users/UsersPage", () => ({ UsersPage: () => <div>Users Page</div> }));
 vi.mock("./pages/Login", () => ({ default: () => <div>Login Page</div> }));
 vi.mock("./pages/Register", () => ({ default: () => <div>Register Page</div> }));
 vi.mock("./pages/Dashboard", () => ({ default: () => <div>Dashboard Page</div> }));
@@ -32,6 +39,31 @@ describe("App routes FE1.2", () => {
       </MemoryRouter>,
     );
 
+    expect(screen.getByText("Dashboard Page")).toBeInTheDocument();
+  });
+
+  test("el superadmin accede a /usuarios", () => {
+    saveSession({ email: "admin@cedia.com", role: SUPERADMIN_ROLE });
+
+    render(
+      <MemoryRouter initialEntries={["/usuarios"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Users Page")).toBeInTheDocument();
+  });
+
+  test("el miembro que entra a /usuarios vuelve al Home", () => {
+    saveSession({ email: "miembro@cedia.com", role: DEFAULT_USER_ROLE });
+
+    render(
+      <MemoryRouter initialEntries={["/usuarios"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText("Users Page")).not.toBeInTheDocument();
     expect(screen.getByText("Dashboard Page")).toBeInTheDocument();
   });
 });

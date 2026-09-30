@@ -2,7 +2,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
+import { saveSession } from "../auth/session";
 import { ToastProvider } from "../components/ToastContainer";
+import { BUSINESS_UNITS } from "../config/businessUnits";
+import { DEFAULT_USER_ROLE, SUPERADMIN_ROLE } from "../config/userRoles";
 import Dashboard from "./Dashboard";
 import { startAnalysis } from "../api/analyses";
 import { getUpcomingEvents } from "../api/upcomingEvents";
@@ -36,7 +39,11 @@ vi.mock("react-router-dom", async () => {
 });
 
 describe("Dashboard", () => {
+  const [firstUnit, secondUnit, thirdUnit] = BUSINESS_UNITS;
+
   beforeEach(() => {
+    localStorage.clear();
+    saveSession({ name: "Admin", email: "admin@cedia.com", role: SUPERADMIN_ROLE, business_unit: firstUnit });
     vi.mocked(getUpcomingEvents).mockResolvedValue([]);
     vi.mocked(useAnalysisBusinessUnitsQuery).mockReturnValue({
       data: [],
@@ -125,7 +132,7 @@ describe("Dashboard", () => {
 
   test("renderiza unidad CEDI cuando FE2 expone business_unit", () => {
     vi.mocked(useAnalysisBusinessUnitsQuery).mockReturnValue({
-      data: [{ business_unit: "CEDI", count: 1 }],
+      data: [{ business_unit: firstUnit, count: 1 }],
       isLoading: false,
       isError: false,
     } as ReturnType<typeof useAnalysisBusinessUnitsQuery>);
@@ -136,7 +143,7 @@ describe("Dashboard", () => {
           {
             id: "an-1",
             analysis_name: "Pliego 1",
-            business_unit: "CEDI",
+            business_unit: firstUnit,
             status: "analyzed",
             current_stage: "completed",
             progress_percentage: 100,
@@ -164,17 +171,43 @@ describe("Dashboard", () => {
     );
 
     expect(screen.getByRole("group", { name: "Filtro de unidad" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /CEDI\s*1/i })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: new RegExp(`${firstUnit}\\s*1`, "i") })).toHaveAttribute(
       "aria-pressed",
       "false",
     );
   });
 
+  test("el miembro no ve el filtro de unidad", () => {
+    saveSession({ name: "Lucía", email: "lucia@cedia.com", role: DEFAULT_USER_ROLE, business_unit: firstUnit });
+    vi.mocked(useAnalysisBusinessUnitsQuery).mockReturnValue({
+      data: [{ business_unit: firstUnit, count: 1 }],
+      isLoading: false,
+      isError: false,
+    } as ReturnType<typeof useAnalysisBusinessUnitsQuery>);
+    vi.mocked(useAnalysesQuery).mockReturnValue({
+      data: { items: [], page: 1, per_page: 20, total: 0, total_pages: 1 },
+      isLoading: false,
+      isError: false,
+    } as ReturnType<typeof useAnalysesQuery>);
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ToastProvider>
+          <MemoryRouter>
+            <Dashboard />
+          </MemoryRouter>
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.queryByRole("group", { name: "Filtro de unidad" })).not.toBeInTheDocument();
+  });
+
   test("renderiza unidades dinámicas desde backend sin hardcode", () => {
     vi.mocked(useAnalysisBusinessUnitsQuery).mockReturnValue({
       data: [
-        { business_unit: "CEDI", count: 3 },
-        { business_unit: "Wemox", count: 2 },
+        { business_unit: firstUnit, count: 3 },
+        { business_unit: thirdUnit, count: 2 },
       ],
       isLoading: false,
       isError: false,
@@ -197,15 +230,15 @@ describe("Dashboard", () => {
       </QueryClientProvider>,
     );
 
-    expect(screen.getByRole("button", { name: /CEDI\s*3/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Wemox\s*2/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: new RegExp(`${firstUnit}\\s*3`, "i") })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: new RegExp(`${thirdUnit}\\s*2`, "i") })).toBeInTheDocument();
   });
 
   test("filtra análisis por unidad al clickear chip", () => {
     vi.mocked(useAnalysisBusinessUnitsQuery).mockReturnValue({
       data: [
-        { business_unit: "CEDI", count: 3 },
-        { business_unit: "PI", count: 2 },
+        { business_unit: firstUnit, count: 3 },
+        { business_unit: secondUnit, count: 2 },
       ],
       isLoading: false,
       isError: false,
@@ -228,16 +261,16 @@ describe("Dashboard", () => {
       </QueryClientProvider>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /PI\s*2/i }));
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(`${secondUnit}\\s*2`, "i") }));
 
     const calls = vi.mocked(useAnalysesQuery).mock.calls;
     const latestFilters = calls.at(-1)?.[0];
-    expect(latestFilters?.business_unit).toBe("PI");
+    expect(latestFilters?.business_unit).toBe(secondUnit);
   });
 
   test("kpis clickeables filtran la lista por estado de negocio", () => {
     vi.mocked(useAnalysisBusinessUnitsQuery).mockReturnValue({
-      data: [{ business_unit: "CEDI", count: 2 }],
+      data: [{ business_unit: firstUnit, count: 2 }],
       isLoading: false,
       isError: false,
     } as ReturnType<typeof useAnalysisBusinessUnitsQuery>);
@@ -248,7 +281,7 @@ describe("Dashboard", () => {
           {
             id: "an-1",
             analysis_name: "Pliego Aprobado",
-            business_unit: "CEDI",
+            business_unit: firstUnit,
             business_status: "no_aprobada",
             status: "analyzed",
             current_stage: "completed",
@@ -258,7 +291,7 @@ describe("Dashboard", () => {
           {
             id: "an-2",
             analysis_name: "Pliego Perdido",
-            business_unit: "CEDI",
+            business_unit: firstUnit,
             business_status: "perdida",
             status: "analyzed",
             current_stage: "completed",
@@ -308,7 +341,7 @@ describe("Dashboard", () => {
           {
             id: "an-1",
             analysis_name: "Pliego en cola",
-            business_unit: "CEDI",
+            business_unit: firstUnit,
             status: "draft",
             current_stage: "queued",
             progress_percentage: 0,
@@ -424,7 +457,7 @@ describe("useAnalysisFilters", () => {
         analysis_name: "Servicio de conectividad",
         organismo: "Ministerio de Salud",
         business_status: "en_revision",
-        business_unit: "CEDI",
+        business_unit: BUSINESS_UNITS[0],
         event_id: "event-1",
         event_name: "Presentación de ofertas",
         event_date: "2026-10-03",

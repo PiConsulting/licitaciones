@@ -3,6 +3,8 @@ import { ChevronLeft } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 
 import { logout } from "../api/auth";
+import { useSession } from "../auth/session";
+import { getUserRoleLabel } from "../config/userRoles";
 import { useUIStore } from "../store/useUIStore";
 import { cn } from "../utils/cn";
 
@@ -51,16 +53,27 @@ function LogoutIcon() {
   );
 }
 
+interface NavItem {
+  to: string;
+  label: string;
+  icon: ReactNode;
+  disabled?: boolean;
+}
+
 export function Sidebar() {
   const navigate = useNavigate();
   const sidebarCollapsed = useUIStore((state) => state.sidebarCollapsed);
   const toggleSidebar = useUIStore((state) => state.toggleSidebar);
 
-  const userName = localStorage.getItem("user_name")?.trim();
-  const userEmail = localStorage.getItem("user_email")?.trim();
+  const session = useSession();
+  const userName = session.name;
+  const userEmail = session.email;
   const displayUser = userName || userEmail || "Usuario";
 
-  const displayRole = "CEDI · Licitaciones";
+  const displayRole =
+    [getUserRoleLabel(session.role), session.isSuperadmin ? "" : session.businessUnit]
+      .filter(Boolean)
+      .join(" · ") || "CedIA";
   const initialsSource = userName || userEmail || "US";
   const initials = initialsSource
     .replace(/[^a-zA-Z\s]/g, " ")
@@ -70,7 +83,7 @@ export function Sidebar() {
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("") || "US";
 
-  const navItems = [
+  const navItems: NavItem[] = [
     {
       to: "/",
       label: "Home",
@@ -101,10 +114,66 @@ export function Sidebar() {
     },
   ];
 
+  const adminItems: NavItem[] = session.isSuperadmin
+    ? [
+        {
+          to: "/usuarios",
+          label: "Usuarios del sistema",
+          icon: (
+            <SidebarIcon>
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 3a4 4 0 1 0 0 8a4 4 0 1 0 0-8 M22 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75" />
+            </SidebarIcon>
+          ),
+        },
+      ]
+    : [];
+
   const handleLogout = () => {
     logout();
     navigate("/login");
   };
+
+  const renderNavItem = ({ to, icon, label, disabled }: NavItem) => (
+    disabled ? (
+      <button
+        key={label}
+        type="button"
+        aria-disabled="true"
+        title="Próximamente"
+        className={cn(
+          "group flex min-h-[44px] w-full items-center rounded-[10px] bg-transparent text-left text-[13px] font-semibold text-white/75",
+          sidebarCollapsed ? "justify-center px-0" : "gap-3 pl-4 pr-3",
+        )}
+      >
+        {icon}
+        <span className={cn("truncate", sidebarCollapsed && "sr-only")}>{label}</span>
+        <span className="sr-only">Próximamente</span>
+      </button>
+    ) : (
+      <NavLink
+        key={to}
+        to={to}
+        className={({ isActive }) =>
+          cn(
+            "flex min-h-[44px] items-center rounded-[10px] text-[13px] font-semibold no-underline transition-colors",
+            sidebarCollapsed ? "justify-center px-0" : "gap-3 pl-4 pr-3",
+            isActive
+              ? "bg-white/[.12] text-white [box-shadow:inset_3px_0_0_#7FF3DE]"
+              : "bg-transparent text-white/75 hover:bg-white/10 hover:text-white",
+          )
+        }
+      >
+        {({ isActive }) => (
+          <>
+            {icon}
+            <span className={cn("truncate", sidebarCollapsed && "sr-only")} aria-current={isActive ? "page" : undefined}>
+              {label}
+            </span>
+          </>
+        )}
+      </NavLink>
+    )
+  );
 
   return (
     <aside
@@ -144,47 +213,20 @@ export function Sidebar() {
         </div>
 
         <nav className={cn("flex flex-1 flex-col gap-1", sidebarCollapsed ? "p-2" : "p-3")} role="navigation" aria-label="Navegación principal">
-          {navItems.map(({ to, icon, label, disabled }) => (
-            disabled ? (
-              <button
-                key={label}
-                type="button"
-                aria-disabled="true"
-                title="Próximamente"
+          {navItems.map(renderNavItem)}
+          {adminItems.length > 0 ? (
+            <>
+              <div
                 className={cn(
-                  "group flex min-h-[44px] w-full items-center rounded-[10px] bg-transparent text-left text-[13px] font-semibold text-white/75",
-                  sidebarCollapsed ? "justify-center px-0" : "gap-3 pl-4 pr-3",
+                  "mb-1 mt-3 border-t border-white/[.12] pt-3 text-[10px] font-bold uppercase tracking-[.14em] text-white/55",
+                  sidebarCollapsed ? "mx-1" : "mx-3",
                 )}
               >
-                {icon}
-                <span className={cn("truncate", sidebarCollapsed && "sr-only")}>{label}</span>
-                <span className="sr-only">Próximamente</span>
-              </button>
-            ) : (
-              <NavLink
-                key={to}
-                to={to}
-                className={({ isActive }) =>
-                  cn(
-                    "flex min-h-[44px] items-center rounded-[10px] text-[13px] font-semibold no-underline transition-colors",
-                    sidebarCollapsed ? "justify-center px-0" : "gap-3 pl-4 pr-3",
-                    isActive
-                      ? "bg-white/[.12] text-white [box-shadow:inset_3px_0_0_#7FF3DE]"
-                      : "bg-transparent text-white/75 hover:bg-white/10 hover:text-white",
-                  )
-                }
-              >
-                {({ isActive }) => (
-                  <>
-                    {icon}
-                    <span className={cn("truncate", sidebarCollapsed && "sr-only")} aria-current={isActive ? "page" : undefined}>
-                      {label}
-                    </span>
-                  </>
-                )}
-              </NavLink>
-            )
-          ))}
+                <span className={cn(sidebarCollapsed && "sr-only")}>Superadmin</span>
+              </div>
+              {adminItems.map(renderNavItem)}
+            </>
+          ) : null}
         </nav>
 
         <div className={cn("flex items-center border-t border-white/[.12]", sidebarCollapsed ? "justify-center p-3" : "gap-3 p-4")}>

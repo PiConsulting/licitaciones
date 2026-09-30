@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 
+import { BUSINESS_UNITS } from "../../../config/businessUnits";
 import type { ExpiringAlertItem } from "../hooks/useExpiringAlerts";
 import { ExpiringAlertsSection } from "./ExpiringAlertsSection";
 
@@ -10,7 +11,7 @@ function buildAlert(overrides: Partial<ExpiringAlertItem>): ExpiringAlertItem {
     analysisName: "Licitación urgente",
     organismo: "Organismo A",
     businessStatus: "en_revision",
-    businessUnit: "CEDI",
+    businessUnit: BUSINESS_UNITS[0],
     eventName: "Presentación de ofertas",
     daysUntil: 2,
     dateLabel: "23/09/2026",
@@ -36,7 +37,7 @@ describe("ExpiringAlertsSection", () => {
     expect(card).toHaveTextContent("23/09/2026");
     expect(card).toHaveTextContent("+2 más");
     expect(card).toHaveTextContent("En revisión");
-    expect(card).toHaveTextContent("CEDI");
+    expect(card).toHaveTextContent(BUSINESS_UNITS[0]);
     expect(screen.getByRole("heading", { name: /1 licitación con eventos próximos/i })).toBeInTheDocument();
   });
 

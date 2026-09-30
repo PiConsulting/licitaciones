@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="es" data-bu="cedi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Prueba sidebar CEDI</title>
+<style>
+:root{--background:oklch(1 0 0);--foreground:oklch(0.145 0 0);--border:oklch(0.922 0 0);--keel-accent:oklch(0.55 0.05 260);--keel-accent-foreground:#fff;--muted-foreground:oklch(0.556 0 0)}
+[data-bu="cedi"]{--keel-accent:#0099db;--keel-accent-foreground:#ffffff}
+:root,[data-bu]{
+--keel-tint-subtle:color-mix(in oklab,var(--keel-accent) 5%,var(--background));
+--keel-tint-soft:color-mix(in oklab,var(--keel-accent) 11%,var(--background));
+--keel-tint-line:color-mix(in oklab,var(--keel-accent) 20%,var(--border));
+--sidebar:var(--keel-tint-subtle);--sidebar-accent:var(--keel-tint-soft);--sidebar-border:var(--keel-tint-line);
+--sidebar-foreground:oklch(0.145 0 0);--sidebar-primary:var(--keel-accent);--sidebar-primary-foreground:var(--keel-accent-foreground)}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,sans-serif;background:#F4F9FC;color:#003C6B;display:flex;gap:32px;padding:24px;min-height:100vh}
+figure{margin:0;display:flex;flex-direction:column;gap:8px}
+figcaption{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#6b7c8c}
+.sb{width:232px;height:720px;display:flex;flex-direction:column;border-radius:12px;overflow:hidden}
+.sb .top{height:72px;display:flex;align-items:center;gap:10px;padding:0 16px}
+.logo{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;font-weight:800;font-size:12px}
+.t1{font-weight:700;font-size:15px;line-height:1.1}.t2{font-size:11px;opacity:.7}
+nav{padding:12px;display:flex;flex-direction:column;gap:4px;flex:1}
+.it{display:flex;align-items:center;gap:12px;height:40px;padding:0 12px;border-radius:10px;font-size:13px;font-weight:600}
+.it i{width:16px;height:16px;border-radius:4px;border:2px solid currentColor;opacity:.8}
+.grp{margin-top:12px;padding:14px 12px 6px;font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
+.foot{height:64px;display:flex;align-items:center;gap:10px;padding:0 16px}
+.av{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700}
+.n1{font-size:12px;font-weight:700}.n2{font-size:11px;opacity:.7}
+.cur{background:#003C6B;color:#fff}
+.cur .top,.cur .foot{border-color:rgba(255,255,255,.12)}
+.cur .top{border-bottom:1px solid rgba(255,255,255,.12)}.cur .foot{border-top:1px solid rgba(255,255,255,.12)}
+.cur .logo{background:#fff;color:#003C6B}
+.cur .it{color:rgba(255,255,255,.75)}.cur .it.on{background:rgba(255,255,255,.14);color:#fff;box-shadow:inset 3px 0 0 #0099DB}
+.cur .grp{color:rgba(255,255,255,.5);border-top:1px solid rgba(255,255,255,.12)}
+.cur .av{background:#0099DB;color:#fff}
+.new{background:var(--sidebar);color:var(--sidebar-foreground);border:1px solid var(--sidebar-border)}
+.new .top{border-bottom:1px solid var(--sidebar-border)}.new .foot{border-top:1px solid var(--sidebar-border)}
+.new .logo{background:var(--sidebar-primary);color:var(--sidebar-primary-foreground)}
+.new .it:hover{background:var(--sidebar-accent)}
+.new .it.on{background:var(--sidebar-accent);box-shadow:inset 3px 0 0 var(--sidebar-primary)}
+.new .grp{color:var(--muted-foreground);border-top:1px solid var(--sidebar-border)}
+.new .av{background:var(--sidebar-primary);color:var(--sidebar-primary-foreground)}
+</style>
+</head>
+<body style="flex-wrap:wrap">
+<figure><figcaption>Actual (navy)</figcaption>
+<div class="sb cur"><div class="top"><div class="logo">CED</div><div><div class="t1">CedIA</div><div class="t2">Análisis de pliegos</div></div></div>
+<nav><div class="it"><i></i>Home</div><div class="it"><i></i>Buscar pliegos</div><div class="it"><i></i>Analizar nuevo pliego</div><div class="grp">Superadmin</div><div class="it on"><i></i>Usuarios del sistema</div></nav>
+<div class="foot"><div class="av">MF</div><div><div class="n1">M. Fernández</div><div class="n2">Superadmin</div></div></div></div></figure>
+<figure><figcaption>Fórmula original (5%)</figcaption>
+<div class="sb new" style=""><div class="top"><div class="logo">CED</div><div><div class="t1">CedIA</div><div class="t2">Análisis de pliegos</div></div></div>
+<nav><div class="it"><i></i>Home</div><div class="it"><i></i>Buscar pliegos</div><div class="it"><i></i>Analizar nuevo pliego</div><div class="grp">Superadmin</div><div class="it on"><i></i>Usuarios del sistema</div></nav>
+<div class="foot"><div class="av">MF</div><div><div class="n1">M. Fernández</div><div class="n2">Superadmin</div></div></div></div></figure>
+<figure><figcaption>Tinte 12%</figcaption>
+<div class="sb new" style="--sidebar:color-mix(in oklab,#0099db 12%,#fff);--sidebar-accent:color-mix(in oklab,#0099db 24%,#fff);--sidebar-border:color-mix(in oklab,#0099db 36%,oklch(.922 0 0));background:var(--sidebar)"><div class="top"><div class="logo">CED</div><div><div class="t1">CedIA</div><div class="t2">Análisis de pliegos</div></div></div>
+<nav><div class="it"><i></i>Home</div><div class="it"><i></i>Buscar pliegos</div><div class="it"><i></i>Analizar nuevo pliego</div><div class="grp">Superadmin</div><div class="it on"><i></i>Usuarios del sistema</div></nav>
+<div class="foot"><div class="av">MF</div><div><div class="n1">M. Fernández</div><div class="n2">Superadmin</div></div></div></div></figure>
+<figure><figcaption>Tinte 22%</figcaption>
+<div class="sb new" style="--sidebar:color-mix(in oklab,#0099db 22%,#fff);--sidebar-accent:color-mix(in oklab,#0099db 44%,#fff);--sidebar-border:color-mix(in oklab,#0099db 55%,oklch(.922 0 0));background:var(--sidebar)"><div class="top"><div class="logo">CED</div><div><div class="t1">CedIA</div><div class="t2">Análisis de pliegos</div></div></div>
+<nav><div class="it"><i></i>Home</div><div class="it"><i></i>Buscar pliegos</div><div class="it"><i></i>Analizar nuevo pliego</div><div class="grp">Superadmin</div><div class="it on"><i></i>Usuarios del sistema</div></nav>
+<div class="foot"><div class="av">MF</div><div><div class="n1">M. Fernández</div><div class="n2">Superadmin</div></div></div></div></figure>
+<figure><figcaption>Degradé celeste</figcaption>
+<div class="sb new" style="--sidebar-accent:color-mix(in oklab,#0099db 22%,#fff);--sidebar-border:color-mix(in oklab,#0099db 30%,oklch(.922 0 0));background:linear-gradient(180deg,#0099DB 0%,color-mix(in oklab,#0099db 35%,#fff) 45%,color-mix(in oklab,#0099db 6%,#fff) 100%)"><div class="top"><div class="logo">CED</div><div><div class="t1">CedIA</div><div class="t2">Análisis de pliegos</div></div></div>
+<nav><div class="it"><i></i>Home</div><div class="it"><i></i>Buscar pliegos</div><div class="it"><i></i>Analizar nuevo pliego</div><div class="grp">Superadmin</div><div class="it on"><i></i>Usuarios del sistema</div></nav>
+<div class="foot"><div class="av">MF</div><div><div class="n1">M. Fernández</div><div class="n2">Superadmin</div></div></div></div></figure>
+</body></html>

@@ -4,11 +4,13 @@ import { Link, useLocation, useMatch } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 
 import { buildAnalysisShortTitle } from "../features/analysis-detail/utils/analysisFields";
+import { USERS_NEW_EVENT } from "../features/users/usersEvents";
 import { getAnalysisById } from "../services/api/analysisApi";
 
 const PAGE_TITLES: Array<{ prefix: string; title: string }> = [
   { prefix: "/analyze", title: "Analizar nuevo pliego" },
   { prefix: "/analysis", title: "Análisis IA" },
+  { prefix: "/usuarios", title: "Usuarios del sistema" },
 ];
 
 function getPageTitle(pathname: string): string {
@@ -21,6 +23,7 @@ export function AppHeader() {
   const title = getPageTitle(location.pathname);
   const isAnalyzePage = location.pathname.startsWith("/analyze");
   const isDashboardPage = location.pathname === "/";
+  const isUsersPage = location.pathname.startsWith("/usuarios");
   const detailMatch = useMatch("/analysis/:analysisId");
   const checklistMatch = useMatch("/analysis/:analysisId/checklist");
   const isChecklistPage = Boolean(checklistMatch);
@@ -69,6 +72,28 @@ export function AppHeader() {
       detailData.status === "error"
     );
   }, [detailData]);
+
+  if (isUsersPage) {
+    return (
+      <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-cedi-navy-12 bg-white px-6">
+        <div className="flex items-center gap-2.5">
+          <span className="text-[13px] font-medium text-cedi-navy-68">Superadmin</span>
+          <span className="h-4 w-px bg-cedi-navy-20" aria-hidden="true" />
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[rgba(169,102,255,.14)] px-2.5 py-[3px] text-[11px] font-bold uppercase tracking-[.08em] text-[#6E2FC9]">
+            Vista global
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new CustomEvent(USERS_NEW_EVENT))}
+          className="inline-flex h-9 items-center gap-2 rounded-full bg-gradient-to-r from-[#2F4EF8] to-[#A966FF] px-4 text-[13px] font-semibold text-white hover:brightness-110"
+        >
+          <Plus className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden="true" />
+          Nuevo usuario
+        </button>
+      </header>
+    );
+  }
 
   if (isAnalyzePage) {
     return (

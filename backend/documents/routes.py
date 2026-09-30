@@ -9,6 +9,7 @@ from documents.schemas import DocumentSASUrlResponse
 from documents.service import StoredDocument, get_document_by_id
 from infra.config import get_settings
 from infra.database import SessionLocal
+from users.access import get_visible_analysis
 from users.service import get_current_user, http_bearer
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -38,7 +39,9 @@ def _load_document_for_user(document_id: str, user_id: str) -> StoredDocument | 
     db = SessionLocal()
     try:
         document_sql = get_document_by_id(db, document_id)
-        if document_sql is None or document_sql.created_by != user_id:
+        if document_sql is None:
+            return None
+        if get_visible_analysis(db, document_sql.analysis_id, user_id) is None:
             return None
         return StoredDocument(
             id=document_sql.id,

@@ -5,7 +5,11 @@ from datetime import UTC, datetime
 
 import pytest
 
-from tests.tracking.service.conftest import OTHER_USER_ID, OWNER_USER_ID
+from tests.tracking.service.conftest import (
+    OTHER_USER_ID,
+    OWNER_BUSINESS_UNIT,
+    OWNER_USER_ID,
+)
 from tracking.models import Tracking
 from tracking.schemas import AnalysisTracking
 from tracking.schemas import TrackingComment as TrackingCommentSchema
@@ -46,7 +50,12 @@ class TestStartTracking:
     def test_unanalyzed_analysis_raises(self, db_session):
         from analysis.models import Analysis
 
-        analysis = Analysis(id="draft-analysis", created_by=OWNER_USER_ID, status="draft")
+        analysis = Analysis(
+            id="draft-analysis",
+            created_by=OWNER_USER_ID,
+            status="draft",
+            business_unit=OWNER_BUSINESS_UNIT,
+        )
         db_session.add(analysis)
         db_session.commit()
 
@@ -67,9 +76,9 @@ class TestGetTracking:
         analysis_id, _version_id = analyzed_analysis
         assert get_tracking(analysis_id, OWNER_USER_ID) is None
 
-    def test_wrong_owner_raises_permission_error(self, analyzed_analysis):
+    def test_member_of_other_unit_cannot_see_tracking(self, analyzed_analysis):
         analysis_id, _version_id = analyzed_analysis
-        with pytest.raises(PermissionError):
+        with pytest.raises(ValueError, match="ANALYSIS_NOT_FOUND"):
             get_tracking(analysis_id, OTHER_USER_ID)
 
     def test_nonexistent_analysis_raises_value_error(self):

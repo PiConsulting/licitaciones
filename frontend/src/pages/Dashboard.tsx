@@ -3,9 +3,11 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 
+import { useSession } from "../auth/session";
 import { AnalysisDeleteConfirmModal } from "../components/analysis/AnalysisDeleteConfirmModal";
 import { DuplicateWarningModal } from "../components/analysis/DuplicateWarningModal";
 import { useToast } from "../components/ToastContainer";
+import { getBusinessUnitColor } from "../config/businessUnits";
 import { AnalysisTable } from "../features/analysis/components/AnalysisTable";
 import { DateRangeFilter } from "../features/analysis/components/DateRangeFilter";
 import { EmptyState } from "../features/analysis/components/EmptyState";
@@ -55,18 +57,6 @@ const BUSINESS_STATUS_MAP: Record<string, BusinessStatusKey> = {
   perdidas: "perdida",
 };
 
-const UNIT_DOT_COLORS: Record<string, string> = {
-  CEDI: "bg-[#0099DB]",
-  PI: "bg-[#003C6B]",
-  Wemox: "bg-[#2F4EF8]",
-  Vulps: "bg-[#A966FF]",
-  Korex: "bg-[#7FF3DE]",
-};
-
-function getUnitDotClass(unitName: string): string {
-  return UNIT_DOT_COLORS[unitName] ?? "bg-cedi-celeste";
-}
-
 function normalizeBusinessStatus(value?: string | null): BusinessStatusKey | null {
   if (!value) {
     return null;
@@ -77,6 +67,7 @@ function normalizeBusinessStatus(value?: string | null): BusinessStatusKey | nul
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const session = useSession();
   const queryClient = useQueryClient();
   const { addToast } = useToast();
   const startMutation = useStartAnalysis();
@@ -428,7 +419,7 @@ export default function Dashboard() {
             <SearchInput value={searchInput} onChange={setSearchInput} />
           </div>
 
-          {businessUnits.length > 0 ? (
+          {session.isSuperadmin && businessUnits.length > 0 ? (
             <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filtro de unidad">
               <span className="mr-1 text-[12px] font-bold uppercase tracking-[0.14em] text-cedi-navy-55">Unidad</span>
               {businessUnits.map((unit) => {
@@ -446,7 +437,7 @@ export default function Dashboard() {
                     ].join(" ")}
                     aria-pressed={isActive}
                   >
-                    <span className={["h-2 w-2 rounded-full", getUnitDotClass(unit.business_unit)].join(" ")} aria-hidden="true" />
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: getBusinessUnitColor(unit.business_unit) }} aria-hidden="true" />
                     {unit.business_unit}
                     <span className={isActive ? "font-medium text-white/80" : "font-medium text-cedi-navy-55"}>{unit.count}</span>
                   </button>

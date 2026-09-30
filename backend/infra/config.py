@@ -27,7 +27,6 @@ class Settings(BaseSettings):
         default="replace-with-32-byte-random-secret-value",
         alias="SECRET_KEY",
     )
-    default_business_unit: str = Field(default="CEDI", alias="DEFAULT_BUSINESS_UNIT")
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
     jwt_expiration_hours: int = Field(default=24, alias="JWT_EXPIRATION_HOURS")
     local_blob_storage_path: str = Field(

@@ -8,6 +8,7 @@ from analysis.models import Analysis, AnalysisVersion, BusinessStatus
 from analysis.service.listing import _extract_organism
 from documents.models import Document
 from timeline.models_orm import EventORM
+from users.access import analysis_scope_filter
 
 UPCOMING_EVENTS_WINDOW_DAYS = 15
 ALERTABLE_BUSINESS_STATUSES = (
@@ -30,7 +31,7 @@ def list_upcoming_events(
         db.query(EventORM)
         .join(Analysis, Analysis.id == EventORM.analysis_id)
         .filter(
-            Analysis.created_by == user_id,
+            analysis_scope_filter(db, user_id),
             Analysis.deleted_at.is_(None),
             Analysis.business_status.in_(ALERTABLE_BUSINESS_STATUSES),
             EventORM.deleted.is_(False),

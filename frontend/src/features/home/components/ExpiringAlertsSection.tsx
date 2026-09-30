@@ -1,6 +1,7 @@
 import { AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { getBusinessUnitColor } from "../../../config/businessUnits";
 import { BUSINESS_STATUS_META, resolveBusinessStatus } from "../../analysis-detail/utils/businessStatus";
 import type { ExpiringAlertItem } from "../hooks/useExpiringAlerts";
 
@@ -8,14 +9,6 @@ interface ExpiringAlertsSectionProps {
   alerts: ExpiringAlertItem[];
   onOpenAlert?: (alert: ExpiringAlertItem) => void;
 }
-
-const UNIT_DOT_COLORS: Record<string, string> = {
-  CEDI: "#0099DB",
-  PI: "#003C6B",
-  Wemox: "#2F4EF8",
-  Vulps: "#A966FF",
-  Korex: "#7FF3DE",
-};
 
 const URGENT_DAYS_THRESHOLD = 2;
 
@@ -144,7 +137,7 @@ export function ExpiringAlertsSection({ alerts, onOpenAlert }: ExpiringAlertsSec
         {alerts.map((alert) => {
           const days = describeDays(alert.daysUntil);
           const statusMeta = alert.businessStatus ? BUSINESS_STATUS_META[resolveBusinessStatus(alert.businessStatus)] : null;
-          const unitColor = alert.businessUnit ? (UNIT_DOT_COLORS[alert.businessUnit] ?? "#0099DB") : null;
+          const unitColor = alert.businessUnit ? getBusinessUnitColor(alert.businessUnit) : null;
 
           return (
             <button

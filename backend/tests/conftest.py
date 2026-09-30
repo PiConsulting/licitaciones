@@ -11,10 +11,12 @@ os.environ["JWT_ALGORITHM"] = "HS256"
 os.environ["JWT_EXPIRATION_HOURS"] = "24"
 os.environ["APP_ENV"] = "production"
 
+from infra.business_units import BUSINESS_UNITS
 from infra.config import get_settings
 from infra.database import Base, SessionLocal, engine
 from main import app
 from users.models import User
+from users.roles import UserRole
 from users.service import create_access_token, get_password_hash
 
 
@@ -29,6 +31,8 @@ def setup_db():
             email="test@cedia.com",
             password_hash=get_password_hash("Test1234!"),
             name="Test User",
+            role=UserRole.SUPERADMIN.value,
+            business_unit=BUSINESS_UNITS[0],
         )
     )
     db.commit()
@@ -82,3 +86,29 @@ def auth_token() -> str:
     token = create_access_token(user.id)
     db.close()
     return token
+
+
+def _create_member(email: str, business_unit: str) -> str:
+    db = SessionLocal()
+    user = User(
+        email=email,
+        password_hash=get_password_hash("Test1234!"),
+        name=f"Miembro {business_unit}",
+        role=UserRole.MIEMBRO.value,
+        business_unit=business_unit,
+    )
+    db.add(user)
+    db.commit()
+    token = create_access_token(user.id)
+    db.close()
+    return token
+
+
+@pytest.fixture
+def member_token() -> str:
+    return _create_member("miembro@cedia.com", BUSINESS_UNITS[0])
+
+
+@pytest.fixture
+def other_unit_member_token() -> str:
+    return _create_member("miembro-otra@cedia.com", BUSINESS_UNITS[1])
