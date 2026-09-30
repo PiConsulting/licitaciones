@@ -78,7 +78,7 @@ describe("Login", () => {
       expect(localStorage.getItem("access_token")).toBe("jwt-token");
       expect(localStorage.getItem("user_name")).toBe("Test User");
       expect(localStorage.getItem("user_email")).toBe("test@cedia.com");
-      expect(navigateMock).toHaveBeenCalledWith("/dashboard");
+      expect(navigateMock).toHaveBeenCalledWith("/");
     });
   });
 });

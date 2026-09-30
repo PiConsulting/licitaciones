@@ -26,7 +26,7 @@ export default function Login() {
         localStorage.setItem("user_name", response.name.trim());
       }
       localStorage.setItem("user_email", response.email || email);
-      navigate("/dashboard");
+      navigate("/");
     } catch {
       setError(INVALID_CREDENTIALS_MSG);
     } finally {
