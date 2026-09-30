@@ -295,7 +295,7 @@ export function Step4StartAnalysis({
       await deleteMutation.mutateAsync(analysisId);
       addToast("success", "El analisis con error se elimino definitivamente.");
       await queryClient.invalidateQueries({ queryKey: ["analyses"] });
-      navigate("/dashboard");
+      navigate("/");
     } catch (requestError) {
       if (isAxiosError(requestError)) {
         const message = requestError.response?.data?.error?.message;
@@ -468,14 +468,14 @@ export function Step4StartAnalysis({
 
           <div className="flex flex-wrap gap-2.5">
             <Link
-              to={analysisId ? `/analysis/${analysisId}` : "/dashboard"}
+              to={analysisId ? `/analysis/${analysisId}` : "/"}
               className="inline-flex h-11 items-center gap-2 rounded-full bg-white px-6 text-sm font-semibold text-[#003C6B] hover:bg-[#7FF3DE]"
             >
               Ver preview
               <ChevronRight size={14} aria-hidden="true" />
             </Link>
             <Link
-              to="/dashboard"
+              to="/"
               className="inline-flex h-11 items-center rounded-full border-2 border-white/40 px-[22px] text-sm font-semibold text-white hover:border-white"
             >
               Ir al historial
