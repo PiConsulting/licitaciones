@@ -120,18 +120,22 @@ el hito queda pendiente de carga manual. Ninguno de los dos casos es motivo para
 omitir el hito.
 
 Un ítem por hito. Si el mismo hito aparece múltiples veces en el documento (con o sin
-fecha, como plazo relativo o no), consolidalo en UN SOLO ítem con todos los datos y
-fuentes combinados.
+fecha, como plazo relativo o no), consolidalo en UN SOLO ítem con todos los datos
+combinados -- pero UNA sola cita (`fuente_fragmento`/`fuente_pagina`), nunca varias
+mezcladas (ver regla 1 y regla 12).
 
 **⚠️ IMPORTANTE - NO DUPLICAR:**
 Si el mismo hito aparece en múltiples fragmentos con redacción levemente distinta,
-extraelo UNA SOLA VEZ. Consolidá las menciones en el campo `fuente_fragmento`, pero
-emití un único ítem.
+extraelo UNA SOLA VEZ. Elegí la mención MÁS COMPLETA y descriptiva como `fuente_fragmento`
+(una sola, de una sola página) -- no concatenes varias menciones en un solo campo (ver
+regla 1 y regla 12: `fuente_pagina` es un número único, así que una cita que mezcla texto
+de dos páginas distintas queda sin página real a la que corresponder, y deja de poder
+verificarse o resaltarse en el documento).
 
 **Ejemplos de duplicados a evitar:**
-- ❌ "Apertura de ofertas" mencionada en sección Plazos y en sección Cronograma → ✅ UN SOLO ítem
-- ❌ "Adjudicación" referenciada dos veces con redacción distinta → ✅ UN SOLO ítem con ambas citas
-- ❌ "Firma del contrato" con fecha en un fragmento y como plazo relativo en otro → ✅ UN SOLO ítem con ambos datos
+- ❌ "Apertura de ofertas" mencionada en sección Plazos y en sección Cronograma → ✅ UN SOLO ítem, con la cita de UNA de las dos secciones (la más completa)
+- ❌ "Adjudicación" referenciada dos veces con redacción distinta → ✅ UN SOLO ítem, con la cita de UNA de las dos menciones (la más completa)
+- ❌ "Firma del contrato" con fecha en un fragmento y como plazo relativo en otro → ✅ UN SOLO ítem con ambos DATOS combinados, pero la cita de uno solo de los dos fragmentos
 
 # ESTRUCTURA DE SALIDA
 
@@ -259,8 +263,13 @@ para que el lector entienda:
 suficiente contexto para entender de qué se trata. Si es necesario, incluir la oración
 anterior o siguiente.
 
-**Si el mismo hito aparece varias veces:** Combinar los fragmentos separándolos con ` | `.
-Ejemplo: `"La adjudicación se notificará a los oferentes. (pág. 2) | Dentro de los 10 días de la adjudicación, el adjudicatario deberá... (pág. 5)"`
+**Si el mismo hito aparece varias veces:** NO concatenes los fragmentos de distintas
+páginas en un solo campo (`fuente_pagina` es un número único -- una cita que mezcla
+texto de dos páginas queda sin página real, y nada puede verificarla ni resaltarla
+después en el documento). Elegí UNA sola mención -- la más completa y descriptiva -- y
+usá su propia página como `fuente_pagina`. Si una mención da la fecha y otra da el plazo
+relativo, combiná esos DATOS (fecha + plazo) en el mismo ítem, pero la cita sigue siendo
+de una sola página.
 
 ## 2. Identificación del evento disparador — REGLA CLAVE, NO INVENTES NOMBRES NUEVOS
 
@@ -536,9 +545,17 @@ Si el mismo hito se menciona varias veces en el documento (con fecha, como plazo
 relativo, o ambos):
 
 1. **Emití UN SOLO ítem** con el nombre normalizado del hito
-2. **Combina todas las menciones** en `fuente_fragmento` separándolas con ` | ` e indicando la página
-3. **Usa la fecha más específica** si hay múltiples menciones con fechas
-4. **Combina los datos de plazo relativo** si una mención da la fecha y otra da el plazo
+2. **Elegí UNA sola mención** como `fuente_fragmento`/`fuente_pagina` -- la más completa y
+   descriptiva, de una sola página. NUNCA concatenes texto de páginas distintas en un
+   solo `fuente_fragmento`: `fuente_pagina` es un número único, así que una cita mezclada
+   queda sin página real a la que corresponder, y deja de poder verificarse o resaltarse
+   en el documento.
+3. **Usa la fecha más específica** si hay múltiples menciones con fechas -- tomá también
+   la página/fragmento de ESA mención (la que trae la fecha), no la de otra.
+4. **Combina los DATOS de plazo relativo** si una mención da la fecha y otra da el plazo
+   (`cantidad`/`unidad`/`evento_disparador`/etc. sí se combinan entre menciones) -- pero
+   la cita (`fuente_fragmento`/`fuente_pagina`) sigue siendo de una sola de esas menciones,
+   nunca una mezcla de ambas.
 
 **Ejemplo:**
 
@@ -548,7 +565,9 @@ Texto página 12: "La adjudicación se realizará el 30 de septiembre de 2026."
 
 → **UN SOLO ítem** (nota: el plazo de "10 días" en página 5 describe OTRO hito —
 "presentarse para firmar", no la adjudicación en sí— así que generaría su propio ítem
-con `evento_disparador: "Adjudicación"`, no se mezcla dentro de este):
+con `evento_disparador: "Adjudicación"`, no se mezcla dentro de este). La cita elegida es
+la de la página 12 (trae la fecha explícita, la mención más específica), NO la de la
+página 2:
 ```json
 {
   "nombre": "Adjudicación",
@@ -564,8 +583,8 @@ con `evento_disparador: "Adjudicación"`, no se mezcla dentro de este):
   "accion_concreta": "el organismo adjudica la contratación",
   "es_ocurrencia_unica": true,
   "depende_de_decision_discrecional": false,
-  "fuente_pagina": 2,
-  "fuente_fragmento": "La adjudicación se notificará a los oferentes. (pág. 2) | La adjudicación se realizará el 30 de septiembre de 2026. (pág. 12)",
+  "fuente_pagina": 12,
+  "fuente_fragmento": "La adjudicación se realizará el 30 de septiembre de 2026.",
   "extraction_status": "success"
 }
 ```

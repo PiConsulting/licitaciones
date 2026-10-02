@@ -263,4 +263,33 @@ describe("PendingEventCard", () => {
       expect(screen.getByText(/Ciclo de dependencia detectado/)).toBeInTheDocument();
     });
   });
+
+  describe("ver fuente con highlight precomputado (2026-10-01)", () => {
+    test("pasa event.highlight_regions como 4to argumento de onViewSource", async () => {
+      const user = userEvent.setup();
+      const handleViewSource = vi.fn();
+      const handleAddDate = vi.fn();
+      const regions = [{ x: 1, y: 2, width: 3, height: 4 }];
+      const event = createMockPendingEvent({
+        source_document_id: "doc-1",
+        source_page: 5,
+        source_fragment: "cita de ejemplo",
+        highlight_regions: regions,
+      });
+
+      render(
+        <PendingEventCard
+          analysisId={ANALYSIS_ID}
+          event={event}
+          onAddDate={handleAddDate}
+          onViewSource={handleViewSource}
+        />,
+        { wrapper: createWrapper() }
+      );
+
+      await user.click(screen.getByTitle(/ver fuente en el pliego/i));
+
+      expect(handleViewSource).toHaveBeenCalledWith("doc-1", 5, "cita de ejemplo", regions);
+    });
+  });
 });

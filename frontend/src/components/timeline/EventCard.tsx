@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { Pencil, Trash2, HelpCircle, Eye, EyeOff } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { EventResponse, DateSource, DeadlineResponse } from "../../types/timeline";
+import { EventResponse, DateSource, DeadlineResponse, HighlightRegion } from "../../types/timeline";
 import { DependencyIndicator } from "./DependencyIndicator";
 import { ErrorIndicator } from "./ErrorIndicator";
 import { EditDateModal } from "./EditDateModal";
 import { DeleteEventDialog } from "./DeleteEventDialog";
-import { EventDetailModal } from "./EventDetailModal";
+import { EventDetailModal, EventDependent } from "./EventDetailModal";
 import { formatEventDate } from "../../utils/dates";
 import { setEventHidden } from "../../api/timeline";
 import { useToast } from "../ToastContainer";
@@ -18,12 +18,12 @@ interface EventCardProps {
   event: ConfirmedEvent;
   deadline?: DeadlineResponse;
   triggerEvent?: EventResponse;
-  dependentDeadlines?: DeadlineResponse[];
+  dependents?: EventDependent[];
   dependentEventNames?: string[];
   isPast?: boolean;
   isNext?: boolean;
   onClick?: () => void;
-  onViewSource?: (documentId: string, page: number, fragment?: string) => void;
+  onViewSource?: (documentId: string, page: number, fragment?: string, highlightRegions?: HighlightRegion[]) => void;
 }
 
 const DATE_SOURCE_CONFIG: Record<DateSource, { label: string; bg: string; fg: string }> = {
@@ -47,7 +47,7 @@ export function EventCard({
   event,
   deadline,
   triggerEvent,
-  dependentDeadlines,
+  dependents,
   dependentEventNames,
   isPast = false,
   isNext = false,
@@ -212,7 +212,7 @@ export function EventCard({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onViewSource!(event.source_document_id!, event.source_page!, event.source_fragment);
+                  onViewSource!(event.source_document_id!, event.source_page!, event.source_fragment, event.highlight_regions);
                 }}
                 title={`Ver fuente en el pliego (pág. ${event.source_page})`}
                 className="inline-flex h-[26px] items-center gap-[5px] rounded-full border border-[rgba(0,60,107,.12)] bg-white px-2.5 text-[11px] font-semibold text-[#0099DB] hover:border-[#0099DB]"
@@ -228,7 +228,7 @@ export function EventCard({
       {activeModal === 'detail' && (
         <EventDetailModal
           event={event}
-          deadlines={dependentDeadlines}
+          dependents={dependents}
           open={true}
           onClose={() => setActiveModal('none')}
           onViewSource={onViewSource}

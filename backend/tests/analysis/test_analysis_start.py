@@ -1175,7 +1175,7 @@ def test_reanalyze_preview_criterios_alone_seeds_source_categories(monkeypatch) 
         version_number=1,
         extracted_data={
             "garantias": [{"tipo": "mantenimiento_oferta", "valor": "1% del monto"}],
-            "plazos": [
+            "plazos_clave": [
                 {
                     "referencia": "Mantenimiento de oferta",
                     "texto_original": "Las ofertas deberan ser mantenidas por 60 dias",
@@ -1248,7 +1248,7 @@ def test_reanalyze_riesgos_alone_seeds_source_categories(monkeypatch) -> None:
         version_number=1,
         extracted_data={
             "garantias": [{"tipo": "cumplimiento_contrato", "valor": "10% del contrato"}],
-            "plazos": [{"referencia": "Entrega", "texto_original": "45 dias corridos"}],
+            "plazos_clave": [{"referencia": "Entrega", "texto_original": "45 dias corridos"}],
             "requisitos_admisibilidad": [{"valor": "Antigüedad 10 años"}],
             "causales_rechazo": [{"valor": "No presentar DDJJ"}],
             "criterios_evaluacion": [{"valor": "Menor precio evaluado"}],

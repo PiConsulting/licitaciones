@@ -1,18 +1,29 @@
 import { useState, useEffect, useRef } from "react";
 import { Badge, BadgeTone } from "../Badge";
 import { Button } from "../Button";
-import type { EventResponse, DeadlineResponse, DateSource } from "../../types/timeline";
+import type { EventResponse, DeadlineResponse, DateSource, HighlightRegion } from "../../types/timeline";
 import { EditDateModal } from "./EditDateModal";
 import { DeleteEventDialog } from "./DeleteEventDialog";
 import { formatEventDate } from "../../utils/dates";
+import { formatDeadlineDuration } from "../../utils/deadlineFormat";
 import { SourceReference } from "./SourceReference";
+
+/** Un plazo que depende de este evento, ya emparejado con el NOMBRE del
+ * evento que ese plazo calcula -- nunca `deadline.name` solo, que es apenas
+ * la descripción textual con la que se extrajo el plazo y puede divergir del
+ * evento realmente resuelto (matching por nombre/fuzzy de `materializer.py`
+ * puede fusionar la cita con un evento ya existente de nombre distinto). */
+export interface EventDependent {
+  deadline: DeadlineResponse;
+  eventName: string;
+}
 
 interface EventDetailModalProps {
   event: EventResponse;
-  deadlines?: DeadlineResponse[];
+  dependents?: EventDependent[];
   open: boolean;
   onClose: () => void;
-  onViewSource?: (documentId: string, page: number, fragment?: string) => void;
+  onViewSource?: (documentId: string, page: number, fragment?: string, highlightRegions?: HighlightRegion[]) => void;
 }
 
 const DATE_SOURCE_CONFIG: Record<DateSource, { label: string; tone: BadgeTone }> = {
@@ -24,7 +35,7 @@ const DATE_SOURCE_CONFIG: Record<DateSource, { label: string; tone: BadgeTone }>
 
 export function EventDetailModal({
   event,
-  deadlines = [],
+  dependents = [],
   open,
   onClose,
   onViewSource,
@@ -40,7 +51,7 @@ export function EventDetailModal({
 
   const handleViewSource = () => {
     if (hasSource && onViewSource) {
-      onViewSource(event.source_document_id, event.source_page, event.source_fragment);
+      onViewSource(event.source_document_id, event.source_page, event.source_fragment, event.highlight_regions);
     }
   };
 
@@ -89,22 +100,20 @@ export function EventDetailModal({
               </div>
             </div>
 
-            {deadlines.length > 0 && (
+            {dependents.length > 0 && (
               <div>
                 <h4 className="text-sm font-semibold text-gray-700 mb-3">
-                  Plazos que dependen de este evento
+                  Eventos que dependen de este evento para calcularse
                 </h4>
                 <div className="space-y-2">
-                  {deadlines.map((deadline) => (
+                  {dependents.map(({ deadline, eventName }) => (
                     <div
                       key={deadline.deadline_id}
                       className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm"
                     >
-                      <span className="font-medium">{deadline.name}</span>
+                      <span className="font-medium">{eventName}</span>
                       <span className="text-gray-600"> — </span>
-                      <span className="text-gray-700">
-                        {deadline.duration} {deadline.unit} {deadline.day_type}
-                      </span>
+                      <span className="text-gray-700">{formatDeadlineDuration(deadline)}</span>
                     </div>
                   ))}
                 </div>
@@ -121,7 +130,7 @@ export function EventDetailModal({
               />
             )}
 
-            {deadlines.length === 0 && !hasSource && (
+            {dependents.length === 0 && !hasSource && (
               <div className="text-sm text-gray-500 italic">
                 Este evento no tiene plazos dependientes ni fuente verificable en el documento.
               </div>

@@ -3,8 +3,8 @@ import { Check, Eye, HelpCircle, Plus } from "lucide-react";
 import { Badge } from "../Badge";
 import { Button } from "../Button";
 import { ConfirmedEvent } from "./EventCard";
-import { EventDetailModal } from "./EventDetailModal";
-import { DeadlineResponse, DateSource } from "../../types/timeline";
+import { EventDetailModal, EventDependent } from "./EventDetailModal";
+import { DateSource, HighlightRegion } from "../../types/timeline";
 import { formatEventDate } from "../../utils/dates";
 import { cn } from "../../utils/cn";
 
@@ -14,10 +14,10 @@ interface TimelineVerticalViewProps {
    * en una línea de tiempo real el orden tiene que ser por fecha, si no
    * "HOY" queda en cualquier lado). */
   events: ConfirmedEvent[];
-  getDependentDeadlines: (eventId: string) => DeadlineResponse[];
+  getDependentsForModal: (eventId: string) => EventDependent[];
   getDependentEventNames: (eventId: string) => string[];
   onAddEvent?: () => void;
-  onViewSource?: (documentId: string, page: number, fragment?: string) => void;
+  onViewSource?: (documentId: string, page: number, fragment?: string, highlightRegions?: HighlightRegion[]) => void;
 }
 
 export function getTodayIso(): string {
@@ -41,7 +41,7 @@ type Row = { kind: "today"; iso: string } | { kind: "event"; event: ConfirmedEve
  */
 export function TimelineVerticalView({
   events,
-  getDependentDeadlines,
+  getDependentsForModal,
   getDependentEventNames,
   onAddEvent,
   onViewSource,
@@ -200,7 +200,7 @@ export function TimelineVerticalView({
                       onClick={(clickEvent) => {
                         clickEvent.preventDefault();
                         clickEvent.stopPropagation();
-                        onViewSource(event.source_document_id!, event.source_page!, event.source_fragment);
+                        onViewSource(event.source_document_id!, event.source_page!, event.source_fragment, event.highlight_regions);
                       }}
                       className="inline-flex h-6 items-center gap-1 rounded-full border border-[rgba(0,60,107,.12)] bg-white px-2 text-[11px] font-semibold text-[#0099DB] hover:border-[#0099DB]"
                       title={`Ver fuente en el pliego (pág. ${event.source_page})`}
@@ -220,7 +220,7 @@ export function TimelineVerticalView({
       {selectedEvent && (
         <EventDetailModal
           event={selectedEvent}
-          deadlines={getDependentDeadlines(selectedEvent.event_id)}
+          dependents={getDependentsForModal(selectedEvent.event_id)}
           open={true}
           onClose={() => setSelectedEvent(null)}
           onViewSource={onViewSource}

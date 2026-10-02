@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { DatePicker } from "../DatePicker";
 import { updateEvent, recalculateDependentDates, setEventHidden } from "../../api/timeline";
 import { useToast } from "../ToastContainer";
-import type { EventResponse } from "../../types/timeline";
+import type { EventResponse, HighlightRegion } from "../../types/timeline";
 import { buildMarkedDates } from "./markedDates";
 
 interface AnchorDatesPanelProps {
@@ -12,7 +12,7 @@ interface AnchorDatesPanelProps {
   anchorEvents: EventResponse[];
   dependentCountByEventId: Record<string, number>;
   dependentEventNamesByEventId?: Record<string, string[]>;
-  onViewSource?: (documentId: string, page: number, fragment?: string) => void;
+  onViewSource?: (documentId: string, page: number, fragment?: string, highlightRegions?: HighlightRegion[]) => void;
 }
 
 export function AnchorDatesPanel({
@@ -186,7 +186,7 @@ export function AnchorDatesPanel({
                     <button
                       type="button"
                       onClick={() =>
-                        onViewSource!(event.source_document_id!, event.source_page!, event.source_fragment)
+                        onViewSource!(event.source_document_id!, event.source_page!, event.source_fragment, event.highlight_regions)
                       }
                       title={`Ver fuente en el pliego (pág. ${event.source_page})`}
                       className="inline-flex h-[26px] items-center gap-[5px] rounded-full border border-[rgba(0,60,107,.12)] bg-white px-2.5 text-[11px] font-semibold text-[#0099DB] hover:border-[#0099DB]"

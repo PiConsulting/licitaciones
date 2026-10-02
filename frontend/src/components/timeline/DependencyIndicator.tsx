@@ -1,20 +1,15 @@
 import { useState, type MouseEvent } from "react";
 import { ArrowRight } from "lucide-react";
-import type { DeadlineResponse, EventResponse } from "../../types/timeline";
+import type { DeadlineResponse, EventResponse, HighlightRegion } from "../../types/timeline";
+import { formatDeadlineDuration } from "../../utils/deadlineFormat";
 import { DeadlineDetailModal } from "./DeadlineDetailModal";
 
 interface DependencyIndicatorProps {
   deadline: DeadlineResponse;
   triggerEvent?: EventResponse;
   targetEvent?: EventResponse;
-  onViewSource?: (documentId: string, page: number, fragment?: string) => void;
+  onViewSource?: (documentId: string, page: number, fragment?: string, highlightRegions?: HighlightRegion[]) => void;
 }
-
-const DAY_TYPE_LABEL: Record<string, string> = {
-  corridos: "corridos",
-  hábiles: "hábiles",
-  no_especificado: "(tipo no especificado)",
-};
 
 export function DependencyIndicator({
   deadline,
@@ -23,7 +18,6 @@ export function DependencyIndicator({
   onViewSource,
 }: DependencyIndicatorProps) {
   const [showDetail, setShowDetail] = useState(false);
-  const dayTypeLabel = DAY_TYPE_LABEL[deadline.day_type] || deadline.day_type;
 
   const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -31,7 +25,24 @@ export function DependencyIndicator({
     setShowDetail(true);
   };
 
+  // BUG real (Corrientes, 2026-10-02): un evento puede tener su PROPIA fecha ya
+  // confirmada (detectada en el pliego o ingresada a mano) y, AL MISMO TIEMPO,
+  // ser el target de un plazo cuyo disparador todavía no tiene fecha -- dos
+  // extracciones distintas del mismo hito real (ej. "Presentación de la Oferta",
+  // detectada directamente con fecha propia, vs. el plazo "Presentación de la
+  // Oferta" disparado por "Fecha de Tope de Presentación de Ofertas", sin fecha
+  // propia). En ese caso la fecha del evento NO depende de este plazo -- ya está
+  // confirmada por su cuenta -- así que "Pendiente de fecha de X" es directamente
+  // falso. Solo tiene sentido esa frase cuando la fecha del evento realmente SALIÓ
+  // de este cálculo (`date_source === "calculated"`) o cuando ni siquiera tiene
+  // fecha propia todavía.
+  const targetDateIsIndependentOfThisDeadline =
+    Boolean(targetEvent?.event_date) && targetEvent?.date_source !== "calculated";
+
   if (!triggerEvent || triggerEvent.event_date === null) {
+    if (targetDateIsIndependentOfThisDeadline) {
+      return null;
+    }
     return (
       <>
         <button
@@ -66,7 +77,7 @@ export function DependencyIndicator({
       >
         <ArrowRight className="h-[13px] w-[13px] flex-shrink-0" />
         <span>
-          {deadline.duration} días {dayTypeLabel} desde {triggerEvent.name?.trim() || "evento"}
+          {formatDeadlineDuration(deadline)} desde {triggerEvent.name?.trim() || "evento"}
         </span>
       </button>
 

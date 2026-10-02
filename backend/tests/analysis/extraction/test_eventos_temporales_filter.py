@@ -20,8 +20,11 @@ from __future__ import annotations
 from analysis.extraction.extractors.eventos_temporales import (
     _consolidate_duplicate_hitos,
     _filter_non_hitos,
+    _is_ungrounded_and_unused,
     _merge_enumerated_fragment_duplicates,
+    _merge_hito_pair,
     _strip_dangling_disparador,
+    _verify_hito_citations,
 )
 
 
@@ -336,6 +339,116 @@ class TestOrphanNonSelfMentioned:
         assert "Inicio de la Prestación" in names
 
 
+def _chunk(document_id: str, page_number: int, content: str) -> dict:
+    return {
+        "document_id": document_id,
+        "page_number": page_number,
+        "block_type": "paragraph",
+        "content": content,
+    }
+
+
+class TestVerifyHitoCitations:
+    """`eventos_temporales` usa su propio esquema de citas (`fuente_*`) en vez
+    de `source_references`, así que `_verify_citation_grounding` (el chequeo
+    anti-alucinación que SÍ corre para las demás categorías) la saltea por
+    completo -- ver docstring de `_verify_hito_citations`. Regresión real:
+    Corrientes, "Acto de Apertura" citaba una oración sobre folletos técnicos
+    sin relación alguna con una apertura."""
+
+    def test_limpia_la_fuente_de_una_cita_que_no_existe_en_la_pagina_que_dice_citar(self):
+        item = _hito(
+            "Acto de Apertura",
+            "Los folletos deben ser de sitios oficiales del fabricante.",
+            fuente_pagina=32,
+        )
+        chunks = [_chunk("doc-1", 32, "Texto real de la página 32, sin relación alguna.")]
+
+        result = _verify_hito_citations([item], chunks)
+
+        assert result[0]["fuente_fragmento"] is None
+        assert result[0]["fuente_pagina"] is None
+        assert result[0]["fuente_documento_id"] is None
+        assert result[0]["_cita_no_verificada"] is True
+
+    def test_no_toca_una_cita_que_si_existe_en_la_pagina(self):
+        item = _hito(
+            "Apertura de Ofertas",
+            "FECHA APERTURA: 05/08/2026 HORA: 10:00HS.",
+            fuente_pagina=1,
+        )
+        chunks = [
+            _chunk(
+                "doc-1",
+                1,
+                "Carátula del pliego. FECHA APERTURA: 05/08/2026 HORA: 10:00HS. Lugar de apertura: ...",
+            )
+        ]
+
+        result = _verify_hito_citations([item], chunks)
+
+        assert result[0]["fuente_fragmento"] == "FECHA APERTURA: 05/08/2026 HORA: 10:00HS."
+        assert "_cita_no_verificada" not in result[0]
+
+    def test_rescata_una_cita_partida_por_un_salto_de_pagina(self):
+        item = _hito(
+            "Adjudicación",
+            "la adjudicación se notificará dentro de los 5 días de dictado el acto administrativo",
+            fuente_pagina=4,
+        )
+        chunks = [
+            _chunk("doc-1", 3, "El acto de"),
+            _chunk(
+                "doc-1",
+                4,
+                "la adjudicación se notificará dentro de los 5 días de dictado el acto administrativo.",
+            ),
+        ]
+
+        result = _verify_hito_citations([item], chunks)
+
+        assert result[0]["fuente_fragmento"] is not None
+        assert "_cita_no_verificada" not in result[0]
+
+
+class TestUngroundedAndUnused:
+    def test_descarta_un_item_sin_cita_verificada_sin_fecha_y_sin_uso(self):
+        item = _hito("Acto de Apertura", "citado de más")
+        item["_cita_no_verificada"] = True
+
+        assert _is_ungrounded_and_unused(item, [item]) is True
+
+    def test_conserva_si_tiene_fecha_explicita_propia(self):
+        item = _hito("Apertura de Ofertas", "citado de más", fecha_explicita="2026-08-05")
+        item["_cita_no_verificada"] = True
+
+        assert _is_ungrounded_and_unused(item, [item]) is False
+
+    def test_conserva_si_algo_lo_usa_como_disparador(self):
+        trigger = _hito("Acto de Apertura", "citado de más")
+        trigger["_cita_no_verificada"] = True
+        dependiente = _hito(
+            "Presentación de Folletos Técnicos",
+            "con posterioridad al Acto de Apertura",
+            evento_disparador="Acto de Apertura",
+        )
+
+        assert _is_ungrounded_and_unused(trigger, [trigger, dependiente]) is False
+
+    def test_filter_non_hitos_integra_la_verificacion_de_citas(self):
+        """Integración de punta a punta: un ítem con cita no verificable y sin
+        protección (sin fecha propia, nada lo usa como disparador) debe
+        quedar afuera del resultado final de `_filter_non_hitos`."""
+        item = _hito(
+            "Acto de Apertura",
+            "Los folletos deben ser de sitios oficiales del fabricante.",
+            fuente_pagina=32,
+        )
+        item["_cita_no_verificada"] = True
+
+        assert _filter_non_hitos([item]) == []
+
+
 class TestConsolidateDuplicateHitosNoConectada:
     """`_consolidate_duplicate_hitos` NO está conectada a `_filter_non_hitos`
     (ver nota grande en esa función) -- validada contra los 10 pliegos reales
@@ -367,6 +480,35 @@ class TestConsolidateDuplicateHitosNoConectada:
 
         assert len(merged) == 1
         assert merged[0]["fecha_explicita"] == "2026-11-01"
+
+    def test_la_fusion_nunca_concatena_dos_citas_con_un_separador(self):
+        """Bug real (Corrientes): concatenar `fuente_fragmento` con " | "
+        producía una cita que nunca existe como texto contiguo en el pliego
+        real -- ni se puede resaltar en el visor, ni pasa
+        `_verify_hito_citations` (que la rechazaba, por las dudas, como "no
+        verificada"), perdiendo incluso una cita que por sí sola era
+        perfectamente válida. La cita ganadora tiene que venir COMPLETA de
+        un solo ítem -- nunca mezclada campo por campo entre los dos."""
+        a = _hito(
+            "Apertura de Ofertas",
+            "FECHA APERTURA: 05/08/2026 HORA: 10:00HS.",
+            fecha_explicita="2026-08-05",
+            origen_fecha="detectada",
+            fuente_pagina=1,
+        )
+        b = _hito(
+            "Acto de Apertura",
+            "hasta la fecha y hora de apertura de sobres, fijada para el "
+            "día 05/08/2026 a las 10:00hs.",
+            fuente_pagina=32,
+        )
+
+        merged = _merge_hito_pair(a, b)
+
+        assert "|" not in merged["fuente_fragmento"]
+        # La cita y la página tienen que venir del MISMO ítem -- acá, "a" (tiene fecha_explicita).
+        assert merged["fuente_fragmento"] == a["fuente_fragmento"]
+        assert merged["fuente_pagina"] == 1
 
     def test_no_fusiona_un_disparador_con_su_propio_dependiente(self):
         """Guardia de seguridad que sí funciona -- bug real ya documentado en

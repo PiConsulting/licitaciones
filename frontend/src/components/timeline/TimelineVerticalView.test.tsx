@@ -35,7 +35,7 @@ describe("TimelineVerticalView", () => {
     const { container } = render(
       <TimelineVerticalView
         events={[]}
-        getDependentDeadlines={noop}
+        getDependentsForModal={noop}
         getDependentEventNames={noop}
       />,
     );
@@ -52,7 +52,7 @@ describe("TimelineVerticalView", () => {
     render(
       <TimelineVerticalView
         events={events}
-        getDependentDeadlines={noop}
+        getDependentsForModal={noop}
         getDependentEventNames={noop}
       />,
     );
@@ -80,7 +80,7 @@ describe("TimelineVerticalView", () => {
     render(
       <TimelineVerticalView
         events={events}
-        getDependentDeadlines={noop}
+        getDependentsForModal={noop}
         getDependentEventNames={noop}
       />,
     );
@@ -98,7 +98,7 @@ describe("TimelineVerticalView", () => {
     render(
       <TimelineVerticalView
         events={events}
-        getDependentDeadlines={noop}
+        getDependentsForModal={noop}
         getDependentEventNames={noop}
       />,
     );
@@ -115,7 +115,7 @@ describe("TimelineVerticalView", () => {
     render(
       <TimelineVerticalView
         events={events}
-        getDependentDeadlines={noop}
+        getDependentsForModal={noop}
         getDependentEventNames={() => ["Entrega de equipamiento"]}
       />,
     );
@@ -129,7 +129,7 @@ describe("TimelineVerticalView", () => {
     render(
       <TimelineVerticalView
         events={events}
-        getDependentDeadlines={noop}
+        getDependentsForModal={noop}
         getDependentEventNames={noop}
       />,
     );

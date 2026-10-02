@@ -1,3 +1,15 @@
+// Coordenadas pre-computadas por el backend (PyMuPDF + fallback OCR, ver
+// `analysis/extraction/highlight/highlight.py`) para dibujar el highlight
+// exacto sobre el PDF -- mismo contrato que `HighlightRegion` en
+// `features/analysis-detail/types.ts`, copiado acá para no acoplar este
+// módulo top-level a esa feature.
+export interface HighlightRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export type DateSource = "detected" | "user_input" | "calculated" | "pending";
 export type EventStatus = "pending" | "confirmed";
 export type DurationUnit = "días" | "meses" | "años" | "horas";
@@ -22,9 +34,16 @@ export interface EventResponse {
   deleted: boolean;
   // Opcional (default false en backend) para no romper mocks de tests viejos sin este campo -- ver EventResponse.hidden.
   hidden?: boolean;
+  // Ausente en eventos materializados antes de esta columna (2026-10-01) -- "ver fuente" cae a página sin resaltar.
+  highlight_regions?: HighlightRegion[];
   created_at: string;
   updated_at: string;
 }
+
+// Alias pre-existentes que varios componentes de timeline ya importaban (`Event`/`Deadline`)
+// sin que este módulo los exportara -- `tsc --noEmit` ya los marcaba como error antes de este
+// cambio; se agregan acá en vez de tocar cada import, misma forma que EventResponse/DeadlineResponse.
+export type Event = EventResponse;
 
 export interface DeadlineResponse {
   id: string;
@@ -46,6 +65,9 @@ export interface DeadlineResponse {
   source_fragment?: string;
   source_reference?: Record<string, unknown>;
   deleted: boolean;
+  highlight_regions?: HighlightRegion[];
   created_at: string;
   updated_at: string;
 }
+
+export type Deadline = DeadlineResponse;

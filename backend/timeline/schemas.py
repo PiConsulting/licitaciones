@@ -89,6 +89,7 @@ class EventResponse(BaseModel):
     source_reference: Optional[dict] = None
     deleted: bool
     hidden: bool = False
+    highlight_regions: Optional[list[dict]] = None
     created_at: datetime
     updated_at: datetime
 
@@ -173,6 +174,7 @@ class DeadlineResponse(BaseModel):
     source_fragment: Optional[str]
     source_reference: Optional[dict] = None
     deleted: bool
+    highlight_regions: Optional[list[dict]] = None
     created_at: datetime
     updated_at: datetime
 
