@@ -11,14 +11,14 @@ import { TimelineVerticalView } from "../../components/timeline/TimelineVertical
 import { AddEventModal } from "../../components/timeline/AddEventModal";
 import { AddDateModal } from "../../components/timeline/AddDateModal";
 import { getTimelineEvents, getTimelineDeadlines } from "../../api/timeline";
-import type { EventResponse } from "../../types/timeline";
+import type { EventResponse, HighlightRegion } from "../../types/timeline";
 import { cn } from "../../utils/cn";
 
 type ViewMode = "list" | "timeline";
 
 interface TimelineTabProps {
   analysisId: string;
-  onViewSource?: (documentId: string, page: number, fragment?: string) => void;
+  onViewSource?: (documentId: string, page: number, fragment?: string, highlightRegions?: HighlightRegion[]) => void;
 }
 
 export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
@@ -80,6 +80,18 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
     getDependentDeadlines(eventId)
       .map((d) => events?.find((e) => e.event_id === d.target_event_id)?.name?.trim())
       .filter((name): name is string => Boolean(name));
+
+  // Para el modal de detalle: cada plazo dependiente emparejado con el NOMBRE
+  // real del evento que calcula (resuelto por target_event_id), no con
+  // `deadline.name` -- que es apenas la descripción textual con la que se
+  // extrajo el plazo y puede divergir del evento realmente resuelto si el
+  // matching por nombre/fuzzy de `materializer.py` fusionó la cita con un
+  // evento ya existente de nombre distinto.
+  const getDependentsForModal = (eventId: string) =>
+    getDependentDeadlines(eventId).map((deadline) => ({
+      deadline,
+      eventName: events?.find((e) => e.event_id === deadline.target_event_id)?.name?.trim() || deadline.name,
+    }));
 
   const isInferred = (e: EventResponse): boolean => e.source_reference?.mencion_propia === false;
   const byInferredFirst = (a: EventResponse, b: EventResponse) =>
@@ -226,7 +238,7 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
         eventsWithDate.length > 0 ? (
           <TimelineVerticalView
             events={chronologicalEventsWithDate as ConfirmedEvent[]}
-            getDependentDeadlines={getDependentDeadlines}
+            getDependentsForModal={getDependentsForModal}
             getDependentEventNames={getDependentEventNames}
             onViewSource={onViewSource}
           />
@@ -260,7 +272,6 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
               <div className="space-y-2.5">
                 {eventsWithDate.map((event) => {
                   const dependency = getEventDependency(event.event_id);
-                  const dependentDeadlines = getDependentDeadlines(event.event_id);
                   const confirmedEvent = event as ConfirmedEvent;
                   const isPast = event.event_date !== null && event.event_date < todayIso;
                   const isNext = nextUpcomingEvent?.event_id === event.event_id;
@@ -271,7 +282,7 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
                       event={confirmedEvent}
                       deadline={dependency?.deadline}
                       triggerEvent={dependency?.triggerEvent}
-                      dependentDeadlines={dependentDeadlines}
+                      dependents={getDependentsForModal(event.event_id)}
                       dependentEventNames={getDependentEventNames(event.event_id)}
                       isPast={isPast}
                       isNext={isNext}
@@ -310,6 +321,7 @@ export function TimelineTab({ analysisId, onViewSource }: TimelineTabProps) {
                     return (
                       <PendingEventCard
                         key={event.event_id}
+                        analysisId={analysisId}
                         event={event}
                         hasDependents={hasEventDependents(event.event_id)}
                         dependentEventNames={getDependentEventNames(event.event_id)}

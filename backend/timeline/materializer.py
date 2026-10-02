@@ -44,6 +44,7 @@ import difflib
 import logging
 import re
 import unicodedata
+from collections import defaultdict
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -344,6 +345,42 @@ def _parse_iso_date(value: str | None) -> date | None:
         return None
 
 
+def _compute_highlight_regions(
+    *,
+    document_id: str | None,
+    page: int | None,
+    fragment: str | None,
+    blob_paths: dict[str, str],
+    chunks_by_doc_page: dict[tuple[str, int], list[dict]],
+    correlation_id: str,
+) -> list[dict[str, float]]:
+    """Coordenadas de highlight para una cita de Timeline (Event/Deadline).
+
+    Reutiliza el mismo cálculo que ya usan las narrativas de categorías/preview
+    (`analysis/extraction/highlight/highlight.py::compute_highlights_for_sources`,
+    PyMuPDF + fallback de geometría OCR para PDFs escaneados) -- Timeline nunca
+    tuvo esto: el botón "ver fuente" dependía de una búsqueda de texto en vivo
+    del lado del frontend (mucho más frágil, y en un pliego 100% escaneado --
+    sin capa de texto -- no encuentra nada). Bug real, Corrientes 2026-10-01."""
+    if not document_id or not page or not fragment:
+        return []
+    if not blob_paths.get(document_id):
+        return []
+
+    from analysis.extraction.highlight.highlight import compute_highlights_for_sources
+
+    enriched = compute_highlights_for_sources(
+        [{"document_id": document_id, "page_number": page, "citation": fragment}],
+        blob_paths,
+        correlation_id,
+        category_key="timeline",
+        chunks_by_doc_page=chunks_by_doc_page,
+    )
+    if not enriched:
+        return []
+    return enriched[0].get("highlight_regions") or []
+
+
 def _refresh_stale_source(
     db: Session,
     event: Event,
@@ -352,6 +389,9 @@ def _refresh_stale_source(
     source_page: int | None,
     source_fragment: str | None,
     detalle: str | None = None,
+    blob_paths: dict[str, str] | None = None,
+    chunks_by_doc_page: dict[tuple[str, int], list[dict]] | None = None,
+    correlation_id: str = "",
 ) -> None:
     """
     BUG real (Santa Fe, encontrado 2026-09-21): un evento que ya existe
@@ -398,6 +438,15 @@ def _refresh_stale_source(
         event.source_fragment = trimmed_fragment
     if trimmed_detalle:
         event.detalle = trimmed_detalle
+    if blob_paths is not None and chunks_by_doc_page is not None:
+        event.highlight_regions = _compute_highlight_regions(
+            document_id=event.source_document_id,
+            page=event.source_page,
+            fragment=event.source_fragment,
+            blob_paths=blob_paths,
+            chunks_by_doc_page=chunks_by_doc_page,
+            correlation_id=correlation_id,
+        )
     event.updated_at = datetime.now(UTC)
     repository.update_event(db, event)
 
@@ -416,6 +465,10 @@ def _find_or_create_event(
     detalle: str | None = None,
     result: MaterializeResult,
     mencion_propia: bool = True,
+    refresh_existing: bool = True,
+    blob_paths: dict[str, str] | None = None,
+    chunks_by_doc_page: dict[tuple[str, int], list[dict]] | None = None,
+    correlation_id: str = "",
 ) -> Event:
     """
     Busca `name` en `index` (eventos ya existentes + creados en esta
@@ -426,6 +479,24 @@ def _find_or_create_event(
     salvo que el evento ya esté confirmado o con fecha manual. La función
     sigue siendo idempotente si se vuelve a llamar con la misma extracción
     (no hay cambio real, `_refresh_stale_source` no escribe nada).
+
+    `refresh_existing=False` (BUG real, Corrientes 2026-10-01): al procesar
+    un plazo relativo, `materialize_timeline_from_extraction` llama esta
+    función dos veces con la MISMA cita -- una para el evento target
+    (`descripcion`, dueño legítimo de esa cita) y otra para el evento
+    trigger (`evento_disparador`, que solo está siendo REFERENCIADO acá, no
+    describiéndose a sí mismo). Si el trigger ya existe como evento propio
+    (con su propia cita real, de su propio ítem en `eventos_temporales`),
+    refrescarlo con la cita del ítem dependiente le pisa la cita correcta
+    por la del hito ajeno que lo menciona -- encontrado en Corrientes:
+    "Apertura de Ofertas" (cita propia: "FECHA APERTURA: 05/08/2026...")
+    terminaba mostrando la cita de "Presentación de Consultas Técnicas"
+    ("las consultas se recibirán..."), que solo lo nombra como disparador.
+    El caller pasa `refresh_existing=False` al resolver el trigger: si no
+    existe, igual se crea con esta cita prestada (mejor que nada para un
+    evento que el pliego nunca menciona por sí solo, `mencion_propia=False`)
+    pero si ya existe, se deja como está -- su propia cita, si la tiene,
+    nunca se pisa por la de quien lo referencia.
 
     `fuzzy_candidates` (default: `index`) es el subconjunto contra el que
     se permite matchear por substring/tokens/difflib (tiers 2-4 de
@@ -449,17 +520,32 @@ def _find_or_create_event(
     """
     match = _find_matching_event(name, index, fuzzy_candidates=fuzzy_candidates)
     if match is not None:
-        _refresh_stale_source(
-            db,
-            match,
-            source_document_id=source_document_id,
-            source_page=source_page,
-            source_fragment=source_fragment,
-            detalle=detalle,
-        )
+        if refresh_existing:
+            _refresh_stale_source(
+                db,
+                match,
+                source_document_id=source_document_id,
+                source_page=source_page,
+                source_fragment=source_fragment,
+                detalle=detalle,
+                blob_paths=blob_paths,
+                chunks_by_doc_page=chunks_by_doc_page,
+                correlation_id=correlation_id,
+            )
         return match
 
     parsed_date = _parse_iso_date(fecha_explicita)
+    trimmed_fragment = source_fragment[:500] if source_fragment else None
+    highlight_regions: list[dict[str, float]] = []
+    if blob_paths is not None and chunks_by_doc_page is not None:
+        highlight_regions = _compute_highlight_regions(
+            document_id=source_document_id,
+            page=source_page,
+            fragment=trimmed_fragment,
+            blob_paths=blob_paths,
+            chunks_by_doc_page=chunks_by_doc_page,
+            correlation_id=correlation_id,
+        )
     event = Event(
         partition_key=analysis_id,
         analysis_id=analysis_id,
@@ -469,9 +555,10 @@ def _find_or_create_event(
         status="pending",
         source_document_id=source_document_id,
         source_page=source_page,
-        source_fragment=source_fragment[:500] if source_fragment else None,
+        source_fragment=trimmed_fragment,
         detalle=detalle[:500] if detalle else None,
         source_reference={"mencion_propia": mencion_propia},
+        highlight_regions=highlight_regions,
     )
     created = repository.create_event(db, event)
     index.append(created)
@@ -498,12 +585,41 @@ def _deadline_already_exists(
     )
 
 
+_SAME_PLAZO_MIN_CITATION_LENGTH = 30
+
+
+def _citations_describe_same_plazo(a: str | None, b: str | None) -> bool:
+    """¿Dos citas son, en la práctica, la MISMA oración del pliego?
+
+    BUG real (Corrientes, 2026-10-02): "Mejora de Precios" tenía 3 `Deadline`
+    separados, los 3 citando la MISMA oración de la página 6 ("En caso de
+    empate... se llamará... mejora de precios dentro del término de tres (3)
+    días hábiles") -- esa oración NUNCA nombra su disparador explícitamente,
+    así que 3 corridas no determinísticas de extracción le adivinaron 3
+    disparadores DISTINTOS ("Notificación de la Adjudicación", "Apertura de
+    Ofertas", "Adjudicación Definitiva"). Como `_deadline_already_exists`
+    compara por `trigger_event_id` (que difiere en los 3), ninguno se
+    reconocía como duplicado del otro.
+
+    Sustring normalizado en cualquier dirección (no igualdad exacta): la
+    extracción a veces incluye más o menos contexto alrededor de la misma
+    oración (ej. con o sin la oración siguiente)."""
+    norm_a = _normalize(a or "")
+    norm_b = _normalize(b or "")
+    if len(norm_a) < _SAME_PLAZO_MIN_CITATION_LENGTH or len(norm_b) < _SAME_PLAZO_MIN_CITATION_LENGTH:
+        return False
+    return norm_a in norm_b or norm_b in norm_a
+
+
 def materialize_timeline_from_extraction(
     db: Session,
     analysis_id: str,
     created_by: str | None,
     eventos_temporales: list[dict[str, Any]],
     plazos_relativos: list[dict[str, Any]],
+    *,
+    correlation_id: str | None = None,
+    document_id_to_blob_path: dict[str, str] | None = None,
 ) -> MaterializeResult:
     """
     Puebla el Timeline (`Event`/`Deadline`) de `analysis_id` a partir de lo
@@ -518,8 +634,45 @@ def materialize_timeline_from_extraction(
     `result.skipped` y se saltean. Errores de datos inesperados sí se
     propagan; el caller (`extract_categories`) los atrapa para que un fallo
     acá nunca bloquee que el análisis se marque como analizado.
-    """
+
+    `document_id_to_blob_path` (BUG real, Corrientes 2026-10-01): Timeline
+    nunca calculaba `highlight_regions` para sus citas -- a diferencia de las
+    narrativas de categorías/preview, que ya usan
+    `analysis/extraction/highlight/highlight.py`. Si el caller no lo pasa
+    (ya lo tiene en `GraphState["document_id_to_blob_path"]` de una corrida
+    completa del grafo), se construye acá mismo para no romper callers viejos
+    (tests, reanálisis aislados) -- el costo (descarga del/los PDF) se paga
+    una sola vez por llamada, no por evento.
+
+    SEGUNDO BUG real (mismo día): `document_id_to_blob_path` que sí pasan los
+    3 callers (`runner.py` x2, `lifecycle.py`) apunta a los PDFs temporales
+    que la corrida del grafo ya descargó -- pero `synthesize_node` los borra
+    como su propio paso de limpieza (`_cleanup_temp_highlights`) ANTES de
+    retornar, y esta función se llama recién DESPUÉS de que el grafo entero
+    terminó. Resultado: todas las rutas venían apuntando a archivos ya
+    borrados (0% de `highlight_regions` en Timeline, confirmado en vivo contra
+    Corrientes). Se valida que los archivos existan de verdad y, si no, se
+    reconstruye el mapeo (nueva descarga) en vez de confiar ciegamente en lo
+    que mandó el caller."""
     result = MaterializeResult()
+
+    correlation_id = correlation_id or analysis_id
+
+    def _mapping_is_stale(mapping: dict[str, str]) -> bool:
+        from pathlib import Path
+
+        return bool(mapping) and not all(Path(path).exists() for path in mapping.values())
+
+    if document_id_to_blob_path is None or _mapping_is_stale(document_id_to_blob_path):
+        from analysis.extraction.graph.documents import _build_document_mapping
+
+        document_id_to_blob_path = _build_document_mapping(analysis_id, db)
+
+    chunks_by_doc_page: dict[tuple[str, int], list[dict]] = {}
+    if document_id_to_blob_path:
+        from analysis.extraction.graph.nodes import _build_chunk_indexes
+
+        _, chunks_by_doc_page = _build_chunk_indexes(analysis_id, correlation_id)
 
     # Foto de la base antes de tocar nada: los tiers 2-4 de matching solo reconcilian contra corridas anteriores, nunca contra un evento creado en este mismo `for`.
     pre_existing: list[Event] = list(repository.list_events(db, analysis_id))
@@ -559,6 +712,9 @@ def materialize_timeline_from_extraction(
             detalle=item.get("accion_concreta"),
             result=result,
             mencion_propia=bool(item.get("mencion_propia", True)),
+            blob_paths=document_id_to_blob_path,
+            chunks_by_doc_page=chunks_by_doc_page,
+            correlation_id=correlation_id,
         )
         touched_event_ids.add(event.event_id)
 
@@ -611,6 +767,9 @@ def materialize_timeline_from_extraction(
             source_page=source_page,
             source_fragment=source_fragment,
             result=result,
+            blob_paths=document_id_to_blob_path,
+            chunks_by_doc_page=chunks_by_doc_page,
+            correlation_id=correlation_id,
         )
         trigger = _find_or_create_event(
             db,
@@ -624,6 +783,12 @@ def materialize_timeline_from_extraction(
             result=result,
             # Sin match acá: el LLM no le dio su propio ítem en eventos_temporales; se crea igual sin mención propia conocida.
             mencion_propia=False,
+            # Esta cita es la del ítem DEPENDIENTE (descripcion), no la del trigger -- si el trigger
+            # ya existe con su propia cita real, no pisarla con la de quien solo lo referencia.
+            refresh_existing=False,
+            blob_paths=document_id_to_blob_path,
+            chunks_by_doc_page=chunks_by_doc_page,
+            correlation_id=correlation_id,
         )
         touched_event_ids.add(target.event_id)
         touched_event_ids.add(trigger.event_id)
@@ -652,6 +817,7 @@ def materialize_timeline_from_extraction(
         ):
             continue
 
+        trimmed_deadline_fragment = source_fragment[:500] if source_fragment else None
         deadline = Deadline(
             partition_key=analysis_id,
             analysis_id=analysis_id,
@@ -665,7 +831,15 @@ def materialize_timeline_from_extraction(
             es_plazo_maximo=bool(item.get("es_plazo_maximo", False)),
             source_document_id=source_document_id,
             source_page=source_page,
-            source_fragment=source_fragment[:500] if source_fragment else None,
+            source_fragment=trimmed_deadline_fragment,
+            highlight_regions=_compute_highlight_regions(
+                document_id=source_document_id,
+                page=source_page,
+                fragment=trimmed_deadline_fragment,
+                blob_paths=document_id_to_blob_path,
+                chunks_by_doc_page=chunks_by_doc_page,
+                correlation_id=correlation_id,
+            ),
         )
         created_deadline = repository.create_deadline(db, deadline)
         existing_deadlines.append(created_deadline)
@@ -694,6 +868,57 @@ def materialize_timeline_from_extraction(
                 pruned_deadline = deadline.model_copy(
                     update={"deleted": True, "updated_at": datetime.now(UTC)}
                 )
+                repository.update_deadline(db, pruned_deadline)
+                result.deadlines_pruned += 1
+
+    # 3b. Deduplicación de plazos redundantes: mismo evento resultado + misma
+    # oración citada (ver `_citations_describe_same_plazo`) con distinto
+    # disparador ADIVINADO por la no-determinación de la extracción. Se hace
+    # DESPUÉS de la reconciliación (sobre el estado ya podado) para no pelear
+    # contra ella, y releyendo de la base (no `existing_deadlines`, que puede
+    # traer filas que la reconciliación de arriba ya marcó `deleted`).
+    current_deadlines = [d for d in repository.list_deadlines(db, analysis_id) if d.target_event_id]
+    deadlines_by_target: dict[str, list[Deadline]] = defaultdict(list)
+    for d in current_deadlines:
+        deadlines_by_target[d.target_event_id].append(d)
+
+    def _trigger_event_date(trigger_event_id: str | None) -> date | None:
+        if not trigger_event_id:
+            return None
+        trigger = next((e for e in index if e.event_id == trigger_event_id), None)
+        return trigger.event_date if trigger else None
+
+    for group in deadlines_by_target.values():
+        if len(group) < 2:
+            continue
+        clusters: list[list[Deadline]] = []
+        for d in group:
+            cluster = next(
+                (
+                    c
+                    for c in clusters
+                    if _citations_describe_same_plazo(c[0].source_fragment, d.source_fragment)
+                ),
+                None,
+            )
+            if cluster is not None:
+                cluster.append(d)
+            else:
+                clusters.append([d])
+
+        for cluster in clusters:
+            if len(cluster) < 2:
+                continue
+            # El que tenga un disparador CON fecha va primero (es el único que de
+            # verdad "resolvió" algo); entre empates, el más viejo (menor
+            # `created_at` ya es el orden de `cluster` porque `current_deadlines`
+            # viene ordenado `desc(created_at)` -- se invierte para preferir el
+            # original sobre reintentos posteriores).
+            cluster.reverse()
+            cluster.sort(key=lambda dl: _trigger_event_date(dl.trigger_event_id) is None)
+            _keeper, *redundant = cluster
+            for extra in redundant:
+                pruned_deadline = extra.model_copy(update={"deleted": True, "updated_at": datetime.now(UTC)})
                 repository.update_deadline(db, pruned_deadline)
                 result.deadlines_pruned += 1
 

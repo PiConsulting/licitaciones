@@ -32,6 +32,7 @@ def _event_to_pydantic(row: EventORM) -> Event:
         source_reference=row.source_reference,
         deleted=row.deleted,
         hidden=row.hidden,
+        highlight_regions=row.highlight_regions,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -52,6 +53,7 @@ def create_event(db: Session, event: Event) -> Event:
         source_reference=event.source_reference,
         deleted=event.deleted,
         hidden=event.hidden,
+        highlight_regions=event.highlight_regions,
         created_at=event.created_at,
         updated_at=event.updated_at,
     )
@@ -86,6 +88,7 @@ def update_event(db: Session, event: Event) -> Event:
     row.source_reference = event.source_reference
     row.deleted = event.deleted
     row.hidden = event.hidden
+    row.highlight_regions = event.highlight_regions
     row.updated_at = event.updated_at
     db.commit()
     db.refresh(row)
@@ -136,6 +139,7 @@ def _deadline_to_pydantic(row: DeadlineORM) -> Deadline:
         source_fragment=row.source_fragment,
         source_reference=row.source_reference,
         deleted=row.deleted,
+        highlight_regions=row.highlight_regions,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -161,6 +165,7 @@ def create_deadline(db: Session, deadline: Deadline) -> Deadline:
         source_fragment=deadline.source_fragment,
         source_reference=deadline.source_reference,
         deleted=deadline.deleted,
+        highlight_regions=deadline.highlight_regions,
         created_at=deadline.created_at,
         updated_at=deadline.updated_at,
     )
@@ -200,6 +205,7 @@ def update_deadline(db: Session, deadline: Deadline) -> Deadline:
     row.source_fragment = deadline.source_fragment
     row.source_reference = deadline.source_reference
     row.deleted = deadline.deleted
+    row.highlight_regions = deadline.highlight_regions
     row.updated_at = deadline.updated_at
     db.commit()
     db.refresh(row)

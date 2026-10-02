@@ -7,6 +7,7 @@ from typing import Any
 import structlog
 
 from analysis.extraction.engine.base import run_extractor
+from analysis.extraction.engine.item_merging import _merge_singleton_tipo_duplicates
 from analysis.extraction.engine.normalization import _aggregate_status
 from analysis.extraction.schemas import TipoCriterioPreview
 from analysis.extraction.state import GraphState
@@ -302,6 +303,29 @@ def _currency_name_snippet(item: dict) -> str | None:
     return None
 
 
+# Guardia de contenido (Corrientes, bug real: "moneda" terminaba con un item cuyo
+# valor era "pesos" pero cuya cita entera describía el MECANISMO de conversión del
+# tipo de cambio -- "en el equivalente en pesos al tipo de cambio vendedor
+# vigente" -- no una declaración de la moneda de cotización. Ese contenido
+# pertenece a `tipo_cambio` (que YA lo captura como su propio item); dejarlo
+# también en moneda/forma_pago produce un segundo item con un `valor` distinto
+# al genuino, que `merge_node` marca como "conflicto" sin serlo. Genérico: no
+# depende de ningún pliego puntual, solo de que la cita hable del mecanismo de
+# tipo de cambio en vez de nombrar la moneda/forma de pago en sí.
+_TIPO_CAMBIO_MECANISMO_RE = re.compile(
+    r"tipo\s+de\s+cambio\s+(?:vendedor|comprador|oficial|de\s+referencia)?\s*"
+    r"(?:vigente|fijado|establecido|aplicable)",
+    re.IGNORECASE,
+)
+
+
+def _is_tipo_cambio_mecanismo(item: dict) -> bool:
+    texts = [str(item.get("valor") or "")]
+    for ref in item.get("source_references") or []:
+        texts.append(str(ref.get("citation_llm") or ref.get("citation") or ""))
+    return bool(_TIPO_CAMBIO_MECANISMO_RE.search(_normalize(" ".join(texts))))
+
+
 def _has_cost_responsible_party(valor: str | None) -> bool:
     return bool(valor) and bool(_COSTO_RESPONSABLE_SNIPPET_RE.search(str(valor)))
 
@@ -349,6 +373,11 @@ def _apply_content_guards(items: list[dict]) -> list[dict]:
     result = []
     for item in items:
         tipo = _tipo_value(item.get("tipo"))
+        if tipo in ("moneda", "forma_pago") and _is_tipo_cambio_mecanismo(item):
+            # Se descarta (no se reemplaza por not_found): el mecanismo de tipo de
+            # cambio ya tiene su propio item bajo `tipo_cambio`, y moneda/forma_pago
+            # pueden tener legítimamente otro item real que sí les corresponde.
+            continue
         if tipo == "forma_pago" and _is_descuento_multas_sobre_factura(item.get("valor")):
             # Se descarta (no se reemplaza por not_found): a diferencia de
             # moneda/responsabilidad_costos_logisticos, forma_pago puede tener
@@ -392,6 +421,21 @@ def extractor_preview_criterios(state: GraphState) -> GraphState:
     projected += _project_requisitos_tecnicos(state.get("requisitos_admisibilidad", []))
 
     combined = _apply_content_guards([*llm_items, *projected])
+
+    # El map-reduce por documento (`run_extractor`/`_split_oversized_groups`) puede
+    # devolver más de un item de `forma_pago`/`tipo_cambio` -- cada lote ve un
+    # subconjunto distinto de chunks y puede citar una cláusula distinta sobre el
+    # mismo concepto (ej. "cuándo se paga" y "quién paga" son dos items separados
+    # de forma_pago, no una contradicción). Antes esto sobrevivía como 2 items con
+    # `valor` distinto y `merge_node` lo marcaba como "conflicto" sin serlo (bug
+    # real: Corrientes). Acotado a estos 2 tipos (no a los 10) para no repetir la
+    # regresión de 2026-10-01 -- ver memoria `corrientes-preview-criterios-regresion-revertida-2026-10-01`.
+    combined = _merge_singleton_tipo_duplicates(
+        combined,
+        {"forma_pago", "tipo_cambio"},
+        category="preview_criterios",
+        correlation_id=state.get("correlation_id", ""),
+    )
 
     # Red de seguridad: garantiza que los 10 tipos de TipoCriterioPreview siempre estén representados, aunque el LLM omita alguno.
     tipos_presentes = {_tipo_value(item.get("tipo")) for item in combined}

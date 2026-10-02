@@ -69,6 +69,7 @@ def get_timeline_events(
             "source_reference": event.source_reference,
             "deleted": event.deleted,
             "hidden": event.hidden,
+            "highlight_regions": event.highlight_regions,
             "created_at": event.created_at.isoformat(),
             "updated_at": event.updated_at.isoformat(),
         }
@@ -117,6 +118,8 @@ def get_timeline_deadlines(
             "calculation_error": deadline.calculation_error,
             "source_document_id": deadline.source_document_id,
             "source_page": deadline.source_page,
+            "source_fragment": deadline.source_fragment,
+            "highlight_regions": deadline.highlight_regions,
             "deleted": deadline.deleted,
             "created_at": deadline.created_at.isoformat(),
             "updated_at": deadline.updated_at.isoformat(),
@@ -180,6 +183,7 @@ def create_timeline_event(
         "source_reference": created_event.source_reference,
         "deleted": created_event.deleted,
         "hidden": created_event.hidden,
+        "highlight_regions": created_event.highlight_regions,
         "created_at": created_event.created_at.isoformat(),
         "updated_at": created_event.updated_at.isoformat(),
     }
@@ -253,6 +257,7 @@ def update_timeline_event(
         "source_reference": updated_event.source_reference,
         "deleted": updated_event.deleted,
         "hidden": updated_event.hidden,
+        "highlight_regions": updated_event.highlight_regions,
         "created_at": updated_event.created_at.isoformat(),
         "updated_at": updated_event.updated_at.isoformat(),
     }
@@ -320,6 +325,7 @@ def set_timeline_event_hidden(
         "source_reference": updated_event.source_reference,
         "deleted": updated_event.deleted,
         "hidden": updated_event.hidden,
+        "highlight_regions": updated_event.highlight_regions,
         "created_at": updated_event.created_at.isoformat(),
         "updated_at": updated_event.updated_at.isoformat(),
     }

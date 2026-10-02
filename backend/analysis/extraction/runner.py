@@ -285,6 +285,8 @@ def extract_categories(db: Session, analysis: Analysis) -> GraphState:
             created_by=analysis.created_by,
             eventos_temporales=timeline_eventos,
             plazos_relativos=timeline_plazos,
+            correlation_id=analysis.correlation_id,
+            document_id_to_blob_path=result.get("document_id_to_blob_path"),
         )
         logger.info(
             "timeline_materialized",
@@ -503,6 +505,8 @@ def extract_categories_phase2(
             created_by=analysis.created_by,
             eventos_temporales=timeline_eventos,
             plazos_relativos=timeline_plazos,
+            correlation_id=analysis.correlation_id,
+            document_id_to_blob_path=result.get("document_id_to_blob_path"),
         )
         logger.info(
             "timeline_materialized_phase2",

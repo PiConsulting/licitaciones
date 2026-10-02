@@ -55,6 +55,12 @@ class EventORM(Base):
     deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # No hay Alembic en este repo -- columna agregada por migración manual (ALTER TABLE).
     hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Coordenadas pre-computadas (PyMuPDF + fallback OCR, ver `analysis/extraction/highlight/highlight.py`)
+    # para el mismo fragmento de `source_fragment` -- columna agregada por migración manual
+    # (ALTER TABLE, 2026-10-01). Antes Timeline no tenía esto en absoluto: "ver fuente" dependía
+    # de una búsqueda de texto en vivo del lado del frontend, que no encuentra nada en un pliego
+    # escaneado sin capa de texto (bug real, Corrientes).
+    highlight_regions: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
@@ -111,6 +117,7 @@ class DeadlineORM(Base):
     source_fragment: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_reference: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    highlight_regions: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )

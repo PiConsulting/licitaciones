@@ -2,8 +2,9 @@ import { useEffect, useRef } from "react";
 import { ArrowRight } from "lucide-react";
 import { Badge, BadgeTone } from "../Badge";
 import { Button } from "../Button";
-import type { DeadlineResponse, EventResponse, CalculationStatus } from "../../types/timeline";
+import type { DeadlineResponse, EventResponse, CalculationStatus, HighlightRegion } from "../../types/timeline";
 import { formatEventDate } from "../../utils/dates";
+import { formatDeadlineDuration } from "../../utils/deadlineFormat";
 import { SourceReference } from "./SourceReference";
 
 interface DeadlineDetailModalProps {
@@ -12,19 +13,13 @@ interface DeadlineDetailModalProps {
   targetEvent?: EventResponse;
   open: boolean;
   onClose: () => void;
-  onViewSource?: (documentId: string, page: number, fragment?: string) => void;
+  onViewSource?: (documentId: string, page: number, fragment?: string, highlightRegions?: HighlightRegion[]) => void;
 }
 
 const STATUS_CONFIG: Record<CalculationStatus, { label: string; tone: BadgeTone }> = {
   calculated: { label: "Calculada", tone: "success" },
   pending: { label: "Pendiente", tone: "neutral" },
   error: { label: "Error", tone: "error" },
-};
-
-const DAY_TYPE_LABEL: Record<string, string> = {
-  corridos: "corridos",
-  hábiles: "hábiles",
-  no_especificado: "(tipo no especificado)",
 };
 
 export function DeadlineDetailModal({
@@ -37,13 +32,12 @@ export function DeadlineDetailModal({
 }: DeadlineDetailModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const statusConfig = STATUS_CONFIG[deadline.calculation_status];
-  const dayTypeLabel = DAY_TYPE_LABEL[deadline.day_type] || deadline.day_type;
   const hasError = deadline.calculation_status === "error";
   const hasSource = typeof deadline.source_document_id === 'string' && typeof deadline.source_page === 'number';
 
   const handleViewSource = () => {
     if (hasSource && onViewSource) {
-      onViewSource(deadline.source_document_id, deadline.source_page, deadline.source_fragment);
+      onViewSource(deadline.source_document_id, deadline.source_page, deadline.source_fragment, deadline.highlight_regions);
     }
   };
 
@@ -66,6 +60,11 @@ export function DeadlineDetailModal({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       role="dialog"
       aria-modal="true"
+      // DependencyIndicator renderiza este modal DENTRO del div clickeable de EventCard (no como
+      // hermano, como el resto de los modales) -- sin esto, cualquier click acá adentro (ej. "Cerrar")
+      // burbujea hasta ese div y dispara handleCardClick, abriendo EventDetailModal por debajo
+      // (bug real: cerrar este modal abría el de detalle del evento).
+      onClick={(e) => e.stopPropagation()}
     >
       <div 
         ref={modalRef}
@@ -90,9 +89,7 @@ export function DeadlineDetailModal({
               <div className="flex flex-col items-center px-4">
                 <ArrowRight className="w-6 h-6 text-blue-600" />
                 <div className="text-sm font-medium text-blue-900 mt-2 text-center">
-                  {deadline.duration} {deadline.unit}
-                  <br />
-                  {dayTypeLabel}
+                  {formatDeadlineDuration(deadline)}
                 </div>
               </div>
 

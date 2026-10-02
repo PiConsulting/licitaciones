@@ -401,17 +401,31 @@ export function AnalysisDetailPage({ analysisId }: AnalysisDetailPageProps) {
       content: (
         <TimelineTab
           analysisId={analysisId}
-          onViewSource={(documentId, page, fragment) => {
+          onViewSource={(documentId, page, fragment, highlightRegions) => {
+            const documentName = documentsById.get(documentId)?.filename ?? "Documento";
             setSelectedDocumentId(documentId);
             setSelectedCitation({
-              // Sin fragment, el PDFViewer navega a la página pero no resalta texto.
+              // Sin highlight_regions (análisis viejo, sin recalcular), el PDFViewer navega a la página pero no resalta texto -- ver `timeline/materializer.py::_compute_highlight_regions`.
               text: fragment ?? "",
               page,
               document_id: documentId,
-              document_name: documentsById.get(documentId)?.filename ?? "Documento",
+              document_name: documentName,
             });
             setSelectedCitations([]);
-            setSelectedSources([]);
+            setSelectedSources(
+              highlightRegions && highlightRegions.length > 0
+                ? [
+                    {
+                      id: 0,
+                      document_id: documentId,
+                      document_name: documentName,
+                      page,
+                      text: fragment ?? "",
+                      highlight_regions: highlightRegions,
+                    },
+                  ]
+                : []
+            );
             setShowPdfViewer(true);
           }}
         />

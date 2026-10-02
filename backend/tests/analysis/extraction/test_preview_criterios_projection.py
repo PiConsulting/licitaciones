@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from analysis.extraction.extractors.preview_criterios import (
     _apply_content_guards,
+    _is_tipo_cambio_mecanismo,
     _project_plazos_clave,
     _project_requisitos_tecnicos,
 )
@@ -354,3 +355,51 @@ def test_apply_content_guards_no_falso_positivo_en_forma_pago_real() -> None:
 
     assert len(guarded) == 1
     assert guarded[0]["extraction_status"] == "success"
+
+
+def test_apply_content_guards_descarta_moneda_que_es_mecanismo_de_tipo_de_cambio() -> None:
+    """Bug real (Corrientes): un segundo item de "moneda" con valor "pesos"
+    citaba "en el equivalente en pesos al tipo de cambio vendedor vigente" --
+    eso describe el MECANISMO de conversión (ya cubierto por su propio item
+    `tipo_cambio`), no la moneda de cotización. Convivía con el item genuino
+    ("USD") y `merge_node` marcaba un falso "conflicto" entre ambos."""
+    items = [
+        _preview_item(
+            "moneda",
+            "USD (Dólares Estadounidenses) con IVA incluido",
+            "Las ofertas deberán ser presentadas en USD (Dólares Estadounidenses) con IVA incluido",
+        ),
+        _preview_item(
+            "moneda",
+            "pesos",
+            "en el equivalente en pesos al tipo de cambio vendedor vigente",
+        ),
+    ]
+
+    guarded = _apply_content_guards(items)
+
+    assert len(guarded) == 1
+    assert "USD" in str(guarded[0]["valor"])
+
+
+def test_apply_content_guards_descarta_forma_pago_que_es_mecanismo_de_tipo_de_cambio() -> None:
+    """Misma guardia, genérica (no exclusiva de moneda): si la cita de un
+    item de forma_pago en realidad describe el mecanismo de tipo de cambio,
+    pertenece a `tipo_cambio`, no a forma_pago."""
+    items = [
+        _preview_item(
+            "forma_pago",
+            "al tipo de cambio comprador fijado por el Banco Central",
+            "se abonará al tipo de cambio comprador fijado por el Banco Central",
+        ),
+    ]
+
+    guarded = _apply_content_guards(items)
+
+    assert guarded == []
+
+
+def test_is_tipo_cambio_mecanismo_no_falso_positivo_sin_vocabulario_de_mecanismo() -> None:
+    item = _preview_item("moneda", "pesos argentinos", "Los precios se cotizarán en pesos argentinos.")
+
+    assert _is_tipo_cambio_mecanismo(item) is False

@@ -4,7 +4,7 @@ documento) -> normalización -> merge -> verificación de citas."""
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, Callable
 
 import structlog
 
@@ -57,6 +57,14 @@ def run_extractor(
     status_field: str,
     prompt_file_name: str,
     query: str,
+    # Hook opcional para categorías con necesidades de verificación propias que
+    # necesitan los `chunks` recuperados (ej. eventos_temporales: usa su propio
+    # esquema de citas `fuente_*` en vez de `source_references`, así que
+    # `_verify_citation_grounding` lo saltea por completo -- ver
+    # `eventos_temporales.py::_verify_hito_citations`). Corre después de la
+    # verificación de citas estándar y de la detección de contaminación cruzada.
+    post_process: Callable[[list[dict[str, Any]], list[dict[str, Any]]], list[dict[str, Any]]]
+    | None = None,
 ) -> GraphState:
     correlation_id = state["correlation_id"]
     analysis_id = state["analysis_id"]
@@ -341,6 +349,9 @@ def run_extractor(
                 category=result_key,
                 contaminated_count=len(contaminated),
             )
+
+        if post_process is not None:
+            delta[state_field] = post_process(delta[state_field], chunks)
 
         delta[status_field] = _aggregate_status(delta[state_field])
         logger.info(

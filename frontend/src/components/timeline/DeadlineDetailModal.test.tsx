@@ -201,7 +201,7 @@ describe("DeadlineDetailModal", () => {
     const viewButton = screen.getByLabelText(/ver fuente en el pliego/i);
     await user.click(viewButton);
 
-    expect(onViewSource).toHaveBeenCalledWith("doc-123", 5, undefined);
+    expect(onViewSource).toHaveBeenCalledWith("doc-123", 5, undefined, undefined);
   });
 
   test("shows pending date for trigger event when date is null", () => {

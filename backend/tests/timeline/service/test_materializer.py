@@ -786,6 +786,48 @@ class TestMaterializeSourceRefresh:
         assert event.source_page == 11
         assert "no adjudicadas" in event.source_fragment
 
+    def test_trigger_reference_never_overwrites_an_existing_trigger_own_citation(
+        self, db_session, analysis_id
+    ):
+        """Bug real (Corrientes, 2026-10-01): "Apertura de Ofertas" tiene su
+        propia cita ("FECHA APERTURA: 05/08/2026...") como ítem de
+        `eventos_temporales`. Otro hito, "Presentación de Consultas
+        Técnicas", lo referencia por nombre EXACTO como `evento_disparador`
+        en `plazos_relativos`, con SU PROPIA cita ("las consultas se
+        recibirán..."). Al resolver ese trigger, el materializador pasaba la
+        cita del ítem dependiente -- no la del trigger -- a
+        `_find_or_create_event`, que la usaba para "refrescar" el trigger ya
+        existente: terminaba pisando la cita correcta de "Apertura de
+        Ofertas" con una que no tiene relación con ese evento. El highlight
+        del Timeline apuntaba a la oración equivocada."""
+        materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[
+                _evento_temporal(
+                    "Apertura de Ofertas",
+                    fuente_documento_id="doc-1",
+                    fuente_pagina=1,
+                    fuente_fragmento="FECHA APERTURA: 05/08/2026 HORA: 10:00HS.",
+                )
+            ],
+            plazos_relativos=[
+                _plazo_relativo(
+                    "Presentación de Consultas Técnicas",
+                    "Apertura de Ofertas",
+                    fuente_documento_id="doc-1",
+                    fuente_pagina=32,
+                    fuente_fragmento="las consultas se recibirán... hasta 72 horas previas a la apertura de sobres.",
+                )
+            ],
+        )
+
+        events = {e.name: e for e in repository.list_events(db_session, analysis_id)}
+        trigger = events["Apertura de Ofertas"]
+        assert trigger.source_page == 1
+        assert trigger.source_fragment == "FECHA APERTURA: 05/08/2026 HORA: 10:00HS."
+
     def test_refresh_never_touches_confirmed_event(self, db_session, analysis_id):
         materialize_timeline_from_extraction(
             db_session,
@@ -862,3 +904,315 @@ class TestMaterializeSourceRefresh:
 
         assert after.updated_at == before.updated_at
         assert after.source_page == 5
+
+
+class TestMaterializeHighlightRegions:
+    """BUG real (Corrientes, 2026-10-01): a diferencia de las narrativas de
+    categorías/preview (`analysis/extraction/highlight/highlight.py`),
+    Timeline nunca calculaba `highlight_regions` para sus citas -- "ver
+    fuente" dependía de una búsqueda de texto en vivo del lado del frontend,
+    que no encuentra nada en un pliego escaneado sin capa de texto. Estos
+    tests mockean `compute_highlights_for_sources` (no corren PyMuPDF de
+    verdad) y verifican que el materializador llama ese cálculo y persiste
+    el resultado en Event/Deadline."""
+
+    def test_new_event_gets_highlight_regions_when_blob_path_available(
+        self, db_session, analysis_id, monkeypatch, tmp_path
+    ):
+        fake_regions = [{"x": 1.0, "y": 2.0, "width": 3.0, "height": 4.0}]
+        fake_pdf = tmp_path / "doc-1.pdf"
+        fake_pdf.write_bytes(b"%PDF-1.4 fake")
+
+        def _fake_compute(sources, blob_paths, correlation_id, *, category_key=None, chunks_by_doc_page=None):
+            return [{**sources[0], "highlight_regions": fake_regions}]
+
+        monkeypatch.setattr(
+            "analysis.extraction.highlight.highlight.compute_highlights_for_sources",
+            _fake_compute,
+        )
+
+        materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[
+                _evento_temporal(
+                    "Apertura de Ofertas",
+                    fuente_documento_id="doc-1",
+                    fuente_pagina=1,
+                    fuente_fragmento="FECHA APERTURA: 05/08/2026 HORA: 10:00HS.",
+                )
+            ],
+            plazos_relativos=[],
+            document_id_to_blob_path={"doc-1": str(fake_pdf)},
+        )
+
+        [event] = repository.list_events(db_session, analysis_id)
+        assert event.highlight_regions == fake_regions
+
+    def test_no_highlight_regions_without_blob_path(self, db_session, analysis_id):
+        """Sin `document_id_to_blob_path` (documento no disponible en blob
+        storage), `highlight_regions` queda vacío -- no debe romper nada."""
+        materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[
+                _evento_temporal(
+                    "Apertura de Ofertas",
+                    fuente_documento_id="doc-1",
+                    fuente_pagina=1,
+                    fuente_fragmento="FECHA APERTURA: 05/08/2026 HORA: 10:00HS.",
+                )
+            ],
+            plazos_relativos=[],
+            document_id_to_blob_path={},
+        )
+
+        [event] = repository.list_events(db_session, analysis_id)
+        assert event.highlight_regions == []
+
+    def test_rebuilds_mapping_when_passed_paths_no_longer_exist(
+        self, db_session, analysis_id, monkeypatch, tmp_path
+    ):
+        """BUG real (Corrientes, mismo día): `synthesize_node` borra los PDFs
+        temporales que descargó ANTES de que el caller (fuera del grafo)
+        invoque esta función -- el `document_id_to_blob_path` que llega
+        apunta a archivos que ya no existen. Debe reconstruir el mapeo en vez
+        de confiar ciegamente en las rutas recibidas."""
+        fresh_path = tmp_path / "fresh.pdf"
+        fresh_path.write_bytes(b"%PDF-1.4 fake")
+        stale_path = "/tmp/no-longer-exists/doc-1.pdf"
+
+        def _fake_rebuild(analysis_id, db):
+            return {"doc-1": str(fresh_path)}
+
+        monkeypatch.setattr(
+            "analysis.extraction.graph.documents._build_document_mapping",
+            _fake_rebuild,
+        )
+
+        seen_paths: list[str] = []
+
+        def _fake_compute(sources, blob_paths, correlation_id, *, category_key=None, chunks_by_doc_page=None):
+            seen_paths.append(blob_paths.get("doc-1"))
+            return [{**sources[0], "highlight_regions": [{"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0}]}]
+
+        monkeypatch.setattr(
+            "analysis.extraction.highlight.highlight.compute_highlights_for_sources",
+            _fake_compute,
+        )
+
+        materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[
+                _evento_temporal(
+                    "Apertura de Ofertas",
+                    fuente_documento_id="doc-1",
+                    fuente_pagina=1,
+                    fuente_fragmento="FECHA APERTURA: 05/08/2026 HORA: 10:00HS.",
+                )
+            ],
+            plazos_relativos=[],
+            document_id_to_blob_path={"doc-1": stale_path},
+        )
+
+        [event] = repository.list_events(db_session, analysis_id)
+        assert event.highlight_regions == [{"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0}]
+        assert seen_paths == [str(fresh_path)]
+
+    def test_refresh_recomputes_highlight_regions_for_changed_citation(
+        self, db_session, analysis_id, monkeypatch, tmp_path
+    ):
+        fake_pdf = tmp_path / "doc-1.pdf"
+        fake_pdf.write_bytes(b"%PDF-1.4 fake")
+
+        def _fake_compute(sources, blob_paths, correlation_id, *, category_key=None, chunks_by_doc_page=None):
+            citation = sources[0]["citation"]
+            region_x = 10.0 if "nueva" in citation else 1.0
+            return [{**sources[0], "highlight_regions": [{"x": region_x, "y": 0.0, "width": 1.0, "height": 1.0}]}]
+
+        monkeypatch.setattr(
+            "analysis.extraction.highlight.highlight.compute_highlights_for_sources",
+            _fake_compute,
+        )
+
+        materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[
+                _evento_temporal(
+                    "Hito refrescable",
+                    fuente_documento_id="doc-1",
+                    fuente_pagina=1,
+                    fuente_fragmento="cita vieja",
+                )
+            ],
+            plazos_relativos=[],
+            document_id_to_blob_path={"doc-1": str(fake_pdf)},
+        )
+        materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[
+                _evento_temporal(
+                    "Hito refrescable",
+                    fuente_documento_id="doc-1",
+                    fuente_pagina=1,
+                    fuente_fragmento="cita nueva",
+                )
+            ],
+            plazos_relativos=[],
+            document_id_to_blob_path={"doc-1": str(fake_pdf)},
+        )
+
+        [event] = repository.list_events(db_session, analysis_id)
+        assert event.source_fragment == "cita nueva"
+        assert event.highlight_regions == [{"x": 10.0, "y": 0.0, "width": 1.0, "height": 1.0}]
+
+    def test_deadline_gets_highlight_regions_when_blob_path_available(
+        self, db_session, analysis_id, monkeypatch, tmp_path
+    ):
+        fake_regions = [{"x": 5.0, "y": 6.0, "width": 7.0, "height": 8.0}]
+        fake_pdf = tmp_path / "doc-1.pdf"
+        fake_pdf.write_bytes(b"%PDF-1.4 fake")
+
+        def _fake_compute(sources, blob_paths, correlation_id, *, category_key=None, chunks_by_doc_page=None):
+            return [{**sources[0], "highlight_regions": fake_regions}]
+
+        monkeypatch.setattr(
+            "analysis.extraction.highlight.highlight.compute_highlights_for_sources",
+            _fake_compute,
+        )
+
+        materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[],
+            plazos_relativos=[
+                _plazo_relativo(
+                    "Entrega de bienes",
+                    "Adjudicación",
+                    fuente_documento_id="doc-1",
+                    fuente_pagina=4,
+                    fuente_fragmento="20 días desde la notificación de la adjudicación",
+                )
+            ],
+            document_id_to_blob_path={"doc-1": str(fake_pdf)},
+        )
+
+        deadlines = repository.list_deadlines(db_session, analysis_id)
+        assert len(deadlines) == 1
+        assert deadlines[0].highlight_regions == fake_regions
+
+
+class TestDeduplicateRedundantPlazosSameCitation:
+    """BUG real (Corrientes, 2026-10-02): "Mejora de Precios" tenía 3 `Deadline`
+    separados, los 3 citando la MISMA oración de la página 6 ("en caso de
+    empate... mejora de precios dentro del término de tres (3) días hábiles"),
+    que nunca nombra su disparador -- 3 corridas no determinísticas de
+    extracción le adivinaron 3 disparadores DISTINTOS. La tarjeta terminaba
+    mostrando "Pendiente de fecha de X" con un disparador sin fecha, aunque
+    OTRO de los 3 plazos (mismo evento resultado, misma cita real) sí tenía un
+    disparador con fecha. Debe sobrevivir solo uno: el del disparador con
+    fecha, si alguno la tiene."""
+
+    _CITATION = (
+        "En caso de empate (igualdad de precio y condiciones), se llamará a los "
+        "respectivos proponentes a una mejora de precios dentro del término de "
+        "tres (3) días hábiles."
+    )
+
+    def test_keeps_only_the_deadline_whose_trigger_has_a_date(
+        self, db_session, analysis_id, monkeypatch
+    ):
+        # Un trigger con fecha dispara la cascada de recálculo (paso 4, después de
+        # la deduplicación que este test ejercita) -- `recalculate_dependent_dates`
+        # pisa un problema de entorno de este fixture ajeno a esta prueba (mismo
+        # issue ya confirmado en `TestMaterializeCascade`/`TestMaterializeSourceRefresh`
+        # de este archivo: ANALYSIS_NOT_FOUND, presente también en baseline). Se
+        # mockea para poder probar la deduplicación en aislado.
+        class _NoopCascade:
+            errors: list = []
+
+        monkeypatch.setattr(
+            "timeline.materializer.recalculate_dependent_dates",
+            lambda *a, **kw: _NoopCascade(),
+        )
+        materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[
+                _evento_temporal(
+                    "Apertura de Ofertas",
+                    fecha_explicita="2026-08-05",
+                    fuente_documento_id="doc-1",
+                    fuente_pagina=11,
+                ),
+            ],
+            plazos_relativos=[
+                _plazo_relativo(
+                    "Mejora de Precios",
+                    "Notificación de la Adjudicación",
+                    fuente_pagina=6,
+                    fuente_fragmento=self._CITATION,
+                ),
+                _plazo_relativo(
+                    "Mejora de Precios",
+                    "Apertura de Ofertas",
+                    fuente_pagina=6,
+                    fuente_fragmento=self._CITATION,
+                ),
+                _plazo_relativo(
+                    "Mejora de Precios",
+                    "Adjudicación Definitiva",
+                    fuente_pagina=6,
+                    fuente_fragmento=f"d) {self._CITATION} El silencio del oferente...",
+                ),
+            ],
+        )
+
+        deadlines = [d for d in repository.list_deadlines(db_session, analysis_id) if not d.deleted]
+        mejora_deadlines = [d for d in deadlines if d.name == "Mejora de Precios"]
+        assert len(mejora_deadlines) == 1
+
+        events_by_id = {e.event_id: e for e in repository.list_events(db_session, analysis_id)}
+        trigger = events_by_id[mejora_deadlines[0].trigger_event_id]
+        assert trigger.name == "Apertura de Ofertas"
+
+    def test_does_not_merge_deadlines_with_genuinely_different_citations(
+        self, db_session, analysis_id
+    ):
+        """Dos plazos del MISMO evento resultado pero con citas realmente
+        distintas (no la misma oración) son legítimamente 2 plazos distintos
+        -- no deben fusionarse."""
+        materialize_timeline_from_extraction(
+            db_session,
+            analysis_id,
+            TEST_USER_ID,
+            eventos_temporales=[],
+            plazos_relativos=[
+                _plazo_relativo(
+                    "Entrega de Bienes",
+                    "Notificación de la Adjudicación",
+                    fuente_pagina=6,
+                    fuente_fragmento="El plazo de entrega de los bienes es de 20 días.",
+                ),
+                _plazo_relativo(
+                    "Entrega de Bienes",
+                    "Orden de Compra",
+                    fuente_pagina=7,
+                    fuente_fragmento="En caso de prórroga, la entrega podrá extenderse 10 días adicionales.",
+                ),
+            ],
+        )
+
+        deadlines = [d for d in repository.list_deadlines(db_session, analysis_id) if not d.deleted]
+        entrega_deadlines = [d for d in deadlines if d.name == "Entrega de Bienes"]
+        assert len(entrega_deadlines) == 2

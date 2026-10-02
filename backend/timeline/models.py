@@ -84,6 +84,7 @@ class Event(BaseModel):
     source_reference: Optional[dict[str, Any]] = None
     deleted: bool = False
     hidden: bool = False
+    highlight_regions: Optional[list[dict[str, float]]] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -185,6 +186,7 @@ class Deadline(BaseModel):
     source_fragment: Optional[str] = None
     source_reference: Optional[dict[str, Any]] = None
     deleted: bool = False
+    highlight_regions: Optional[list[dict[str, float]]] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

@@ -63,16 +63,22 @@ _PHASE2_CATEGORY_IDS = [
 ]
 
 # Preview PROYECTA estos 3 tipos desde garantias/plazos/requisitos ya calculados; si se reanaliza preview solo, hay que sembrar el state con lo persistido o la proyección da not_found y pisa un preview bueno (bug 2026-09-11).
-_PREVIEW_CRITERIOS_SOURCE_STATE_KEYS = [
-    "garantias",
-    "plazos",
-    "requisitos_admisibilidad",
+# (campo en GraphState, clave persistida en extracted_data): "plazos" es el nombre interno
+# que usa `extractor_plazos`/`_project_plazos_clave` durante una corrida completa del grafo,
+# pero `merge_node` lo persiste como "plazos_clave" -- un reanálisis aislado de preview_criterios
+# sembraba `initial_state["plazos"]` leyendo la clave vieja ("plazos") de `extracted_data`, que ya
+# no existe ahí, y la proyección de mantenimiento_oferta/tiempo_entrega volvía not_found pisando
+# un preview bueno (bug real, 2026-10-01: ver memoria plazos-clave-key-mismatch).
+_PREVIEW_CRITERIOS_SOURCE_STATE_KEYS: list[tuple[str, str]] = [
+    ("garantias", "garantias"),
+    ("plazos", "plazos_clave"),
+    ("requisitos_admisibilidad", "requisitos_admisibilidad"),
 ]
 
 # (campo en GraphState, clave persistida en extracted_data): si se reanaliza solo "riesgos" hay que sembrar initial_state con esto o extractor_riesgos arranca vacío; causales/criterios se persisten bajo nombres distintos al state_field.
 _RIESGOS_SOURCE_STATE_KEYS: list[tuple[str, str]] = [
     ("garantias", "garantias"),
-    ("plazos", "plazos"),
+    ("plazos", "plazos_clave"),
     ("requisitos_admisibilidad", "requisitos_admisibilidad"),
     ("causales", "causales_rechazo"),
     ("criterios", "criterios_evaluacion"),
@@ -350,8 +356,8 @@ def _run_selected_categories_reanalysis(analysis_id: str, selected_categories: l
             }
             if category == "preview_criterios":
                 current_data = version.extracted_data or {}
-                for source_key in _PREVIEW_CRITERIOS_SOURCE_STATE_KEYS:
-                    initial_state[source_key] = current_data.get(source_key, [])
+                for state_key, data_key in _PREVIEW_CRITERIOS_SOURCE_STATE_KEYS:
+                    initial_state[state_key] = current_data.get(data_key, [])
             if category == "riesgos":
                 current_data = version.extracted_data or {}
                 for state_key, data_key in _RIESGOS_SOURCE_STATE_KEYS:
@@ -402,6 +408,8 @@ def _run_selected_categories_reanalysis(analysis_id: str, selected_categories: l
                     created_by=analysis.created_by,
                     eventos_temporales=timeline_eventos,
                     plazos_relativos=timeline_plazos,
+                    correlation_id=analysis.correlation_id,
+                    document_id_to_blob_path=result.get("document_id_to_blob_path"),
                 )
 
             metadata = dict(analysis.extraction_metadata or {})

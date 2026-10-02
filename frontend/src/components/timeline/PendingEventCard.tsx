@@ -1,15 +1,19 @@
-import { AlertTriangle, ArrowRight, Calendar, Eye, HelpCircle } from "lucide-react";
-import { Event, DeadlineResponse, EventResponse } from "../../types/timeline";
+import { AlertTriangle, ArrowRight, Calendar, Eye, EyeOff, HelpCircle } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Event, DeadlineResponse, EventResponse, HighlightRegion } from "../../types/timeline";
 import { ErrorIndicator } from "./ErrorIndicator";
+import { setEventHidden } from "../../api/timeline";
+import { useToast } from "../ToastContainer";
 
 interface PendingEventCardProps {
+  analysisId: string;
   event: Event;
   hasDependents?: boolean;
   dependentEventNames?: string[];
   deadline?: DeadlineResponse;
   triggerEvent?: EventResponse;
   onAddDate: () => void;
-  onViewSource?: (documentId: string, page: number, fragment?: string) => void;
+  onViewSource?: (documentId: string, page: number, fragment?: string, highlightRegions?: HighlightRegion[]) => void;
 }
 
 const DAY_TYPE_LABEL: Record<string, string> = {
@@ -19,6 +23,7 @@ const DAY_TYPE_LABEL: Record<string, string> = {
 };
 
 export function PendingEventCard({
+  analysisId,
   event,
   hasDependents = false,
   dependentEventNames,
@@ -33,6 +38,24 @@ export function PendingEventCard({
   const isInferred = event.source_reference?.mencion_propia === false;
   const isWarning = deadline?.day_type === "no_especificado";
   const hasCalculationError = deadline?.calculation_status === "error" && deadline.calculation_error;
+
+  const queryClient = useQueryClient();
+  const { addToast } = useToast();
+
+  const hideMutation = useMutation({
+    mutationFn: (hidden: boolean) => setEventHidden(analysisId, event.event_id, hidden),
+    onSuccess: (_, hidden) => {
+      queryClient.invalidateQueries({ queryKey: ["timeline", analysisId] });
+      addToast("success", hidden ? `"${event.name}" ocultado` : `"${event.name}" vuelve a estar visible`);
+    },
+    onError: (error: Error) => {
+      addToast("error", error.message || "Error al cambiar la visibilidad del evento");
+    },
+  });
+
+  const handleToggleHiddenClick = () => {
+    hideMutation.mutate(!event.hidden);
+  };
 
   return (
     <article
@@ -55,6 +78,11 @@ export function PendingEventCard({
           <span className="inline-flex items-center rounded-full bg-[rgba(0,60,107,.08)] px-2.5 py-[3px] text-[11px] font-bold text-[rgba(0,60,107,.68)]">
             Pendiente
           </span>
+          {event.hidden ? (
+            <span className="inline-flex items-center rounded-full bg-[rgba(0,60,107,.08)] px-2.5 py-[3px] text-[11px] font-bold text-[rgba(0,60,107,.68)]">
+              Oculto
+            </span>
+          ) : null}
         </div>
         <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
           <button
@@ -69,7 +97,7 @@ export function PendingEventCard({
             <button
               type="button"
               onClick={() =>
-                onViewSource!(event.source_document_id!, event.source_page!, event.source_fragment)
+                onViewSource!(event.source_document_id!, event.source_page!, event.source_fragment, event.highlight_regions)
               }
               title={`Ver fuente en el pliego (pág. ${event.source_page})`}
               className="inline-flex h-[26px] items-center gap-[5px] rounded-full border border-[rgba(0,60,107,.12)] bg-white px-2.5 text-[11px] font-semibold text-[#0099DB] hover:border-[#0099DB]"
@@ -78,6 +106,16 @@ export function PendingEventCard({
               pág. {event.source_page}
             </button>
           ) : null}
+          <button
+            type="button"
+            onClick={handleToggleHiddenClick}
+            disabled={hideMutation.isPending}
+            className="flex h-[26px] w-[26px] items-center justify-center rounded-[7px] border-0 bg-transparent text-[rgba(0,60,107,.4)] hover:bg-white hover:text-[#003C6B] disabled:opacity-50"
+            title={event.hidden ? `Mostrar evento ${event.name}` : `Ocultar evento ${event.name}`}
+            aria-label={event.hidden ? `Mostrar evento ${event.name}` : `Ocultar evento ${event.name}`}
+          >
+            {event.hidden ? <Eye className="h-[13px] w-[13px]" /> : <EyeOff className="h-[13px] w-[13px]" />}
+          </button>
         </div>
       </div>
 

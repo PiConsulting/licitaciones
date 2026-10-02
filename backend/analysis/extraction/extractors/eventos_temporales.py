@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import difflib
 import json
+import re
 import unicodedata
+from collections import defaultdict
+from typing import Any
 
 import structlog
 
 from analysis.extraction.engine.base import run_extractor
+from analysis.extraction.engine.citation_grounding import (
+    _cross_page_grounding_chunk,
+    _find_grounding_chunk,
+)
 from analysis.extraction.engine.llm_client import _call_llm
 from analysis.extraction.state import GraphState
 
@@ -68,6 +75,124 @@ def _is_orphan_non_self_mentioned(item: dict, items: list[dict]) -> bool:
     Señal genérica: si el propio LLM ya dijo "esto no lo menciona el pliego
     por sí solo" y además nada depende de él, no aporta nada."""
     if item.get("mencion_propia") is not False:
+        return False
+    return not _referenced_as_trigger(item.get("nombre"), items)
+
+
+_WORD_RE = re.compile(r"[a-z0-9]+")
+
+
+def _significant_words(text: str) -> set[str]:
+    """Como `_significant_tokens`, pero tokeniza por PALABRA (regex), no por
+    espacio en blanco -- necesario acá porque `fuente_fragmento` es prosa
+    real del pliego ("...APERTURA: 05/08/2026...") donde la puntuación pegada
+    a la palabra ("apertura:") rompería la comparación contra el `nombre`
+    ("apertura", sin dos puntos) si se partiera solo por espacio."""
+    return {
+        word
+        for word in _WORD_RE.findall(_normalize(text))
+        if len(word) >= _MIN_TOKEN_LEN and word not in _STOPWORDS
+    }
+
+
+def _shares_significant_token_with_name(nombre: str | None, fragmento: str) -> bool:
+    """Una cita que de verdad describe el hito tiene que compartir alguna
+    palabra significativa con su propio `nombre` -- si no comparte ninguna,
+    es evidencia de que la cita se tomó de un lugar equivocado (texto real
+    del documento, pero sobre otra cosa), no de que la redacción sea
+    simplemente distinta. Nombres sin ninguna palabra significativa propia
+    (muy cortos, o solo stopwords) no se pueden evaluar así -- se consideran
+    inconclusos, no se penalizan."""
+    name_words = _significant_words(nombre or "")
+    if not name_words:
+        return True
+    return bool(name_words & _significant_words(fragmento))
+
+
+def _verify_hito_citations(
+    items: list[dict[str, Any]], chunks: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Ancla `fuente_fragmento` contra el texto real de los chunks recuperados
+    (anti-alucinación) -- esta categoría usa su propio esquema de citas
+    (`fuente_documento_id`/`fuente_pagina`/`fuente_fragmento`) en vez de
+    `source_references`, así que `_verify_citation_grounding` (el chequeo que
+    SÍ corre para las demás 7 categorías, ver `engine/citation_grounding.py`)
+    la saltea por completo: nunca verificó una sola cita de esta categoría en
+    ninguna corrida.
+
+    Causa raíz real encontrada en Corrientes: "Acto de Apertura" (page 32)
+    citaba "Los folletos deben ser de sitios oficiales del fabricante..." --
+    una oración real del pliego (existe tal cual en esa página), pero sin
+    relación alguna con una apertura. Anclar la cita contra el documento no
+    alcanza para detectar esto -- hace falta además que la cita comparta
+    alguna palabra significativa con el `nombre` del propio hito (mismo
+    criterio ya usado en `timeline/materializer.py::_event_is_mentioned_in_fragment`
+    para una necesidad distinta). Nada en el pipeline lo detectaba antes, y
+    el highlight del Timeline nunca podía encontrar esa cita cerca de
+    "apertura" porque la cita en sí ya apuntaba al lugar equivocado -- no era
+    un problema de OCR ni de matching del frontend.
+
+    Si la cita no se puede verificar (ni en su propia página, ni en las
+    adyacentes, ni cruzando el salto de página -- mismo criterio que
+    `_verify_citation_grounding`), se limpian los 3 campos de fuente: mejor
+    "sin fuente verificable" (el frontend no intenta ningún highlight) que
+    una fuente falsa. El ítem en sí NO se descarta acá -- de eso se encarga
+    `_is_ungrounded_and_unused` en `_filter_non_hitos`, con las mismas 2
+    excepciones (`fecha_explicita` propia / referenciado como disparador) que
+    protegen al resto de los filtros de este módulo."""
+    chunks_by_doc_page: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
+    for chunk in chunks:
+        key = (str(chunk.get("document_id", "")), int(chunk.get("page_number", 0) or 0))
+        chunks_by_doc_page[key].append(chunk)
+
+    for item in items:
+        fragmento = str(item.get("fuente_fragmento") or "").strip()
+        document_id = str(item.get("fuente_documento_id") or item.get("_source_document_id") or "")
+        try:
+            page = int(item.get("fuente_pagina") or 0)
+        except (TypeError, ValueError):
+            page = 0
+        if not fragmento or not document_id or not page:
+            continue
+
+        candidates = chunks_by_doc_page.get((document_id, page), [])
+        grounded = _find_grounding_chunk(fragmento, candidates) is not None
+
+        if not grounded:
+            adjacent = [
+                *chunks_by_doc_page.get((document_id, page - 1), []),
+                *chunks_by_doc_page.get((document_id, page + 1), []),
+            ]
+            grounded = bool(adjacent) and _find_grounding_chunk(fragmento, adjacent) is not None
+
+        if not grounded:
+            grounded = (
+                _cross_page_grounding_chunk(fragmento, document_id, page, chunks_by_doc_page)
+                is not None
+            )
+
+        if grounded and not _shares_significant_token_with_name(item.get("nombre"), fragmento):
+            grounded = False
+
+        if not grounded:
+            item["fuente_documento_id"] = None
+            item["fuente_pagina"] = None
+            item["fuente_fragmento"] = None
+            item["_cita_no_verificada"] = True
+
+    return items
+
+
+def _is_ungrounded_and_unused(item: dict, items: list[dict]) -> bool:
+    """Protegido por las mismas 2 excepciones que el resto de los filtros de
+    este módulo: un ítem cuya cita no se pudo verificar (ver
+    `_verify_hito_citations`) solo se descarta si ADEMÁS no tiene fecha
+    propia y nada lo usa como disparador -- si cumple alguna de las dos, se
+    conserva igual (sin fuente, pero el hito en sí puede seguir siendo real
+    y necesario para calcular otra fecha)."""
+    if not item.get("_cita_no_verificada"):
+        return False
+    if item.get("fecha_explicita"):
         return False
     return not _referenced_as_trigger(item.get("nombre"), items)
 
@@ -181,8 +306,10 @@ def _would_create_circular_dependency(a: dict, b: dict) -> bool:
 def _merge_hito_pair(primary: dict, secondary: dict) -> dict:
     merged = dict(primary)
 
+    prefer_secondary_citation = False
     if not merged.get("fecha_explicita") and secondary.get("fecha_explicita"):
         merged["nombre"] = secondary.get("nombre")
+        prefer_secondary_citation = True
     elif len(str(secondary.get("nombre") or "")) > len(str(merged.get("nombre") or "")):
         merged["nombre"] = secondary.get("nombre")
 
@@ -194,12 +321,20 @@ def _merge_hito_pair(primary: dict, secondary: dict) -> dict:
     if secondary.get("mencion_propia"):
         merged["mencion_propia"] = True
 
-    primary_frag = str(merged.get("fuente_fragmento") or "").strip()
-    secondary_frag = str(secondary.get("fuente_fragmento") or "").strip()
-    if secondary_frag and secondary_frag not in primary_frag:
-        merged["fuente_fragmento"] = (
-            f"{primary_frag} | {secondary_frag}" if primary_frag else secondary_frag
-        )
+    # BUG real (Corrientes): concatenar `fuente_fragmento` con " | " producía una cita que
+    # NUNCA existe como texto contiguo en el pliego real -- ni se puede resaltar en el visor,
+    # ni pasa `_verify_hito_citations` (que la rechaza correctamente, por las dudas, como
+    # "no verificada"). Se elige UNA sola cita completa y coherente con su propia
+    # página/documento -- nunca se mezclan campos de citas de dos ítems distintos.
+    if not str(merged.get("fuente_fragmento") or "").strip() and secondary.get("fuente_fragmento"):
+        prefer_secondary_citation = True
+    if prefer_secondary_citation and secondary.get("fuente_fragmento"):
+        merged["fuente_fragmento"] = secondary.get("fuente_fragmento")
+        merged["fuente_pagina"] = secondary.get("fuente_pagina")
+        merged["fuente_documento_id"] = secondary.get("fuente_documento_id")
+        if secondary.get("_source_document_id"):
+            merged["_source_document_id"] = secondary.get("_source_document_id")
+
     return merged
 
 
@@ -328,6 +463,7 @@ def _filter_non_hitos(items: list[dict]) -> list[dict]:
             for item in candidates
             if not _is_irrelevant_hito(item, candidates)
             and not _is_orphan_non_self_mentioned(item, candidates)
+            and not _is_ungrounded_and_unused(item, candidates)
         ]
 
     survivors = _apply_reference_aware_filters(cleaned)
@@ -465,6 +601,7 @@ def extractor_eventos_temporales(state: GraphState) -> GraphState:
         status_field="eventos_temporales_status",
         prompt_file_name="eventos_temporales.txt",
         query=_QUERY,
+        post_process=_verify_hito_citations,
     )
     items = delta.get("eventos_temporales")
     if items:

@@ -26,29 +26,38 @@ describe("EventDetailModal", () => {
     expect(screen.getByText("Detectada")).toBeInTheDocument();
   });
 
-  test("shows dependent deadlines when provided", () => {
-    const deadlines: DeadlineResponse[] = [
-      {
-        id: "deadline-1",
-        deadline_id: "dl-1",
-        analysis_id: "analysis-1",
-        name: "Entrega de equipamiento",
-        duration: 45,
-        unit: "días",
-        day_type: "corridos",
-        es_plazo_maximo: true,
-        deadline_date: null,
-        calculation_status: "pending",
-        deleted: false,
-        created_at: "2026-08-01T00:00:00Z",
-        updated_at: "2026-08-01T00:00:00Z",
-      },
-    ];
+  test("shows dependent events (by resolved event name, not deadline.name) when provided", () => {
+    // `deadline.name` es apenas la descripción textual con la que se extrajo el plazo -- puede
+    // divergir del evento realmente resuelto (ver EventDependent en EventDetailModal.tsx). El
+    // modal debe mostrar `eventName`, no `deadline.name`.
+    const deadline: DeadlineResponse = {
+      id: "deadline-1",
+      deadline_id: "dl-1",
+      analysis_id: "analysis-1",
+      name: "texto original del plazo, distinto del evento",
+      duration: 45,
+      unit: "días",
+      day_type: "corridos",
+      es_plazo_maximo: true,
+      deadline_date: null,
+      calculation_status: "pending",
+      deleted: false,
+      created_at: "2026-08-01T00:00:00Z",
+      updated_at: "2026-08-01T00:00:00Z",
+    };
 
-    render(<EventDetailModal event={mockEvent} deadlines={deadlines} open={true} onClose={() => {}} />);
+    render(
+      <EventDetailModal
+        event={mockEvent}
+        dependents={[{ deadline, eventName: "Entrega de equipamiento" }]}
+        open={true}
+        onClose={() => {}}
+      />
+    );
 
-    expect(screen.getByText(/plazos que dependen de este evento/i)).toBeInTheDocument();
+    expect(screen.getByText(/eventos que dependen de este evento/i)).toBeInTheDocument();
     expect(screen.getByText("Entrega de equipamiento")).toBeInTheDocument();
+    expect(screen.queryByText("texto original del plazo, distinto del evento")).not.toBeInTheDocument();
     expect(screen.getByText(/45 días corridos/i)).toBeInTheDocument();
   });
 
@@ -88,7 +97,7 @@ describe("EventDetailModal", () => {
     const viewButton = screen.getByLabelText(/ver fuente en el pliego/i);
     await user.click(viewButton);
 
-    expect(onViewSource).toHaveBeenCalledWith("doc-123", 4, undefined);
+    expect(onViewSource).toHaveBeenCalledWith("doc-123", 4, undefined, undefined);
   });
 
   test("shows edit and close buttons for all events", () => {

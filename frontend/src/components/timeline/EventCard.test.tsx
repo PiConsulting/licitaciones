@@ -183,6 +183,49 @@ describe("EventCard", () => {
     expect(screen.queryByRole("button", { name: "Editar fecha" })).not.toBeInTheDocument();
   });
 
+  test("closing the deadline detail modal does not open the event detail modal underneath (2026-10-02)", async () => {
+    // Bug real: DependencyIndicator monta su DeadlineDetailModal DENTRO del div
+    // clickeable de la card (no como hermano, como el resto de los modales). Abrir
+    // ya estaba protegido con stopPropagation, pero cerrar (el botón "Cerrar" del
+    // modal) no lo estaba -- ese click burbujeaba hasta handleCardClick y abría
+    // EventDetailModal por debajo.
+    const user = userEvent.setup();
+    const event = createMockEvent({ name: "Entrega equipamiento" });
+    const deadline: Deadline = {
+      id: "deadline-1",
+      deadline_id: "deadline-1",
+      analysis_id: "analysis-456",
+      target_event_id: event.event_id,
+      trigger_event_id: "trigger-evt",
+      duration: 45,
+      unit: "días",
+      day_type: "corridos",
+      calculated_date: null,
+      calculation_status: "pending",
+      deleted: false,
+      created_at: "2026-08-28T12:00:00Z",
+      updated_at: "2026-08-28T12:00:00Z",
+    };
+    const triggerEvent = createMockEvent({
+      event_id: "trigger-evt",
+      name: "Adjudicación",
+      event_date: "2026-09-10",
+    });
+
+    render(
+      <EventCard analysisId={ANALYSIS_ID} event={event} deadline={deadline} triggerEvent={triggerEvent} />,
+      { wrapper: createWrapper() }
+    );
+
+    await user.click(screen.getByRole("button", { name: /45 días corridos desde adjudicación/i }));
+    expect(screen.getByText("Detalle del plazo")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Cerrar" }));
+
+    expect(screen.queryByText("Detalle del plazo")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Editar fecha" })).not.toBeInTheDocument();
+  });
+
   test("does not show dependency indicator when no deadline provided", () => {
     const event = createMockEvent({ name: "Evento sin dependencia" });
 
@@ -287,6 +330,28 @@ describe("EventCard", () => {
 
       expect(mockSetEventHidden).toHaveBeenCalledWith(ANALYSIS_ID, event.event_id, true);
       expect(handleClick).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("ver fuente con highlight precomputado (2026-10-01)", () => {
+    test("pasa event.highlight_regions como 4to argumento de onViewSource", async () => {
+      const user = userEvent.setup();
+      const handleViewSource = vi.fn();
+      const regions = [{ x: 1, y: 2, width: 3, height: 4 }];
+      const event = createMockEvent({
+        source_document_id: "doc-1",
+        source_page: 5,
+        source_fragment: "cita de ejemplo",
+        highlight_regions: regions,
+      });
+
+      render(<EventCard analysisId={ANALYSIS_ID} event={event} onViewSource={handleViewSource} />, {
+        wrapper: createWrapper(),
+      });
+
+      await user.click(screen.getByTitle(/ver fuente en el pliego/i));
+
+      expect(handleViewSource).toHaveBeenCalledWith("doc-1", 5, "cita de ejemplo", regions);
     });
   });
 });
