@@ -5,6 +5,7 @@ import type {
   CategoryId,
   CategoryNarrative,
   FieldItem,
+  NarrativeBlockData,
   NarrativeBulletItem,
   NarrativeParagraphBlock,
   NarrativeSource,
@@ -27,16 +28,7 @@ function fieldSentence(field: FieldItem): string | null {
     case "no_encontrado":
       return `No se encontró información sobre ${fieldLabel.toLowerCase()}.`;
     case "no_aplica": {
-      // FIX (2026-08-13): antes se descartaba `field_value` acá y se mostraba
-      // siempre la misma frase genérica ("X no aplica para este pliego"),
-      // aunque el backend (ver `garantias.txt` Caso 4, y el mismo patrón para
-      // cualquier categoría) exige una `valor` explicando el motivo puntual
-      // ("el pliego sólo prevé garantía técnica del equipamiento, ninguna
-      // financiera", "exento por no superar el monto X", etc.) con cita
-      // obligatoria. Este fallback de frontend solo corre cuando el backend
-      // no llegó a emitir `narrative` (ver comentario de `buildNarrativeBlocks`
-      // más abajo) -- pero cuando corre, tiene que mostrar esa explicación en
-      // vez de perderla.
+      // El backend exige una `valor` explicando el motivo puntual (ver `garantias.txt` Caso 4); no descartarla por una frase genérica.
       const value = normalizeText(field.field_value);
       return value ? `${fieldLabel}: ${value}.` : `${fieldLabel} no aplica para este pliego.`;
     }
@@ -95,37 +87,38 @@ function fallbackBlock(categoryId: CategoryId): NarrativeParagraphBlock {
  * reservada al LLM, que es quien puede juzgar con criterio si el contenido de
  * ese pliego puntual amerita una tabla.
  */
-export function buildNarrativeBlocks(category: CategoryData, categoryId: CategoryId): CategoryNarrative {
-  const items = category.items;
+export function buildNarrativeBlocks(
+  category: CategoryData,
+  categoryId: CategoryId,
+  options?: { forceList?: boolean; includeNotFoundItems?: boolean },
+): CategoryNarrative {
+  let items = category.items;
+
+  if (categoryId === "riesgos") {
+    const comerciales = items.filter((item) => item.field_name.toLowerCase().includes("comercial"));
+    const otros = items.filter((item) => !item.field_name.toLowerCase().includes("comercial"));
+    items = [...comerciales, ...otros];
+  }
 
   if (items.length === 0) {
     return { blocks: [fallbackBlock(categoryId)], sources: [] };
   }
 
-  // FIX (2026-08-13): un item "no_aplica" con explicación (ej. garantías
-  // financieras exentas, con `valor` obligatorio por prompt) SÍ es dato útil
-  // -- antes solo "extraido" contaba, así que una categoría compuesta
-  // enteramente por items no_aplica cae acá y mostraba "No se encontró
-  // información sobre..." (fallbackBlock), que contradice el badge "no
-  // aplica" que sí se muestra en `CategorySection` y esconde la explicación.
+  // Un item "no_aplica" con explicación SÍ es dato útil -- antes solo "extraido" contaba, y eso contradecía el badge "no aplica" que sí se muestra en `CategorySection`.
   const hasUsefulData = items.some(
     (item) =>
       (item.field_state === "extraido" || item.field_state === "no_aplica") &&
       normalizeText(item.field_value) !== "",
   );
-  if (!hasUsefulData) {
+  if (!hasUsefulData && !options?.includeNotFoundItems) {
     return { blocks: [fallbackBlock(categoryId)], sources: [] };
   }
 
   const sources: NarrativeSource[] = [];
   const sourceIndex = new Map<string, number>();
 
-  // El formato no es fijo por categoría: varios hechos discretos e
-  // independientes van en lista, una idea única va en párrafo. Nunca se
-  // fuerza a juntar todo en un solo párrafo solo porque la categoría "suele"
-  // tener pocos datos -- eso llevaba a respuestas ilegibles cuando el pliego
-  // real tenía muchos hechos para esa categoría.
-  const useBulletList = CHECKLIST_CATEGORIES.has(categoryId) || items.length > 1;
+  // El formato no es fijo por categoría: varios hechos van en lista, una idea única en párrafo -- nunca se fuerza un solo párrafo porque la categoría "suele" tener pocos datos.
+  const useBulletList = options?.forceList || CHECKLIST_CATEGORIES.has(categoryId) || items.length > 1;
 
   if (!useBulletList) {
     const [singleItem] = items;
@@ -174,4 +167,86 @@ export function buildNarrativeBlocks(category: CategoryData, categoryId: Categor
     blocks: [{ type: "bullet_list", items: bulletItems }],
     sources: dedupedSources,
   };
+}
+
+/**
+ * Une varias `CategoryNarrative` (ya sintetizadas o armadas por
+ * `buildNarrativeBlocks`) en una sola, preservando el orden en que se pasan.
+ *
+ * Usado por la vista de preview (`PreviewTab`) para mostrar objeto y alcance
+ * junto con los criterios de preview en UN solo contenedor de "Respuesta" en
+ * vez de dos cajas separadas con encabezados propios -- la persona que está
+ * decidiendo si entra o no a la licitación quiere leer todo seguido, no
+ * cruzar dos secciones que en el fondo hablan de lo mismo (el pliego).
+ *
+ * Cada narrativa de origen numera sus `sources` desde 0, así que unirlas tal
+ * cual haría que los `source_ids` de la segunda parte pisen los de la
+ * primera. Por eso cada parte se corre con un offset antes de concatenar, y
+ * al final se vuelve a deduplicar por contenido (mismo criterio que
+ * `dedupeNarrativeSources`) para no repetir una cita que ambas categorías
+ * citaron por separado.
+ */
+export function mergeCategoryNarratives(parts: CategoryNarrative[]): CategoryNarrative {
+  const nonEmptyParts = parts.filter((part) => part.blocks.length > 0);
+  if (nonEmptyParts.length === 0) {
+    return { blocks: [], sources: [] };
+  }
+
+  const mergedSources: NarrativeSource[] = [];
+  const mergedBlocks: NarrativeBlockData[] = [];
+  let idOffset = 0;
+
+  for (const part of nonEmptyParts) {
+    const localIdMap = new Map<number, number>();
+    let maxLocalId = -1;
+
+    for (const source of part.sources) {
+      const newId = source.id + idOffset;
+      localIdMap.set(source.id, newId);
+      mergedSources.push({ ...source, id: newId });
+      maxLocalId = Math.max(maxLocalId, source.id);
+    }
+
+    const remap = (ids: number[]) => ids.map((id) => localIdMap.get(id) ?? id + idOffset);
+
+    for (const block of part.blocks) {
+      if (block.type === "paragraph") {
+        mergedBlocks.push({ ...block, source_ids: remap(block.source_ids) });
+      } else if (block.type === "bullet_list") {
+        mergedBlocks.push({
+          type: "bullet_list",
+          items: block.items.map((item) => ({ ...item, source_ids: remap(item.source_ids) })),
+        });
+      } else {
+        mergedBlocks.push({
+          type: "table",
+          headers: block.headers,
+          rows: block.rows.map((row) => ({ ...row, source_ids: remap(row.source_ids) })),
+        });
+      }
+    }
+
+    idOffset += maxLocalId + 1;
+  }
+
+  const { sources: dedupedSources, idMapping } = dedupeNarrativeSources(mergedSources);
+  const remapFinal = (ids: number[]) => remapSourceIds(ids, idMapping);
+
+  const finalBlocks: NarrativeBlockData[] = mergedBlocks.map((block) => {
+    if (block.type === "paragraph") {
+      return { ...block, source_ids: remapFinal(block.source_ids) };
+    }
+    if (block.type === "bullet_list") {
+      return {
+        ...block,
+        items: block.items.map((item) => ({ ...item, source_ids: remapFinal(item.source_ids) })),
+      };
+    }
+    return {
+      ...block,
+      rows: block.rows.map((row) => ({ ...row, source_ids: remapFinal(row.source_ids) })),
+    };
+  });
+
+  return { blocks: finalBlocks, sources: dedupedSources };
 }

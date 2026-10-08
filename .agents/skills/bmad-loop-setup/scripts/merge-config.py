@@ -133,12 +133,16 @@ def load_legacy_values(
                 # Module-specific key that matches a current variable definition
                 legacy_module[k] = v
         if verbose:
-            print(f"Legacy module config: {list(legacy_module.keys())}", file=sys.stderr)
+            print(
+                f"Legacy module config: {list(legacy_module.keys())}", file=sys.stderr
+            )
 
     return legacy_core, legacy_module, files_found
 
 
-def apply_legacy_defaults(answers: dict, legacy_core: dict, legacy_module: dict) -> dict:
+def apply_legacy_defaults(
+    answers: dict, legacy_core: dict, legacy_module: dict
+) -> dict:
     """Apply legacy values as fallback defaults under the answers.
 
     Legacy values fill in any key not already present in answers.
@@ -161,7 +165,9 @@ def apply_legacy_defaults(answers: dict, legacy_core: dict, legacy_module: dict)
     return merged
 
 
-def cleanup_legacy_configs(legacy_dir: str, module_code: str, verbose: bool = False) -> list:
+def cleanup_legacy_configs(
+    legacy_dir: str, module_code: str, verbose: bool = False
+) -> list:
     """Intentionally does NOT delete any legacy config files (returns an empty list).
 
     Legacy per-module (_bmad/<module>/config.yaml) and core (_bmad/core/config.yaml)
@@ -192,7 +198,9 @@ def extract_module_metadata(module_yaml: dict) -> dict:
     return meta
 
 
-def apply_result_templates(module_yaml: dict, module_answers: dict, verbose: bool = False) -> dict:
+def apply_result_templates(
+    module_yaml: dict, module_answers: dict, verbose: bool = False
+) -> dict:
     """Apply result templates from module.yaml to transform raw answer values.
 
     For each answer, if the corresponding variable definition in module.yaml has
@@ -203,7 +211,11 @@ def apply_result_templates(module_yaml: dict, module_answers: dict, verbose: boo
     transformed = {}
     for key, value in module_answers.items():
         var_def = module_yaml.get(key)
-        if isinstance(var_def, dict) and "result" in var_def and "{project-root}" not in str(value):
+        if (
+            isinstance(var_def, dict)
+            and "result" in var_def
+            and "{project-root}" not in str(value)
+        ):
             template = var_def["result"]
             transformed[key] = template.replace("{value}", str(value))
             if verbose:
@@ -260,7 +272,9 @@ def merge_config(
     # Exclude user-only keys — those belong exclusively in config.user.yaml
     core_answers = answers.get("core")
     if core_answers:
-        shared_core = {k: v for k, v in core_answers.items() if k not in _CORE_USER_KEYS}
+        shared_core = {
+            k: v for k, v in core_answers.items() if k not in _CORE_USER_KEYS
+        }
         if shared_core:
             if verbose:
                 print(
@@ -280,7 +294,9 @@ def merge_config(
 
     # Build module section: metadata + variable values
     module_section = extract_module_metadata(module_yaml)
-    module_answers = apply_result_templates(module_yaml, answers.get("module", {}), verbose)
+    module_answers = apply_result_templates(
+        module_yaml, answers.get("module", {}), verbose
+    )
     module_section.update(module_answers)
 
     if verbose:
@@ -419,7 +435,9 @@ def main():
     # Legacy cleanup: delete old per-module config files
     legacy_deleted = []
     if args.legacy_dir:
-        legacy_deleted = cleanup_legacy_configs(args.legacy_dir, module_yaml["code"], args.verbose)
+        legacy_deleted = cleanup_legacy_configs(
+            args.legacy_dir, module_yaml["code"], args.verbose
+        )
 
     # Output result summary as JSON
     module_code = module_yaml["code"]

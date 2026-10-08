@@ -1,20 +1,4 @@
-/**
- * CTX-06: la lista "Fuentes verificables" decía "Documento" para todas.
- *
- * `NarrativeBlocks.tsx` renderiza `{source.document_name} · pág. {source.page}`,
- * y `document_name` era la constante `"Documento"` en los tres mappers que
- * construyen fuentes en `analysisApi.ts`. Con un solo documento eso era
- * simplemente inútil. En el análisis de Santa Fe (`18a86363-…`: un pliego y
- * cuatro anexos) las fuentes de una misma categoría se leen todas igual:
- *
- *     Documento · pág. 1
- *     Documento · pág. 1
- *
- * y esas dos son la página 1 de dos archivos distintos.
- *
- * El backend ahora manda `filename` en cada referencia (antes llegaba en `null`
- * en las 20 referencias de esa corrida: el campo existía y nadie lo escribía).
- */
+// CTX-06: "Documento" era fijo para todas las fuentes; ahora el backend manda `filename` real por referencia.
 
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -131,18 +115,21 @@ describe("CTX-06 · el nombre del documento en las fuentes", () => {
     ]);
   });
 
-  test("sin filename se conserva el default y no se rompe nada", async () => {
+  test("sin filename hidrata desde documents por document_id", async () => {
     // Un análisis viejo, ya persistido antes de este fix.
     getMock.mockResolvedValueOnce(respuestaCon(categoriaConDosFuentes(false)));
 
     const result = await getAnalysisById("18a86363-39ac-4b52-a2e2-1b1146b89ff8");
     const narrative = result.current_version.extracted_data.requisitos_admisibilidad.narrative;
 
-    expect(narrative?.sources.map((s) => s.document_name)).toEqual(["Documento", "Documento"]);
+    expect(narrative?.sources.map((s) => s.document_name)).toEqual([
+      "Pliego - Santa Fe.pdf",
+      "ANEXO IV - Santa Fe.pdf",
+    ]);
     expect(narrative?.sources).toHaveLength(2);
   });
 
-  test("un filename vacío o en blanco cae al default", async () => {
+  test("un filename vacío o en blanco cae a lookup por document_id", async () => {
     const datos = categoriaConDosFuentes(true) as Record<string, any>;
     datos.requisitos_admisibilidad_narrative.sources[0].filename = "   ";
     getMock.mockResolvedValueOnce(respuestaCon(datos));
@@ -150,7 +137,7 @@ describe("CTX-06 · el nombre del documento en las fuentes", () => {
     const result = await getAnalysisById("18a86363-39ac-4b52-a2e2-1b1146b89ff8");
     const narrative = result.current_version.extracted_data.requisitos_admisibilidad.narrative;
 
-    expect(narrative?.sources[0].document_name).toBe("Documento");
+    expect(narrative?.sources[0].document_name).toBe("Pliego - Santa Fe.pdf");
     expect(narrative?.sources[1].document_name).toBe("ANEXO IV - Santa Fe.pdf");
   });
 

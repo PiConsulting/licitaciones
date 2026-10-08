@@ -18,6 +18,17 @@ El criterio clave: **"Si esto falta, la oferta se descarta sin evaluarla"**.
 - Capacidad técnica mínima (facturación, equipamiento, personal)
 - Experiencia mínima (contratos previos, certificados de obra)
 - Inhabilitaciones o incompatibilidades
+- **Certificaciones exigidas para la admisibilidad de la propuesta** (ISO/IEC,
+  nivel de partner del fabricante, membresías, habilitación de un organismo
+  técnico) — cuando el pliego las pide como condición para ofertar, no como
+  antecedente deseable.
+- **Condiciones técnicas mínimas EXCLUYENTES del bien/servicio ofertado**: una
+  característica que, si la oferta no la cumple, la vuelve inadmisible. Se
+  reconoce por el lenguaje de obligación + exclusión, no por el tema. Ejemplos
+  reales: "deberá garantizar compatibilidad para ejecutar alguna distribución
+  GNU/Linux", "los componentes deben ser nuevos, sin uso, y su fabricación no
+  deberá encontrarse discontinuada", "las marcas ofertadas deben figurar en el
+  Cuadrante Mágico de Gartner".
 
 **Reconocimiento semántico:** El pliego puede no titular "Requisitos". Buscá:
 - Capítulos de "Documentación", "Antecedentes", "Habilitación"
@@ -41,51 +52,63 @@ El criterio clave: **"Si esto falta, la oferta se descarta sin evaluarla"**.
 **No confundir con:**
 - **Anexos obligatorios**: formularios que el PLIEGO provee para completar (van en otra categoría)
 - **Causales de rechazo**: motivos de descalificación (van en otra categoría)
-- **Especificaciones técnicas**: características del bien/servicio (van en objeto/alcance)
+- **Ficha técnica descriptiva del bien/servicio**: la enumeración de
+  características, funciones, rendimiento y arquitectura de lo que se compra
+  (secciones tipo "Especificaciones técnicas", "Características de rendimiento",
+  "Funciones de administración", subsecciones numeradas `5.1`, `5.2`…) va en
+  **objeto/alcance**, NO acá. La distinción es el lenguaje: si el fragmento
+  *describe* lo ofertado ("deberá contar con", "soportará", "incluye") es ficha
+  técnica; si *condiciona la admisión* ("bajo apercibimiento de inadmisibilidad",
+  "excluyente", "no se admitirán ofertas que no…", "es requisito para ofertar")
+  es de acá. Ante la duda, si NO hay lenguaje de exclusión explícito, va a
+  objeto/alcance.
+- **Riesgos**: esta categoría (`riesgos`) también existe en el sistema y a veces compite
+  con esta por el mismo fragmento. La pregunta que distingue a una de otra: ¿el
+  fragmento describe algo que el oferente tiene que PRESENTAR o ACREDITAR para que su
+  oferta sea válida? Si sí, es `requisitos_admisibilidad`, sin importar si además te
+  parece "riesgoso" no cumplirlo. La categoría `riesgos` es para señales comerciales o
+  estratégicas sobre si conviene participar, no para documentación a presentar — un
+  mismo fragmento no debería generar un ítem en ambas categorías con el mismo contenido.
+
+**Regla de pertenencia (aplicá tu propio criterio, no busques palabras específicas)**:
+antes de emitir un ítem, preguntate a qué pregunta responde el fragmento. Si responde
+"¿qué tengo que presentar o acreditar para poder ofertar?", es de acá. Si responde
+"¿qué pasa si no lo presento?" (una consecuencia de rechazo explícita), es de
+`causales_rechazo`, no lo dupliques acá con otra redacción. Si no responde ninguna de
+esas dos preguntas, probablemente no es de esta categoría.
 
 ---
 
-## ❌ EJEMPLOS DE QUÉ NO EXTRAER
+# MATRIZ DE EXCLUSIÓN Y CLASIFICACIÓN
 
-### Caso 1: Garantías Financieras
-**Input:** "El oferente deberá constituir garantía de mantenimiento de oferta equivalente al 1% del presupuesto oficial"
+| Si el fragmento menciona... | Acción del Analista | Justificación |
+| :--- | :--- | :--- |
+| Pólizas, cauciones, 1% del presupuesto | **IGNORAR** | Es una garantía financiera (Categoría: `garantias`). |
+| "Completar Anexo I", "Llenar planilla" | **IGNORAR** | Es un formulario provisto por el pliego (Categoría: `anexos_obligatorios`). |
+| "El Anexo IV exige 2 años de experiencia" | **EXTRAER** | El *contenido* del anexo define un requisito habilitante. |
+| Fecha límite de presentación (ej. 15/08) | **IGNORAR** | Es un hito temporal (Categoría: `plazos_clave`). |
+| La falta del certificado X causará rechazo | **EXTRAER** | Extraer solo el requisito. La consecuencia va en `causales_rechazo`. |
+| "El equipo deberá contar con 2 procesadores y 128 GB de RAM" | **IGNORAR** | Ficha técnica descriptiva, sin lenguaje de exclusión → objeto/alcance. |
+| "No se admitirán ofertas cuyo equipamiento no sea compatible con GNU/Linux" | **EXTRAER** (`requisito_tecnico_excluyente`) | Condición técnica con exclusión explícita. |
+| "Se exige certificación ISO 27001 vigente para la admisibilidad de la propuesta" | **EXTRAER** (`certificacion`) | Certificación pedida como condición para ofertar. |
+| "Valoración: contar con ISO 9001 suma puntaje" | **IGNORAR** | Es un criterio de evaluación puntuable, no una condición de admisión (Categoría: `criterios_evaluacion`). |
+| "El personal afectado al servicio deberá contar con cobertura de ART/seguro de vida/aportes sindicales vigentes" | **IGNORAR** | Obligación laboral del personal que se controla DURANTE LA EJECUCIÓN del contrato (una vez adjudicado), no una condición para que la oferta no se rechace al presentarla. |
+| "Deberá acreditar afiliación a ART y constancias de pago del personal en relación de dependencia" | **IGNORAR** | Mismo caso: cumplimiento laboral/previsional del personal en ejecución, no requisito de admisibilidad de la oferta. |
 
-**Correcto:** NO extraer (va en categoría "garantias")
+**Regla adicional -- admisibilidad de LA OFERTA vs. cumplimiento laboral DEL
+PERSONAL en ejecución:** si el fragmento exige algo sobre el personal que el
+adjudicatario va a afectar al servicio (ART, seguro de vida, aportes,
+convenio colectivo, nómina) y el verbo/momento es de EJECUCIÓN ("deberá
+mantener", "el personal afectado tendrá", "se verificará durante la
+prestación") y no de PRESENTACIÓN DE LA OFERTA, no es de esta categoría.
+Preguntate: ¿esto se presenta CON la oferta para no ser rechazado, o se
+exige/controla DESPUÉS de adjudicado, mientras se ejecuta el servicio? Solo
+lo primero va acá.
 
-**Incorrecto:** Extraer como requisito de admisibilidad
-
-**Razón:** Es una garantía financiera (caución/póliza), no un documento habilitante.
-
----
-
-### Caso 2: Anexos/Formularios
-**Input:** "Completar Anexo I - Planilla de Cotización"
-
-**Correcto:** NO extraer (va en categoría "anexos_obligatorios")
-
-**Incorrecto:** Extraer como requisito
-
-**Razón:** Es un formulario provisto por el pliego, no documentación del oferente.
-
----
-
-### Caso 3: Plazos
-**Input:** "La documentación deberá presentarse hasta las 10:00 hs del día 15/08/2024"
-
-**Correcto:** NO extraer (va en categoría "plazos_clave")
-
-**Incorrecto:** Extraer como requisito
-
-**Razón:** Es un plazo de presentación, no un requisito documental.
-
----
-
-## ⚠️ REGLA DE ORO
-
-Si un chunk menciona "garantía", "caución", "póliza", "seguro de caución", "anexo", "formulario", "planilla":
-→ Verificar que NO sea una garantía financiera ni un anexo/formulario
-→ Si lo es: NO extraer, aunque esté en los fragmentos recuperados
-→ Solo extraer si es un requisito habilitante (ej: "presentar seguro de responsabilidad civil vigente")
+# REGLA DE VIGENCIA REGISTRAL ("PARAGUAS")
+Si el pliego exige que una lista de documentos esté vigente dentro de un registro oficial (ej. Registro de Proveedores):
+1. Emití UN ítem `inscripcion_registro` abarcando la obligación general de inscripción/vigencia.
+2. Emití UN ítem `documento` independiente por CADA certificado listado bajo esa obligación.
 
 ---
 
@@ -100,7 +123,7 @@ Un ítem por requisito. Si vienen en incisos, un ítem por inciso.
 Usá el schema `RequisitoAdmisibilidadItem` definido en `schemas.py`.
 
 **Campos clave:**
-- `tipo`: Usa enum `TipoRequisito` (documento, inhabilitacion, incompatibilidad, sancion_vigente, capacidad_minima, experiencia_minima, inscripcion_registro, otra)
+- `tipo`: Usa enum `TipoRequisito` (documento, inhabilitacion, incompatibilidad, sancion_vigente, capacidad_minima, experiencia_minima, inscripcion_registro, certificacion, requisito_tecnico_excluyente, otra)
 - `valor`: Descripción literal o casi literal del requisito
 - `metadata`: Diccionario con campos:
   - `obligatorio`: "si" | "no" | "no_especificado"
@@ -143,45 +166,47 @@ Umbrales o condiciones habilitantes de elegibilidad.
 - Haber ejecutado al menos 2 contratos similares
 - Estar inscripto en el Registro de Proveedores
 
+### certificacion
+Certificación de un tercero (norma, fabricante, organismo) que el pliego exige
+**como condición para ofertar / para la admisibilidad de la propuesta**. Si la
+certificación solo "suma puntaje", NO es de acá (es `criterios_evaluacion`).
+
+**Ejemplos:**
+- "Certificación ISO/IEC 27001 vigente, exigida para la admisibilidad"
+- "Nivel de partner Platinum/Titanium del fabricante de almacenamiento"
+- "Habilitación del ENACOM para la prestación del servicio"
+
+### requisito_tecnico_excluyente
+Condición técnica mínima del bien/servicio ofertado redactada con lenguaje de
+**obligación + exclusión** (si la oferta no la cumple, es inadmisible). NO es la
+ficha técnica descriptiva: eso va a objeto/alcance. La diferencia está en cómo
+está redactado, no en el tema.
+
+**Ejemplos (extraer):**
+- "Deberá garantizar compatibilidad para ejecutar alguna distribución GNU/Linux"
+- "Los componentes deben ser nuevos, sin uso; su fabricación no deberá estar discontinuada"
+- "Las marcas ofertadas deben figurar en el Cuadrante Mágico de Gartner"
+- "No se admitirán ofertas cuyo equipamiento no soporte redundancia N+1"
+
+**Contraejemplos (IGNORAR — son objeto/alcance):**
+- "El servidor deberá contar con dos procesadores y 128 GB de RAM"
+- "5.1. Características de rendimiento: hasta 2000 flujos concurrentes"
+- "La solución incluye un módulo de administración centralizada"
+
 ## 2. Un ítem por requisito
 Aunque vengan en una sola oración con incisos a), b), c)... emití un ítem por inciso.
 
-## 1.bis Condición "paraguas" de vigencia en un registro (NO te quedes solo con los documentos sueltos)
+**Consolidación cuando NO hay incisos explícitos:** si un mismo párrafo describe una
+única obligación con varias oraciones o cláusulas relacionadas (por ejemplo, distintos
+aspectos de un mismo trámite o de una misma pieza de documentación), no lo dividas en
+un ítem por oración — juntalo en un solo ítem que resuma la obligación completa. Dividí
+en varios ítems sólo cuando el pliego efectivamente enumera requisitos distintos (con
+incisos, guiones, numeración, o claramente son documentos/trámites independientes entre
+sí).
 
-Es común que el pliego liste documentos puntuales (certificados, constancias,
-declaraciones juradas) diciendo que TODOS ellos deben estar **vigentes /
-actualizados / en regla dentro de un registro** (Registro de Proveedores,
-Registro Único de Proveedores y Contratistas, Padrón de Proveedores, etc.)
-durante el procedimiento. Esa condición de vigencia registral es, en sí
-misma, un requisito de admisibilidad autónomo (`tipo: "inscripcion_registro"`)
--- no alcanza con listar los documentos individuales como si el requisito
-fuera solo "presentar estos papeles".
-
-**Patrón genérico a reconocer** (aplica a cualquier redacción equivalente):
-```
-"La documentación detallada a continuación se encuentra/deberá encontrarse
-vigente en el Registro [de Proveedores / Único de Proveedores y Contratistas
-/ etc.] durante el procedimiento de selección: [lista de documentos]"
-```
-
-**Ejemplo abstracto:**
-```
-"La documentación detallada a continuación deberá encontrarse vigente en el
-Registro de Proveedores del organismo durante todo el procedimiento:
-- Certificado fiscal
-- Certificado de libre deuda"
-```
-→ Emití **el ítem paraguas** ("mantener vigente e inscripta la documentación
-en el Registro de Proveedores durante el procedimiento", `tipo:
-"inscripcion_registro"`) **Y ADEMÁS** un ítem `documento` por cada papel
-listado. No es uno u otro: son requisitos distintos y complementarios (el
-registro como condición habilitante general, cada documento como pieza
-concreta a mantener actualizada en él).
-
-**Señal de alarma antes de cerrar la categoría:** si extrajiste documentos
-individuales que el pliego agrupa bajo una frase de "vigente/actualizado en
-el Registro de...", releé esa frase agrupadora: probablemente te falta
-emitirla como su propio ítem `inscripcion_registro`.
+**Antes de emitir cada ítem**, aplicá la regla de pertenencia de arriba: ¿a qué
+pregunta responde este fragmento? Si no podés justificarlo como "qué hay que
+presentar/acreditar", no lo incluyas acá.
 
 ## 3. Conservar montos y cantidades
 Si el requisito incluye montos, cantidades o umbrales, conservarlos tal como aparecen.
@@ -290,6 +315,6 @@ Si los fragmentos no contienen requisitos de admisibilidad:
 
 ---
 
-=== CONTENIDO DEL PLIEGO ===
+<contexto_pliego>
 {chunks}
-=== FIN DEL CONTENIDO ===
+</contexto_pliego>

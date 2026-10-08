@@ -74,4 +74,25 @@ describe("useAnalysisPolling", () => {
     });
     expect(onCompleted).toHaveBeenCalledTimes(1);
   });
+
+  test("redirige tambien cuando finaliza fase 1 en estado en_revision", async () => {
+    const onCompleted = vi.fn();
+
+    mockGetAnalysisStatus.mockResolvedValue({
+      id: "analysis-3",
+      status: "en_revision",
+      current_stage: "completed",
+      progress_percentage: 100,
+      stage_progress: "Preview listo",
+    });
+
+    renderHook(() => useAnalysisPolling("analysis-3", true, { onCompleted }), {
+      wrapper: buildWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith("/analysis/analysis-3");
+    });
+    expect(onCompleted).toHaveBeenCalledTimes(1);
+  });
 });

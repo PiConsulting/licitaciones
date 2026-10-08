@@ -2,10 +2,20 @@ import { FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { login } from "../api/auth";
+import { saveSession } from "../auth/session";
 import { Button } from "../components/Button";
 import { Input } from "../components/Input";
 
 const INVALID_CREDENTIALS_MSG = "Email o contraseña incorrectos";
+
+function resolveLoginError(caught: unknown): string {
+  const data = (caught as { response?: { data?: { error?: { code?: string; message?: string } } } })
+    ?.response?.data;
+  if (data?.error?.code === "USER_SUSPENDED" && data.error.message) {
+    return data.error.message;
+  }
+  return INVALID_CREDENTIALS_MSG;
+}
 
 export default function Login() {
   const navigate = useNavigate();
@@ -22,13 +32,15 @@ export default function Login() {
     try {
       const response = await login({ email, password });
       localStorage.setItem("access_token", response.access_token);
-      if (response.name?.trim()) {
-        localStorage.setItem("user_name", response.name.trim());
-      }
-      localStorage.setItem("user_email", response.email || email);
-      navigate("/dashboard");
-    } catch {
-      setError(INVALID_CREDENTIALS_MSG);
+      saveSession({
+        name: response.name,
+        email: response.email || email,
+        role: response.role,
+        business_unit: response.business_unit,
+      });
+      navigate("/");
+    } catch (caught) {
+      setError(resolveLoginError(caught));
     } finally {
       setLoading(false);
     }

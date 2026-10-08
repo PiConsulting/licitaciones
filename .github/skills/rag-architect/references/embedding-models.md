@@ -100,10 +100,9 @@ from openai import OpenAI
 
 client = OpenAI(api_key="your-api-key")
 
+
 def get_embedding(
-    text: str,
-    model: str = "text-embedding-3-small",
-    dimensions: int | None = None
+    text: str, model: str = "text-embedding-3-small", dimensions: int | None = None
 ) -> list[float]:
     """Get embedding with optional dimension reduction."""
     params = {"input": text, "model": model}
@@ -113,14 +112,16 @@ def get_embedding(
     response = client.embeddings.create(**params)
     return response.data[0].embedding
 
+
 # Single embedding
 embedding = get_embedding("How do I install the software?")
+
 
 # Batch embeddings (more efficient)
 def get_embeddings_batch(
     texts: list[str],
     model: str = "text-embedding-3-small",
-    dimensions: int | None = None
+    dimensions: int | None = None,
 ) -> list[list[float]]:
     """Batch embed multiple texts."""
     params = {"input": texts, "model": model}
@@ -131,6 +132,7 @@ def get_embeddings_batch(
     # Sort by index to maintain order
     return [item.embedding for item in sorted(response.data, key=lambda x: x.index)]
 
+
 embeddings = get_embeddings_batch(["text1", "text2", "text3"])
 
 # Dimension reduction (cost/storage savings)
@@ -138,7 +140,7 @@ embeddings = get_embeddings_batch(["text1", "text2", "text3"])
 reduced_embedding = get_embedding(
     "Installation guide...",
     model="text-embedding-3-large",
-    dimensions=1024  # Reduce from 3072
+    dimensions=1024,  # Reduce from 3072
 )
 ```
 
@@ -165,7 +167,7 @@ doc_embeddings = co.embed(
     texts=["Installation guide content...", "Configuration steps..."],
     model="embed-english-v3.0",
     input_type="search_document",  # Use for documents being indexed
-    truncate="END"
+    truncate="END",
 ).embeddings
 
 # Query embeddings (for search)
@@ -179,7 +181,7 @@ query_embedding = co.embed(
 multilingual_embedding = co.embed(
     texts=["Comment installer le logiciel?"],  # French
     model="embed-multilingual-v3.0",
-    input_type="search_query"
+    input_type="search_query",
 ).embeddings[0]
 
 # Compressed embeddings (int8)
@@ -187,7 +189,7 @@ compressed = co.embed(
     texts=["Document content..."],
     model="embed-english-v3.0",
     input_type="search_document",
-    embedding_types=["int8"]  # 4x smaller than float32
+    embedding_types=["int8"],  # 4x smaller than float32
 ).embeddings
 ```
 
@@ -213,7 +215,7 @@ vo = voyageai.Client(api_key="your-api-key")
 result = vo.embed(
     texts=["Installation guide for the software..."],
     model="voyage-large-2",
-    input_type="document"
+    input_type="document",
 )
 embeddings = result.embeddings
 
@@ -221,17 +223,17 @@ embeddings = result.embeddings
 code_result = vo.embed(
     texts=[
         "def install_package(name):\n    subprocess.run(['pip', 'install', name])",
-        "How do I install packages in Python?"
+        "How do I install packages in Python?",
     ],
     model="voyage-code-2",
-    input_type="document"  # or "query" for search
+    input_type="document",  # or "query" for search
 )
 
 # Long context (up to 16K tokens)
 long_doc_embedding = vo.embed(
     texts=[very_long_document],  # Up to 16K tokens
     model="voyage-large-2",
-    input_type="document"
+    input_type="document",
 ).embeddings[0]
 ```
 
@@ -254,7 +256,7 @@ embeddings = model.encode(
     batch_size=32,
     show_progress_bar=True,
     convert_to_numpy=True,
-    normalize_embeddings=True  # For cosine similarity
+    normalize_embeddings=True,  # For cosine similarity
 )
 
 # BGE requires instruction prefix for queries
@@ -268,9 +270,7 @@ model = SentenceTransformer("BAAI/bge-large-en-v1.5", device="cuda")
 # Multi-GPU encoding
 pool = model.start_multi_process_pool()
 embeddings = model.encode_multi_process(
-    sentences=large_corpus,
-    pool=pool,
-    batch_size=64
+    sentences=large_corpus, pool=pool, batch_size=64
 )
 model.stop_multi_process_pool(pool)
 ```
@@ -287,7 +287,7 @@ output = model.encode(
     ["Installation guide in English", "Guide d'installation en francais"],
     return_dense=True,
     return_sparse=True,
-    return_colbert_vecs=True
+    return_colbert_vecs=True,
 )
 
 dense_embeddings = output["dense_vecs"]
@@ -318,11 +318,11 @@ from torch.utils.data import DataLoader
 train_examples = [
     InputExample(
         texts=["query: how to install", "doc: Installation guide content..."],
-        label=1.0  # Relevance score
+        label=1.0,  # Relevance score
     ),
     InputExample(
         texts=["query: how to install", "doc: Unrelated content..."],
-        label=0.0  # Negative example
+        label=0.0,  # Negative example
     ),
 ]
 
@@ -340,7 +340,7 @@ model.fit(
     train_objectives=[(train_dataloader, train_loss)],
     epochs=3,
     warmup_steps=100,
-    output_path="./fine-tuned-model"
+    output_path="./fine-tuned-model",
 )
 
 # Or use Multiple Negatives Ranking Loss (better for retrieval)
@@ -357,12 +357,13 @@ from sentence_transformers import SentenceTransformer
 from sentence_transformers.util import semantic_search
 import torch
 
+
 def mine_hard_negatives(
     queries: list[str],
     positives: list[str],
     corpus: list[str],
     model: SentenceTransformer,
-    top_k: int = 10
+    top_k: int = 10,
 ) -> list[InputExample]:
     """Mine hard negatives from corpus for each query-positive pair."""
 
@@ -374,9 +375,7 @@ def mine_hard_negatives(
     for i, query in enumerate(queries):
         # Find similar documents that are NOT the positive
         hits = semantic_search(
-            query_embeddings[i:i+1],
-            corpus_embeddings,
-            top_k=top_k + 1
+            query_embeddings[i : i + 1], corpus_embeddings, top_k=top_k + 1
         )[0]
 
         hard_negatives = [
@@ -385,9 +384,7 @@ def mine_hard_negatives(
             if corpus[hit["corpus_id"]] not in positive_set
         ][:3]  # Top 3 hard negatives
 
-        examples.append(InputExample(
-            texts=[query, positives[i]] + hard_negatives
-        ))
+        examples.append(InputExample(texts=[query, positives[i]] + hard_negatives))
 
     return examples
 ```
@@ -402,30 +399,30 @@ def mine_hard_negatives(
 import re
 from typing import Callable
 
+
 def clean_for_embedding(text: str) -> str:
     """Clean text before embedding."""
     # Remove excessive whitespace
-    text = re.sub(r'\s+', ' ', text)
+    text = re.sub(r"\s+", " ", text)
     # Remove special characters that don't add meaning
-    text = re.sub(r'[^\w\s\.\,\!\?\-\:\;\(\)]', '', text)
+    text = re.sub(r"[^\w\s\.\,\!\?\-\:\;\(\)]", "", text)
     # Truncate to reasonable length (model dependent)
     text = text[:8000]  # Leave room for tokenization expansion
     return text.strip()
 
+
 def preprocess_for_embedding(
-    text: str,
-    prefix: str = "",
-    max_length: int = 8000
+    text: str, prefix: str = "", max_length: int = 8000
 ) -> str:
     """Preprocess with optional prefix (for instruction-tuned models)."""
     cleaned = clean_for_embedding(text)
     prefixed = f"{prefix}{cleaned}" if prefix else cleaned
     return prefixed[:max_length]
 
+
 # BGE-style prefix for queries
 query_text = preprocess_for_embedding(
-    "how to install",
-    prefix="Represent this sentence for searching relevant passages: "
+    "how to install", prefix="Represent this sentence for searching relevant passages: "
 )
 ```
 
@@ -436,6 +433,7 @@ import hashlib
 import json
 from functools import lru_cache
 from pathlib import Path
+
 
 class EmbeddingCache:
     """Disk-based embedding cache."""
@@ -460,10 +458,14 @@ class EmbeddingCache:
         cache_file = self.cache_dir / f"{key}.json"
         cache_file.write_text(json.dumps(embedding))
 
+
 # Usage
 cache = EmbeddingCache()
 
-def get_embedding_cached(text: str, model: str = "text-embedding-3-small") -> list[float]:
+
+def get_embedding_cached(
+    text: str, model: str = "text-embedding-3-small"
+) -> list[float]:
     cached = cache.get(text, model)
     if cached:
         return cached
@@ -480,16 +482,18 @@ from typing import Iterator
 import asyncio
 from openai import AsyncOpenAI
 
+
 def batch_texts(texts: list[str], batch_size: int = 100) -> Iterator[list[str]]:
     """Yield batches of texts."""
     for i in range(0, len(texts), batch_size):
-        yield texts[i:i + batch_size]
+        yield texts[i : i + batch_size]
+
 
 async def get_embeddings_async(
     texts: list[str],
     model: str = "text-embedding-3-small",
     batch_size: int = 100,
-    max_concurrent: int = 5
+    max_concurrent: int = 5,
 ) -> list[list[float]]:
     """Async batch embedding with concurrency control."""
     client = AsyncOpenAI()
@@ -497,11 +501,10 @@ async def get_embeddings_async(
 
     async def embed_batch(batch: list[str]) -> list[list[float]]:
         async with semaphore:
-            response = await client.embeddings.create(
-                input=batch,
-                model=model
-            )
-            return [item.embedding for item in sorted(response.data, key=lambda x: x.index)]
+            response = await client.embeddings.create(input=batch, model=model)
+            return [
+                item.embedding for item in sorted(response.data, key=lambda x: x.index)
+            ]
 
     batches = list(batch_texts(texts, batch_size))
     results = await asyncio.gather(*[embed_batch(b) for b in batches])

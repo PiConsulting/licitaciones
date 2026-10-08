@@ -107,7 +107,9 @@ def filter_rows(rows: list[list[str]], module_code: str) -> list[list[str]]:
     return [row for row in rows if not row or row[0].strip() != module_code]
 
 
-def write_csv(path: str, header: list[str], rows: list[list[str]], verbose: bool = False) -> None:
+def write_csv(
+    path: str, header: list[str], rows: list[list[str]], verbose: bool = False
+) -> None:
     """Write header + rows to CSV file, creating parent dirs as needed."""
     file_path = Path(path)
     file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -122,7 +124,9 @@ def write_csv(path: str, header: list[str], rows: list[list[str]], verbose: bool
             writer.writerow(row)
 
 
-def cleanup_legacy_csvs(legacy_dir: str, module_code: str, verbose: bool = False) -> list:
+def cleanup_legacy_csvs(
+    legacy_dir: str, module_code: str, verbose: bool = False
+) -> list:
     """Intentionally does NOT delete any legacy CSV files (returns an empty list).
 
     Old per-module module-help.csv files — including _bmad/core/module-help.csv — are
@@ -166,7 +170,9 @@ def reject_unresolved_paths(named_paths: list[tuple[str, str]]) -> None:
 def main():
     args = parse_args()
 
-    reject_unresolved_paths([("--target", args.target), ("--legacy-dir", args.legacy_dir)])
+    reject_unresolved_paths(
+        [("--target", args.target), ("--legacy-dir", args.legacy_dir)]
+    )
 
     # Read source entries
     source_header, source_rows = read_csv_rows(args.source)
@@ -177,7 +183,9 @@ def main():
     # Determine module codes being merged
     source_codes = extract_module_codes(source_rows)
     if not source_codes:
-        print("Error: Could not determine module code from source rows", file=sys.stderr)
+        print(
+            "Error: Could not determine module code from source rows", file=sys.stderr
+        )
         sys.exit(1)
 
     if args.verbose:
@@ -194,7 +202,9 @@ def main():
             print(f"Existing target rows: {len(target_rows)}", file=sys.stderr)
 
     # Use source header if target doesn't exist or has no header
-    header = target_header if target_header else (source_header if source_header else HEADER)
+    header = (
+        target_header if target_header else (source_header if source_header else HEADER)
+    )
 
     # Anti-zombie: remove all rows for each source module code
     filtered_rows = target_rows
@@ -222,7 +232,9 @@ def main():
                 file=sys.stderr,
             )
             sys.exit(1)
-        legacy_deleted = cleanup_legacy_csvs(args.legacy_dir, args.module_code, args.verbose)
+        legacy_deleted = cleanup_legacy_csvs(
+            args.legacy_dir, args.module_code, args.verbose
+        )
 
     # Output result summary as JSON
     result = {

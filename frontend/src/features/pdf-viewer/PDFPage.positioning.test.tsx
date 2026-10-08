@@ -78,11 +78,10 @@ function renderizarYCargar({
 }
 
 describe("posicionamiento al abrir una fuente", () => {
-  test("scrollea hasta la región del resaltado, no al tope de la página", () => {
+  test("no fuerza scroll local: el posicionamiento lo resuelve PDFViewer", () => {
     const container = renderizarYCargar({ regions: [REGION_ABAJO] });
 
-    // y=680, menos el 30% de 600 de margen = 500.
-    expect(container.scrollTop).toBe(500);
+    expect(container.scrollTop).toBe(0);
   });
 
   test("una cita cerca del tope no fuerza scroll negativo", () => {
@@ -91,11 +90,10 @@ describe("posicionamiento al abrir una fuente", () => {
     expect(container.scrollTop).toBe(0);
   });
 
-  test("con varias regiones apunta a la primera del texto, no a la última", () => {
+  test("con varias regiones tampoco ajusta scroll local", () => {
     const container = renderizarYCargar({ regions: [REGION_ABAJO, REGION_ARRIBA] });
 
-    // La cita empieza en y=400: hay que ver su comienzo, no su última línea.
-    expect(container.scrollTop).toBe(220);
+    expect(container.scrollTop).toBe(0);
   });
 
   test("una página que no es la de la cita activa no scrollea", () => {

@@ -6,9 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials
 
 from documents.schemas import DocumentSASUrlResponse
-from documents.service import StoredDocument, get_document_by_id, get_document_by_id_cosmos
-from shared.config import get_settings
-from shared.database import SessionLocal
+from documents.service import StoredDocument, get_document_by_id
+from infra.config import get_settings
+from infra.database import SessionLocal
+from users.access import get_visible_analysis
 from users.service import get_current_user, http_bearer
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -35,21 +36,12 @@ def _parse_sas_expiry(sas_token: str) -> datetime | None:
 
 
 def _load_document_for_user(document_id: str, user_id: str) -> StoredDocument | None:
-    settings = get_settings()
-
-    if settings.is_cosmos_only_mode():
-        document = get_document_by_id_cosmos(document_id)
-        if document is None or document.created_by != user_id:
-            return None
-        return document
-
-    if SessionLocal is None:
-        return None
-
     db = SessionLocal()
     try:
         document_sql = get_document_by_id(db, document_id)
-        if document_sql is None or document_sql.created_by != user_id:
+        if document_sql is None:
+            return None
+        if get_visible_analysis(db, document_sql.analysis_id, user_id) is None:
             return None
         return StoredDocument(
             id=document_sql.id,
@@ -110,9 +102,6 @@ def generate_document_url(
         )
         blob_url = f"{blob_client.url}?{sas_token}"
     else:
-        # No AccountKey available (e.g. connection string built from an
-        # account-level SAS) — blob_client.url already carries that SAS as
-        # its query string, so it's used as-is instead of minting a new one.
         existing_sas = _extract_connection_string_value(connection_string, "SharedAccessSignature")
         if not existing_sas:
             raise HTTPException(

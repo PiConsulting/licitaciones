@@ -15,8 +15,8 @@ STAGE_PROGRESS_MAP: dict[CurrentStage, int] = {
     CurrentStage.COMPLETED: 100,
 }
 
+# `en_revision` NO es terminal: habilita la transición a fase 2 (start-categories).
 TERMINAL_STATUSES = {"analyzed", "error", "cancelled"}
-
 
 def calculate_timeout_minutes(total_pages: int) -> int:
     if total_pages <= 50:
@@ -28,7 +28,9 @@ def calculate_timeout_minutes(total_pages: int) -> int:
     return 25
 
 
-def set_timeout_timestamps(analysis: Analysis, total_pages: int, *, now: datetime | None = None) -> None:
+def set_timeout_timestamps(
+    analysis: Analysis, total_pages: int, *, now: datetime | None = None
+) -> None:
     reference_now = now or datetime.now(UTC)
     timeout_minutes = calculate_timeout_minutes(total_pages)
     analysis.started_at = reference_now
@@ -36,7 +38,13 @@ def set_timeout_timestamps(analysis: Analysis, total_pages: int, *, now: datetim
     analysis.timeout_warning_at = analysis.timeout_at - timedelta(minutes=2)
 
 
-def build_stage_progress(stage: CurrentStage, *, done: int | None = None, total: int | None = None) -> str:
+def build_stage_progress(
+    stage: CurrentStage,
+    *,
+    done: int | None = None,
+    total: int | None = None,
+    analyzing_label: str = "categorias",
+) -> str:
     if stage == CurrentStage.QUEUED:
         return "En cola"
     if stage == CurrentStage.EXTRACTING_TEXT and done is not None and total is not None:
@@ -44,7 +52,7 @@ def build_stage_progress(stage: CurrentStage, *, done: int | None = None, total:
     if stage == CurrentStage.INDEXING:
         return "Preparando para análisis"
     if stage == CurrentStage.ANALYZING and done is not None and total is not None:
-        return f"Analizando categorias ({done} de {total})"
+        return f"Analizando {analyzing_label} ({done} de {total})"
     if stage == CurrentStage.CONSOLIDATING:
         return "Consolidando"
     return "Analizado"
@@ -59,7 +67,9 @@ def update_stage_and_progress(
     stage_progress: str | None = None,
     status: str | None = None,
 ) -> Analysis | None:
-    analysis = db.query(Analysis).filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None)).first()
+    analysis = (
+        db.query(Analysis).filter(Analysis.id == analysis_id, Analysis.deleted_at.is_(None)).first()
+    )
     if analysis is None:
         return None
 
@@ -67,7 +77,9 @@ def update_stage_and_progress(
     analysis.current_stage = stage.value
     if status is not None:
         analysis.status = status
-    analysis.progress_percentage = min(100, max(analysis.progress_percentage or 0, base_progress + progress_increment))
+    analysis.progress_percentage = min(
+        100, max(analysis.progress_percentage or 0, base_progress + progress_increment)
+    )
     if stage_progress:
         analysis.extraction_metadata = {
             **(analysis.extraction_metadata or {}),

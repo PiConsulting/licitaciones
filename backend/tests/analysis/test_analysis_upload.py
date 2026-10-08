@@ -1,0 +1,145 @@
+import fitz
+import pytest
+from fastapi.testclient import TestClient
+
+from infra.business_units import BUSINESS_UNITS
+
+
+class _FakeStorage:
+    def upload(self, blob_name: str, content: bytes) -> None:
+        return None
+
+    def delete(self, blob_name: str) -> None:
+        return None
+
+
+@pytest.fixture(autouse=True)
+def fake_storage(monkeypatch):
+    monkeypatch.setattr("analysis.service.upload._build_blob_storage", lambda: _FakeStorage())
+
+
+def _build_pdf(pages: int, encrypted: bool = False) -> bytes:
+    doc = fitz.open()
+    for _ in range(pages):
+        doc.new_page(width=200, height=200)
+
+    try:
+        if encrypted:
+            return doc.tobytes(
+                encryption=fitz.PDF_ENCRYPT_AES_256,
+                owner_pw="secret",
+                user_pw="secret",
+                permissions=0,
+            )
+        return doc.tobytes()
+    finally:
+        doc.close()
+
+
+def test_upload_single_pdf_success(client: TestClient, auth_token: str):
+    pdf_bytes = _build_pdf(1)
+
+    response = client.post(
+        "/api/v1/analyses",
+        headers={"Authorization": f"Bearer {auth_token}"},
+        data={"primary_file_index": "0", "business_unit": BUSINESS_UNITS[0]},
+        files=[("files", ("single.pdf", pdf_bytes, "application/pdf"))],
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["status"] == "draft"
+    assert len(payload["documents"]) == 1
+    assert payload["documents"][0]["is_primary"] is True
+
+
+def test_upload_multiple_pdfs_manual_primary(client: TestClient, auth_token: str):
+    files = [
+        ("files", ("first.pdf", _build_pdf(1), "application/pdf")),
+        ("files", ("second.pdf", _build_pdf(2), "application/pdf")),
+    ]
+
+    response = client.post(
+        "/api/v1/analyses",
+        headers={"Authorization": f"Bearer {auth_token}"},
+        data={"primary_file_index": "1", "business_unit": BUSINESS_UNITS[0]},
+        files=files,
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["documents"][0]["is_primary"] is False
+    assert payload["documents"][1]["is_primary"] is True
+
+
+def test_upload_corrupted_pdf(client: TestClient, auth_token: str):
+    response = client.post(
+        "/api/v1/analyses",
+        headers={"Authorization": f"Bearer {auth_token}"},
+        data={"primary_file_index": "0", "business_unit": BUSINESS_UNITS[0]},
+        files=[("files", ("corrupted.pdf", b"not-a-pdf", "application/pdf"))],
+    )
+
+    assert response.status_code == 400
+    assert "está dañado" in response.json()["error"]["message"]
+
+
+def test_upload_password_protected_pdf(client: TestClient, auth_token: str):
+    protected_pdf = _build_pdf(1, encrypted=True)
+
+    response = client.post(
+        "/api/v1/analyses",
+        headers={"Authorization": f"Bearer {auth_token}"},
+        data={"primary_file_index": "0", "business_unit": BUSINESS_UNITS[0]},
+        files=[("files", ("protected.pdf", protected_pdf, "application/pdf"))],
+    )
+
+    assert response.status_code == 400
+    assert "protegido con contraseña" in response.json()["error"]["message"]
+
+
+def test_upload_over_300_pages(client: TestClient, auth_token: str):
+    large_pdf = _build_pdf(301)
+
+    response = client.post(
+        "/api/v1/analyses",
+        headers={"Authorization": f"Bearer {auth_token}"},
+        data={"primary_file_index": "0", "business_unit": BUSINESS_UNITS[0]},
+        files=[("files", ("too-long.pdf", large_pdf, "application/pdf"))],
+    )
+
+    assert response.status_code == 400
+    assert "máximo es 300" in response.json()["error"]["message"]
+
+
+def test_upload_large_document_warning(client: TestClient, auth_token: str):
+    warning_pdf = _build_pdf(120)
+
+    response = client.post(
+        "/api/v1/analyses",
+        headers={"Authorization": f"Bearer {auth_token}"},
+        data={"primary_file_index": "0", "business_unit": BUSINESS_UNITS[0]},
+        files=[("files", ("long.pdf", warning_pdf, "application/pdf"))],
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert len(payload["warnings"]) == 1
+    assert "puede demorar" in payload["warnings"][0]["message"]
+
+
+def test_upload_requires_primary_for_multiple_files(client: TestClient, auth_token: str):
+    files = [
+        ("files", ("first.pdf", _build_pdf(1), "application/pdf")),
+        ("files", ("second.pdf", _build_pdf(1), "application/pdf")),
+    ]
+
+    response = client.post(
+        "/api/v1/analyses",
+        headers={"Authorization": f"Bearer {auth_token}"},
+        data={"primary_file_index": "-1", "business_unit": BUSINESS_UNITS[0]},
+        files=files,
+    )
+
+    assert response.status_code == 400
+    assert "Seleccioná cuál es el pliego principal" in response.json()["error"]["message"]

@@ -1,4 +1,8 @@
-import { ChevronLeft, ChevronRight, Minus, Plus, Scan } from "lucide-react";
+import type { ReactNode } from "react";
+import { ArrowLeftRight, ChevronLeft, ChevronRight, Maximize, Minus, Plus } from "lucide-react";
+
+import type { LensConfig } from "./lens";
+import { PDFLensControls } from "./PDFLensControls";
 
 interface PDFControlsProps {
   currentPage: number;
@@ -9,6 +13,14 @@ interface PDFControlsProps {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFitToWidth: () => void;
+  /** Nav de citas ("Cita X de Y"), compuesto en la misma barra de herramientas
+   * en vez de tener su propia franja completa, igual al patrón `metaSlot` de
+   * `ProgressBar`. */
+  citationSlot?: ReactNode;
+  lens?: LensConfig;
+  onLensToggle?: () => void;
+  onLensChange?: (patch: Partial<Omit<LensConfig, "enabled">>) => void;
+  onFullscreen?: () => void;
 }
 
 export function PDFControls({
@@ -20,61 +32,86 @@ export function PDFControls({
   onZoomIn,
   onZoomOut,
   onFitToWidth,
+  citationSlot,
+  lens,
+  onLensToggle,
+  onLensChange,
+  onFullscreen,
 }: PDFControlsProps) {
   return (
-    <div className="flex items-center gap-2 border-b border-gray-200 bg-gray-50 p-2">
+    <div className="relative flex flex-wrap items-center gap-1.5 border-b border-[rgba(0,60,107,.12)] bg-[#F4F9FC] px-3 py-2">
       <button
         type="button"
         onClick={() => onPageChange(currentPage - 1)}
         disabled={currentPage <= 1}
-        className="rounded p-2 hover:bg-gray-200 disabled:opacity-40"
+        className="flex h-[30px] w-[30px] items-center justify-center rounded-lg text-[#003C6B] transition-colors hover:bg-white disabled:opacity-40"
         aria-label="Página anterior"
       >
         <ChevronLeft className="h-4 w-4" />
       </button>
 
-      <span className="text-xs text-gray-700">Página {currentPage} de {totalPages || 1}</span>
+      <span className="font-display text-xs font-semibold text-[#003C6B]">
+        Pág. {currentPage} / {totalPages || 1}
+      </span>
 
       <button
         type="button"
         onClick={() => onPageChange(currentPage + 1)}
         disabled={totalPages === 0 || currentPage >= totalPages}
-        className="rounded p-2 hover:bg-gray-200 disabled:opacity-40"
+        className="flex h-[30px] w-[30px] items-center justify-center rounded-lg text-[#003C6B] transition-colors hover:bg-white disabled:opacity-40"
         aria-label="Página siguiente"
       >
         <ChevronRight className="h-4 w-4" />
       </button>
 
-      <div className="ml-auto flex items-center gap-1">
+      {citationSlot}
+
+      <div className="ml-auto flex items-center gap-0.5">
+        {onFullscreen ? (
+          <button
+            type="button"
+            onClick={onFullscreen}
+            className="flex h-[30px] w-[30px] items-center justify-center rounded-lg text-[#003C6B] transition-colors hover:bg-white"
+            aria-label="Pantalla completa"
+            title="Pantalla completa"
+          >
+            <Maximize className="h-4 w-4" />
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={onFitToWidth}
           disabled={isFitMode}
-          className="rounded p-2 hover:bg-gray-200 disabled:opacity-40"
+          className="flex h-[30px] w-[30px] items-center justify-center rounded-lg text-[#003C6B] transition-colors hover:bg-white disabled:opacity-40"
           aria-label="Ajustar al ancho"
           title="Ajustar al ancho"
         >
-          <Scan className="h-4 w-4" />
+          <ArrowLeftRight className="h-4 w-4" />
         </button>
         <button
           type="button"
           onClick={onZoomOut}
           disabled={zoom <= 0.5}
-          className="rounded p-2 hover:bg-gray-200 disabled:opacity-40"
+          className="flex h-[30px] w-[30px] items-center justify-center rounded-lg text-[#003C6B] transition-colors hover:bg-white disabled:opacity-40"
           aria-label="Reducir zoom"
         >
           <Minus className="h-4 w-4" />
         </button>
-        <span className="min-w-[3rem] text-center text-xs text-gray-700">{Math.round(zoom * 100)}%</span>
+        <span className="font-display min-w-[40px] text-center text-xs font-semibold text-[#003C6B]">
+          {Math.round(zoom * 100)}%
+        </span>
         <button
           type="button"
           onClick={onZoomIn}
           disabled={zoom >= 2}
-          className="rounded p-2 hover:bg-gray-200 disabled:opacity-40"
+          className="flex h-[30px] w-[30px] items-center justify-center rounded-lg text-[#003C6B] transition-colors hover:bg-white disabled:opacity-40"
           aria-label="Aumentar zoom"
         >
           <Plus className="h-4 w-4" />
         </button>
+        {lens && onLensToggle && onLensChange ? (
+          <PDFLensControls config={lens} onToggle={onLensToggle} onChange={onLensChange} />
+        ) : null}
       </div>
     </div>
   );

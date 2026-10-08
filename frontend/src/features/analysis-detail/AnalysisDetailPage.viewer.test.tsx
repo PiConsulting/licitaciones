@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { ToastProvider } from "../../components/ToastContainer";
 import { AnalysisDetailPage } from "./AnalysisDetailPage";
@@ -8,9 +9,31 @@ import type { AnalysisDetail } from "./types";
 import type { AnalysisTracking } from "../../types/tracking";
 
 const mockGetAnalysisById = vi.fn();
+const mockGetAnalysisStatus = vi.fn();
+const mockDecideAnalysisCategories = vi.fn();
+const mockReanalyzeAnalysis = vi.fn();
+const mockStartTracking = vi.fn();
 vi.mock("../../services/api/analysisApi", () => ({
   getAnalysisById: (...args: unknown[]) => mockGetAnalysisById(...args),
 }));
+
+vi.mock("../../api/tracking", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/tracking")>();
+  return {
+    ...actual,
+    startTracking: (...args: unknown[]) => mockStartTracking(...args),
+  };
+});
+
+vi.mock("../../api/analyses", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/analyses")>();
+  return {
+    ...actual,
+    getAnalysisStatus: (...args: unknown[]) => mockGetAnalysisStatus(...args),
+    decideAnalysisCategories: (...args: unknown[]) => mockDecideAnalysisCategories(...args),
+    reanalyzeAnalysis: (...args: unknown[]) => mockReanalyzeAnalysis(...args),
+  };
+});
 
 vi.mock("../pdf-viewer/PDFViewer", () => ({
   PDFViewer: ({ documentId, citations, onClose }: { documentId: string; citations: unknown[]; onClose?: () => void }) => (
@@ -47,9 +70,10 @@ function createTracking(status: "active" | "completed"): AnalysisTracking {
 }
 
 function createAnalysis(options?: { tracking?: AnalysisTracking | null }): AnalysisDetail {
+  const createdAt = new Date().toISOString();
   return {
     id: "analysis-1",
-    created_at: new Date().toISOString(),
+    created_at: createdAt,
     status: "analyzed",
     current_stage: "completed",
     current_version: {
@@ -90,10 +114,87 @@ function createAnalysis(options?: { tracking?: AnalysisTracking | null }): Analy
       conflicts: {},
       created_at: new Date().toISOString(),
     },
+    versions: [
+      {
+        id: "v2",
+        version_number: 2,
+        extracted_data: {
+          objeto_alcance: {
+            confidence: 0.72,
+            extraction_status: "success",
+            is_reviewed: false,
+            summary: "Objeto actualizado",
+            source_references: [],
+            items: [
+              {
+                field_name: "Objeto",
+                field_value: "Adquisicion actualizada",
+                field_state: "extraido",
+                confidence: 0.72,
+                citations: [],
+              },
+            ],
+          },
+          riesgos: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          requisitos_admisibilidad: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          garantias: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          plazos_clave: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          criterios_evaluacion: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          causales_rechazo: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          anexos_obligatorios: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          datos_procedimiento: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+        },
+        conflicts: {},
+        created_at: createdAt,
+      },
+      {
+        id: "v1",
+        version_number: 1,
+        extracted_data: {
+          objeto_alcance: {
+            confidence: 0.6,
+            extraction_status: "success",
+            is_reviewed: false,
+            summary: "Resumen",
+            source_references: [],
+            items: [
+              {
+                field_name: "Objeto",
+                field_value: "Adquisicion",
+                field_state: "extraido",
+                confidence: 0.6,
+                citations: [],
+              },
+            ],
+          },
+          riesgos: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          requisitos_admisibilidad: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          garantias: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          plazos_clave: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          criterios_evaluacion: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          causales_rechazo: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          anexos_obligatorios: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+          datos_procedimiento: { confidence: 0, extraction_status: "not_found", is_reviewed: false, summary: "", source_references: [], items: [] },
+        },
+        conflicts: {},
+        created_at: createdAt,
+      },
+    ],
     documents: [
       { id: "doc-1", filename: "Pliego Principal.pdf", is_primary: true, page_count: 20 },
     ],
     tracking: options?.tracking,
+  };
+}
+
+function createAnalysisInReview(): AnalysisDetail {
+  return {
+    ...createAnalysis(),
+    status: "en_revision",
+    // El backend real sincroniza business_status a "pendiente_decision" en cuanto la fase 1
+    // llega a en_revision (analysis/service/business_lifecycle.py::sync_business_status),
+    // antes de responder /analyses/{id} -- este mock reproduce esa respuesta ya sincronizada.
+    business_status: "pendiente_decision",
   };
 }
 
@@ -107,15 +208,50 @@ function renderPage() {
   return render(
     <ToastProvider>
       <QueryClientProvider client={queryClient}>
-        <AnalysisDetailPage analysisId="analysis-1" />
+        <MemoryRouter initialEntries={["/analysis/analysis-1"]}>
+          <Routes>
+            <Route path="/analysis/:analysisId" element={<AnalysisDetailPage analysisId="analysis-1" />} />
+            <Route path="/analysis/:analysisId/checklist" element={<p>Checklist de cumplimiento</p>} />
+          </Routes>
+        </MemoryRouter>
       </QueryClientProvider>
     </ToastProvider>,
   );
 }
 
+function getPreviewObjectSourceButton() {
+  return screen.queryByRole("button", { name: /Ver fuente en el pliego \(pág\. 15\)/i });
+}
+
 describe("AnalysisDetailPage PDF integration", () => {
   beforeEach(() => {
     mockGetAnalysisById.mockResolvedValue(createAnalysis());
+    mockGetAnalysisStatus.mockResolvedValue({
+      id: "analysis-1",
+      status: "processing",
+      current_stage: "analyzing",
+      progress_percentage: 55,
+      stage_progress: "Analizando Preview (2 de 3)",
+    });
+    mockDecideAnalysisCategories.mockResolvedValue({
+      id: "analysis-1",
+      status: "queued",
+      message: "Análisis de categorías encolado exitosamente.",
+      decision: "approved",
+      decision_by_name: "Agostina Torres",
+      decision_at: new Date().toISOString(),
+    });
+    mockReanalyzeAnalysis.mockResolvedValue({
+      id: "analysis-1",
+      status: "queued",
+      message: "Reanálisis encolado",
+      reanalysis_type: "all",
+      categories: [],
+      source_version_id: "v2",
+      target_version_id: "v3",
+      target_version_number: 3,
+    });
+    mockStartTracking.mockResolvedValue(createTracking("active"));
     sessionStorage.clear();
   });
 
@@ -129,15 +265,55 @@ describe("AnalysisDetailPage PDF integration", () => {
     expect(screen.getByTestId("pdf-viewer-mock")).toHaveTextContent("viewer:doc-1:0");
   });
 
+  test("usa Preview como pestaña inicial por defecto", async () => {
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("preview-tab-content")).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("button", { name: "Preview" })).toHaveAttribute("aria-current", "page");
+  });
+
+  test("si falta preview_criterios en análisis legacy, mantiene preview funcional y muestra nota informativa", async () => {
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("preview-tab-content")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("preview-tab-legacy-note")).toBeInTheDocument();
+    expect(screen.getByTestId("preview-object-card")).toBeInTheDocument();
+  });
+
+  test("en análisis legacy, Categorías y Timeline siguen operativos sin romper la vista", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("preview-tab-legacy-note")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Categorías" }));
+    expect(screen.getByRole("button", { name: "Categorías" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByLabelText("Categorías de análisis")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Timeline" }));
+    expect(screen.getByRole("button", { name: "Timeline" })).toHaveAttribute("aria-current", "page");
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Timeline" })).toBeInTheDocument();
+    });
+  });
+
   test("la vista divide PDF y campos en contenedores inferiores con anchos xl esperados", async () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByTestId("categories-panel")).toBeInTheDocument();
+      expect(screen.getByTestId("analysis-content-panel")).toBeInTheDocument();
     });
 
     expect(screen.getByTestId("detail-summary-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("categories-panel")).toHaveClass("xl:w-[60%]");
+    expect(screen.getByTestId("analysis-content-panel")).toHaveClass("xl:w-[60%]");
     expect(screen.getByTestId("pdf-viewer-panel")).toHaveClass("xl:w-[40%]");
   });
 
@@ -152,12 +328,14 @@ describe("AnalysisDetailPage PDF integration", () => {
     await user.click(screen.getByRole("button", { name: "Ocultar visor PDF" }));
 
     expect(screen.queryByTestId("pdf-viewer-panel")).not.toBeInTheDocument();
-    expect(screen.getByTestId("categories-panel")).toHaveClass("xl:w-full");
+    expect(screen.getByTestId("analysis-content-panel")).toHaveClass("xl:w-full");
 
-    await user.click(screen.getByRole("button", { name: "Mostrar PDF" }));
+    act(() => {
+      window.dispatchEvent(new CustomEvent("analysis-detail:toggle-pdf"));
+    });
 
     expect(screen.getByTestId("pdf-viewer-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("categories-panel")).toHaveClass("xl:w-[60%]");
+    expect(screen.getByTestId("analysis-content-panel")).toHaveClass("xl:w-[60%]");
   });
 
   test("click en fuente de categoría (documento + página) abre visor en la cita elegida", async () => {
@@ -166,10 +344,10 @@ describe("AnalysisDetailPage PDF integration", () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Pliego Principal\.pdf · pág. 15/i })).toBeInTheDocument();
+      expect(getPreviewObjectSourceButton()).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole("button", { name: /Pliego Principal\.pdf · pág. 15/i }));
+    await user.click(getPreviewObjectSourceButton()!);
 
     expect(screen.getByTestId("pdf-viewer-mock")).toHaveTextContent("viewer:doc-1:1");
   });
@@ -186,41 +364,194 @@ describe("AnalysisDetailPage PDF integration", () => {
     await user.click(screen.getByRole("button", { name: "Ocultar visor PDF" }));
     expect(screen.queryByTestId("pdf-viewer-panel")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /Pliego Principal\.pdf · pág. 15/i }));
+    await user.click(getPreviewObjectSourceButton()!);
 
     expect(screen.getByTestId("pdf-viewer-panel")).toBeInTheDocument();
     expect(screen.getByTestId("pdf-viewer-mock")).toHaveTextContent("viewer:doc-1:1");
   });
 
-  test("muestra acción flotante de terminar seguimiento cuando tracking está activo", async () => {
-    const user = userEvent.setup();
+  test("al recibir el evento global de abrir checklist con tracking activo, navega al checklist", async () => {
     mockGetAnalysisById.mockResolvedValue(createAnalysis({ tracking: createTracking("active") }));
 
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Terminar seguimiento" })).toBeInTheDocument();
+      expect(screen.getByTestId("analysis-content-panel")).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole("button", { name: "Terminar seguimiento" }));
+    window.dispatchEvent(new CustomEvent("analysis-detail:open-checklist"));
 
-    expect(screen.getByRole("heading", { name: "Terminar seguimiento" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Seguir editando" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Confirmar finalización" })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Seguir editando" }));
-    expect(screen.queryByRole("button", { name: "Confirmar finalización" })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("Checklist de cumplimiento")).toBeInTheDocument();
+    });
   });
 
-  test("oculta acción terminar seguimiento cuando tracking está completado", async () => {
+  test("al abrir el checklist con el seguimiento finalizado, navega en modo vista sin reanudarlo", async () => {
+    mockStartTracking.mockClear();
     mockGetAnalysisById.mockResolvedValue(createAnalysis({ tracking: createTracking("completed") }));
 
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByTestId("categories-panel")).toBeInTheDocument();
+      expect(screen.getByTestId("analysis-content-panel")).toBeInTheDocument();
     });
 
-    expect(screen.queryByRole("button", { name: "Terminar seguimiento" })).not.toBeInTheDocument();
+    window.dispatchEvent(new CustomEvent("analysis-detail:open-checklist"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Checklist de cumplimiento")).toBeInTheDocument();
+    });
+    expect(mockStartTracking).not.toHaveBeenCalled();
+  });
+
+  test("al recibir el evento global de abrir checklist sin tracking iniciado, inicia el seguimiento y navega directamente al checklist", async () => {
+    mockGetAnalysisById.mockResolvedValue(createAnalysis({ tracking: null }));
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("analysis-content-panel")).toBeInTheDocument();
+    });
+
+    window.dispatchEvent(new CustomEvent("analysis-detail:open-checklist"));
+
+    await waitFor(() => {
+      expect(mockStartTracking).toHaveBeenCalledWith("analysis-1");
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Checklist de cumplimiento")).toBeInTheDocument();
+    });
+  });
+
+  test("al recibir el evento global de reanalizar, abre el modal de reanálisis", async () => {
+    mockGetAnalysisById.mockResolvedValue(createAnalysis());
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("analysis-content-panel")).toBeInTheDocument();
+    });
+
+    window.dispatchEvent(new CustomEvent("analysis-detail:open-reanalyze"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Reanalizar" })).toBeInTheDocument();
+    });
+  });
+
+  test("al recibir el evento global de abrir checklist cuando el análisis todavía no terminó, avisa por toast", async () => {
+    mockGetAnalysisById.mockResolvedValue(createAnalysisInReview());
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("analysis-content-panel")).toBeInTheDocument();
+    });
+
+    window.dispatchEvent(new CustomEvent("analysis-detail:open-checklist"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("El seguimiento se puede iniciar una vez que el análisis está completado."),
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("heading", { name: "Iniciar seguimiento" })).not.toBeInTheDocument();
+  });
+
+  test("muestra acción para iniciar análisis de categorías cuando el análisis está en revisión", async () => {
+    mockGetAnalysisById.mockResolvedValue(createAnalysisInReview());
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Aprobar y analizar Fase 2/i })).toBeInTheDocument();
+    });
+  });
+
+  test("no muestra acción para iniciar categorías cuando el análisis ya está analyzed", async () => {
+    mockGetAnalysisById.mockResolvedValue(createAnalysis());
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("analysis-content-panel")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole("button", { name: /Aprobar y analizar Fase 2/i })).not.toBeInTheDocument();
+  });
+
+  test("al iniciar análisis de categorías, muestra barra de progreso del mismo componente", async () => {
+    const user = userEvent.setup();
+    mockGetAnalysisById.mockResolvedValue(createAnalysisInReview());
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Aprobar y analizar Fase 2/i })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /Aprobar y analizar Fase 2/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("categories-progress-panel")).toBeInTheDocument();
+    });
+  });
+
+  test("si hay redirección pendiente persistida y el análisis ya terminó, abre Categorías por defecto", async () => {
+    sessionStorage.setItem("analysis:analysis-1:redirect_to_categories_on_analyze", "1");
+    mockGetAnalysisById.mockResolvedValue(createAnalysis());
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Categorías" })).toHaveAttribute("aria-current", "page");
+    });
+  });
+
+  test("muestra pestaña Versiones con marcador de versión actual y vista histórica", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Versiones" })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Versiones" }));
+
+    expect(screen.getByTestId("versions-tab-content")).toBeInTheDocument();
+    expect(screen.getByTestId("current-version-badge")).toBeInTheDocument();
+    expect(screen.getByText(/Vista histórica - Versión 1|Vista histórica - Versión 2/i)).toBeInTheDocument();
+  });
+
+  test("modal Reanalizar valida categorías cuando se elige selección manual", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("analysis-content-panel")).toBeInTheDocument();
+    });
+
+    window.dispatchEvent(new CustomEvent("analysis-detail:open-reanalyze"));
+    await waitFor(() => {
+      expect(screen.getByTestId("reanalyze-modal")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("radio", { name: "Seleccionar categorías" }));
+
+    const confirmButton = screen.getByRole("button", { name: "Confirmar reanálisis" });
+    expect(confirmButton).toBeDisabled();
+
+    await user.click(screen.getByRole("checkbox", { name: "Riesgos" }));
+    expect(confirmButton).not.toBeDisabled();
+
+    await user.click(confirmButton);
+
+    await waitFor(() => {
+      expect(mockReanalyzeAnalysis).toHaveBeenCalledWith("analysis-1", {
+        reanalysis_type: "categories",
+        categories: ["riesgos"],
+      });
+    });
   });
 });

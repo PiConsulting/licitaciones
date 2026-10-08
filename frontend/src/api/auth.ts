@@ -1,5 +1,7 @@
 import apiClient from "./client";
+import { clearSession } from "../auth/session";
 import type {
+  CurrentUserResponse,
   LoginRequest,
   LoginResponse,
   RegisterRequest,
@@ -16,8 +18,11 @@ export async function register(payload: RegisterRequest): Promise<RegisterRespon
   return response.data;
 }
 
+export async function fetchCurrentUser(): Promise<CurrentUserResponse> {
+  const response = await apiClient.get<CurrentUserResponse>("/auth/me");
+  return response.data;
+}
+
 export function logout(): void {
-  localStorage.removeItem("access_token");
-  localStorage.removeItem("user_name");
-  localStorage.removeItem("user_email");
+  clearSession();
 }

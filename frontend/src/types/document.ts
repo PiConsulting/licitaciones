@@ -1,4 +1,4 @@
-export interface DocumentSummary {
+export interface DocumentResponse {
   id: string;
   filename: string;
   page_count: number;

@@ -3,7 +3,7 @@ import type {
   AnalysisTracking,
   TrackingCategoryStatus,
   TrackingComment,
-  TrackingCommentScope,
+  CommentScope,
   TrackingItemStatus,
 } from "../types/tracking";
 
@@ -14,11 +14,6 @@ interface StartTrackingResponse {
 export async function startTracking(analysisId: string): Promise<AnalysisTracking> {
   const response = await apiClient.post<StartTrackingResponse>(`/analyses/${analysisId}/tracking/start`);
   return response.data.tracking;
-}
-
-export async function getTracking(analysisId: string): Promise<AnalysisTracking | null> {
-  const response = await apiClient.get<AnalysisTracking | null>(`/analyses/${analysisId}/tracking`);
-  return response.data;
 }
 
 export async function completeTracking(analysisId: string): Promise<AnalysisTracking> {
@@ -54,7 +49,7 @@ export async function updateTrackingItemStatus(
 export async function listTrackingComments(
   analysisId: string,
   categoryKey: string,
-  options: { scope?: TrackingCommentScope; trackingItemId?: string } = {},
+  options: { scope?: CommentScope; trackingItemId?: string } = {},
 ): Promise<TrackingComment[]> {
   const params: Record<string, string> = {};
   if (options.scope) {
@@ -73,14 +68,13 @@ export async function listTrackingComments(
 export async function createTrackingComment(
   analysisId: string,
   categoryKey: string,
-  payload: { content: string },
+  payload: { content: string; trackingItemId?: string },
 ): Promise<TrackingComment> {
   const response = await apiClient.post<TrackingComment>(
     `/analyses/${analysisId}/tracking/categories/${categoryKey}/comments`,
-    {
-      scope: "category",
-      content: payload.content,
-    },
+    payload.trackingItemId
+      ? { scope: "checklist_item", tracking_item_id: payload.trackingItemId, content: payload.content }
+      : { scope: "category", content: payload.content },
   );
   return response.data;
 }

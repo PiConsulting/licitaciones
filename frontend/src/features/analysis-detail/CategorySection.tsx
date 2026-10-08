@@ -1,73 +1,54 @@
-import { AlertTriangle } from "lucide-react";
-
-import { Badge } from "../../components/Badge";
 import { CATEGORY_ICONS, CATEGORY_NAMES, CRITICAL_CATEGORIES } from "../../utils/categoryIcons";
 import { getConfidenceLevel } from "../../utils/confidence";
 import { NarrativeBlocks } from "./components/NarrativeBlocks";
 import { PlazosTimeline } from "./components/PlazosTimeline";
-import { FieldBadge } from "./FieldBadge";
-import { FieldStateBadge } from "./FieldStateBadge";
-import type { CategoryData, CategoryId, Citation } from "./types";
+import type { CategoryData, CategoryId, Citation, NarrativeSource } from "./types";
 import { QualityNotice } from "./components/QualityNotice";
 import { getCategoryCounts } from "./utils/categoryStats";
 import { dedupeCitations } from "./utils/dedupeCitations";
 import { buildNarrativeBlocks } from "./utils/narrativeSynthesis";
-import { TrackingCommentsPanel } from "./components/TrackingCommentsPanel";
-import type { TrackingCategoryStatus, TrackingItemStatus, TrackingCategory } from "../../types/tracking";
 
 interface CategorySectionProps {
-  analysisId?: string;
+  analysisStatus?: "draft" | "queued" | "processing" | "en_revision" | "analyzed" | "validated" | "error" | "cancelled";
   categoryId: CategoryId;
   category: CategoryData;
   onViewSource?: (payload: { citation: Citation; citations: Citation[]; sources: NarrativeSource[] }) => void;
-  trackingCategory?: TrackingCategory;
-  onChangeTrackingStatus?: (categoryKey: string, status: TrackingCategoryStatus) => void;
-  onChangeTrackingItemStatus?: (categoryKey: string, trackingItemId: string, status: TrackingItemStatus) => void;
-  onCreateTrackingComment?: (payload: {
-    categoryKey: string;
-    content: string;
-  }) => Promise<void>;
-  onUpdateTrackingComment?: (payload: {
-    categoryKey: string;
-    commentId: string;
-    content: string;
-  }) => Promise<void>;
-  onDeleteTrackingComment?: (payload: { categoryKey: string; commentId: string }) => Promise<void>;
-  trackingReadOnly?: boolean;
-  trackingActionLoading?: boolean;
-  trackingItemLoadingId?: string | null;
 }
 
-export function CategorySection({
-  analysisId,
-  categoryId,
-  category,
-  onViewSource,
-  trackingCategory,
-  onChangeTrackingStatus,
-  onChangeTrackingItemStatus,
-  onCreateTrackingComment,
-  onUpdateTrackingComment,
-  onDeleteTrackingComment,
-  trackingReadOnly = false,
-  trackingActionLoading = false,
-  trackingItemLoadingId = null,
-}: CategorySectionProps) {
+export function CategorySection({ analysisStatus, categoryId, category, onViewSource }: CategorySectionProps) {
   const isCritical = CRITICAL_CATEGORIES.has(categoryId);
   const Icon = CATEGORY_ICONS[categoryId];
   const name = CATEGORY_NAMES[categoryId];
   const counts = getCategoryCounts(category);
   const narrative = category.narrative ?? buildNarrativeBlocks(category, categoryId);
+  const narrativeBullets = narrative.blocks.flatMap((block) => (block.type === "bullet_list" ? block.items : []));
   const allCitations = dedupeCitations(category.items.flatMap((item) => item.citations));
   const hasClickableEvidence = allCitations.some(
     (citation) => citation.document_id.trim() !== "" && citation.page > 0 && citation.text.trim() !== "",
   );
   const isReviewed = category.is_reviewed && hasClickableEvidence;
   const confidenceLevel = category.confidence > 0 ? getConfidenceLevel(category.confidence) : null;
+  const confidenceLabel =
+    confidenceLevel === "high" ? "Alta" : confidenceLevel === "medium" ? "Media" : confidenceLevel === "low" ? "Baja" : null;
+  const isOnlyPhaseOneCategory = categoryId === "objeto_alcance";
+  const hasRealExtraction = counts.extracted > 0 || counts.conflict > 0 || counts.notApplicable > 0;
+  const isLegacyPendingCategoryInRevision =
+    analysisStatus === "en_revision" &&
+    !isOnlyPhaseOneCategory &&
+    !hasRealExtraction;
+  const isPhaseOnePendingEmptyCategory =
+    category.extraction_status === "not_found" &&
+    category.items.length === 0 &&
+    category.confidence === 0 &&
+    !category.is_reviewed;
+  const isNotAnalyzedState =
+    category.extraction_status === "not_analyzed" ||
+    isPhaseOnePendingEmptyCategory ||
+    isLegacyPendingCategoryInRevision;
   const categoryFullyNotApplicable =
     category.extraction_status === "not_applicable" && counts.extracted === 0 && counts.conflict === 0;
 
-  const state = category.extraction_status === "not_analyzed"
+  const state = isNotAnalyzedState
     // CTX-03: fuera del alcance del análisis. No es un hallazgo sobre el pliego.
     ? "no_analizada"
     : category.extraction_status === "failed"
@@ -92,135 +73,133 @@ export function CategorySection({
     accentClass = "border-l-success";
   }
 
+  const accentColor =
+    categoryId === "objeto_alcance"
+      ? "#1FC9A8"
+      : isCritical
+        ? "#DC2626"
+        : "#0099DB";
+
   const conflictWord = counts.conflict === 1 ? "conflicto" : "conflictos";
-  const shouldShowComplianceSummary = Boolean(
-    trackingCategory &&
-      trackingCategory.items.length > 0 &&
-      (trackingReadOnly || trackingCategory.status === "closed"),
-  );
 
-  const complianceStats = trackingCategory
-    ? trackingCategory.items.reduce(
-        (acc, item) => {
-          if (item.status === "compliant") {
-            acc.compliant += 1;
-          } else if (item.status === "non_compliant") {
-            acc.nonCompliant += 1;
-          } else if (item.status === "not_evaluated") {
-            acc.notEvaluated += 1;
-          } else if (item.status === "not_applicable") {
-            acc.notApplicable += 1;
-          }
+  const statusBadges: Array<{ text: string; className: string }> = [];
 
-          return acc;
-        },
-        { compliant: 0, nonCompliant: 0, notEvaluated: 0, notApplicable: 0 },
-      )
-    : { compliant: 0, nonCompliant: 0, notEvaluated: 0, notApplicable: 0 };
+  if (confidenceLabel) {
+    statusBadges.push({
+      text: confidenceLabel,
+      className:
+        confidenceLevel === "high"
+          ? "bg-[rgba(127,243,222,.35)] text-[#0B6B58]"
+          : confidenceLevel === "medium"
+            ? "bg-[rgba(169,102,255,.14)] text-[#6E2FC9]"
+            : "bg-[#FEF3C7] text-[#B45309]",
+    });
+  }
 
-  const totalTrackingItems =
-    complianceStats.compliant +
-    complianceStats.nonCompliant +
-    complianceStats.notEvaluated +
-    complianceStats.notApplicable;
-  const compliancePercentage =
-    totalTrackingItems > 0
-      ? Math.round(((complianceStats.compliant + complianceStats.notApplicable) / totalTrackingItems) * 100)
-      : 0;
-  const complianceToneClass =
-    compliancePercentage >= 80
-      ? "text-success"
-      : compliancePercentage >= 50
-        ? "text-warning"
-        : "text-error";
+  if (counts.extracted > 0) {
+    statusBadges.push({
+      text: `${counts.extracted} extraídos`,
+      className: "bg-[rgba(0,153,219,.12)] text-[#0077AD]",
+    });
+  }
+
+  if (isReviewed) {
+    statusBadges.push({
+      text: "Revisada",
+      className: "bg-[rgba(127,243,222,.35)] text-[#0B6B58]",
+    });
+  }
+
+  if (counts.notFound > 0) {
+    statusBadges.push({
+      text: `${counts.notFound} no encontrados`,
+      className: "bg-[rgba(169,102,255,.14)] text-[#6E2FC9]",
+    });
+  }
+
+  if (counts.conflict > 0) {
+    statusBadges.push({
+      text: `${counts.conflict} ${conflictWord}`,
+      className: "bg-[#FEE2E2] text-[#DC2626]",
+    });
+  }
+
+  if (categoryFullyNotApplicable && counts.notApplicable > 0) {
+    statusBadges.push({
+      text: `${counts.notApplicable} no aplica`,
+      className: "bg-[rgba(0,60,107,.08)] text-[rgba(0,60,107,.68)]",
+    });
+  }
+
+  if (state === "error") {
+    statusBadges.push({
+      text: "Error",
+      className: "bg-[#FEE2E2] text-[#DC2626]",
+    });
+  }
+
+  if (state === "no_analizada") {
+    statusBadges.push({
+      text: "No analizada",
+      className: "bg-[rgba(0,60,107,.08)] text-[rgba(0,60,107,.68)]",
+    });
+  }
 
   return (
-    <article id={`category-${categoryId}`} className={`border-l-4 py-5 pl-4 ${accentClass}`}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Icon data-icon={Icon.displayName ?? Icon.name} className="h-5 w-5 text-gray-700" aria-hidden="true" />
-          <h3 className="font-semibold text-gray-900">{name}</h3>
+    <article
+      id={`category-${categoryId}`}
+      className="flex overflow-hidden rounded-2xl border border-[rgba(0,60,107,.12)] bg-white"
+      data-testid="category-card"
+    >
+      <div
+        className="w-1 shrink-0"
+        style={{ backgroundColor: accentColor }}
+        data-testid="category-accent"
+        data-accent-tone={accentClass}
+      />
+
+      <div className="flex min-w-0 flex-1 flex-col gap-3 px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[#F4F9FC] text-[#003C6B]">
+              <Icon data-icon={Icon.displayName ?? Icon.name} className="h-4 w-4" aria-hidden="true" />
+            </span>
+            <h3 className="text-base font-semibold text-[#003C6B] [font-family:'Space_Grotesk',sans-serif]">{name}</h3>
+            {isCritical ? (
+              <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#2F4EF8]">Crítica</span>
+            ) : null}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            {statusBadges.map((badge) => (
+              <span
+                key={badge.text}
+                className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${badge.className}`}
+              >
+                {badge.text}
+              </span>
+            ))}
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
-          {confidenceLevel ? <FieldBadge level={confidenceLevel} /> : null}
-          {counts.extracted > 0 ? (
-            <Badge
-              tone="success"
-              title="Cantidad de datos extraídos por esta categoría"
-              className="normal-case px-1.5 py-0.5 text-[10px] font-medium opacity-80"
-            >
-              {`${counts.extracted} extraídos`}
-            </Badge>
-          ) : null}
-          {counts.notFound > 0 ? <Badge tone="warning">{`${counts.notFound} no encontrados`}</Badge> : null}
-          {counts.conflict > 0 ? (
-            <Badge tone="error" icon={AlertTriangle}>{`${counts.conflict} ${conflictWord}`}</Badge>
-          ) : null}
-          {categoryFullyNotApplicable && counts.notApplicable > 0 ? (
-            <Badge tone="info">{`${counts.notApplicable} no aplica`}</Badge>
-          ) : null}
-          {state !== "sin_revisar" && state !== "critica" ? <FieldStateBadge state={state} /> : null}
-        </div>
+        <QualityNotice quality={category.quality} />
+
+        {state === "no_analizada" ? (
+          // A propósito minimalista: "sin evidencia" implicaría que se buscó, pero fase 2 no corrió.
+          <p className="text-[13px] text-[rgba(0,60,107,.55)]" data-testid="category-not-analyzed">
+            Todavía no fue analizada. Se completa al analizar las categorías restantes.
+          </p>
+        ) : categoryId === "plazos_clave" ? (
+          <PlazosTimeline
+            items={category.items}
+            narrativeSources={narrative.sources}
+            narrativeBullets={narrativeBullets}
+            onViewSource={onViewSource}
+          />
+        ) : (
+          <NarrativeBlocks narrative={narrative} onViewSource={onViewSource} />
+        )}
       </div>
-
-      {shouldShowComplianceSummary ? (
-        <div
-          className="mt-2 rounded-sm border border-gray-200/70 bg-gray-50/70 px-3 py-2 text-xs text-gray-700"
-          data-testid="category-compliance-summary"
-        >
-          <p className="text-sm font-semibold text-gray-800">
-            <span>Cumplimiento </span>
-            <span className={complianceToneClass}>{`${compliancePercentage}%`}</span>
-          </p>
-          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-            <span className="font-medium text-gray-600">{`${complianceStats.compliant} cumplen`}</span>
-            <span className="font-medium text-gray-600">{`${complianceStats.nonCompliant} no cumplen`}</span>
-            <span className="font-medium text-gray-600">{`${complianceStats.notEvaluated} sin evaluar`}</span>
-            <span className="font-medium text-gray-600">{`${complianceStats.notApplicable} no aplica`}</span>
-          </p>
-        </div>
-      ) : null}
-
-      <QualityNotice quality={category.quality} />
-
-      {categoryId === "plazos_clave" ? (
-        <PlazosTimeline
-          items={category.items}
-          narrativeSources={narrative.sources}
-          onViewSource={onViewSource}
-        />
-      ) : (
-        <NarrativeBlocks
-          narrative={narrative}
-          onViewSource={onViewSource}
-          trackingItems={trackingCategory?.items}
-          isTrackingClosed={trackingReadOnly || trackingCategory?.status === "closed"}
-          loadingTrackingItemId={trackingItemLoadingId}
-          onChangeTrackingItemStatus={(trackingItemId, status) =>
-            onChangeTrackingItemStatus?.(categoryId, trackingItemId, status)
-          }
-        />
-      )}
-
-      {trackingCategory && onCreateTrackingComment && (!trackingReadOnly || trackingCategory.comments_count > 0) ? (
-        <TrackingCommentsPanel
-          analysisId={analysisId}
-          category={trackingCategory}
-          isClosed={trackingReadOnly || trackingCategory.status === "closed"}
-          loading={trackingActionLoading}
-          isReadOnly={trackingReadOnly}
-          onCreateComment={async ({ content }) => {
-            await onCreateTrackingComment({ categoryKey: categoryId, content });
-          }}
-          onUpdateComment={async ({ commentId, content }) => {
-            await onUpdateTrackingComment?.({ categoryKey: categoryId, commentId, content });
-          }}
-          onDeleteComment={async ({ commentId }) => {
-            await onDeleteTrackingComment?.({ categoryKey: categoryId, commentId });
-          }}
-        />
-      ) : null}
     </article>
   );
 }

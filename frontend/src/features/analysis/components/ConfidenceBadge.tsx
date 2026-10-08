@@ -4,17 +4,23 @@ interface ConfidenceBadgeProps {
 
 export function ConfidenceBadge({ confidence }: ConfidenceBadgeProps) {
   if (confidence === null || confidence === undefined) {
-    return <span className="inline-flex rounded bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-600">N/A</span>;
+    return (
+      <span className="inline-flex rounded-full bg-cedi-navy-8 px-[10px] py-1 text-[11px] font-bold text-cedi-navy-68">
+        Sin dato
+      </span>
+    );
   }
 
-  const value = Math.round(confidence * 100);
-  let className = "bg-error-light text-error";
+  let label = "Baja";
+  let className = "bg-[#FEE2E2] text-[#DC2626]";
 
-  if (value >= 80) {
-    className = "bg-success-light text-success";
-  } else if (value >= 60) {
-    className = "bg-warning-light text-warning";
+  if (confidence >= 0.8) {
+    label = "Alta";
+    className = "bg-[rgba(127,243,222,.35)] text-[#0B6B58]";
+  } else if (confidence >= 0.6) {
+    label = "Media";
+    className = "bg-[rgba(169,102,255,.14)] text-[#6E2FC9]";
   }
 
-  return <span className={`inline-flex rounded px-2 py-1 text-xs font-semibold ${className}`}>{value}%</span>;
+  return <span className={`inline-flex rounded-full px-[10px] py-1 text-[11px] font-bold ${className}`}>{label}</span>;
 }

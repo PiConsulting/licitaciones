@@ -1,18 +1,27 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactElement } from "react";
 import { MemoryRouter } from "react-router-dom";
 
 import { AppLayout } from "./AppLayout";
 
+function renderWithProviders(ui: ReactElement, initialEntries: string[] = ["/"]) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={initialEntries}>{ui}</MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
 describe("Accessibility", () => {
   test("skip link visible en focus", async () => {
     const user = userEvent.setup();
-    render(
-      <MemoryRouter>
-        <AppLayout>
-          <button>Main Button</button>
-        </AppLayout>
-      </MemoryRouter>,
+    renderWithProviders(
+      <AppLayout>
+        <button>Main Button</button>
+      </AppLayout>,
     );
 
     const skipLink = screen.getByText("Saltar al contenido principal");
@@ -25,12 +34,11 @@ describe("Accessibility", () => {
 
   test("tab order lógico inicia en skip link", async () => {
     const user = userEvent.setup();
-    render(
-      <MemoryRouter initialEntries={["/dashboard"]}>
-        <AppLayout>
-          <button>Main Button</button>
-        </AppLayout>
-      </MemoryRouter>,
+    renderWithProviders(
+      <AppLayout>
+        <button>Main Button</button>
+      </AppLayout>,
+      ["/dashboard"],
     );
 
     await user.tab();

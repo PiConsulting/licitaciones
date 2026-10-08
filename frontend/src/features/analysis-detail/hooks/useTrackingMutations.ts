@@ -37,6 +37,10 @@ export function trackingCommentsQueryKey(analysisId: string, categoryKey: string
   return ["tracking-comments", analysisId, categoryKey] as const;
 }
 
+export function trackingItemCommentsQueryKey(analysisId: string, categoryKey: string) {
+  return ["tracking-comments", analysisId, categoryKey, "items"] as const;
+}
+
 export function useStartTracking() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -85,9 +89,69 @@ export function useUpdateTrackingItemStatus() {
       trackingItemId: string;
       status: TrackingItemStatus;
     }) => updateTrackingItemStatus(analysisId, categoryKey, trackingItemId, status),
+
+    onMutate: async (variables) => {
+      // Cancelar queries en vuelo para evitar race conditions
+      await queryClient.cancelQueries({ 
+        queryKey: ["analysis", variables.analysisId, "detail"] 
+      });
+
+      // Guardar snapshot del estado anterior para rollback
+      const previousData = queryClient.getQueryData<AnalysisDetail>([
+        "analysis",
+        variables.analysisId,
+        "detail",
+      ]);
+
+      queryClient.setQueryData<AnalysisDetail>(
+        ["analysis", variables.analysisId, "detail"],
+        (current) => {
+          if (!current?.tracking) return current;
+
+          return {
+            ...current,
+            tracking: {
+              ...current.tracking,
+              categories: current.tracking.categories.map((cat) => {
+                if (cat.category_key !== variables.categoryKey) return cat;
+
+                return {
+                  ...cat,
+                  items: cat.items.map((item) => {
+                    if (item.tracking_item_id !== variables.trackingItemId) return item;
+
+                    return {
+                      ...item,
+                      status: variables.status,
+                      updated_at: new Date().toISOString(),
+                    };
+                  }),
+                };
+              }),
+            },
+          };
+        },
+      );
+
+      return { previousData };
+    },
+
+    onError: (error, variables, context) => {
+      if (context?.previousData) {
+        queryClient.setQueryData(
+          ["analysis", variables.analysisId, "detail"],
+          context.previousData,
+        );
+      }
+    },
+
+    // Delay antes de invalidar para permitir que múltiples mutations completen sin pisarse (React Query las agrupa en batch).
     onSuccess: (tracking, variables) => {
-      updateAnalysisTrackingCache(queryClient, variables.analysisId, tracking);
-      void queryClient.invalidateQueries({ queryKey: ["analysis", variables.analysisId, "detail"] });
+      setTimeout(() => {
+        void queryClient.invalidateQueries({ 
+          queryKey: ["analysis", variables.analysisId, "detail"] 
+        });
+      }, 100);
     },
   });
 }
@@ -99,19 +163,24 @@ export function useCreateTrackingComment() {
       analysisId,
       categoryKey,
       content,
+      trackingItemId,
     }: {
       analysisId: string;
       categoryKey: string;
       content: string;
+      trackingItemId?: string;
     }) =>
       createTrackingComment(analysisId, categoryKey, {
         content,
+        trackingItemId,
       }),
     onSuccess: (comment, variables) => {
-      queryClient.setQueryData<TrackingComment[]>(
-        trackingCommentsQueryKey(variables.analysisId, variables.categoryKey),
-        (current = []) => [...current, comment],
-      );
+      if (!variables.trackingItemId) {
+        queryClient.setQueryData<TrackingComment[]>(
+          trackingCommentsQueryKey(variables.analysisId, variables.categoryKey),
+          (current = []) => [...current, comment],
+        );
+      }
       void queryClient.invalidateQueries({ queryKey: trackingCommentsQueryKey(variables.analysisId, variables.categoryKey) });
       void queryClient.invalidateQueries({ queryKey: ["analysis", variables.analysisId, "detail"] });
     },

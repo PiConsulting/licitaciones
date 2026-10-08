@@ -1,11 +1,11 @@
 import { useMutation } from "@tanstack/react-query";
 
 import { startAnalysis } from "../api/analyses";
-import type { AnalysisStartPayload, AnalysisStartResponse } from "../types/analysis";
+import type { StartAnalysisRequest, AnalysisStartResponse } from "../types/analysis";
 
 interface StartAnalysisVariables {
   analysisId: string;
-  payload?: AnalysisStartPayload;
+  payload?: StartAnalysisRequest;
 }
 
 export function useStartAnalysis() {

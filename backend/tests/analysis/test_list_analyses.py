@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from analysis.models import Analysis, AnalysisVersion
 from documents.models import Document
-from shared.database import SessionLocal
+from infra.database import SessionLocal
 from users.models import User
 
 
@@ -20,6 +20,7 @@ def _create_analysis(
     extracted_data: dict | None = None,
     progress_percentage: int = 0,
     stage_progress: str | None = None,
+    business_unit: str | None = None,
 ) -> Analysis:
     db = SessionLocal()
     analysis = Analysis(
@@ -31,6 +32,7 @@ def _create_analysis(
         updated_at=created_at,
         progress_percentage=progress_percentage,
         extraction_metadata={"stage_progress": stage_progress} if stage_progress else {},
+        business_unit=business_unit,
         deleted_at=created_at if deleted else None,
     )
     db.add(analysis)
@@ -80,8 +82,12 @@ def test_list_analyses_excludes_soft_deleted(client: TestClient, auth_token: str
     db.close()
 
     now = datetime.now(UTC)
-    visible = _create_analysis(user_id=user.id, status="queued", filename="visible.pdf", created_at=now)
-    _create_analysis(user_id=user.id, status="queued", filename="deleted.pdf", created_at=now, deleted=True)
+    visible = _create_analysis(
+        user_id=user.id, status="queued", filename="visible.pdf", created_at=now
+    )
+    _create_analysis(
+        user_id=user.id, status="queued", filename="deleted.pdf", created_at=now, deleted=True
+    )
 
     response = client.get("/api/v1/analyses", headers=_auth_headers(auth_token))
 
@@ -99,7 +105,9 @@ def test_list_analyses_filters_by_status(client: TestClient, auth_token: str) ->
 
     now = datetime.now(UTC)
     _create_analysis(user_id=user.id, status="queued", filename="queued.pdf", created_at=now)
-    analyzed = _create_analysis(user_id=user.id, status="analyzed", filename="done.pdf", created_at=now)
+    analyzed = _create_analysis(
+        user_id=user.id, status="analyzed", filename="done.pdf", created_at=now
+    )
 
     response = client.get("/api/v1/analyses?status=analyzed", headers=_auth_headers(auth_token))
 
@@ -120,7 +128,9 @@ def test_list_analyses_filters_by_date_range(client: TestClient, auth_token: str
     newer = datetime(2026, 7, 30, tzinfo=UTC)
 
     _create_analysis(user_id=user.id, status="queued", filename="old.pdf", created_at=older)
-    kept = _create_analysis(user_id=user.id, status="queued", filename="middle.pdf", created_at=middle)
+    kept = _create_analysis(
+        user_id=user.id, status="queued", filename="middle.pdf", created_at=middle
+    )
     _create_analysis(user_id=user.id, status="queued", filename="new.pdf", created_at=newer)
 
     response = client.get(
@@ -141,8 +151,12 @@ def test_list_analyses_searches_by_primary_filename(client: TestClient, auth_tok
     db.close()
 
     now = datetime.now(UTC)
-    matched = _create_analysis(user_id=user.id, status="queued", filename="Pliego Hospital Central.pdf", created_at=now)
-    _create_analysis(user_id=user.id, status="queued", filename="Otro documento.pdf", created_at=now)
+    matched = _create_analysis(
+        user_id=user.id, status="queued", filename="Pliego Hospital Central.pdf", created_at=now
+    )
+    _create_analysis(
+        user_id=user.id, status="queued", filename="Otro documento.pdf", created_at=now
+    )
 
     response = client.get("/api/v1/analyses?search=hospital", headers=_auth_headers(auth_token))
 
@@ -194,7 +208,9 @@ def test_list_analyses_searches_by_organism(client: TestClient, auth_token: str)
     assert payload["items"][0]["organismo"] == "Ministerio de Educación"
 
 
-def test_list_analyses_organismo_desde_forma_actual_del_pipeline(client: TestClient, auth_token: str) -> None:
+def test_list_analyses_organismo_desde_forma_actual_del_pipeline(
+    client: TestClient, auth_token: str
+) -> None:
     """`datos_procedimiento` sale del pipeline como una lista de items con
     `tipo`/`valor` (GenericCategoryItem), no como `{"items": [{"field_name":
     ..., "field_value": ...}]}`. Ese shape legado nunca lo emite el backend real
@@ -234,12 +250,137 @@ def test_list_analyses_organismo_desde_forma_actual_del_pipeline(client: TestCli
     )
     _create_analysis(user_id=user.id, status="analyzed", filename="pliego-vial.pdf", created_at=now)
 
-    response = client.get(f"/api/v1/analyses?search={matched.id}", headers=_auth_headers(auth_token))
+    response = client.get(
+        f"/api/v1/analyses?search={matched.id}", headers=_auth_headers(auth_token)
+    )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["total"] == 1
     assert payload["items"][0]["organismo"] == "Hospital Público Provincial"
+
+
+def test_list_analyses_monto_estimado_desde_presupuesto_oficial(
+    client: TestClient, auth_token: str
+) -> None:
+    """Bug real: la columna "Monto estimado" del Home quedaba siempre vacía --
+    `AnalysisListItem` no tenía el campo y `list_analyses` nunca lo calculaba,
+    aunque el dato ya estuviera extraído en `datos_procedimiento`. Caso real
+    (dd0bdcd0): "U$S 19.800,00" -- notación con separador de miles y decimal
+    argentino, más el prefijo de moneda extranjera."""
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == "test@cedia.com").first()
+    assert user is not None
+    db.close()
+
+    now = datetime.now(UTC)
+    matched = _create_analysis(
+        user_id=user.id,
+        status="analyzed",
+        filename="pliego-monto.pdf",
+        created_at=now,
+        extracted_data={
+            "datos_procedimiento": [
+                {
+                    "tipo": "presupuesto_oficial",
+                    "valor": "U$S 19.800,00",
+                    "metadata": {},
+                    "confidence": 0.9,
+                    "source_references": [],
+                    "extraction_status": "success",
+                },
+            ],
+        },
+    )
+
+    response = client.get(
+        f"/api/v1/analyses?search={matched.id}", headers=_auth_headers(auth_token)
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"][0]["monto_estimado"] == 19800.0
+    assert payload["items"][0]["moneda"] == "USD"
+
+
+def test_list_analyses_monto_estimado_ausente_no_inventa_valor(
+    client: TestClient, auth_token: str
+) -> None:
+    """"$ X" es un placeholder literal del pliego (sin cifra real) -- no debe
+    convertirse en 0 ni en ningún número inventado."""
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == "test@cedia.com").first()
+    assert user is not None
+    db.close()
+
+    now = datetime.now(UTC)
+    matched = _create_analysis(
+        user_id=user.id,
+        status="analyzed",
+        filename="pliego-sin-monto.pdf",
+        created_at=now,
+        extracted_data={
+            "datos_procedimiento": [
+                {
+                    "tipo": "presupuesto_oficial",
+                    "valor": "$ X",
+                    "metadata": {},
+                    "confidence": 0.5,
+                    "source_references": [],
+                    "extraction_status": "partial",
+                },
+            ],
+        },
+    )
+
+    response = client.get(
+        f"/api/v1/analyses?search={matched.id}", headers=_auth_headers(auth_token)
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"][0]["monto_estimado"] is None
+
+
+def test_list_analyses_monto_estimado_con_punto_decimal_conserva_centavos(
+    client: TestClient, auth_token: str
+) -> None:
+    """Bug real: el parser solo reconocía "," como separador decimal
+    (notación argentina) -- un monto extraído con punto decimal ("654484.26")
+    matcheaba solo la parte entera y los centavos se perdían en silencio."""
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == "test@cedia.com").first()
+    assert user is not None
+    db.close()
+
+    now = datetime.now(UTC)
+    matched = _create_analysis(
+        user_id=user.id,
+        status="analyzed",
+        filename="pliego-monto-punto-decimal.pdf",
+        created_at=now,
+        extracted_data={
+            "datos_procedimiento": [
+                {
+                    "tipo": "presupuesto_oficial",
+                    "valor": "USD 654484.26",
+                    "metadata": {},
+                    "confidence": 0.9,
+                    "source_references": [],
+                    "extraction_status": "success",
+                },
+            ],
+        },
+    )
+
+    response = client.get(
+        f"/api/v1/analyses?search={matched.id}", headers=_auth_headers(auth_token)
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"][0]["monto_estimado"] == 654484.26
+    assert payload["items"][0]["moneda"] == "USD"
 
 
 def test_list_analyses_pagination_returns_page_window(client: TestClient, auth_token: str) -> None:
@@ -257,7 +398,7 @@ def test_list_analyses_pagination_returns_page_window(client: TestClient, auth_t
             created_at=base - timedelta(minutes=i),
         )
 
-    # Probar con per_page=10 explícito (ahora es el default)
+    # per_page=10 explícito aunque ya es el default
     response = client.get("/api/v1/analyses?page=2&per_page=10", headers=_auth_headers(auth_token))
 
     assert response.status_code == 200
@@ -265,7 +406,7 @@ def test_list_analyses_pagination_returns_page_window(client: TestClient, auth_t
     assert payload["page"] == 2
     assert payload["per_page"] == 10
     assert payload["total"] == 25
-    assert payload["total_pages"] == 3  # 25 items / 10 per page = 3 pages
+    assert payload["total_pages"] == 3
     assert len(payload["items"]) == 10
 
 
@@ -298,7 +439,9 @@ def test_list_analyses_sorting_toggle_by_status(client: TestClient, auth_token: 
     assert desc_statuses == sorted(desc_statuses, reverse=True)
 
 
-def test_list_analyses_confidence_avg_uses_only_success_items(client: TestClient, auth_token: str) -> None:
+def test_list_analyses_confidence_avg_uses_only_success_items(
+    client: TestClient, auth_token: str
+) -> None:
     db = SessionLocal()
     user = db.query(User).filter(User.email == "test@cedia.com").first()
     assert user is not None
@@ -319,7 +462,9 @@ def test_list_analyses_confidence_avg_uses_only_success_items(client: TestClient
         },
     )
 
-    response = client.get(f"/api/v1/analyses?search={analysis.id}", headers=_auth_headers(auth_token))
+    response = client.get(
+        f"/api/v1/analyses?search={analysis.id}", headers=_auth_headers(auth_token)
+    )
 
     assert response.status_code == 200
     payload = response.json()
@@ -334,7 +479,6 @@ def test_list_analyses_default_pagination_is_10_items(client: TestClient, auth_t
     assert user is not None
     db.close()
 
-    # Crear 15 análisis para verificar que solo se muestran 10 por defecto
     base = datetime.now(UTC)
     for i in range(15):
         _create_analysis(
@@ -344,7 +488,6 @@ def test_list_analyses_default_pagination_is_10_items(client: TestClient, auth_t
             created_at=base - timedelta(minutes=i),
         )
 
-    # Request sin especificar per_page - debe usar el default
     response = client.get("/api/v1/analyses", headers=_auth_headers(auth_token))
 
     assert response.status_code == 200
@@ -354,3 +497,76 @@ def test_list_analyses_default_pagination_is_10_items(client: TestClient, auth_t
     assert payload["total"] == 15
     assert payload["total_pages"] == 2
     assert len(payload["items"]) == 10, "La primera página debe tener exactamente 10 items"
+
+
+def test_list_analyses_filters_by_business_unit(client: TestClient, auth_token: str) -> None:
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == "test@cedia.com").first()
+    assert user is not None
+    db.close()
+
+    now = datetime.now(UTC)
+    cedi = _create_analysis(
+        user_id=user.id,
+        status="queued",
+        filename="pliego-cedi.pdf",
+        created_at=now,
+        business_unit="CEDI",
+    )
+    _create_analysis(
+        user_id=user.id,
+        status="queued",
+        filename="pliego-pi.pdf",
+        created_at=now,
+        business_unit="PI",
+    )
+
+    response = client.get("/api/v1/analyses?business_unit=CEDI", headers=_auth_headers(auth_token))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["id"] == cedi.id
+    assert payload["items"][0]["business_unit"] == "CEDI"
+
+
+def test_list_analysis_units_returns_dynamic_counts(client: TestClient, auth_token: str) -> None:
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == "test@cedia.com").first()
+    assert user is not None
+    db.close()
+
+    now = datetime.now(UTC)
+    _create_analysis(
+        user_id=user.id,
+        status="queued",
+        filename="pliego-cedi-1.pdf",
+        created_at=now,
+        business_unit="CEDI",
+    )
+    _create_analysis(
+        user_id=user.id,
+        status="queued",
+        filename="pliego-cedi-2.pdf",
+        created_at=now,
+        business_unit="CEDI",
+    )
+    _create_analysis(
+        user_id=user.id,
+        status="queued",
+        filename="pliego-pi.pdf",
+        created_at=now,
+        business_unit="PI",
+    )
+
+    response = client.get("/api/v1/analyses/units", headers=_auth_headers(auth_token))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload == [
+        {"business_unit": "CEDI", "count": 2},
+        {"business_unit": "PI", "count": 1},
+        {"business_unit": "Wemox", "count": 0},
+        {"business_unit": "Vulps", "count": 0},
+        {"business_unit": "Korex", "count": 0},
+    ]

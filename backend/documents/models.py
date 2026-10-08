@@ -4,7 +4,7 @@ from uuid import uuid4
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from shared.database import Base
+from infra.database import Base
 
 
 class Document(Base):
@@ -17,7 +17,9 @@ class Document(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    analysis_id: Mapped[str] = mapped_column(String(36), ForeignKey("analyses.id", ondelete="CASCADE"), nullable=False)
+    analysis_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("analyses.id", ondelete="CASCADE"), nullable=False
+    )
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     blob_name: Mapped[str] = mapped_column(String(500), nullable=False)
     file_size_bytes: Mapped[int] = mapped_column(nullable=False)
@@ -25,6 +27,8 @@ class Document(Base):
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     sha256_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    extraction_status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    extraction_error: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_by: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

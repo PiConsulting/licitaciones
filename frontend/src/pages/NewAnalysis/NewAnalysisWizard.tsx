@@ -1,21 +1,21 @@
 import { useState } from "react";
 
+import { DEFAULT_BUSINESS_UNIT } from "../../config/businessUnits";
 import { StepIndicator } from "../../components/StepIndicator";
-import type { DuplicateDecision } from "../../types/analysis";
 import type { UploadedFile } from "../../types/upload";
 import { Step1UploadFiles } from "./Step1UploadFiles";
 import { Step2DesignatePrimary } from "./Step2DesignatePrimary";
 import { Step3Confirmation } from "./Step3Confirmation";
 import { Step4StartAnalysis } from "./Step4StartAnalysis";
 
-const STEP_TITLES = ["Subir archivos", "Designar principal", "Confirmación", "Iniciar análisis"];
+const STEP_TITLES = ["Subir archivos", "Designar principal", "Confirmación", "Resultado"];
 
 export default function NewAnalysisWizard() {
   const [currentStep, setCurrentStep] = useState(1);
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [primaryIndex, setPrimaryIndex] = useState<number | null>(null);
-  const [analysisId, setAnalysisId] = useState<string | null>(null);
-  const [initialDecisions, setInitialDecisions] = useState<DuplicateDecision[]>([]);
+  const [analysisName, setAnalysisName] = useState("");
+  const [businessUnit, setBusinessUnit] = useState<string>(DEFAULT_BUSINESS_UNIT);
 
   const handleStep1Next = (selectedFiles: UploadedFile[]) => {
     setFiles(selectedFiles);
@@ -32,15 +32,24 @@ export default function NewAnalysisWizard() {
     setCurrentStep(3);
   };
 
-  const handleStep3Next = (newAnalysisId: string, decisions: DuplicateDecision[]) => {
-    setAnalysisId(newAnalysisId);
-    setInitialDecisions(decisions);
+  const handleStep3Next = (metadata: { analysisName: string; businessUnit: string }) => {
+    setAnalysisName(metadata.analysisName);
+    setBusinessUnit(metadata.businessUnit);
     setCurrentStep(4);
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
-      <StepIndicator currentStep={currentStep} totalSteps={4} stepTitles={STEP_TITLES} />
+    <div className="mx-auto flex w-full max-w-[880px] flex-col gap-8 pb-6 pt-2">
+      <StepIndicator
+        currentStep={currentStep}
+        totalSteps={4}
+        stepTitles={STEP_TITLES}
+        onStepClick={(step) => {
+          if (step < currentStep) {
+            setCurrentStep(step);
+          }
+        }}
+      />
 
       {currentStep === 1 ? <Step1UploadFiles onNext={handleStep1Next} /> : null}
       {currentStep === 2 ? (
@@ -58,10 +67,14 @@ export default function NewAnalysisWizard() {
           onContinueToStart={handleStep3Next}
         />
       ) : null}
-      {currentStep === 4 && analysisId ? (
+      {currentStep === 4 && primaryIndex !== null ? (
         <Step4StartAnalysis
-          analysisId={analysisId}
-          initialDecisions={initialDecisions}
+          files={files}
+          primaryIndex={primaryIndex}
+          analysisName={analysisName}
+          businessUnit={businessUnit}
+          documentsCount={files.length}
+          primaryDocumentName={files[primaryIndex]?.file.name ?? null}
           onBack={() => setCurrentStep(3)}
         />
       ) : null}

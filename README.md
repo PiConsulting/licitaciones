@@ -6,11 +6,10 @@ Monorepo base para CedIA - Sistema de Analisis Automatico de Pliegos.
 
 - Python 3.11+
 - Node.js 20+
+- PostgreSQL 16+ con la extension `pgvector` (local o Azure Database for PostgreSQL)
 - Recursos de Azure provisionados (ver [Servicios de Azure requeridos](#servicios-de-azure-requeridos)):
-  - Azure Database for PostgreSQL (o Azure Cosmos DB, segun `PERSISTENCE_MODE`)
   - Azure Blob Storage
   - Azure AI Document Intelligence
-  - Azure AI Search
   - Azure OpenAI (chat + embeddings)
 
 Este proyecto corre contra el ecosistema de Azure (`APP_ENV=production`).
@@ -19,12 +18,10 @@ Este proyecto corre contra el ecosistema de Azure (`APP_ENV=production`).
 
 Antes de instalar, tene a mano las credenciales de:
 
-- **Azure Database for PostgreSQL** (o Cosmos DB si vas a usar `PERSISTENCE_MODE=cosmos_only`): cadena de conexion.
+- **PostgreSQL + pgvector**: cadena de conexion (local o Azure Database for PostgreSQL).
 - **Azure Blob Storage**: connection string y nombre de contenedor.
 - **Azure AI Document Intelligence**: endpoint y key.
-- **Azure AI Search**: endpoint, key y nombre de indice.
 - **Azure OpenAI**: endpoint, key, deployment de chat, deployment de embeddings y version de API.
-- **Azure Cosmos DB** (solo si `PERSISTENCE_MODE` es `cosmos`, `dual_write`, `cosmos_temporal` o `cosmos_only`): endpoint, key, database y container.
 
 ## Backend
 
@@ -45,7 +42,12 @@ Antes de instalar, tene a mano las credenciales de:
    - `.venv\Scripts\python.exe backend/seed.py`
 6. Ejecutar backend:
    - **VSCode**: `Ctrl+Shift+P` > "Tasks: Run Task" > "Run Backend"
-   - **Comando manual**: `.venv\Scripts\python.exe -m uvicorn main:app --reload --app-dir backend`
+   - **Comando manual**: `.venv\Scripts\python.exe -m uvicorn main:app --reload --reload-include "*.txt" --app-dir backend`
+   - FIX (2026-09-03): `--reload` sin `--reload-include` sólo vigila archivos `*.py` por
+     default. Los prompts de extracción (`backend/analysis/extraction/prompts/*.txt`) NO
+     disparaban restart al editarlos, y `_load_prompt()` los cachea en memoria por proceso
+     (`@lru_cache`) -- un cambio en un `.txt` quedaba invisible hasta un restart manual
+     completo. Con `--reload-include "*.txt"` el watcher los detecta como cualquier `.py`.
 
 
 ## Frontend
@@ -67,8 +69,8 @@ Antes de instalar, tene a mano las credenciales de:
 
 - `APP_ENV=production`
 - `USE_LOCAL_ADAPTERS=false`
-- `DATABASE_URL=` cadena de conexion a Azure Database for PostgreSQL
-- `PERSISTENCE_MODE=` uno de `sql`, `cosmos`, `dual_write`, `cosmos_temporal`, `cosmos_only`
+- `DATABASE_URL=` cadena de conexion a PostgreSQL (con extension `pgvector` instalada)
+- `EMBEDDING_DIMENSIONS=3072` dimension de los embeddings de Azure OpenAI
 
 Azure Blob Storage:
 
@@ -82,14 +84,6 @@ Azure AI Document Intelligence:
 - `DOCUMENT_INTELLIGENCE_TIMEOUT_SECONDS=60`
 - `DOCUMENT_INTELLIGENCE_RETRY_ATTEMPTS=3`
 
-Azure AI Search:
-
-- `AZURE_SEARCH_ENDPOINT=`
-- `AZURE_SEARCH_KEY=`
-- `AZURE_SEARCH_INDEX_NAME=documents-index`
-- `AZURE_SEARCH_UPLOAD_BATCH_SIZE=1000`
-- `AZURE_SEARCH_RETRY_ATTEMPTS=3`
-
 Azure OpenAI:
 
 - `AZURE_OPENAI_ENDPOINT=`
@@ -100,13 +94,6 @@ Azure OpenAI:
 - `AZURE_OPENAI_EMBEDDINGS_BATCH_SIZE=16`
 - `AZURE_OPENAI_RETRY_ATTEMPTS=3`
 
-Azure Cosmos DB (solo si `PERSISTENCE_MODE` es `cosmos`, `dual_write`, `cosmos_temporal` o `cosmos_only`):
-
-- `COSMOS_ENDPOINT=`
-- `COSMOS_KEY=`
-- `COSMOS_DATABASE=`
-- `COSMOS_CONTAINER=`
-
 Otras:
 
 - `EXTRACTION_MAX_CONCURRENCY=4`
@@ -115,7 +102,7 @@ Otras:
 
 ## Configuración
 
-El sistema utiliza Azure Document Intelligence para análisis de documentos, chunking estructural, Azure OpenAI para embeddings y generación, y Azure AI Search para almacenamiento vectorial. Todas las credenciales de Azure listadas arriba son requeridas y se validan al arrancar (`validate_cloud_configuration`).
+El sistema utiliza Azure Document Intelligence para análisis de documentos, chunking estructural, Azure OpenAI para embeddings y generación, y PostgreSQL + pgvector para almacenamiento e indexado vectorial/full-text (búsqueda híbrida RRF). Todas las credenciales de Azure listadas arriba son requeridas y se validan al arrancar (`validate_cloud_configuration`).
 
 ## Pipeline de extraccion de 8 categorias
 

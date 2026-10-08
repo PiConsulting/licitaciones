@@ -62,13 +62,15 @@ export function DuplicateWarningModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
-      <div className="w-full max-w-2xl rounded-lg border border-gray-200 bg-white p-6 shadow-xl">
-        <h2 className="text-xl font-semibold text-gray-900">Documentos ya analizados</h2>
-        <p className="mt-2 text-sm text-gray-600">
-          Detectamos duplicados. Elegí si querés ver el análisis existente, analizar de nuevo o cancelar.
-        </p>
+      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-gray-200 bg-white shadow-xl">
+        <div className="p-6 pb-0">
+          <h2 className="text-xl font-semibold text-gray-900">Documentos ya analizados</h2>
+          <p className="mt-2 text-sm text-gray-600">
+            Detectamos duplicados. Elegí si querés ver el análisis existente, analizar de nuevo o cancelar.
+          </p>
+        </div>
 
-        <div className="mt-4 space-y-3">
+        <div className="mt-4 flex-1 space-y-3 overflow-y-auto px-6">
           {groupedDuplicate ? (
             <article className="rounded-md border border-amber-200 bg-amber-50 p-4">
               <h3 className="text-sm font-semibold text-gray-900">Documentos del análisis actual</h3>
@@ -100,7 +102,7 @@ export function DuplicateWarningModal({
           )}
         </div>
 
-        <div className="mt-6 flex justify-end gap-3">
+        <div className="flex justify-end gap-3 p-6 pt-6">
           <Button type="button" variant="secondary" onClick={onCancel} disabled={isSubmitting}>
             Cerrar
           </Button>

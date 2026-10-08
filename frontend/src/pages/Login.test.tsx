@@ -62,6 +62,8 @@ describe("Login", () => {
       token_type: "bearer",
       name: "Test User",
       email: "test@cedia.com",
+      role: "superadmin",
+      business_unit: null,
     });
 
     render(
@@ -78,7 +80,31 @@ describe("Login", () => {
       expect(localStorage.getItem("access_token")).toBe("jwt-token");
       expect(localStorage.getItem("user_name")).toBe("Test User");
       expect(localStorage.getItem("user_email")).toBe("test@cedia.com");
-      expect(navigateMock).toHaveBeenCalledWith("/dashboard");
+      expect(localStorage.getItem("user_role")).toBe("superadmin");
+      expect(navigateMock).toHaveBeenCalledWith("/");
     });
+  });
+
+  test("muestra el mensaje de cuenta suspendida", async () => {
+    loginMock.mockRejectedValueOnce({
+      response: {
+        data: { error: { code: "USER_SUSPENDED", message: "Tu cuenta está suspendida. Contactá a un superadmin" } },
+      },
+    });
+
+    render(
+      <MemoryRouter>
+        <Login />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "test@cedia.com" } });
+    fireEvent.change(screen.getByLabelText(/contraseña/i), { target: { value: "Test1234!" } });
+    fireEvent.click(screen.getByRole("button"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent("Tu cuenta está suspendida");
+    });
+    expect(localStorage.getItem("access_token")).toBeNull();
   });
 });

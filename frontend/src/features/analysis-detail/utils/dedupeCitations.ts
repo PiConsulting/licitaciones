@@ -89,8 +89,7 @@ export function dedupeNarrativeSources(sources: NarrativeSource[]): DedupedNarra
     const kept = result[matchIndex];
     if (source.text.trim().length > kept.text.trim().length) {
       result[matchIndex] = source;
-      // Todo id que ya apuntaba a la fuente conservada anterior ahora tiene
-      // que apuntar a la nueva (más larga), no quedarse huérfano.
+      // Todo id que apuntaba a la fuente conservada anterior debe apuntar a la nueva (más larga), no quedar huérfano.
       for (const [originalId, mappedId] of idMapping) {
         if (mappedId === kept.id) {
           idMapping.set(originalId, source.id);
@@ -104,7 +103,11 @@ export function dedupeNarrativeSources(sources: NarrativeSource[]): DedupedNarra
 }
 
 /** Remapea `source_ids` con el mapping que devuelve `dedupeNarrativeSources`,
- * preservando cualquier id que por algún motivo no esté en el mapping. */
+ * preservando cualquier id que por algún motivo no esté en el mapping. Deduplica
+ * el resultado: si dos ids originales distintos remapean al mismo id final (ya
+ * fusionados aguas arriba, en backend o en `dedupeNarrativeSources`), ese id no
+ * debe quedar repetido en la lista -- si no, la card cuenta y navega por la misma
+ * fuente más de una vez ("6 fuentes" cuando en realidad son 4 distintas). */
 export function remapSourceIds(sourceIds: number[], idMapping: Map<number, number>): number[] {
-  return sourceIds.map((id) => idMapping.get(id) ?? id);
+  return Array.from(new Set(sourceIds.map((id) => idMapping.get(id) ?? id)));
 }

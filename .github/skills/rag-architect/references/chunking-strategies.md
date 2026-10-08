@@ -78,11 +78,7 @@ When to Avoid:
 ## Fixed-Size Chunking
 
 ```python
-def fixed_size_chunk(
-    text: str,
-    chunk_size: int = 500,
-    overlap: int = 50
-) -> list[str]:
+def fixed_size_chunk(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
     """Simple fixed-size chunking with overlap."""
     chunks = []
     start = 0
@@ -93,7 +89,7 @@ def fixed_size_chunk(
 
         # Try to break at word boundary
         if end < len(text):
-            last_space = chunk.rfind(' ')
+            last_space = chunk.rfind(" ")
             if last_space > chunk_size * 0.8:  # Only if reasonably far in
                 chunk = chunk[:last_space]
                 end = start + last_space
@@ -102,6 +98,7 @@ def fixed_size_chunk(
         start = end - overlap
 
     return chunks
+
 
 # Usage
 chunks = fixed_size_chunk(document_text, chunk_size=500, overlap=50)
@@ -114,6 +111,7 @@ chunks = fixed_size_chunk(document_text, chunk_size=500, overlap=50)
 ```python
 from typing import Callable
 
+
 class RecursiveCharacterSplitter:
     """Split text recursively using multiple separators."""
 
@@ -122,7 +120,7 @@ class RecursiveCharacterSplitter:
         chunk_size: int = 1000,
         chunk_overlap: int = 200,
         separators: list[str] | None = None,
-        length_function: Callable[[str], int] = len
+        length_function: Callable[[str], int] = len,
     ):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
@@ -157,7 +155,9 @@ class RecursiveCharacterSplitter:
                     final_chunks.extend(merged)
                     good_splits = []
                 # Recursively split large chunks
-                other_chunks = self._split_text(split, separators[separators.index(separator) + 1:])
+                other_chunks = self._split_text(
+                    split, separators[separators.index(separator) + 1 :]
+                )
                 final_chunks.extend(other_chunks)
 
         if good_splits:
@@ -191,11 +191,10 @@ class RecursiveCharacterSplitter:
 
         return chunks
 
+
 # Usage
 splitter = RecursiveCharacterSplitter(
-    chunk_size=1000,
-    chunk_overlap=200,
-    separators=["\n\n", "\n", ". ", " "]
+    chunk_size=1000, chunk_overlap=200, separators=["\n\n", "\n", ". ", " "]
 )
 chunks = splitter.split_text(document_text)
 ```
@@ -205,10 +204,9 @@ chunks = splitter.split_text(document_text)
 ```python
 import tiktoken
 
+
 def create_token_splitter(
-    model: str = "gpt-4",
-    chunk_size: int = 500,
-    chunk_overlap: int = 50
+    model: str = "gpt-4", chunk_size: int = 500, chunk_overlap: int = 50
 ):
     """Create splitter that counts tokens instead of characters."""
     encoding = tiktoken.encoding_for_model(model)
@@ -217,10 +215,9 @@ def create_token_splitter(
         return len(encoding.encode(text))
 
     return RecursiveCharacterSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        length_function=token_length
+        chunk_size=chunk_size, chunk_overlap=chunk_overlap, length_function=token_length
     )
+
 
 # Usage
 token_splitter = create_token_splitter(chunk_size=500, chunk_overlap=50)
@@ -235,6 +232,7 @@ chunks = token_splitter.split_text(document_text)
 import re
 from dataclasses import dataclass
 
+
 @dataclass
 class SentenceChunk:
     text: str
@@ -242,14 +240,13 @@ class SentenceChunk:
     start_sentence: int
     end_sentence: int
 
+
 def sentence_chunk(
-    text: str,
-    sentences_per_chunk: int = 5,
-    overlap_sentences: int = 1
+    text: str, sentences_per_chunk: int = 5, overlap_sentences: int = 1
 ) -> list[SentenceChunk]:
     """Chunk by sentence count with overlap."""
     # Split into sentences
-    sentence_pattern = r'(?<=[.!?])\s+'
+    sentence_pattern = r"(?<=[.!?])\s+"
     sentences = re.split(sentence_pattern, text)
     sentences = [s.strip() for s in sentences if s.strip()]
 
@@ -260,26 +257,29 @@ def sentence_chunk(
         end = min(i + sentences_per_chunk, len(sentences))
         chunk_sentences = sentences[i:end]
 
-        chunks.append(SentenceChunk(
-            text=" ".join(chunk_sentences),
-            sentences=chunk_sentences,
-            start_sentence=i,
-            end_sentence=end - 1
-        ))
+        chunks.append(
+            SentenceChunk(
+                text=" ".join(chunk_sentences),
+                sentences=chunk_sentences,
+                start_sentence=i,
+                end_sentence=end - 1,
+            )
+        )
 
         i += sentences_per_chunk - overlap_sentences
 
     return chunks
 
+
 # Better sentence splitting with NLTK
 import nltk
-nltk.download('punkt')
+
+nltk.download("punkt")
 from nltk.tokenize import sent_tokenize
 
+
 def sentence_chunk_nltk(
-    text: str,
-    max_chunk_size: int = 1000,
-    overlap_sentences: int = 2
+    text: str, max_chunk_size: int = 1000, overlap_sentences: int = 2
 ) -> list[str]:
     """Chunk by sentences up to max size."""
     sentences = sent_tokenize(text)
@@ -293,7 +293,9 @@ def sentence_chunk_nltk(
         if current_size + sentence_size > max_chunk_size and current_chunk:
             chunks.append(" ".join(current_chunk))
             # Keep overlap sentences
-            current_chunk = current_chunk[-overlap_sentences:] if overlap_sentences else []
+            current_chunk = (
+                current_chunk[-overlap_sentences:] if overlap_sentences else []
+            )
             current_size = sum(len(s) for s in current_chunk)
 
         current_chunk.append(sentence)
@@ -314,6 +316,7 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 
+
 class SemanticChunker:
     """Chunk based on semantic similarity between sentences."""
 
@@ -322,7 +325,7 @@ class SemanticChunker:
         model_name: str = "all-MiniLM-L6-v2",
         similarity_threshold: float = 0.5,
         min_chunk_size: int = 100,
-        max_chunk_size: int = 1500
+        max_chunk_size: int = 1500,
     ):
         self.model = SentenceTransformer(model_name)
         self.similarity_threshold = similarity_threshold
@@ -377,7 +380,8 @@ class SemanticChunker:
     def _split_sentences(self, text: str) -> list[str]:
         """Split text into sentences."""
         import re
-        sentences = re.split(r'(?<=[.!?])\s+', text)
+
+        sentences = re.split(r"(?<=[.!?])\s+", text)
         return [s.strip() for s in sentences if s.strip()]
 
     def _find_breakpoints(self, embeddings: np.ndarray) -> list[int]:
@@ -386,8 +390,7 @@ class SemanticChunker:
 
         for i in range(1, len(embeddings)):
             similarity = cosine_similarity(
-                embeddings[i-1:i],
-                embeddings[i:i+1]
+                embeddings[i - 1 : i], embeddings[i : i + 1]
             )[0][0]
 
             if similarity < self.similarity_threshold:
@@ -398,16 +401,12 @@ class SemanticChunker:
     def _split_large_chunk(self, sentences: list[str]) -> list[str]:
         """Split oversized chunk at midpoint."""
         mid = len(sentences) // 2
-        return [
-            " ".join(sentences[:mid]),
-            " ".join(sentences[mid:])
-        ]
+        return [" ".join(sentences[:mid]), " ".join(sentences[mid:])]
+
 
 # Usage
 chunker = SemanticChunker(
-    similarity_threshold=0.5,
-    min_chunk_size=200,
-    max_chunk_size=1000
+    similarity_threshold=0.5, min_chunk_size=200, max_chunk_size=1000
 )
 semantic_chunks = chunker.chunk(document_text)
 ```
@@ -416,17 +415,13 @@ semantic_chunks = chunker.chunk(document_text)
 
 ```python
 def find_breakpoints_percentile(
-    embeddings: np.ndarray,
-    percentile: int = 25
+    embeddings: np.ndarray, percentile: int = 25
 ) -> list[int]:
     """Find breakpoints at similarity drops below percentile threshold."""
     similarities = []
 
     for i in range(1, len(embeddings)):
-        sim = cosine_similarity(
-            embeddings[i-1:i],
-            embeddings[i:i+1]
-        )[0][0]
+        sim = cosine_similarity(embeddings[i - 1 : i], embeddings[i : i + 1])[0][0]
         similarities.append((i, sim))
 
     # Dynamic threshold based on distribution
@@ -446,6 +441,7 @@ def find_breakpoints_percentile(
 import re
 from dataclasses import dataclass
 
+
 @dataclass
 class MarkdownChunk:
     text: str
@@ -453,16 +449,15 @@ class MarkdownChunk:
     heading_level: int
     metadata: dict
 
+
 def chunk_markdown(
-    text: str,
-    max_chunk_size: int = 1500,
-    include_heading_in_chunk: bool = True
+    text: str, max_chunk_size: int = 1500, include_heading_in_chunk: bool = True
 ) -> list[MarkdownChunk]:
     """Chunk markdown by headers while respecting structure."""
     # Pattern to match headers
-    header_pattern = r'^(#{1,6})\s+(.+)$'
+    header_pattern = r"^(#{1,6})\s+(.+)$"
 
-    lines = text.split('\n')
+    lines = text.split("\n")
     chunks = []
     current_chunk_lines = []
     current_heading = None
@@ -475,15 +470,21 @@ def chunk_markdown(
         if header_match:
             # Save current chunk if exists
             if current_chunk_lines:
-                chunk_text = '\n'.join(current_chunk_lines)
+                chunk_text = "\n".join(current_chunk_lines)
                 if len(chunk_text.strip()) > 0:
-                    prefix = f"# {current_heading}\n\n" if include_heading_in_chunk and current_heading else ""
-                    chunks.append(MarkdownChunk(
-                        text=prefix + chunk_text,
-                        heading=current_heading,
-                        heading_level=current_level,
-                        metadata={"breadcrumb": " > ".join(heading_stack)}
-                    ))
+                    prefix = (
+                        f"# {current_heading}\n\n"
+                        if include_heading_in_chunk and current_heading
+                        else ""
+                    )
+                    chunks.append(
+                        MarkdownChunk(
+                            text=prefix + chunk_text,
+                            heading=current_heading,
+                            heading_level=current_level,
+                            metadata={"breadcrumb": " > ".join(heading_stack)},
+                        )
+                    )
 
             # Update heading context
             level = len(header_match.group(1))
@@ -503,33 +504,45 @@ def chunk_markdown(
             current_chunk_lines.append(line)
 
             # Check chunk size
-            current_text = '\n'.join(current_chunk_lines)
+            current_text = "\n".join(current_chunk_lines)
             if len(current_text) > max_chunk_size:
                 # Split at paragraph boundary
-                paragraphs = current_text.split('\n\n')
+                paragraphs = current_text.split("\n\n")
                 if len(paragraphs) > 1:
-                    split_point = len('\n\n'.join(paragraphs[:-1]))
+                    split_point = len("\n\n".join(paragraphs[:-1]))
                     chunk_text = current_text[:split_point]
-                    prefix = f"# {current_heading}\n\n" if include_heading_in_chunk and current_heading else ""
-                    chunks.append(MarkdownChunk(
-                        text=prefix + chunk_text,
-                        heading=current_heading,
-                        heading_level=current_level,
-                        metadata={"breadcrumb": " > ".join(heading_stack)}
-                    ))
+                    prefix = (
+                        f"# {current_heading}\n\n"
+                        if include_heading_in_chunk and current_heading
+                        else ""
+                    )
+                    chunks.append(
+                        MarkdownChunk(
+                            text=prefix + chunk_text,
+                            heading=current_heading,
+                            heading_level=current_level,
+                            metadata={"breadcrumb": " > ".join(heading_stack)},
+                        )
+                    )
                     current_chunk_lines = [current_text[split_point:].strip()]
 
     # Don't forget the last chunk
     if current_chunk_lines:
-        chunk_text = '\n'.join(current_chunk_lines)
+        chunk_text = "\n".join(current_chunk_lines)
         if len(chunk_text.strip()) > 0:
-            prefix = f"# {current_heading}\n\n" if include_heading_in_chunk and current_heading else ""
-            chunks.append(MarkdownChunk(
-                text=prefix + chunk_text,
-                heading=current_heading,
-                heading_level=current_level,
-                metadata={"breadcrumb": " > ".join(heading_stack)}
-            ))
+            prefix = (
+                f"# {current_heading}\n\n"
+                if include_heading_in_chunk and current_heading
+                else ""
+            )
+            chunks.append(
+                MarkdownChunk(
+                    text=prefix + chunk_text,
+                    heading=current_heading,
+                    heading_level=current_level,
+                    metadata={"breadcrumb": " > ".join(heading_stack)},
+                )
+            )
 
     return chunks
 ```
@@ -540,33 +553,34 @@ def chunk_markdown(
 import re
 from dataclasses import dataclass
 
+
 @dataclass
 class CodeChunk:
     text: str
     language: str | None
     chunk_type: str  # "code", "text", "mixed"
 
-def chunk_with_code_blocks(
-    text: str,
-    max_chunk_size: int = 1500
-) -> list[CodeChunk]:
+
+def chunk_with_code_blocks(text: str, max_chunk_size: int = 1500) -> list[CodeChunk]:
     """Chunk text while keeping code blocks intact."""
     # Pattern to match code blocks
-    code_block_pattern = r'```(\w+)?\n(.*?)```'
+    code_block_pattern = r"```(\w+)?\n(.*?)```"
 
     chunks = []
     last_end = 0
 
     for match in re.finditer(code_block_pattern, text, re.DOTALL):
         # Text before code block
-        text_before = text[last_end:match.start()].strip()
+        text_before = text[last_end : match.start()].strip()
         if text_before:
             # Chunk the text portion
             text_chunks = recursive_chunk(text_before, max_chunk_size)
-            chunks.extend([
-                CodeChunk(text=t, language=None, chunk_type="text")
-                for t in text_chunks
-            ])
+            chunks.extend(
+                [
+                    CodeChunk(text=t, language=None, chunk_type="text")
+                    for t in text_chunks
+                ]
+            )
 
         # Code block (keep intact if possible)
         language = match.group(1)
@@ -574,11 +588,9 @@ def chunk_with_code_blocks(
         full_block = match.group(0)
 
         if len(full_block) <= max_chunk_size:
-            chunks.append(CodeChunk(
-                text=full_block,
-                language=language,
-                chunk_type="code"
-            ))
+            chunks.append(
+                CodeChunk(text=full_block, language=language, chunk_type="code")
+            )
         else:
             # Split large code blocks by function/class
             code_chunks = split_code_block(code_content, language, max_chunk_size)
@@ -590,22 +602,22 @@ def chunk_with_code_blocks(
     remaining = text[last_end:].strip()
     if remaining:
         text_chunks = recursive_chunk(remaining, max_chunk_size)
-        chunks.extend([
-            CodeChunk(text=t, language=None, chunk_type="text")
-            for t in text_chunks
-        ])
+        chunks.extend(
+            [CodeChunk(text=t, language=None, chunk_type="text") for t in text_chunks]
+        )
 
     return chunks
+
 
 def split_code_block(code: str, language: str, max_size: int) -> list[CodeChunk]:
     """Split code block at logical boundaries."""
     # Simple function/class boundary splitting for Python
     if language == "python":
-        pattern = r'\n(?=def |class |async def )'
+        pattern = r"\n(?=def |class |async def )"
     elif language in ["javascript", "typescript"]:
-        pattern = r'\n(?=function |class |const |export )'
+        pattern = r"\n(?=function |class |const |export )"
     else:
-        pattern = r'\n\n'
+        pattern = r"\n\n"
 
     parts = re.split(pattern, code)
     chunks = []
@@ -613,21 +625,25 @@ def split_code_block(code: str, language: str, max_size: int) -> list[CodeChunk]
 
     for part in parts:
         if len(current) + len(part) > max_size and current:
-            chunks.append(CodeChunk(
-                text=f"```{language}\n{current}```",
-                language=language,
-                chunk_type="code"
-            ))
+            chunks.append(
+                CodeChunk(
+                    text=f"```{language}\n{current}```",
+                    language=language,
+                    chunk_type="code",
+                )
+            )
             current = part
         else:
             current += part
 
     if current:
-        chunks.append(CodeChunk(
-            text=f"```{language}\n{current}```",
-            language=language,
-            chunk_type="code"
-        ))
+        chunks.append(
+            CodeChunk(
+                text=f"```{language}\n{current}```",
+                language=language,
+                chunk_type="code",
+            )
+        )
 
     return chunks
 ```
@@ -639,10 +655,8 @@ def split_code_block(code: str, language: str, max_size: int) -> list[CodeChunk]
 ```python
 from openai import OpenAI
 
-def contextual_chunk(
-    document: str,
-    max_chunk_size: int = 1500
-) -> list[dict]:
+
+def contextual_chunk(document: str, max_chunk_size: int = 1500) -> list[dict]:
     """Use LLM to add context to each chunk."""
     # First, do structural chunking
     base_chunks = recursive_chunk(document, max_chunk_size)
@@ -659,23 +673,22 @@ def contextual_chunk(
                     "role": "system",
                     "content": """Provide a brief context for this document chunk.
                     Include: what topic it covers, how it relates to the broader document,
-                    and key concepts mentioned. Keep it under 100 words."""
+                    and key concepts mentioned. Keep it under 100 words.""",
                 },
-                {
-                    "role": "user",
-                    "content": f"Document excerpt:\n\n{chunk}"
-                }
+                {"role": "user", "content": f"Document excerpt:\n\n{chunk}"},
             ],
-            max_tokens=150
+            max_tokens=150,
         )
 
         context = response.choices[0].message.content
 
-        contextualized_chunks.append({
-            "text": chunk,
-            "context": context,
-            "text_with_context": f"Context: {context}\n\nContent: {chunk}"
-        })
+        contextualized_chunks.append(
+            {
+                "text": chunk,
+                "context": context,
+                "text_with_context": f"Context: {context}\n\nContent: {chunk}",
+            }
+        )
 
     return contextualized_chunks
 ```
@@ -698,19 +711,18 @@ def extract_propositions(text: str) -> list[str]:
                 - Be self-contained (understandable without context)
                 - Include necessary entity references
 
-                Return as a JSON array of strings."""
+                Return as a JSON array of strings.""",
             },
-            {
-                "role": "user",
-                "content": text
-            }
+            {"role": "user", "content": text},
         ],
-        response_format={"type": "json_object"}
+        response_format={"type": "json_object"},
     )
 
     import json
+
     result = json.loads(response.choices[0].message.content)
     return result.get("propositions", [])
+
 
 # Usage: For very fine-grained retrieval
 propositions = extract_propositions(document_text)
@@ -725,6 +737,7 @@ propositions = extract_propositions(document_text)
 from transformers import AutoTokenizer, AutoModel
 import torch
 
+
 class LateChunker:
     """
     Late chunking: embed full document, then pool token embeddings into chunks.
@@ -737,10 +750,7 @@ class LateChunker:
         self.model.eval()
 
     def chunk_and_embed(
-        self,
-        text: str,
-        chunk_size: int = 512,
-        overlap: int = 64
+        self, text: str, chunk_size: int = 512, overlap: int = 64
     ) -> list[dict]:
         """
         Embed full document, then create chunk embeddings via mean pooling.
@@ -750,7 +760,7 @@ class LateChunker:
             text,
             return_tensors="pt",
             truncation=True,
-            max_length=8192  # Model's max context
+            max_length=8192,  # Model's max context
         )
 
         # Get token-level embeddings
@@ -774,25 +784,28 @@ class LateChunker:
 
             # Reconstruct text for this chunk
             chunk_token_ids = inputs["input_ids"][0][start:end]
-            chunk_text = self.tokenizer.decode(chunk_token_ids, skip_special_tokens=True)
+            chunk_text = self.tokenizer.decode(
+                chunk_token_ids, skip_special_tokens=True
+            )
 
-            chunks.append({
-                "text": chunk_text,
-                "embedding": chunk_embedding,
-                "start_token": start,
-                "end_token": end
-            })
+            chunks.append(
+                {
+                    "text": chunk_text,
+                    "embedding": chunk_embedding,
+                    "start_token": start,
+                    "end_token": end,
+                }
+            )
 
             start = end - overlap
 
         return chunks
 
+
 # Usage
 late_chunker = LateChunker()
 chunks_with_embeddings = late_chunker.chunk_and_embed(
-    long_document,
-    chunk_size=512,
-    overlap=64
+    long_document, chunk_size=512, overlap=64
 )
 ```
 
@@ -805,18 +818,20 @@ from dataclasses import dataclass
 from datetime import datetime
 import hashlib
 
+
 @dataclass
 class EnrichedChunk:
     text: str
     embedding: list[float] | None
     metadata: dict
 
+
 def enrich_chunk(
     text: str,
     source_file: str,
     chunk_index: int,
     total_chunks: int,
-    additional_metadata: dict | None = None
+    additional_metadata: dict | None = None,
 ) -> EnrichedChunk:
     """Add comprehensive metadata to chunk."""
     metadata = {
@@ -824,19 +839,16 @@ def enrich_chunk(
         "source": source_file,
         "chunk_index": chunk_index,
         "total_chunks": total_chunks,
-
         # Content characteristics
         "char_count": len(text),
         "word_count": len(text.split()),
         "content_hash": hashlib.md5(text.encode()).hexdigest()[:12],
-
         # Temporal
         "indexed_at": datetime.utcnow().isoformat(),
-
         # Position context
-        "position": "start" if chunk_index == 0 else (
-            "end" if chunk_index == total_chunks - 1 else "middle"
-        )
+        "position": "start"
+        if chunk_index == 0
+        else ("end" if chunk_index == total_chunks - 1 else "middle"),
     }
 
     if additional_metadata:

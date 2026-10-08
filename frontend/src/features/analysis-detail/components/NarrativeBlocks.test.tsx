@@ -20,7 +20,6 @@ import { describe, expect, test, vi } from "vitest";
 
 import { NarrativeBlocks } from "./NarrativeBlocks";
 import type { CategoryNarrative, NarrativeSource } from "../types";
-import type { TrackingItem } from "../../../types/tracking";
 
 function source(id: number, page: number, text: string): NarrativeSource {
   return {
@@ -60,18 +59,6 @@ const PARRAFO: CategoryNarrative = {
   sources: [source(0, 1, "servicio de limpieza integral de los edificios municipales")],
 };
 
-function trackingItem(id: string, fieldName: string): TrackingItem {
-  return {
-    tracking_item_id: id,
-    category_key: "requisitos_admisibilidad",
-    status: "not_evaluated",
-    source_item_ref: {
-      version_id: "version-1",
-      field_name: fieldName,
-    },
-  };
-}
-
 describe("categorías de ítems: un ojo por ítem", () => {
   test("cada bullet lleva su propio botón de fuente", () => {
     render(<NarrativeBlocks narrative={BULLETS} />);
@@ -90,8 +77,7 @@ describe("categorías de ítems: un ojo por ítem", () => {
     expect(onViewSource).toHaveBeenCalledTimes(1);
     const payload = onViewSource.mock.calls[0][0];
     expect(payload.citation.page).toBe(7);
-    // La navegación anterior/siguiente del visor no puede pasearse por las
-    // citas de los otros bullets: se verifica ESTA afirmación.
+    // La navegación anterior/siguiente del visor no puede pasearse por las citas de los otros bullets.
     expect(payload.citations).toHaveLength(1);
     expect(payload.sources).toHaveLength(1);
   });
@@ -108,6 +94,59 @@ describe("categorías de ítems: un ojo por ítem", () => {
 
     expect(screen.queryByTestId("category-sources")).not.toBeInTheDocument();
     expect(screen.queryByText(/Fuentes verificables/i)).not.toBeInTheDocument();
+  });
+
+  test("no queda ningún punto de bullet visual -- todo ítem se renderiza como título + detalle", () => {
+    const { container } = render(<NarrativeBlocks narrative={BULLETS} />);
+
+    expect(container.querySelector(".rounded-full.bg-\\[rgba\\(0\\,60\\,107\\,\\.35\\)\\]")).not.toBeInTheDocument();
+  });
+
+  test("con `titulo` real, se muestra arriba (junto al ojo) y el texto completo queda como detalle debajo", () => {
+    const narrative: CategoryNarrative = {
+      blocks: [
+        {
+          type: "bullet_list",
+          items: [
+            {
+              text: "Acreditar al menos tres proyectos similares en los últimos cinco años, con referencias de clientes.",
+              titulo: "Antecedentes: 3 contratos similares en 5 años",
+              confidence_level: "high",
+              source_ids: [0],
+            },
+          ],
+        },
+      ],
+      sources: [source(0, 15, "contratos de provisión e instalación de networking")],
+    };
+
+    render(<NarrativeBlocks narrative={narrative} />);
+
+    expect(screen.getByText("Antecedentes: 3 contratos similares en 5 años")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Acreditar al menos tres proyectos similares en los últimos cinco años, con referencias de clientes.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  test("sin `titulo` pero con ':' en el texto (narrativa vieja), separa en título + detalle igual", () => {
+    const narrative: CategoryNarrative = {
+      blocks: [
+        {
+          type: "bullet_list",
+          items: [
+            { text: "Documento: Garantía de la oferta.", confidence_level: "high", source_ids: [0] },
+          ],
+        },
+      ],
+      sources: [source(0, 3, "garantía de la oferta")],
+    };
+
+    render(<NarrativeBlocks narrative={narrative} />);
+
+    expect(screen.getByText("Documento")).toBeInTheDocument();
+    expect(screen.getByText("Garantía de la oferta.")).toBeInTheDocument();
   });
 
   test("un bullet sin fuente verificable no muestra un ojo que no lleva a ningún lado", () => {
@@ -200,33 +239,89 @@ describe("categorías de ítems: un ojo por ítem", () => {
     expect(screen.queryByTestId("document-source-group-label")).not.toBeInTheDocument();
   });
 
-  test("los controles de checklist se renderizan dentro de cada bullet", async () => {
-    const user = userEvent.setup();
-    const onChangeTrackingItemStatus = vi.fn();
+  test("con un porcentaje en el detalle (ej. garantías), lo muestra en negrita junto al título", () => {
+    const narrative: CategoryNarrative = {
+      blocks: [
+        {
+          type: "bullet_list",
+          items: [
+            {
+              titulo: "Garantía de mantenimiento de oferta",
+              text: "Debe ser del 4% del valor total de la oferta y acompañarse con la propuesta.",
+              confidence_level: "high",
+              source_ids: [0],
+            },
+          ],
+        },
+      ],
+      sources: [source(0, 5, "cuatro por ciento del valor total de la oferta")],
+    };
 
-    render(
-      <NarrativeBlocks
-        narrative={BULLETS}
-        trackingItems={[trackingItem("item-1", "Constancia RUP"), trackingItem("item-2", "Antecedentes")]}
-        onChangeTrackingItemStatus={onChangeTrackingItemStatus}
-      />,
-    );
+    render(<NarrativeBlocks narrative={narrative} />);
 
-    const bullets = screen.getAllByTestId("narrative-bullet-item");
-    expect(within(bullets[0]).getByRole("button", { name: "Cumple: Constancia RUP" })).toBeInTheDocument();
-    expect(within(bullets[1]).getByRole("button", { name: "No cumple: Antecedentes" })).toBeInTheDocument();
+    const highlight = screen.getByTestId("narrative-bullet-highlight");
+    expect(highlight).toHaveTextContent("4%");
+    expect(highlight.tagName).toBe("SPAN");
+    expect(highlight.className).toMatch(/font-bold/);
+  });
 
-    await user.click(within(bullets[1]).getByRole("button", { name: "No cumple: Antecedentes" }));
+  test("sin porcentaje, cae al monto en pesos ($ ...) como highlight", () => {
+    const narrative: CategoryNarrative = {
+      blocks: [
+        {
+          type: "bullet_list",
+          items: [
+            {
+              titulo: "Garantía de mantenimiento de oferta",
+              text: "No resulta necesario presentarla cuando el monto de la oferta no supere $ 40.000.000.",
+              confidence_level: "high",
+              source_ids: [0],
+            },
+          ],
+        },
+      ],
+      sources: [source(0, 5, "no supere $ 40.000.000")],
+    };
 
-    expect(onChangeTrackingItemStatus).toHaveBeenCalledWith("item-2", "non_compliant");
+    render(<NarrativeBlocks narrative={narrative} />);
+
+    expect(screen.getByTestId("narrative-bullet-highlight")).toHaveTextContent("$40.000.000");
+  });
+
+  test("sin porcentaje ni monto (ej. garantía técnica), no muestra ningún highlight", () => {
+    const narrative: CategoryNarrative = {
+      blocks: [
+        {
+          type: "bullet_list",
+          items: [
+            {
+              titulo: "Garantía técnica del equipamiento",
+              text: "El pliego prevé una garantía técnica de 36 meses, contados desde la Recepción Provisional.",
+              confidence_level: "high",
+              source_ids: [0],
+            },
+          ],
+        },
+      ],
+      sources: [source(0, 6, "garantía técnica de 36 meses")],
+    };
+
+    render(<NarrativeBlocks narrative={narrative} />);
+
+    expect(screen.queryByTestId("narrative-bullet-highlight")).not.toBeInTheDocument();
   });
 });
 
 describe("categorías de párrafo: se conserva el listado", () => {
-  test("un párrafo mantiene Fuentes verificables al pie", () => {
+  test("un párrafo mantiene Fuentes verificables al pie en modo colapsado", async () => {
+    const user = userEvent.setup();
     render(<NarrativeBlocks narrative={PARRAFO} />);
 
     expect(screen.getByTestId("category-sources")).toBeInTheDocument();
+    expect(screen.queryByTestId("category-sources-list")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("paragraph-sources-toggle"));
+
     expect(screen.getByRole("button", { name: /Pliego\.pdf · pág\. 1/i })).toBeInTheDocument();
   });
 
@@ -236,7 +331,8 @@ describe("categorías de párrafo: se conserva el listado", () => {
     expect(screen.queryByTestId("item-source-button")).not.toBeInTheDocument();
   });
 
-  test("si hay párrafos y bullets, el listado sólo trae las fuentes de los párrafos", () => {
+  test("si hay párrafos y bullets, el listado sólo trae las fuentes de los párrafos", async () => {
+    const user = userEvent.setup();
     const mixto: CategoryNarrative = {
       blocks: [
         { type: "paragraph", text: "Contexto general.", confidence_level: "high", source_ids: [0] },
@@ -249,6 +345,7 @@ describe("categorías de párrafo: se conserva el listado", () => {
     };
 
     render(<NarrativeBlocks narrative={mixto} />);
+    await user.click(screen.getByTestId("paragraph-sources-toggle"));
 
     const listado = screen.getByTestId("category-sources-list");
     expect(within(listado).getAllByRole("button")).toHaveLength(1);
@@ -258,7 +355,8 @@ describe("categorías de párrafo: se conserva el listado", () => {
     expect(screen.getAllByTestId("item-source-button")).toHaveLength(1);
   });
 
-  test("si hay múltiples fuentes de párrafo se muestran juntas sin divisor", () => {
+  test("si hay múltiples fuentes de párrafo se muestran juntas sin divisor", async () => {
+    const user = userEvent.setup();
     const narrative: CategoryNarrative = {
       blocks: [
         {
@@ -294,6 +392,7 @@ describe("categorías de párrafo: se conserva el listado", () => {
     };
 
     render(<NarrativeBlocks narrative={narrative} />);
+    await user.click(screen.getByTestId("paragraph-sources-toggle"));
 
     expect(screen.queryByTestId("document-source-divider")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Pliego Principal\.pdf · pág\. 1/i })).toBeInTheDocument();

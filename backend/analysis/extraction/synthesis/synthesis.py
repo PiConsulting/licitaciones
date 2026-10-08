@@ -1,0 +1,637 @@
+"""Entrypoint de sintesis: arma el prompt por categoria, llama al LLM y resuelve la narrativa final con sus fuentes ya verificadas."""
+from __future__ import annotations
+
+import re
+import time
+from typing import Any
+
+import structlog
+
+from analysis.extraction.engine import base as extraction_engine
+from analysis.extraction.extractors.preview_criterios import cost_responsible_party_canonical
+from analysis.extraction.schemas import CategoryNarrative, RawCategoryNarrative
+from analysis.extraction.synthesis.prompt_and_serialization import (
+    _conflict_block,
+    _empty_category_narrative,
+    _has_usable_content,
+    _load_response_base_prompt,
+    _serialize_items,
+)
+from analysis.extraction.synthesis.source_resolution import _resolve_narrative_sources
+
+try:
+    from analysis.extraction.highlight import compute_highlights_for_sources
+
+    HIGHLIGHT_AVAILABLE = True
+except ImportError:
+    HIGHLIGHT_AVAILABLE = False
+    compute_highlights_for_sources = None  # type: ignore[assignment]
+
+logger = structlog.get_logger(__name__)
+
+_PREVIEW_CANONICAL_TITLE_BY_TIPO: dict[str, str] = {
+    "mantenimiento_oferta": "Mantenimiento de oferta",
+    "tiempo_entrega": "Tiempo de entrega",
+    "forma_pago": "Forma de Pago",
+    "moneda": "Licitación en pesos o dólares",
+    "tipo_cambio": "Tipo de cambio",
+    "garantias_cauciones": "Garantías o cauciones",
+    "multas_penalidades": "Multas o penalidades",
+    "anticipo_financiero": "Anticipo financiero",
+    "requisitos_tecnicos_excluyentes": "Requisitos técnicos o certificaciones excluyentes",
+    "responsabilidad_costos_logisticos": "Responsabilidad por costos logísticos o de instalación",
+}
+_PREVIEW_CANONICAL_ORDER: tuple[str, ...] = (
+    "mantenimiento_oferta",
+    "tiempo_entrega",
+    "forma_pago",
+    "moneda",
+    "tipo_cambio",
+    "garantias_cauciones",
+    "multas_penalidades",
+    "anticipo_financiero",
+    "requisitos_tecnicos_excluyentes",
+    "responsabilidad_costos_logisticos",
+)
+_PREVIEW_ORDER_INDEX: dict[str, int] = {
+    tipo: index for index, tipo in enumerate(_PREVIEW_CANONICAL_ORDER)
+}
+
+CATEGORY_LABELS = {
+    "preview_criterios": "Preview Criterios",
+    "objeto_alcance": "Objeto y Alcance",
+    "requisitos_admisibilidad": "Requisitos de Admisibilidad",
+    "garantias": "Garantías",
+    "plazos_clave": "Plazos Clave",
+    "criterios_evaluacion": "Criterios de Evaluación",
+    "causales_rechazo": "Causales de Rechazo",
+    "anexos_obligatorios": "Anexos Obligatorios",
+    "riesgos": "Riesgos",
+}
+CATEGORY_OUTPUT_CONTRACTS = {
+    "preview_criterios": (
+        "- Sintetizar criterios preliminares clave para decisión temprana de oportunidad.\n"
+        "- Emitir SIEMPRE una lista con exactamente un bullet por cada item recibido.\n"
+        "- Orden obligatorio de salida (exactamente en este orden):\n"
+        "  1) Mantenimiento de oferta\n"
+        "  2) Tiempo de entrega\n"
+        "  3) Forma de Pago\n"
+        "  4) Licitación en pesos o dólares\n"
+        "  5) Tipo de cambio\n"
+        "  6) Garantías o cauciones\n"
+        "  7) Multas o penalidades\n"
+        "  8) Anticipo financiero\n"
+        "  9) Requisitos técnicos o certificaciones excluyentes\n"
+        "  10) Responsabilidad por costos logísticos o de instalación\n"
+        "- Cada bullet debe empezar con el título EXACTO en español del criterio seguido de dos puntos y luego una respuesta breve en lenguaje natural.\n"
+        "- Mapeo obligatorio tipo -> Título EXACTO:\n"
+        "  mantenimiento_oferta -> \"Mantenimiento de oferta\"\n"
+        "  tiempo_entrega -> \"Tiempo de entrega\"\n"
+        "  forma_pago -> \"Forma de Pago\"\n"
+        "  moneda -> \"Licitación en pesos o dólares\"\n"
+        "  tipo_cambio -> \"Tipo de cambio\"\n"
+        "  garantias_cauciones -> \"Garantías o cauciones\"\n"
+        "  multas_penalidades -> \"Multas o penalidades\"\n"
+        "  anticipo_financiero -> \"Anticipo financiero\"\n"
+        "  requisitos_tecnicos_excluyentes -> \"Requisitos técnicos o certificaciones excluyentes\"\n"
+        "  responsabilidad_costos_logisticos -> \"Responsabilidad por costos logísticos o de instalación\"\n"
+        "- Por cada bullet devolver también `resumen`: string corto (ideal <= 6 palabras) derivado del MISMO dato usado en `text`, sin agregar información nueva.\n"
+        "- Si el item tiene extraction_status='not_found' o 'failed', escribir explícitamente que no se encontró información para ese criterio, sin omitirlo.\n"
+        "- Para esos casos not_found/failed, el campo `resumen` debe ser exactamente \"No informado\".\n"
+        "- Usar redacción breve y accionable por criterio, sin inventar datos no citados.\n"
+        "- Priorizar texto verificable respaldado por evidencia del pliego cuando exista."
+    ),
+    "objeto_alcance": (
+        "- Devolver exactamente QUE se licita en 2-3 lineas maximo.\n"
+        "- No incluir modalidad, lugar de entrega, plazos, garantias, criterios, causales, anexos ni requisitos.\n"
+        "- Emitir UN solo bloque `paragraph` con sintesis directa, sin introducciones largas."
+    ),
+    "requisitos_admisibilidad": (
+        "- Devolver solo documentacion obligatoria de admisibilidad (habilitaciones, antecedentes, certificaciones)\n"
+        "  cuya falta puede rechazar la oferta de entrada.\n"
+        "- Usar `bullet_list` con items cortos y accionables (ideal <= 14 palabras en `text`).\n"
+        "- `titulo`: nombre corto del documento/requisito (ej: 'Constancia RUP vigente').\n"
+        "  `text`: la accion o condicion completa (ej: 'Presentar constancia vigente al momento de la apertura')."
+    ),
+    "garantias": (
+        "- Devolver solo garantias financieras (mantenimiento de oferta, cumplimiento de contrato y similares).\n"
+        "- Incluir monto/porcentaje y forma de constitucion cuando exista evidencia.\n"
+        "- No mezclar con garantias tecnicas del producto.\n"
+        "- Priorizar formato escaneable: una garantia por item, sin texto ornamental.\n"
+        "- `titulo`: que garantia es (ej: 'Garantía de mantenimiento de oferta').\n"
+        "  `text`: monto/porcentaje y forma de constitucion."
+    ),
+    "plazos_clave": (
+        "- Usar `bullet_list`, un item por plazo distinto.\n"
+        "- Cada bullet debe usar el `texto_original` del item, que ya contiene descripcion\n"
+        "  completa del plazo con contexto (QUE plazo es, CUANDO se cuenta, QUIEN lo ejecuta).\n"
+        "- FIX (2026-08-21): El campo `tipo` ahora es opcional. NO usar 'tipo' para etiquetar\n"
+        "  bullets. Escribir el texto_original directamente, sin prefijos artificiales.\n"
+        "- Si el hito tiene fecha/hora limpia y sin condicion (ej: apertura, presentacion),\n"
+        "  podés reformular brevemente: 'Apertura: 14/09/2026 10:00 hs'.\n"
+        "- Si el plazo depende de una condicion o disparador (ej: 'a partir de la recepcion\n"
+        "  provisoria de cada hito...'), expresar la oracion completa y bien formada, sin\n"
+        "  perder a que se refiere el plazo ni la condicion que lo activa.\n"
+        "- Si dos bullets terminarian describiendo el mismo plazo con fragmentos distintos\n"
+        "  de la misma oracion (la condicion en uno, la duracion en otro), consolidalos\n"
+        "  en un solo bullet.\n"
+        "- NUNCA empezar un bullet con 'Otro:' ni usar clasificaciones tecnicas internas\n"
+        "  como etiquetas. El texto_original ya es descriptivo y auto-contenido.\n"
+        "  Ejemplo correcto:\n"
+        "  'La Provincia dispone de un plazo maximo de 15 dias corridos desde la recepcion\n"
+        "  provisoria de cada hito del Plan de Entrega y Servicios para otorgar la F.A.D.'\n"
+        "- No inferir fechas; usar solo lo textual extraido."
+    ),
+    "criterios_evaluacion": (
+        "- Devolver como se pondera precio vs tecnica y si existe puntaje minimo.\n"
+        "- Si hay varios factores, usar `bullet_list` o `table` segun comparabilidad.\n"
+        "- Mantener redaccion breve (no explicar contexto ya obvio).\n"
+        "- En `bullet_list`, `titulo`: nombre del metodo/factor (ej: 'Método de adjudicación', 'Precio').\n"
+        "  `text`: como se aplica o pondera ese factor."
+    ),
+    "causales_rechazo": (
+        "- Esta es la categoria mas critica: listar motivos de rechazo formal que descalifican sin evaluar oferta.\n"
+        "- Priorizar claridad y completitud de causales, sin mezclar requisitos no descalificantes.\n"
+        "- Usar `bullet_list`. `titulo`: la causal en pocas palabras (ej: 'Oferta fuera de término').\n"
+        "  `text`: formula breve 'Rechazo si ...' (ideal <= 16 palabras)."
+    ),
+    "anexos_obligatorios": (
+        "- Devolver solo formularios/anexos que deben completarse y presentarse si o si.\n"
+        "- No incluir certificados externos ni documentacion de terceros (eso va en admisibilidad).\n"
+        "- `titulo`: identificador del anexo (ej: 'Anexo I — Planilla de Cotización').\n"
+        "  `text`: que accion requiere (completarlo, firmarlo, adjuntarlo)."
+    ),
+    "riesgos": (
+        "- Listar riesgos identificables que puedan afectar la participación o ejecución del contrato.\n"
+        "- Incluir consecuencias de incumplimientos (multas, penalizaciones, rescisión).\n"
+        "- Usar `bullet_list`. `titulo`: nombre corto del riesgo (ej: 'Descalificación por incumplimiento de plazos').\n"
+        "  `text`: descripción clara y concisa del riesgo y su consecuencia.\n"
+        "- No duplicar causales de rechazo ni requisitos (van en sus categorías propias)."
+    ),
+}
+NARRATIVE_CATEGORIES = tuple(CATEGORY_LABELS)
+
+
+# `tipo` puede llegar como instancia viva de TipoCriterioPreview (mismo run) o como string (release posterior desde la base); str(enum) da "Clase.X", no el value, así que hay que normalizar acá.
+def _tipo_value(raw_tipo: Any) -> str:
+    value = getattr(raw_tipo, "value", raw_tipo)
+    return str(value or "").strip()
+
+
+def _preview_tipo_from_item_refs(item_refs: list[int], items: list[dict[str, Any]]) -> str | None:
+    for ref in item_refs:
+        if 0 <= ref < len(items):
+            tipo = _tipo_value(items[ref].get("tipo"))
+            if tipo:
+                return tipo
+    return None
+
+
+def _preview_body_without_label(text: str) -> str:
+    if ":" in text:
+        return text.split(":", 1)[1].strip()
+    return text.strip()
+
+
+_PREVIEW_FORCED_VERBATIM_TIPOS = ("multas_penalidades", "requisitos_tecnicos_excluyentes")
+
+_PERCENT_RE = re.compile(r"\d+(?:[.,]\d+)?\s?%")
+
+_NO_ANTICIPO_RE = re.compile(
+    r"no\s+(?:se\s+)?(?:otorga|prev[eé]|contempla|existe|hay|corresponde)\s+anticipo",
+    re.IGNORECASE,
+)
+
+def _percent_tokens(values: list[str]) -> list[str]:
+    tokens: list[str] = []
+    for value in values:
+        match = _PERCENT_RE.search(value)
+        if match:
+            tokens.append(match.group(0).replace(" ", ""))
+    return list(dict.fromkeys(tokens))
+
+
+# Reconocimiento de tasa/monto de multa más allá de "%" literal -- "por mil"/‰ y "N veces
+# el valor" son notaciones tan comunes como "%" en pliegos argentinos y el regex de %
+# a secas las dejaba afuera del resumen (bug real: Bancor mostraba "1%" ignorando dos
+# tasas "por mil" que aparecían primero en el pliego; otro pliego con "CUATRO (4) veces
+# el valor mensual" caía al fallback de repetir el título). Un item por notación,
+# probadas en orden porque un item de multas_penalidades ya trae "una tasa distinta"
+# (regla del prompt), no varias mezcladas.
+_POR_MIL_RE = re.compile(
+    r"\d+(?:[.,]\d+)?(?:/\d+(?:[.,]\d+)?)?(?:\s+al\s+\d+(?:[.,]\d+)?(?:/\d+(?:[.,]\d+)?)?)?\s*(?:‰|por\s+mil)",
+    re.IGNORECASE,
+)
+_MONTO_RE = re.compile(r"\$\s?\d[\d.,]*")
+_MULTIPLICADOR_RE = re.compile(r"\(\s*(\d+(?:[.,]\d+)?)\s*\)\s*veces", re.IGNORECASE)
+
+
+def _tasa_token(value: str) -> str | None:
+    """Extrae de UN item de multas_penalidades el token corto que representa su tasa/monto
+    cuantificable, o None si el item no impone ninguna consecuencia cuantificable (ej.
+    pérdida de garantía, rechazo de oferta, suspensión -- reales pero sin tasa/monto propio,
+    no deberían implicar un "%" en el resumen)."""
+    percent = _PERCENT_RE.search(value)
+    if percent:
+        return percent.group(0).replace(" ", "")
+    por_mil = _POR_MIL_RE.search(value)
+    if por_mil:
+        return re.sub(r"\s+", " ", por_mil.group(0)).strip()
+    monto = _MONTO_RE.search(value)
+    if monto:
+        return monto.group(0).replace(" ", "")
+    multiplicador = _MULTIPLICADOR_RE.search(value)
+    if multiplicador:
+        return f"{multiplicador.group(1)} veces"
+    return None
+
+
+def _tasa_tokens(values: list[str]) -> list[str]:
+    """Junta las tasas/montos de TODOS los items cuantificables (no solo el primero que
+    matchee), en el orden en que aparecen -- si hay varias multas distintas, el resumen
+    tiene que mencionarlas todas; cuál cita respalda cuál se distingue después, al abrir
+    las fuentes."""
+    tokens: list[str] = []
+    for value in values:
+        token = _tasa_token(value)
+        if token:
+            tokens.append(token)
+    return list(dict.fromkeys(tokens))
+
+
+def _anticipo_resumen(body: str, llm_resumen: str | None) -> str | None:
+    if _NO_ANTICIPO_RE.search(body):
+        return "N/A"
+    tokens = _percent_tokens([body])
+    if tokens:
+        return " · ".join(tokens)
+    return llm_resumen
+
+
+def _build_forced_preview_bullet(tipo: str, items: list[dict[str, Any]]) -> dict[str, Any] | None:
+    matching = [item for item in items if _tipo_value(item.get("tipo")) == tipo]
+    if not matching:
+        return None
+
+    title = _PREVIEW_CANONICAL_TITLE_BY_TIPO.get(tipo, tipo)
+    usable = [
+        item
+        for item in matching
+        if str(item.get("extraction_status", "")).strip().lower() not in ("not_found", "failed")
+        and item.get("valor")
+    ]
+    if not usable:
+        return {
+            "text": f"{title}: No se encontró información.",
+            "resumen": "No informado",
+            "confidence_level": "baja",
+            "item_refs": [],
+        }
+
+    valores = [str(item.get("valor")) for item in usable]
+    body = "\n".join(dict.fromkeys(valores))
+    refs = [idx for idx, item in enumerate(items) if item in usable]
+    resumen = title
+    if tipo == "multas_penalidades":
+        # El resumen (número grande de la card) solo debe reflejar consecuencias
+        # CUANTIFICABLES (tasa/monto/multiplicador) -- una pérdida de garantía o un
+        # rechazo de oferta siguen en `body` (no se pierde info), pero mostrarlos
+        # como si fueran "la tasa" es engañoso. Si hay varias tasas distintas, se
+        # mencionan TODAS (no solo la primera que matchee), separadas por " · "; a
+        # cuál corresponde cada una se distingue al abrir las fuentes de la card.
+        tokens = _tasa_tokens(valores)
+        resumen = " · ".join(tokens) if tokens else "Sin tasa especificada"
+    return {
+        "text": f"{title}: {body}",
+        "resumen": resumen,
+        "confidence_level": "alta",
+        "item_refs": refs,
+    }
+
+
+def _preview_conflict_counts(conflicts: list[dict[str, Any]] | None) -> dict[str, int]:
+    """Cuenta, por `tipo` de preview_criterios, cuántos conflictos reales detectó
+    `merge_node` -- estructurado, no depende de que el LLM de síntesis mencione la
+    palabra "conflicto" de forma consistente en `text`/`resumen` (auditoría
+    2026-09-25: la card usaba `.includes("conflicto")` sobre prosa libre, frágil)."""
+    counts: dict[str, int] = {}
+    for conflict in conflicts or []:
+        if str(conflict.get("category", "")) != "preview_criterios":
+            continue
+        tipo = str(conflict.get("tipo", ""))
+        if tipo:
+            counts[tipo] = counts.get(tipo, 0) + 1
+    return counts
+
+
+def _normalize_preview_raw_narrative(
+    raw_narrative: RawCategoryNarrative,
+    items: list[dict[str, Any]],
+    conflicts: list[dict[str, Any]] | None = None,
+) -> RawCategoryNarrative:
+    """Fuerza títulos y orden canónicos de preview antes de resolver fuentes."""
+    blocks_data: list[dict[str, Any]] = []
+    conflict_counts = _preview_conflict_counts(conflicts)
+
+    for block in raw_narrative.blocks:
+        if block.type != "bullet_list":
+            blocks_data.append(block.model_dump())
+            continue
+
+        decorated: list[tuple[int, int, dict[str, Any]]] = []
+        tipos_forzados_ya_resueltos: set[str] = set()
+        for index, bullet in enumerate(block.items):
+            bullet_data = bullet.model_dump()
+            tipo = _preview_tipo_from_item_refs(bullet.item_refs, items)
+            bullet_data["conflict_count"] = conflict_counts.get(tipo, 0) if tipo else 0
+            statuses = {
+                str(items[ref].get("extraction_status", "")).strip().lower()
+                for ref in bullet.item_refs
+                if 0 <= ref < len(items)
+            }
+            if statuses and statuses.issubset({"not_found", "failed"}):
+                bullet_data["resumen"] = "No informado"
+
+            if tipo in _PREVIEW_FORCED_VERBATIM_TIPOS:
+                forced = _build_forced_preview_bullet(tipo, items)
+                if forced is not None:
+                    tipos_forzados_ya_resueltos.add(tipo)
+                    decorated.append((_PREVIEW_ORDER_INDEX.get(tipo, 10_000), index, forced))
+                    continue
+
+            if tipo in _PREVIEW_CANONICAL_TITLE_BY_TIPO:
+                title = _PREVIEW_CANONICAL_TITLE_BY_TIPO[tipo]
+                body = _preview_body_without_label(bullet.text)
+                bullet_data["text"] = f"{title}: {body}" if body else f"{title}: No se encontró información."
+                order = _PREVIEW_ORDER_INDEX.get(tipo, 10_000)
+
+                if body and bullet_data.get("resumen") != "No informado":
+                    if tipo == "anticipo_financiero":
+                        bullet_data["resumen"] = _anticipo_resumen(body, bullet_data.get("resumen"))
+                    elif tipo == "responsabilidad_costos_logisticos":
+                        party = cost_responsible_party_canonical(body)
+                        if party:
+                            bullet_data["resumen"] = party
+                        else:
+                            bullet_data["text"] = f"{title}: No se encontró información."
+                            bullet_data["resumen"] = "No informado"
+            else:
+                order = 10_000
+
+            decorated.append((order, index, bullet_data))
+
+        # Si la síntesis no generó bullet para estos tipos, insertarlo igual o el criterio desaparece de la preview.
+        for tipo in _PREVIEW_FORCED_VERBATIM_TIPOS:
+            if tipo in tipos_forzados_ya_resueltos:
+                continue
+            forced = _build_forced_preview_bullet(tipo, items)
+            if forced is not None:
+                decorated.append((_PREVIEW_ORDER_INDEX.get(tipo, 10_000), len(block.items), forced))
+
+        decorated.sort(key=lambda entry: (entry[0], entry[1]))
+        blocks_data.append({"type": "bullet_list", "items": [entry[2] for entry in decorated]})
+
+    return RawCategoryNarrative.model_validate(
+        {
+            "blocks": blocks_data,
+            "evidence": [e.model_dump() for e in raw_narrative.evidence],
+        }
+    )
+
+
+# Reintentos ante fallo de síntesis (LLM/parseo/validación). `requisitos_admisibilidad`
+# es la categoría con más items (30-43 en pliegos reales) y por lo tanto el prompt de
+# síntesis más grande (~23K tokens de prompt en un caso real) -- la más expuesta a un
+# timeout o rate-limit transitorio de Azure OpenAI cuando las 8 categorías sintetizan
+# en paralelo (`synthesize_node`, ThreadPoolExecutor). Reproducido en aislado (sin el
+# resto de las 7 llamadas concurrentes) el mismo prompt/items sí generó narrativa
+# completa -- consistente con una falla de capacidad/latencia bajo concurrencia, no con
+# un problema determinístico de contenido. Un solo reintento le da a esa categoría una
+# segunda chance sin la contención de la primera tanda.
+_SYNTHESIS_MAX_ATTEMPTS = 2
+_SYNTHESIS_RETRY_BACKOFF_SECONDS = 3.0
+
+
+def _run_synthesis_attempt(
+    *,
+    category_key: str,
+    items: list[dict[str, Any]],
+    correlation_id: str,
+    chunks_by_id: dict[str, dict] | None,
+    conflicts: list[dict[str, Any]] | None,
+) -> tuple[CategoryNarrative, dict[str, int]]:
+    category_label = CATEGORY_LABELS.get(category_key, category_key)
+    category_contract = CATEGORY_OUTPUT_CONTRACTS.get(
+        category_key,
+        "- Priorizar exactitud, concision y separacion estricta por categoria.",
+    )
+    prompt = (
+        _load_response_base_prompt(category_key)
+        .replace("{items_json}", _serialize_items(items))
+        .replace("{category_label}", category_label)
+        .replace("{category_output_contract}", category_contract)
+        .replace("{conflicts_block}", _conflict_block(category_key, conflicts))
+    )
+
+    raw, token_usage = extraction_engine._call_llm(
+        messages=[("human", prompt)], correlation_id=correlation_id
+    )
+    raw_narrative = RawCategoryNarrative.model_validate(raw)
+    if category_key == "preview_criterios":
+        raw_narrative = _normalize_preview_raw_narrative(raw_narrative, items, conflicts)
+
+    narrative = _resolve_narrative_sources(
+        raw_narrative,
+        items,
+        correlation_id=correlation_id,
+        chunks_by_id=chunks_by_id,
+        keep_empty_for_statuses={"not_found", "failed"} if category_key == "preview_criterios" else None,
+    )
+    if not narrative.blocks:
+        logger.error(
+            "synthesis_fell_back_to_empty_narrative_despite_usable_items",
+            correlation_id=correlation_id,
+            category=category_key,
+            items_count=len(items),
+            items_with_sources=sum(1 for item in items if item.get("source_references")),
+            raw_blocks=len(raw_narrative.blocks),
+            raw_evidence=len(raw_narrative.evidence),
+            impact="el usuario verá 'No se encontró información' para una categoría que sí tiene datos extraídos",
+        )
+        narrative = _empty_category_narrative(category_label)
+
+    return narrative, token_usage
+
+
+def run_synthesis(
+    *,
+    category_key: str,
+    items: list[dict[str, Any]],
+    correlation_id: str,
+    chunks_by_id: dict[str, dict] | None = None,
+    conflicts: list[dict[str, Any]] | None = None,
+) -> tuple[CategoryNarrative, dict[str, int]] | None:
+    """Convierte los items ya extraidos de una categoria en una respuesta de
+    experto: bloques en lenguaje natural (parrafo/lista/tabla), nunca metadata
+    cruda. Reintenta una vez ante fallo transitorio (ver `_SYNTHESIS_MAX_ATTEMPTS`).
+    Devuelve None si no hay contenido util o si la sintesis sigue fallando despues
+    de los reintentos (LLM, parseo, validacion) — el llamador (grafo) y el
+    frontend ya tienen fallback, asi que una categoria nunca se queda sin
+    respuesta por un fallo puntual de este paso."""
+    if not items or not _has_usable_content(items):
+        if category_key == "preview_criterios":
+            category_label = CATEGORY_LABELS.get(category_key, category_key)
+            return _empty_category_narrative(category_label), {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            }
+        return None
+
+    last_exc: Exception | None = None
+    for attempt in range(1, _SYNTHESIS_MAX_ATTEMPTS + 1):
+        try:
+            narrative, token_usage = _run_synthesis_attempt(
+                category_key=category_key,
+                items=items,
+                correlation_id=correlation_id,
+                chunks_by_id=chunks_by_id,
+                conflicts=conflicts,
+            )
+            logger.info(
+                "synthesis_completed",
+                correlation_id=correlation_id,
+                category=category_key,
+                blocks=len(narrative.blocks),
+                sources=len(narrative.sources),
+                attempt=attempt,
+            )
+            return narrative, token_usage
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            logger.warning(
+                "synthesis_attempt_failed",
+                correlation_id=correlation_id,
+                category=category_key,
+                attempt=attempt,
+                max_attempts=_SYNTHESIS_MAX_ATTEMPTS,
+                error_type=type(exc).__name__,
+                error=str(exc)[:500],
+                items_count=len(items),
+            )
+            if attempt < _SYNTHESIS_MAX_ATTEMPTS:
+                time.sleep(_SYNTHESIS_RETRY_BACKOFF_SECONDS)
+
+    logger.error(
+        "synthesis_failed_after_retries",
+        correlation_id=correlation_id,
+        category=category_key,
+        attempts=_SYNTHESIS_MAX_ATTEMPTS,
+        error_type=type(last_exc).__name__ if last_exc else None,
+        error=str(last_exc)[:500] if last_exc else None,
+        impact="el frontend cae al fallback sin titulos por bullet para esta categoria",
+    )
+    return None
+
+
+def _build_chunks_index_from_search(
+    analysis_id: str, correlation_id: str
+) -> dict[tuple[str, int], list[dict]]:
+    """Construye índice de chunks por (document_id, page_number) desde pgvector."""
+    try:
+        from infra.ports.pgvector_search import fetch_all_analysis_chunks
+
+        all_chunks, truncated = fetch_all_analysis_chunks(analysis_id)
+        chunks_by_doc_page: dict[tuple[str, int], list[dict]] = {}
+        for chunk in all_chunks:
+            doc_id = chunk.get("document_id")
+            page = chunk.get("page_number")
+            if not doc_id or not page:
+                continue
+            key = (str(doc_id), int(page))
+            if key not in chunks_by_doc_page:
+                chunks_by_doc_page[key] = []
+            chunks_by_doc_page[key].append(chunk)
+
+        logger.info(
+            "chunks_index_built",
+            correlation_id=correlation_id,
+            analysis_id=analysis_id,
+            total_chunks=len(all_chunks),
+            unique_pages=len(chunks_by_doc_page),
+            truncated=truncated,
+        )
+
+        return chunks_by_doc_page
+
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "chunks_index_build_failed",
+            correlation_id=correlation_id,
+            analysis_id=analysis_id,
+            error=str(exc),
+            message="Highlight no disponible - no se pudo construir índice de chunks",
+        )
+        return {}
+
+
+def enrich_narrative_with_highlights(
+    narrative: CategoryNarrative,
+    document_id_to_blob_path: dict[str, str],
+    correlation_id: str,
+    *,
+    category_key: str | None = None,
+    analysis_id: str | None = None,
+    chunks_by_doc_page: dict[tuple[str, int], list[dict]] | None = None,
+) -> CategoryNarrative:
+    """Enriquece una CategoryNarrative con coordenadas de highlight pre-computadas."""
+    if not HIGHLIGHT_AVAILABLE:
+        logger.info(
+            "highlight_skipped_not_available",
+            correlation_id=correlation_id,
+            message="PyMuPDF no instalado - highlights no disponibles",
+        )
+        return narrative
+
+    if not narrative.sources:
+        return narrative
+
+    if chunks_by_doc_page is None:
+        if analysis_id:
+            logger.info(
+                "highlight_building_own_chunks_index",
+                correlation_id=correlation_id,
+                category_key=category_key,
+                reason="no se recibió chunks_by_doc_page; se construye localmente",
+            )
+            chunks_by_doc_page = _build_chunks_index_from_search(analysis_id, correlation_id)
+        else:
+            chunks_by_doc_page = {}
+            logger.warning(
+                "highlight_skipped_no_analysis_id",
+                correlation_id=correlation_id,
+                message="analysis_id no disponible - highlights no se calcularán",
+            )
+
+    try:
+        sources_data = [source.model_dump() for source in narrative.sources]
+        enriched_sources_data = compute_highlights_for_sources(
+            sources=sources_data,
+            document_id_to_blob_path=document_id_to_blob_path,
+            correlation_id=correlation_id,
+            category_key=category_key,
+            chunks_by_doc_page=chunks_by_doc_page,
+        )
+        narrative_data = narrative.model_dump()
+        narrative_data["sources"] = enriched_sources_data
+
+        return CategoryNarrative.model_validate(narrative_data)
+
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "highlight_enrichment_failed",
+            correlation_id=correlation_id,
+            error=str(exc),
+            message="Highlights no disponibles - narrative devuelta sin modificar",
+        )
+        return narrative

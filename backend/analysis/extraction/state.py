@@ -43,8 +43,14 @@ class GraphState(TypedDict, total=False):
     identificacion: list[dict[str, Any]]
     identificacion_status: str
 
+    preview_criterios: list[dict[str, Any]]
+    preview_criterios_status: str
+
     riesgos: list[dict[str, Any]]
     riesgos_status: str
+
+    eventos_temporales: list[dict[str, Any]]
+    eventos_temporales_status: str
 
     presupuesto: dict[str, Any]
     presupuesto_status: str
@@ -53,10 +59,10 @@ class GraphState(TypedDict, total=False):
     conflicts: list[dict[str, Any]]
     extraction_metadata: dict[str, Any]
     document_id_to_blob_path: dict[str, str]  # Para highlight pre-computado
-    # CTX-05: document_id -> {"nombre": str, "es_principal": bool}. Lo consume
-    # `_format_chunks` para que el modelo sepa si el fragmento sale del pliego
-    # o de un anexo, en vez de ver un UUID pelado.
     document_labels: dict[str, dict[str, Any]]
+
+    # Candidate pool compartido entre ramas de extracción; `setup_node` lo puebla una vez (si USE_SHARED_CANDIDATE_POOL=true) para evitar un round-trip a Azure por categoría. Ausente o `[]` si el flag está apagado.
+    global_candidates: list[dict[str, Any]]
 
     plazos_token_usage: dict[str, int]
     objeto_alcance_token_usage: dict[str, int]
@@ -68,9 +74,9 @@ class GraphState(TypedDict, total=False):
     criterios_token_usage: dict[str, int]
     restricciones_token_usage: dict[str, int]
     identificacion_token_usage: dict[str, int]
+    preview_criterios_token_usage: dict[str, int]
     cronograma_token_usage: dict[str, int]
     presupuesto_token_usage: dict[str, int]
-
-    # Información para persistencia
+    eventos_temporales_token_usage: dict[str, int]
     created_by: str | None
     db_session: Any

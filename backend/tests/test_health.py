@@ -1,4 +1,4 @@
-from shared.config import get_settings
+from infra.config import get_settings
 
 
 def test_health_ready_returns_checks(client):
@@ -16,7 +16,9 @@ def test_health_ready_returns_checks(client):
 
 
 def test_health_degraded_when_database_unavailable(client, monkeypatch):
-    monkeypatch.setattr("main._database_health", lambda: ("error", "No se pudo conectar a la base de datos"))
+    monkeypatch.setattr(
+        "main._database_health", lambda: ("error", "No se pudo conectar a la base de datos")
+    )
 
     response = client.get("/health")
 
@@ -32,8 +34,6 @@ def test_azure_config_reports_missing_variables(monkeypatch):
     monkeypatch.setenv("AZURE_BLOB_CONNECTION_STRING", "")
     monkeypatch.setenv("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT", "")
     monkeypatch.setenv("AZURE_DOCUMENT_INTELLIGENCE_KEY", "")
-    monkeypatch.setenv("AZURE_SEARCH_ENDPOINT", "")
-    monkeypatch.setenv("AZURE_SEARCH_KEY", "")
     monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "")
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "")
 

@@ -101,10 +101,7 @@ pc.create_index(
     name="rag-index",
     dimension=1536,  # OpenAI ada-002
     metric="cosine",
-    spec=ServerlessSpec(
-        cloud="aws",
-        region="us-east-1"
-    )
+    spec=ServerlessSpec(cloud="aws", region="us-east-1"),
 )
 
 # Get index reference
@@ -120,11 +117,11 @@ index.upsert(
                 "source": "manual.pdf",
                 "page": 42,
                 "section": "installation",
-                "tenant_id": "acme-corp"
-            }
+                "tenant_id": "acme-corp",
+            },
         }
     ],
-    namespace="production"
+    namespace="production",
 )
 
 # Query with metadata filter
@@ -135,8 +132,8 @@ results = index.query(
     namespace="production",
     filter={
         "tenant_id": {"$eq": "acme-corp"},
-        "section": {"$in": ["installation", "setup"]}
-    }
+        "section": {"$in": ["installation", "setup"]},
+    },
 )
 
 # Hybrid search (sparse-dense)
@@ -149,7 +146,7 @@ results = index.query(
     vector=dense_embedding,
     sparse_vector=bm25.encode_queries(query_text),
     top_k=10,
-    alpha=0.5  # Balance dense vs sparse
+    alpha=0.5,  # Balance dense vs sparse
 )
 ```
 
@@ -164,14 +161,11 @@ from weaviate.classes.config import Configure, Property, DataType
 # Connect to Weaviate Cloud
 client = weaviate.connect_to_weaviate_cloud(
     cluster_url="https://your-cluster.weaviate.network",
-    auth_credentials=weaviate.auth.AuthApiKey("your-api-key")
+    auth_credentials=weaviate.auth.AuthApiKey("your-api-key"),
 )
 
 # Or self-hosted
-client = weaviate.connect_to_local(
-    host="localhost",
-    port=8080
-)
+client = weaviate.connect_to_local(host="localhost", port=8080)
 
 # Create collection with vectorizer
 client.collections.create(
@@ -183,8 +177,8 @@ client.collections.create(
         Property(name="content", data_type=DataType.TEXT),
         Property(name="source", data_type=DataType.TEXT),
         Property(name="page", data_type=DataType.INT),
-        Property(name="tenant_id", data_type=DataType.TEXT, index_filterable=True)
-    ]
+        Property(name="tenant_id", data_type=DataType.TEXT, index_filterable=True),
+    ],
 )
 
 # Insert with auto-vectorization
@@ -194,14 +188,13 @@ documents.data.insert(
         "content": "Installation guide content...",
         "source": "manual.pdf",
         "page": 42,
-        "tenant_id": "acme-corp"
+        "tenant_id": "acme-corp",
     }
 )
 
 # Or with pre-computed vector
 documents.data.insert(
-    properties={"content": "...", "source": "..."},
-    vector=precomputed_embedding
+    properties={"content": "...", "source": "..."}, vector=precomputed_embedding
 )
 
 # Hybrid search (BM25 + vector)
@@ -212,7 +205,7 @@ results = documents.query.hybrid(
     alpha=0.5,  # 0=BM25 only, 1=vector only
     limit=10,
     filters=Filter.by_property("tenant_id").equal("acme-corp"),
-    return_metadata=MetadataQuery(score=True, explain_score=True)
+    return_metadata=MetadataQuery(score=True, explain_score=True),
 )
 
 for obj in results.objects:
@@ -228,16 +221,17 @@ client.close()
 ```python
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
-    Distance, VectorParams, PointStruct,
-    Filter, FieldCondition, MatchValue,
-    PayloadSchemaType
+    Distance,
+    VectorParams,
+    PointStruct,
+    Filter,
+    FieldCondition,
+    MatchValue,
+    PayloadSchemaType,
 )
 
 # Connect to Qdrant Cloud
-client = QdrantClient(
-    url="https://your-cluster.qdrant.io",
-    api_key="your-api-key"
-)
+client = QdrantClient(url="https://your-cluster.qdrant.io", api_key="your-api-key")
 
 # Or local
 client = QdrantClient(host="localhost", port=6333)
@@ -245,17 +239,14 @@ client = QdrantClient(host="localhost", port=6333)
 # Create collection
 client.create_collection(
     collection_name="documents",
-    vectors_config=VectorParams(
-        size=1536,
-        distance=Distance.COSINE
-    )
+    vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
 )
 
 # Create payload index for fast filtering
 client.create_payload_index(
     collection_name="documents",
     field_name="tenant_id",
-    field_schema=PayloadSchemaType.KEYWORD
+    field_schema=PayloadSchemaType.KEYWORD,
 )
 
 # Upsert points
@@ -269,10 +260,10 @@ client.upsert(
                 "content": "Installation guide...",
                 "source": "manual.pdf",
                 "page": 42,
-                "tenant_id": "acme-corp"
-            }
+                "tenant_id": "acme-corp",
+            },
         )
-    ]
+    ],
 )
 
 # Search with filter
@@ -281,14 +272,9 @@ results = client.search(
     query_vector=query_embedding,
     limit=10,
     query_filter=Filter(
-        must=[
-            FieldCondition(
-                key="tenant_id",
-                match=MatchValue(value="acme-corp")
-            )
-        ]
+        must=[FieldCondition(key="tenant_id", match=MatchValue(value="acme-corp"))]
     ),
-    with_payload=True
+    with_payload=True,
 )
 
 # Batch upsert for large datasets
@@ -296,11 +282,7 @@ from qdrant_client.models import Batch
 
 client.upsert(
     collection_name="documents",
-    points=Batch(
-        ids=ids_list,
-        vectors=vectors_list,
-        payloads=payloads_list
-    )
+    points=Batch(ids=ids_list, vectors=vectors_list, payloads=payloads_list),
 )
 ```
 
@@ -314,22 +296,18 @@ from chromadb.config import Settings
 
 # Persistent local storage
 client = chromadb.PersistentClient(
-    path="./chroma_data",
-    settings=Settings(anonymized_telemetry=False)
+    path="./chroma_data", settings=Settings(anonymized_telemetry=False)
 )
 
 # Create collection with custom embedding function
 from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
 
 embedding_fn = OpenAIEmbeddingFunction(
-    api_key="your-openai-key",
-    model_name="text-embedding-3-small"
+    api_key="your-openai-key", model_name="text-embedding-3-small"
 )
 
 collection = client.get_or_create_collection(
-    name="documents",
-    embedding_function=embedding_fn,
-    metadata={"hnsw:space": "cosine"}
+    name="documents", embedding_function=embedding_fn, metadata={"hnsw:space": "cosine"}
 )
 
 # Add documents (auto-embeds)
@@ -338,8 +316,8 @@ collection.add(
     documents=["Installation guide...", "Configuration steps..."],
     metadatas=[
         {"source": "manual.pdf", "page": 42},
-        {"source": "manual.pdf", "page": 43}
-    ]
+        {"source": "manual.pdf", "page": 43},
+    ],
 )
 
 # Or with pre-computed embeddings
@@ -347,7 +325,7 @@ collection.add(
     ids=["doc-3"],
     embeddings=[precomputed_vector],
     metadatas=[{"source": "guide.pdf"}],
-    documents=["Original text for reference"]
+    documents=["Original text for reference"],
 )
 
 # Query
@@ -355,14 +333,14 @@ results = collection.query(
     query_texts=["how to install"],
     n_results=10,
     where={"source": "manual.pdf"},
-    include=["documents", "metadatas", "distances"]
+    include=["documents", "metadatas", "distances"],
 )
 
 # Update existing document
 collection.update(
     ids=["doc-1"],
     documents=["Updated installation guide..."],
-    metadatas=[{"source": "manual_v2.pdf", "page": 42}]
+    metadatas=[{"source": "manual_v2.pdf", "page": 42}],
 )
 ```
 
@@ -414,7 +392,7 @@ cur.execute(
     VALUES (%s, %s, %s, %s, %s)
     RETURNING id
     """,
-    ("Installation guide...", embedding_vector, "manual.pdf", 42, "acme-corp")
+    ("Installation guide...", embedding_vector, "manual.pdf", 42, "acme-corp"),
 )
 
 # Similarity search with filter
@@ -427,7 +405,7 @@ cur.execute(
     ORDER BY embedding <=> %s
     LIMIT 10
     """,
-    (query_embedding, "acme-corp", query_embedding)
+    (query_embedding, "acme-corp", query_embedding),
 )
 
 results = cur.fetchall()
@@ -444,7 +422,7 @@ cur.execute(
     ORDER BY hybrid_score DESC
     LIMIT 10
     """,
-    (query_embedding, query_text, "acme-corp", query_text)
+    (query_embedding, query_text, "acme-corp", query_text),
 )
 ```
 
@@ -465,10 +443,10 @@ cur.execute(
 client.update_collection(
     collection_name="documents",
     hnsw_config=HnswConfigDiff(
-        m=16,                    # Default: 16, increase for better recall
-        ef_construct=100,        # Default: 100, higher for better index
-        full_scan_threshold=10000  # Use brute force below this size
-    )
+        m=16,  # Default: 16, increase for better recall
+        ef_construct=100,  # Default: 100, higher for better index
+        full_scan_threshold=10000,  # Use brute force below this size
+    ),
 )
 
 # Query-time ef adjustment
@@ -476,7 +454,7 @@ results = client.search(
     collection_name="documents",
     query_vector=query_embedding,
     limit=10,
-    search_params=SearchParams(hnsw_ef=128)  # Higher for better recall
+    search_params=SearchParams(hnsw_ef=128),  # Higher for better recall
 )
 ```
 
@@ -489,12 +467,8 @@ from qdrant_client.models import ScalarQuantization, ScalarQuantizationConfig
 client.update_collection(
     collection_name="documents",
     quantization_config=ScalarQuantization(
-        scalar=ScalarQuantizationConfig(
-            type="int8",
-            quantile=0.99,
-            always_ram=True
-        )
-    )
+        scalar=ScalarQuantizationConfig(type="int8", quantile=0.99, always_ram=True)
+    ),
 )
 ```
 
@@ -509,20 +483,14 @@ index.upsert(vectors=[...], namespace="tenant-acme")
 index.upsert(vectors=[...], namespace="tenant-globex")
 
 # Query within tenant namespace
-results = index.query(
-    vector=query_embedding,
-    namespace="tenant-acme",
-    top_k=10
-)
+results = index.query(vector=query_embedding, namespace="tenant-acme", top_k=10)
 ```
 
 ### Metadata Filtering (Qdrant/Weaviate)
 ```python
 # Add tenant_id to all documents
 point = PointStruct(
-    id="doc-1",
-    vector=embedding,
-    payload={"tenant_id": "acme", "content": "..."}
+    id="doc-1", vector=embedding, payload={"tenant_id": "acme", "content": "..."}
 )
 
 # Always filter by tenant
@@ -531,7 +499,7 @@ results = client.search(
     query_vector=query_embedding,
     query_filter=Filter(
         must=[FieldCondition(key="tenant_id", match=MatchValue(value="acme"))]
-    )
+    ),
 )
 ```
 
@@ -540,7 +508,7 @@ results = client.search(
 # Create tenant-specific collection
 client.create_collection(
     collection_name=f"docs_{tenant_id}",
-    vectors_config=VectorParams(size=1536, distance=Distance.COSINE)
+    vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
 )
 ```
 

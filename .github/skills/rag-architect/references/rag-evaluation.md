@@ -44,6 +44,7 @@
 from dataclasses import dataclass
 from typing import Set
 
+
 @dataclass
 class RetrievalMetrics:
     precision_at_k: float
@@ -51,10 +52,9 @@ class RetrievalMetrics:
     hit_rate: float
     mrr: float
 
+
 def calculate_retrieval_metrics(
-    retrieved_ids: list[str],
-    relevant_ids: set[str],
-    k: int
+    retrieved_ids: list[str], relevant_ids: set[str], k: int
 ) -> RetrievalMetrics:
     """Calculate core retrieval metrics."""
     top_k = retrieved_ids[:k]
@@ -78,11 +78,9 @@ def calculate_retrieval_metrics(
             break
 
     return RetrievalMetrics(
-        precision_at_k=precision,
-        recall_at_k=recall,
-        hit_rate=hit_rate,
-        mrr=mrr
+        precision_at_k=precision, recall_at_k=recall, hit_rate=hit_rate, mrr=mrr
     )
+
 
 # Usage
 retrieved = ["doc1", "doc2", "doc3", "doc4", "doc5"]
@@ -90,14 +88,15 @@ relevant = {"doc2", "doc5", "doc7"}  # Ground truth
 
 metrics = calculate_retrieval_metrics(retrieved, relevant, k=5)
 print(f"Precision@5: {metrics.precision_at_k:.2f}")  # 2/5 = 0.40
-print(f"Recall@5: {metrics.recall_at_k:.2f}")        # 2/3 = 0.67
-print(f"MRR: {metrics.mrr:.2f}")                     # 1/2 = 0.50
+print(f"Recall@5: {metrics.recall_at_k:.2f}")  # 2/3 = 0.67
+print(f"MRR: {metrics.mrr:.2f}")  # 1/2 = 0.50
 ```
 
 ### NDCG (Normalized Discounted Cumulative Gain)
 
 ```python
 import numpy as np
+
 
 def dcg_at_k(relevance_scores: list[float], k: int) -> float:
     """Calculate Discounted Cumulative Gain."""
@@ -109,10 +108,9 @@ def dcg_at_k(relevance_scores: list[float], k: int) -> float:
     discounts = np.log2(np.arange(2, len(relevance_scores) + 2))
     return np.sum(relevance_scores / discounts)
 
+
 def ndcg_at_k(
-    retrieved_ids: list[str],
-    relevance_scores: dict[str, float],
-    k: int
+    retrieved_ids: list[str], relevance_scores: dict[str, float], k: int
 ) -> float:
     """
     Calculate NDCG@k.
@@ -120,8 +118,7 @@ def ndcg_at_k(
     """
     # Get relevance scores for retrieved docs
     retrieved_relevance = [
-        relevance_scores.get(doc_id, 0)
-        for doc_id in retrieved_ids[:k]
+        relevance_scores.get(doc_id, 0) for doc_id in retrieved_ids[:k]
     ]
 
     # Calculate DCG for retrieved order
@@ -133,14 +130,15 @@ def ndcg_at_k(
 
     return dcg / idcg if idcg > 0 else 0.0
 
+
 # Usage with graded relevance
 retrieved = ["doc1", "doc2", "doc3", "doc4", "doc5"]
 relevance = {
-    "doc1": 0,   # Not relevant
-    "doc2": 3,   # Highly relevant
-    "doc3": 1,   # Somewhat relevant
-    "doc5": 2,   # Relevant
-    "doc7": 3,   # Highly relevant (not retrieved)
+    "doc1": 0,  # Not relevant
+    "doc2": 3,  # Highly relevant
+    "doc3": 1,  # Somewhat relevant
+    "doc5": 2,  # Relevant
+    "doc7": 3,  # Highly relevant (not retrieved)
 }
 
 ndcg = ndcg_at_k(retrieved, relevance, k=5)
@@ -168,23 +166,22 @@ from datasets import Dataset
 
 # Prepare evaluation dataset
 eval_data = {
-    "question": [
-        "What is the capital of France?",
-        "How do I install Python?"
-    ],
+    "question": ["What is the capital of France?", "How do I install Python?"],
     "answer": [
         "The capital of France is Paris.",
-        "You can install Python by downloading it from python.org."
+        "You can install Python by downloading it from python.org.",
     ],
     "contexts": [
         ["Paris is the capital and largest city of France."],
-        ["Python can be installed from the official website python.org.",
-         "You can also use package managers like brew or apt."]
+        [
+            "Python can be installed from the official website python.org.",
+            "You can also use package managers like brew or apt.",
+        ],
     ],
     "ground_truth": [
         "Paris is the capital of France.",
-        "Install Python from python.org or use a package manager."
-    ]
+        "Install Python from python.org or use a package manager.",
+    ],
 }
 
 dataset = Dataset.from_dict(eval_data)
@@ -197,7 +194,7 @@ results = evaluate(
         answer_relevancy,
         context_precision,
         context_recall,
-    ]
+    ],
 )
 
 print(results)
@@ -219,13 +216,15 @@ results = evaluate(
     dataset,
     metrics=[faithfulness, answer_relevancy],
     llm=custom_llm,
-    raise_exceptions=False  # Continue on errors
+    raise_exceptions=False,  # Continue on errors
 )
 
 # Per-sample scores
 for i, row in enumerate(results.to_pandas().itertuples()):
-    print(f"Q{i+1}: Faithfulness={row.faithfulness:.2f}, "
-          f"Relevancy={row.answer_relevancy:.2f}")
+    print(
+        f"Q{i + 1}: Faithfulness={row.faithfulness:.2f}, "
+        f"Relevancy={row.answer_relevancy:.2f}"
+    )
 ```
 
 ### RAGAS Metrics Explained
@@ -255,26 +254,31 @@ RAGAS Core Metrics:
    - High score = context contains needed information
 """
 
+
 # Debugging low scores
 def diagnose_ragas_scores(results_df):
     """Identify problematic samples."""
     issues = []
 
     for idx, row in results_df.iterrows():
-        if row.get('faithfulness', 1) < 0.5:
-            issues.append({
-                "index": idx,
-                "issue": "Low faithfulness - answer may contain hallucinations",
-                "question": row['question'],
-                "answer": row['answer'][:200]
-            })
+        if row.get("faithfulness", 1) < 0.5:
+            issues.append(
+                {
+                    "index": idx,
+                    "issue": "Low faithfulness - answer may contain hallucinations",
+                    "question": row["question"],
+                    "answer": row["answer"][:200],
+                }
+            )
 
-        if row.get('context_recall', 1) < 0.5:
-            issues.append({
-                "index": idx,
-                "issue": "Low context recall - retrieval missing relevant docs",
-                "question": row['question']
-            })
+        if row.get("context_recall", 1) < 0.5:
+            issues.append(
+                {
+                    "index": idx,
+                    "issue": "Low context recall - retrieval missing relevant docs",
+                    "question": row["question"],
+                }
+            )
 
     return issues
 ```
@@ -299,37 +303,35 @@ tru = Tru()
 provider = fOpenAI()
 
 # Define feedback functions
-f_groundedness = Feedback(
-    provider.groundedness_measure_with_cot_reasons,
-    name="Groundedness"
-).on(
-    TruChain.select_context().node.text  # Retrieved context
-).on_output()
+f_groundedness = (
+    Feedback(provider.groundedness_measure_with_cot_reasons, name="Groundedness")
+    .on(
+        TruChain.select_context().node.text  # Retrieved context
+    )
+    .on_output()
+)
 
-f_relevance = Feedback(
-    provider.relevance_with_cot_reasons,
-    name="Answer Relevance"
-).on_input().on_output()
+f_relevance = (
+    Feedback(provider.relevance_with_cot_reasons, name="Answer Relevance")
+    .on_input()
+    .on_output()
+)
 
-f_context_relevance = Feedback(
-    provider.context_relevance_with_cot_reasons,
-    name="Context Relevance"
-).on_input().on(
-    TruChain.select_context().node.text
+f_context_relevance = (
+    Feedback(provider.context_relevance_with_cot_reasons, name="Context Relevance")
+    .on_input()
+    .on(TruChain.select_context().node.text)
 )
 
 # Wrap your RAG chain
 from langchain.chains import RetrievalQA
 
-rag_chain = RetrievalQA.from_chain_type(
-    llm=llm,
-    retriever=vector_store.as_retriever()
-)
+rag_chain = RetrievalQA.from_chain_type(llm=llm, retriever=vector_store.as_retriever())
 
 tru_recorder = TruChain(
     rag_chain,
     app_id="rag-v1",
-    feedbacks=[f_groundedness, f_relevance, f_context_relevance]
+    feedbacks=[f_groundedness, f_relevance, f_context_relevance],
 )
 
 # Run with recording
@@ -347,11 +349,13 @@ records = tru.get_records_and_feedback(app_ids=["rag-v1"])
 ```python
 from trulens_eval import Feedback, Select
 
+
 def custom_citation_check(response: str, context: str) -> float:
     """Check if response cites sources from context."""
     # Extract citations from response (e.g., [1], [Source: X])
     import re
-    citations = re.findall(r'\[[\d\w\s:]+\]', response)
+
+    citations = re.findall(r"\[[\d\w\s:]+\]", response)
 
     if not citations:
         return 0.0  # No citations
@@ -360,10 +364,12 @@ def custom_citation_check(response: str, context: str) -> float:
     valid_citations = sum(1 for c in citations if c.lower() in context.lower())
     return valid_citations / len(citations)
 
-f_citation = Feedback(
-    custom_citation_check,
-    name="Citation Accuracy"
-).on_output().on(Select.RecordCalls.retriever.get_relevant_documents.rets.page_content)
+
+f_citation = (
+    Feedback(custom_citation_check, name="Citation Accuracy")
+    .on_output()
+    .on(Select.RecordCalls.retriever.get_relevant_documents.rets.page_content)
+)
 ```
 
 ---
@@ -379,17 +385,19 @@ from typing import Literal
 
 client = OpenAI()
 
+
 @dataclass
 class EvalResult:
     score: float
     reasoning: str
     criteria: str
 
+
 def evaluate_with_llm(
     question: str,
     answer: str,
     context: str,
-    criteria: Literal["faithfulness", "relevance", "completeness"]
+    criteria: Literal["faithfulness", "relevance", "completeness"],
 ) -> EvalResult:
     """Use LLM as judge for evaluation."""
 
@@ -411,7 +419,7 @@ def evaluate_with_llm(
             Score 1.0 if the answer is comprehensive and complete.
             Score 0.5 if the answer covers main points but misses details.
             Score 0.0 if the answer is significantly incomplete.
-        """
+        """,
     }
 
     response = client.chat.completions.create(
@@ -423,7 +431,7 @@ def evaluate_with_llm(
                 {criteria_prompts[criteria]}
 
                 Respond in JSON format:
-                {{"score": <0.0-1.0>, "reasoning": "<explanation>"}}"""
+                {{"score": <0.0-1.0>, "reasoning": "<explanation>"}}""",
             },
             {
                 "role": "user",
@@ -434,27 +442,27 @@ Context:
 
 Answer: {answer}
 
-Evaluate the answer for {criteria}:"""
-            }
+Evaluate the answer for {criteria}:""",
+            },
         ],
-        response_format={"type": "json_object"}
+        response_format={"type": "json_object"},
     )
 
     import json
+
     result = json.loads(response.choices[0].message.content)
 
     return EvalResult(
-        score=result["score"],
-        reasoning=result["reasoning"],
-        criteria=criteria
+        score=result["score"], reasoning=result["reasoning"], criteria=criteria
     )
+
 
 # Usage
 eval_result = evaluate_with_llm(
     question="How do I configure OAuth2?",
     answer="Configure OAuth2 by setting client_id and client_secret in config.yaml.",
     context="OAuth2 configuration requires client_id, client_secret, and redirect_uri in config.yaml.",
-    criteria="faithfulness"
+    criteria="faithfulness",
 )
 print(f"Faithfulness: {eval_result.score:.2f}")
 print(f"Reasoning: {eval_result.reasoning}")
@@ -466,18 +474,16 @@ print(f"Reasoning: {eval_result.reasoning}")
 import asyncio
 from tqdm.asyncio import tqdm_asyncio
 
+
 async def evaluate_batch(
     test_cases: list[dict],
     retriever,
     generator,
-    metrics: list[str] = ["precision", "faithfulness", "relevance"]
+    metrics: list[str] = ["precision", "faithfulness", "relevance"],
 ) -> dict:
     """Run batch evaluation on test cases."""
 
-    results = {
-        "per_sample": [],
-        "aggregated": {}
-    }
+    results = {"per_sample": [], "aggregated": {}}
 
     async def evaluate_single(case: dict) -> dict:
         # Retrieve
@@ -486,22 +492,19 @@ async def evaluate_batch(
 
         # Generate
         answer = await generator.agenerate(
-            question=case["question"],
-            context=[r.text for r in retrieved]
+            question=case["question"], context=[r.text for r in retrieved]
         )
 
         # Calculate metrics
         sample_result = {
             "question": case["question"],
             "answer": answer,
-            "retrieved_ids": retrieved_ids
+            "retrieved_ids": retrieved_ids,
         }
 
         if "relevant_ids" in case and "precision" in metrics:
             retrieval_metrics = calculate_retrieval_metrics(
-                retrieved_ids,
-                set(case["relevant_ids"]),
-                k=5
+                retrieved_ids, set(case["relevant_ids"]), k=5
             )
             sample_result["precision@5"] = retrieval_metrics.precision_at_k
             sample_result["recall@5"] = retrieval_metrics.recall_at_k
@@ -511,7 +514,7 @@ async def evaluate_batch(
                 case["question"],
                 answer,
                 "\n".join([r.text for r in retrieved]),
-                "faithfulness"
+                "faithfulness",
             )
             sample_result["faithfulness"] = faith_eval.score
 
@@ -523,12 +526,14 @@ async def evaluate_batch(
 
     # Aggregate results
     for metric in ["precision@5", "recall@5", "faithfulness"]:
-        scores = [r.get(metric) for r in results["per_sample"] if r.get(metric) is not None]
+        scores = [
+            r.get(metric) for r in results["per_sample"] if r.get(metric) is not None
+        ]
         if scores:
             results["aggregated"][metric] = {
                 "mean": sum(scores) / len(scores),
                 "min": min(scores),
-                "max": max(scores)
+                "max": max(scores),
             }
 
     return results
@@ -542,10 +547,7 @@ async def evaluate_batch(
 
 ```python
 def diagnose_retrieval(
-    query: str,
-    retrieved_docs: list,
-    expected_docs: list,
-    embedding_model
+    query: str, retrieved_docs: list, expected_docs: list, embedding_model
 ) -> dict:
     """Diagnose why retrieval might be failing."""
 
@@ -556,21 +558,20 @@ def diagnose_retrieval(
     from sklearn.metrics.pairwise import cosine_similarity
     import numpy as np
 
-    diagnosis = {
-        "query": query,
-        "issues": []
-    }
+    diagnosis = {"query": query, "issues": []}
 
     # Check query-document similarity
     for i, (doc, emb) in enumerate(zip(retrieved_docs, retrieved_embeddings)):
         sim = cosine_similarity([query_embedding], [emb])[0][0]
         if sim < 0.5:
-            diagnosis["issues"].append({
-                "type": "low_similarity",
-                "doc_index": i,
-                "similarity": float(sim),
-                "doc_preview": doc[:100]
-            })
+            diagnosis["issues"].append(
+                {
+                    "type": "low_similarity",
+                    "doc_index": i,
+                    "similarity": float(sim),
+                    "doc_preview": doc[:100],
+                }
+            )
 
     # Check if expected docs would score higher
     for i, (doc, emb) in enumerate(zip(expected_docs, expected_embeddings)):
@@ -581,13 +582,15 @@ def diagnose_retrieval(
         )
 
         if sim > retrieved_max_sim:
-            diagnosis["issues"].append({
-                "type": "missed_better_doc",
-                "expected_doc_index": i,
-                "expected_sim": float(sim),
-                "best_retrieved_sim": float(retrieved_max_sim),
-                "doc_preview": doc[:100]
-            })
+            diagnosis["issues"].append(
+                {
+                    "type": "missed_better_doc",
+                    "expected_doc_index": i,
+                    "expected_sim": float(sim),
+                    "best_retrieved_sim": float(retrieved_max_sim),
+                    "doc_preview": doc[:100],
+                }
+            )
 
     # Check for vocabulary mismatch
     query_terms = set(query.lower().split())
@@ -595,21 +598,24 @@ def diagnose_retrieval(
         doc_terms = set(doc.lower().split())
         overlap = query_terms & doc_terms
         if len(overlap) < len(query_terms) * 0.3:
-            diagnosis["issues"].append({
-                "type": "vocabulary_mismatch",
-                "doc_index": i,
-                "query_terms": list(query_terms),
-                "overlapping_terms": list(overlap)
-            })
+            diagnosis["issues"].append(
+                {
+                    "type": "vocabulary_mismatch",
+                    "doc_index": i,
+                    "query_terms": list(query_terms),
+                    "overlapping_terms": list(overlap),
+                }
+            )
 
     return diagnosis
+
 
 # Usage
 diagnosis = diagnose_retrieval(
     query="How to configure OAuth authentication",
     retrieved_docs=retrieved_texts,
     expected_docs=expected_texts,
-    embedding_model=sentence_transformer
+    embedding_model=sentence_transformer,
 )
 
 for issue in diagnosis["issues"]:
@@ -621,16 +627,11 @@ for issue in diagnosis["issues"]:
 
 ```python
 def analyze_query_performance(
-    query_logs: list[dict],
-    threshold_precision: float = 0.6
+    query_logs: list[dict], threshold_precision: float = 0.6
 ) -> dict:
     """Analyze query patterns to find systematic issues."""
 
-    analysis = {
-        "total_queries": len(query_logs),
-        "low_performing": [],
-        "patterns": {}
-    }
+    analysis = {"total_queries": len(query_logs), "low_performing": [], "patterns": {}}
 
     for log in query_logs:
         if log.get("precision@5", 1.0) < threshold_precision:
@@ -642,15 +643,20 @@ def analyze_query_performance(
         low_perf_queries = [l["query"] for l in analysis["low_performing"]]
 
         # Query length analysis
-        avg_length = sum(len(q.split()) for q in low_perf_queries) / len(low_perf_queries)
+        avg_length = sum(len(q.split()) for q in low_perf_queries) / len(
+            low_perf_queries
+        )
         analysis["patterns"]["avg_low_perf_query_length"] = avg_length
 
         # Common terms in failing queries
         from collections import Counter
+
         all_terms = []
         for q in low_perf_queries:
             all_terms.extend(q.lower().split())
-        analysis["patterns"]["common_failing_terms"] = Counter(all_terms).most_common(10)
+        analysis["patterns"]["common_failing_terms"] = Counter(all_terms).most_common(
+            10
+        )
 
         # Question type analysis
         question_words = ["how", "what", "why", "when", "where", "who"]
@@ -679,6 +685,7 @@ from dataclasses import dataclass, field
 from collections import deque
 from threading import Lock
 
+
 @dataclass
 class RAGMetricsCollector:
     """Collect and track RAG metrics in production."""
@@ -693,7 +700,7 @@ class RAGMetricsCollector:
         self,
         latency_ms: float,
         retrieval_score: float | None = None,
-        generation_score: float | None = None
+        generation_score: float | None = None,
     ):
         """Record metrics for a single query."""
         with self._lock:
@@ -716,16 +723,25 @@ class RAGMetricsCollector:
                     "p99": np.percentile(self._latencies, 99) if self._latencies else 0,
                 },
                 "retrieval_score": {
-                    "mean": np.mean(self._retrieval_scores) if self._retrieval_scores else 0,
-                    "std": np.std(self._retrieval_scores) if self._retrieval_scores else 0,
+                    "mean": np.mean(self._retrieval_scores)
+                    if self._retrieval_scores
+                    else 0,
+                    "std": np.std(self._retrieval_scores)
+                    if self._retrieval_scores
+                    else 0,
                 },
                 "generation_score": {
-                    "mean": np.mean(self._generation_scores) if self._generation_scores else 0,
-                    "std": np.std(self._generation_scores) if self._generation_scores else 0,
-                }
+                    "mean": np.mean(self._generation_scores)
+                    if self._generation_scores
+                    else 0,
+                    "std": np.std(self._generation_scores)
+                    if self._generation_scores
+                    else 0,
+                },
             }
 
             return summary
+
 
 # Usage
 metrics = RAGMetricsCollector()
@@ -738,7 +754,7 @@ latency = (time.time() - start) * 1000
 metrics.record_query(
     latency_ms=latency,
     retrieval_score=response.get("retrieval_score"),
-    generation_score=response.get("generation_score")
+    generation_score=response.get("generation_score"),
 )
 
 # Periodically check
@@ -755,7 +771,7 @@ class RAGQualityMonitor:
         self,
         baseline_precision: float = 0.8,
         alert_threshold: float = 0.1,  # Alert if drops by 10%
-        window_size: int = 100
+        window_size: int = 100,
     ):
         self.baseline = baseline_precision
         self.threshold = alert_threshold
@@ -778,10 +794,11 @@ class RAGQualityMonitor:
                 "baseline": self.baseline,
                 "current": current_mean,
                 "degradation": degradation,
-                "window_size": len(self.recent_scores)
+                "window_size": len(self.recent_scores),
             }
 
         return None
+
 
 # Usage
 monitor = RAGQualityMonitor(baseline_precision=0.85)

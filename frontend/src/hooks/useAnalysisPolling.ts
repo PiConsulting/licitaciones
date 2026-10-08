@@ -19,7 +19,7 @@ export function useAnalysisPolling(analysisId: string, enabled: boolean, options
   }, [enabled]);
 
   useEffect(() => {
-    if (query.data?.status === "analyzed" && !hasCompletedRef.current) {
+    if ((query.data?.status === "analyzed" || query.data?.status === "en_revision") && !hasCompletedRef.current) {
       hasCompletedRef.current = true;
       options.onCompleted?.();
       navigate(`/analysis/${analysisId}`);

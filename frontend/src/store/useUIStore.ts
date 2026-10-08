@@ -6,15 +6,18 @@ interface UIStore {
   sidebarCollapsed: boolean;
   theme: AppTheme;
   toggleSidebar: () => void;
+  setSidebarCollapsed: (collapsed: boolean) => void;
   toggleTheme: () => void;
 }
 
 const savedTheme = (localStorage.getItem("app_theme") as AppTheme | null) ?? "cedia";
 
 export const useUIStore = create<UIStore>((set) => ({
+  // `false` = sidebar visible, `true` = sidebar oculto.
   sidebarCollapsed: false,
   theme: savedTheme,
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+  setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
   toggleTheme: () =>
     set((state) => {
       const next: AppTheme = state.theme === "cedia" ? "pi" : "cedia";

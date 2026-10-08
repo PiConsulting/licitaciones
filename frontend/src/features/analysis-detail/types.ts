@@ -87,8 +87,16 @@ export interface NarrativeParagraphBlock {
 
 export interface NarrativeBulletItem {
   text: string;
+  resumen?: string;
+  /** Título corto autocontenido para este ítem, separado de `text` (la
+   * descripción). Ausente en narrativas generadas antes de este campo. */
+  titulo?: string;
   confidence_level: ConfidenceLevel;
   source_ids: number[];
+  /** Cuántos conflictos detectó el backend (estructurado, no texto libre) para
+   * el dato que respalda este ítem. 0 si no hay ninguno. Hoy solo se completa
+   * para preview_criterios. */
+  conflict_count?: number;
 }
 
 export interface NarrativeBulletListBlock {
@@ -169,19 +177,26 @@ export interface ConflictData {
 export interface AnalysisVersion {
   id: string;
   version_number: number;
-  extracted_data: Record<CategoryId, CategoryData>;
+  extracted_data: Record<CategoryId, CategoryData> & {
+    preview_criterios?: CategoryData;
+  };
   conflicts: Record<string, ConflictData>;
   created_at: string;
   created_by?: string;
 }
 
+export type CategoriesDecision = "approved" | "rejected";
+
 export interface AnalysisDetail {
   id: string;
   analysis_name?: string | null;
+  business_unit?: string | null;
+  business_status?: string | null;
   created_at: string;
-  status: "queued" | "processing" | "analyzed" | "validated" | "error" | "cancelled";
+  status: "draft" | "queued" | "processing" | "en_revision" | "analyzed" | "validated" | "error" | "cancelled";
   current_stage: string;
   current_version: AnalysisVersion;
+  versions?: AnalysisVersion[];
   documents: Array<{
     id: string;
     filename: string;
@@ -189,5 +204,9 @@ export interface AnalysisDetail {
     page_count?: number;
   }>;
   created_by?: string;
+  created_by_name?: string | null;
+  categories_decision?: CategoriesDecision | null;
+  categories_decision_by_name?: string | null;
+  categories_decision_at?: string | null;
   tracking?: AnalysisTracking | null;
 }

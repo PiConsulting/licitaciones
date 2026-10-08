@@ -5,8 +5,11 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 from analysis.models import Analysis  # noqa: F401
 from documents.models import Document  # noqa: F401
-from shared.config import get_settings
-from shared.database import Base
+from indexing.models import Chunk  # noqa: F401
+from infra.config import get_settings
+from infra.database import Base
+from timeline.models_orm import DeadlineORM, EventORM  # noqa: F401
+from tracking.models import Tracking, TrackingCategory, TrackingComment, TrackingItem  # noqa: F401
 from users.models import User  # noqa: F401
 
 config = context.config
@@ -14,7 +17,6 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Override sqlalchemy.url from application settings / .env
 config.set_main_option("sqlalchemy.url", get_settings().database_url)
 
 target_metadata = Base.metadata

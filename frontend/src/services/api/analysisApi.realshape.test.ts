@@ -40,8 +40,7 @@ describe("normalizeCategories con la forma real del backend", () => {
     const result = await getAnalysisById("analysis-real");
     const data = result.current_version.extracted_data;
 
-    // Las 7 categorías con tarjeta propia en la UI (datos_procedimiento no
-    // tiene tarjeta — se cubre aparte, más abajo).
+    // Las 7 categorías con tarjeta propia en la UI (datos_procedimiento se cubre aparte).
     for (const categoryId of [
       "objeto_alcance",
       "requisitos_admisibilidad",
@@ -57,9 +56,7 @@ describe("normalizeCategories con la forma real del backend", () => {
   });
 
   test("datos_procedimiento se normaliza aunque no tenga tarjeta propia en la UI", async () => {
-    // datos_procedimiento no se renderiza como categoría (no está en
-    // CATEGORY_ORDER), pero sí tiene que normalizarse: el header del análisis
-    // (título/subtítulo con organismo y expediente) depende de sus ítems.
+    // Sin tarjeta propia, pero el header (organismo/expediente) depende de sus ítems.
     const result = await getAnalysisById("analysis-real");
     const data = result.current_version.extracted_data;
 

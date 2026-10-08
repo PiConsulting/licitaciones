@@ -27,8 +27,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         aria-describedby={errorId}
         disabled={disabled}
         className={cn(
-          "h-10 rounded-md border border-gray-200 px-3 py-2.5 text-sm",
-          "focus-visible:border-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary",
+          "h-10 rounded-full border border-cedi-navy-20 px-4 text-sm",
+          "focus-visible:border-cedi-electric focus-visible:outline focus-visible:outline-2 focus-visible:outline-cedi-electric",
           "disabled:cursor-not-allowed disabled:bg-gray-50",
           disabled && "cursor-not-allowed bg-gray-50",
           error && "border-error",

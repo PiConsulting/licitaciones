@@ -1,26 +1,21 @@
-import { isAxiosError } from "axios";
 import { useMemo, useState } from "react";
+import { Play } from "lucide-react";
 
-import { DuplicateWarningModal } from "../../components/analysis/DuplicateWarningModal";
-import { Button } from "../../components/Button";
-import { UploadProgress } from "../../components/upload/UploadProgress";
-import { useDocumentUpload } from "../../hooks/useDocumentUpload";
-import type { DuplicateDecision, DuplicateWarning } from "../../types/analysis";
-import type { DocumentWarning } from "../../types/document";
+import { useSession } from "../../auth/session";
+import { BUSINESS_UNITS, DEFAULT_BUSINESS_UNIT, getBusinessUnitColor } from "../../config/businessUnits";
 import type { UploadedFile } from "../../types/upload";
 
 interface Step3ConfirmationProps {
   files: UploadedFile[];
   primaryIndex: number;
   onBack: () => void;
-  onContinueToStart: (analysisId: string, initialDecisions: DuplicateDecision[]) => void;
+  onContinueToStart: (metadata: { analysisName: string; businessUnit: string }) => void;
 }
 
 export function Step3Confirmation({ files, primaryIndex, onBack, onContinueToStart }: Step3ConfirmationProps) {
-  const [error, setError] = useState<string | null>(null);
-  const [warnings, setWarnings] = useState<DocumentWarning[]>([]);
-  const [duplicates, setDuplicates] = useState<DuplicateWarning[]>([]);
-  const [pendingAnalysisId, setPendingAnalysisId] = useState<string | null>(null);
+  const [analysisName, setAnalysisName] = useState("");
+  const session = useSession();
+  const [businessUnit, setBusinessUnit] = useState<string>(DEFAULT_BUSINESS_UNIT);
 
   const filesForDisplay = useMemo(
     () =>
@@ -38,86 +33,115 @@ export function Step3Confirmation({ files, primaryIndex, onBack, onContinueToSta
     [files, primaryIndex],
   );
 
-  const { mutateAsync, isPending } = useDocumentUpload();
-
-  const handleStartAnalysis = async () => {
-    setError(null);
-    try {
-      const response = await mutateAsync({
-        files: files.map((item) => item.file),
-        primaryFileIndex: primaryIndex,
-      });
-      setWarnings(response.warnings);
-
-      // Se detectan duplicados apenas se sube el archivo (ya está en blob y
-      // hasheado en este punto) — no hay que esperar al paso 4 para avisar.
-      if (response.requires_resolution) {
-        setDuplicates(response.duplicates);
-        setPendingAnalysisId(response.id);
-        return;
-      }
-
-      onContinueToStart(response.id, []);
-    } catch (uploadError) {
-      if (isAxiosError(uploadError)) {
-        const message = uploadError.response?.data?.error?.message;
-        if (typeof message === "string") {
-          setError(message);
-          return;
-        }
-      }
-      setError("No se pudo iniciar el análisis");
-    }
-  };
-
   return (
-    <section className="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
-      <h2 className="text-lg font-semibold text-gray-900">Paso 3: Confirmación</h2>
-      <p className="text-sm text-gray-600">Revisá y comenzá el análisis de documentos.</p>
-
-      <ul className="space-y-2">
-        {filesForDisplay.map(({ file, index }) => (
-          <li key={file.id} className="rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-700">
-            {file.file.name}
-            {index === primaryIndex ? " (Principal)" : ""}
-          </li>
-        ))}
-      </ul>
-
-      <UploadProgress uploading={isPending} />
-
-      {warnings.length > 0 ? (
-        <div className="space-y-2">
-          {warnings.map((warning) => (
-            <p key={warning.filename} className="rounded-md border border-warning bg-warning-light p-3 text-sm text-amber-800">
-              {warning.message}
-            </p>
-          ))}
-        </div>
-      ) : null}
-
-      {error ? <p className="text-sm text-error">{error}</p> : null}
-      <div className="flex justify-between">
-        <Button type="button" variant="secondary" onClick={onBack} disabled={isPending}>
-          Volver
-        </Button>
-        <Button type="button" onClick={handleStartAnalysis} loading={isPending}>
-          Continuar
-        </Button>
+    <section aria-label="Paso 3: Confirmación" className="flex flex-col gap-5 rounded-2xl border border-[rgba(0,60,107,.12)] bg-white p-6">
+      <div>
+        <h2 className="font-display text-xl font-semibold text-[#003C6B]">Revisá antes de iniciar</h2>
+        <p className="mt-1.5 text-sm text-[rgba(0,60,107,.68)]">
+          Los archivos se suben y se verifica si ya fueron analizados. Si hay duplicados, vas a poder resolverlos.
+        </p>
       </div>
 
-      {pendingAnalysisId && duplicates.length > 0 ? (
-        <DuplicateWarningModal
-          duplicates={duplicates}
-          onCancel={() => {
-            setPendingAnalysisId(null);
-            setDuplicates([]);
+      <div className={session.isSuperadmin ? "grid gap-5 md:grid-cols-2" : "grid gap-5"}>
+        <div className="flex flex-col gap-2">
+          <label
+            htmlFor="analysis-name"
+            className="text-[11px] font-bold uppercase tracking-[0.14em] text-[rgba(0,60,107,.68)]"
+          >
+            Nombre del análisis
+          </label>
+          <input
+            id="analysis-name"
+            type="text"
+            value={analysisName}
+            onChange={(event) => setAnalysisName(event.target.value)}
+            maxLength={160}
+            placeholder="Ej: Licitación mantenimiento edilicio 2026"
+            className="h-11 rounded-full border-[1.5px] border-[rgba(0,60,107,.2)] bg-white px-[18px] text-sm text-[#003C6B] placeholder:text-[rgba(0,60,107,.45)] focus:border-[#0099DB] focus:outline-none"
+          />
+          <span className="text-xs text-[rgba(0,60,107,.55)]">
+            Opcional. Si lo dejás vacío se usa el nombre del pliego principal.
+          </span>
+        </div>
+
+        {session.isSuperadmin ? (
+          <div className="flex flex-col gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-[rgba(0,60,107,.68)]">Unidad de negocio</span>
+            <div className="flex flex-wrap gap-2">
+              {BUSINESS_UNITS.map((unit) => {
+                const active = businessUnit === unit;
+                return (
+                  <button
+                    key={unit}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setBusinessUnit(unit)}
+                    className={[
+                      "inline-flex h-8 items-center gap-2 rounded-full border-[1.5px] px-[14px] text-[13px] font-semibold",
+                      active
+                        ? "border-[#003C6B] bg-[#003C6B] text-white"
+                        : "border-[rgba(0,60,107,.2)] bg-white text-[#003C6B] hover:border-[#0099DB]",
+                    ].join(" ")}
+                  >
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: getBusinessUnitColor(unit) }} aria-hidden="true" />
+                    {unit}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-[rgba(0,60,107,.68)]">Documentos</span>
+        <ul className="flex flex-col gap-2">
+          {filesForDisplay.map(({ file, index }) => {
+            const isPrimary = index === primaryIndex;
+            return (
+              <li
+                key={file.id}
+                className="flex items-center justify-between gap-3 rounded-xl border border-[rgba(0,60,107,.12)] px-[14px] py-[10px] text-sm text-[#003C6B]"
+              >
+                <span className="min-w-0 truncate font-medium">{file.file.name}</span>
+                <span
+                  className={[
+                    "shrink-0 rounded-full px-[10px] py-[3px] text-[11px] font-bold uppercase tracking-[0.1em]",
+                    isPrimary
+                      ? "bg-[#003C6B] text-white"
+                      : "bg-[rgba(0,60,107,.08)] text-[rgba(0,60,107,.68)]",
+                  ].join(" ")}
+                >
+                  {isPrimary ? "Principal" : "Anexo"}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+
+      <div className="flex justify-between">
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex h-11 items-center rounded-full border-2 border-[rgba(0,60,107,.2)] bg-white px-6 text-sm font-semibold text-[#003C6B] hover:border-[#003C6B] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Volver
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            onContinueToStart({
+              analysisName: analysisName.trim(),
+              businessUnit: session.isSuperadmin ? businessUnit : session.businessUnit,
+            });
           }}
-          onConfirm={(decisions) => {
-            onContinueToStart(pendingAnalysisId, decisions);
-          }}
-        />
-      ) : null}
+          className="inline-flex h-11 items-center gap-2 rounded-full border-0 bg-[linear-gradient(90deg,#2F4EF8,#A966FF)] px-[26px] text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <Play size={14} fill="currentColor" strokeWidth={2} aria-hidden="true" />
+          Iniciar análisis
+        </button>
+      </div>
     </section>
   );
 }

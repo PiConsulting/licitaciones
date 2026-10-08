@@ -28,7 +28,7 @@ export function Badge({ tone, icon: Icon, children, className, title }: BadgePro
     <span
       title={title}
       className={cn(
-        "inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-semibold uppercase",
+        "inline-flex h-8 items-center gap-1 rounded-full px-3 text-xs font-semibold uppercase",
         TONE_CLASSES[tone],
         className,
       )}

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import {
   focusIsStillPending,
@@ -15,8 +16,11 @@ import "../../utils/pdfWorker";
 import { DocumentSelector } from "./DocumentSelector";
 import { PDFCitationNav } from "./PDFCitationNav";
 import { PDFControls } from "./PDFControls";
+import { PDFLensLayer } from "./PDFLensLayer";
 import { PDFPage } from "./PDFPage";
+import { DEFAULT_LENS_CONFIG, formatLensZoom, stepLensZoom, type LensConfig } from "./lens";
 import { useContainerWidth } from "./hooks/useContainerWidth";
+import { useLensShortcuts } from "./hooks/useLensShortcuts";
 import { useSASUrl } from "./hooks/useSASUrl";
 import type { Citation, ViewerDocument } from "./types";
 import type { NarrativeSource } from "../analysis-detail/types";
@@ -25,8 +29,7 @@ import { normalizeText } from "../../utils/highlightText";
 const PAGE_ZOOM_STEP = 0.25;
 const PAGE_MIN_ZOOM = 0.5;
 const PAGE_MAX_ZOOM = 2;
-// Small safety margin so the rendered page (plus its box-shadow) never bleeds
-// past the container by a pixel or two and triggers an unwanted scrollbar.
+// Margen para que la página (más su box-shadow) no dispare un scrollbar no deseado.
 const PAGE_FIT_SAFETY_MARGIN = 4;
 
 type ZoomMode = "fit" | number;
@@ -48,6 +51,8 @@ interface PDFViewerProps {
    * heurísticas frágiles. */
   sources?: NarrativeSource[];
   onClose?: () => void;
+  variant?: "panel" | "modal";
+  initialScroll?: { page: number; fraction: number };
 }
 
 /** Misma cita: mismo documento, página, y texto igual o uno subcadena del
@@ -96,30 +101,52 @@ export function PDFViewer({
   focusCitation,
   sources,
   onClose,
+  variant = "panel",
+  initialScroll,
 }: PDFViewerProps) {
+  const isModalVariant = variant === "modal";
+  const [fullscreenOpen, setFullscreenOpen] = useState(false);
+  const [fullscreenStart, setFullscreenStart] = useState<{ page: number; fraction: number } | null>(null);
+  const initialScrollRef = useRef(initialScroll ?? null);
   const [activeDocumentId, setActiveDocumentId] = useState(documentId);
   const initialIndex = findFocusIndex(citations, focusCitation);
-  const initialPage = citations[initialIndex]?.page ?? focusCitation?.page ?? 1;
+  const initialPage = initialScroll?.page ?? citations[initialIndex]?.page ?? focusCitation?.page ?? 1;
   const [currentCitationIndex, setCurrentCitationIndex] = useState(initialIndex);
   const [currentPage, setCurrentPage] = useState(initialPage);
   const [pagePositions, setPagePositions] = useState<Record<string, number>>(() => ({ [documentId]: initialPage }));
   const [numPages, setNumPages] = useState(0);
-  const [zoomMode, setZoomMode] = useState<ZoomMode>("fit");
+  const [zoomMode, setZoomMode] = useState<ZoomMode>(variant === "modal" ? 1 : "fit");
   const [displayScale, setDisplayScale] = useState(1);
+  const [lens, setLens] = useState<LensConfig>(DEFAULT_LENS_CONFIG);
+  const toggleLens = useCallback(() => setLens((previous) => ({ ...previous, enabled: !previous.enabled })), []);
+  const exitLens = useCallback(() => setLens((previous) => ({ ...previous, enabled: false })), []);
+  const changeLens = useCallback(
+    (patch: Partial<Omit<LensConfig, "enabled">>) => setLens((previous) => ({ ...previous, ...patch })),
+    [],
+  );
+  const stepLens = useCallback(
+    (direction: 1 | -1) => setLens((previous) => ({ ...previous, zoom: stepLensZoom(previous.zoom, direction) })),
+    [],
+  );
+  useLensShortcuts({ enabled: lens.enabled, paused: fullscreenOpen, onToggle: toggleLens, onExit: exitLens });
+  const closeFullscreen = useCallback(() => setFullscreenOpen(false), []);
+
+  useEffect(() => {
+    if (!isModalVariant || lens.enabled || !onClose) {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isModalVariant, lens.enabled, onClose]);
   const [error, setError] = useState<string | null>(null);
   const { ref: measureContainerRef, width: containerWidth } = useContainerWidth<HTMLDivElement>();
 
-  // `useContainerWidth` devuelve un CALLBACK ref (una función), no un objeto
-  // ref: mide el ancho cuando el nodo se monta.
-  //
-  // FIX (2026-08-14): el código de enfoque hacía `pdfContainerRef.current` sobre
-  // esa función. En una función eso es `undefined`, así que el contenedor
-  // siempre resultaba nulo, la rutina de enfoque salía por el `return` temprano
-  // y el visor NUNCA scrolleaba. De ahí "no enfoca las fuentes cuando se hace
-  // click": el panel se quedaba donde estaba, y lo que se veía era la posición
-  // anterior. TypeScript no lo detectó porque `ref` es genérico.
-  //
-  // Acá se compone: se guarda el nodo en un ref propio Y se le pasa al medidor.
+  // `useContainerWidth` devuelve un callback ref, no un ref object; se compone con un ref propio para poder leer `.current` en el enfoque.
   const pdfContainerRef = useRef<HTMLDivElement | null>(null);
   const setPdfContainer = useCallback(
     (node: HTMLDivElement | null) => {
@@ -129,14 +156,7 @@ export function PDFViewer({
     [measureContainerRef],
   );
 
-  // Cada click en un ojito es un PEDIDO de enfoque, aunque sea sobre la misma
-  // cita que ya estaba abierta.
-  //
-  // FIX (2026-08-14): el enfoque se consideraba "ya hecho" comparando una clave
-  // armada con documento + página + texto de la cita. Volver a clickear la misma
-  // fuente daba la misma clave, así que el visor no hacía nada -- si mientras
-  // tanto habías scrolleado el PDF a mano, el botón parecía roto. Este contador
-  // distingue dos pedidos idénticos.
+  // Contador para que reclickear la misma cita cuente como un nuevo pedido de enfoque (la clave documento+página+texto por sí sola no cambiaba).
   const [focusRequest, setFocusRequest] = useState(0);
 
   useEffect(() => {
@@ -147,7 +167,8 @@ export function PDFViewer({
     const firstCitationInTarget = citations.find((citation) => citation.document_id === documentId);
     const focusPage = focusedCitation?.page ?? 1;
     const restoredPage = pagePositions[documentId] ?? firstCitationInTarget?.page ?? 1;
-    const nextPage = focusBelongsToTarget ? focusPage : restoredPage;
+    const pendingStart = initialScrollRef.current;
+    const nextPage = pendingStart ? pendingStart.page : focusBelongsToTarget ? focusPage : restoredPage;
 
     setCurrentCitationIndex(focusIndex);
     setCurrentPage(nextPage);
@@ -156,51 +177,48 @@ export function PDFViewer({
   }, [documentId, citations, focusCitation]);
 
   const { data, isLoading, refetch } = useSASUrl(activeDocumentId);
-  // Only the citation currently focused via "Cita anterior/siguiente" gets highlighted
-  // and scrolled to — highlighting every citation on a page at once made it unclear
-  // which one "Ver fuente" was actually pointing at.
+  // Solo la cita enfocada por "Cita anterior/siguiente" se resalta y scrollea, para que quede claro a cuál apunta "Ver fuente".
   const activeCitation = citations[currentCitationIndex] ?? null;
   const activeCitationInDocument =
     activeCitation && activeCitation.document_id === activeDocumentId ? activeCitation : null;
 
-  // FIX (2026-08-14): se pasaban TODAS las sources a cada página, y
-  // `getCombinedHighlightRegions` acumula las regiones de toda source cuya
-  // `page` coincida -- sin mirar siquiera el `document_id`. Resultado: al
-  // navegar entre citas se resaltaban a la vez todas las citas de esa página,
-  // no la que se está mirando. `citationTexts` sí estaba acotado a la cita
-  // activa; el overlay de coordenadas no.
-  const activeSources = useMemo(
-    () =>
-      activeCitationInDocument
-        ? (sources ?? []).filter((source) =>
-            isSameCitation(
-              {
-                document_id: source.document_id,
-                page: source.page,
-                text: source.text,
-                document_name: source.document_name,
-              },
-              activeCitationInDocument,
-            ),
-          )
-        : [],
-    [sources, activeCitationInDocument],
-  );
+  // Amplía a todas las citas de `citations` (ya acotado por el llamador a este click) que caigan en la misma página que la enfocada, no solo la que matchea exacto -- así un ítem con varias citas propias (ej. plazo + lugar de entrega) se resalta completo en vez de solo la primera.
+  const activeSources = useMemo(() => {
+    if (!activeCitationInDocument) {
+      return [];
+    }
+    const citationsOnSamePage = citations.filter(
+      (citation) =>
+        citation.document_id === activeCitationInDocument.document_id &&
+        citation.page === activeCitationInDocument.page,
+    );
+    const textMatched = (sources ?? []).filter((source) =>
+      citationsOnSamePage.some((citation) =>
+        isSameCitation(
+          {
+            document_id: source.document_id,
+            page: source.page,
+            text: source.text,
+            document_name: source.document_name,
+          },
+          citation,
+        ),
+      ),
+    );
+    if (textMatched.length > 0) {
+      return textMatched;
+    }
+
+    // Fallback: si la cita textual no matchea exacto (ej. source concatenada o recortada distinto), doc+página evita perder el highlight.
+    return (sources ?? []).filter(
+      (source) =>
+        source.document_id === activeCitationInDocument.document_id &&
+        source.page === activeCitationInDocument.page,
+    );
+  }, [sources, citations, activeCitationInDocument]);
 
   const pagesToRender = useMemo(() => {
-    // Renderizar TODAS las páginas cuando el documento entra cómodo.
-    //
-    // La ventana de ±2 páginas es la fuente de casi todos los problemas de
-    // posicionamiento: las páginas de arriba de la objetivo arrancan sin alto y
-    // lo van ganando, así que la posición calculada se mueve bajo los pies. Y
-    // además rompe el scroll manual (más allá de dos páginas no hay nada) y
-    // hace que la barra de scroll mienta sobre el largo del documento.
-    //
-    // Con todas las páginas montadas, el alto total es estable desde que
-    // react-pdf resuelve cada página, el scroll manual funciona y la barra dice
-    // la verdad. El costo es memoria: cada página es un canvas, así que hay un
-    // tope -- por encima de él se vuelve a la ventana, que para documentos así
-    // de grandes es el mal menor.
+    // Se renderizan todas las páginas cuando el documento entra cómodo: una ventana de ±2 deja el alto inestable (páginas de arriba creciendo) y rompe el scroll manual. Por encima del tope se vuelve a la ventana por memoria.
     const total = numPages || currentPage;
     if (total <= MAX_PAGES_RENDERED_AT_ONCE) {
       return Array.from({ length: total }, (_unused, index) => index + 1);
@@ -216,21 +234,7 @@ export function PDFViewer({
     return pages;
   }, [currentPage, numPages]);
 
-  // ENFOQUE DE LA CITA
-  // ------------------
-  // FIX (2026-08-14, segunda pasada): esto se hacía en dos lugares -- un
-  // `scrollIntoView` acá y otro en `PDFPage` -- y los dos disparaban UNA vez,
-  // apenas cambiaba la página.
-  //
-  // El visor renderiza una ventana de páginas alrededor de la actual, y las que
-  // están ARRIBA de la página objetivo arrancan casi sin alto y crecen cuando
-  // react-pdf termina de dibujarlas. Cada una que termina empuja la página
-  // objetivo hacia abajo. Enfocar una sola vez deja el visor en una posición
-  // que deja de ser la correcta medio segundo después: de ahí "no enfoca" y
-  // "enfoca mal en cualquier página".
-  //
-  // Ahora hay un solo lugar que enfoca, y vuelve a hacerlo cada vez que una
-  // página termina de renderizar, hasta que no quede ninguna anterior pendiente.
+  // Enfoque de la cita: un solo efecto que reintenta en cada página renderizada, porque las páginas de arriba siguen creciendo y desplazan la posición objetivo.
   const renderedPagesRef = useRef<Set<number>>(new Set());
   const [renderTick, setRenderTick] = useState(0);
   const focusDoneRef = useRef<string | null>(null);
@@ -249,12 +253,37 @@ export function PDFViewer({
     focusDoneRef.current = null;
   }, [activeDocumentId, zoomMode, containerWidth]);
 
-  /** Y de la primera línea del resaltado, en puntos de la página sin escalar. */
+  /** Y de la primera línea del resaltado, en puntos de la página sin escalar.
+   *
+   * FIX (2026-09-17): `activeSources` incluye TODAS las citas del ítem que
+   * caen en la misma página (ver FIX 2026-09-03 arriba) para poder pintarlas
+   * juntas -- correcto para el resaltado, pero acá se usaba ese mismo
+   * conjunto ampliado para elegir a QUÉ Y hacer scroll, con `Math.min` sobre
+   * todas. Un ítem de "Plazos Clave" con dos citas en la misma página (ej. el
+   * plazo en sí + el lugar de entrega) donde la cita clickeada es la de MÁS
+   * ABAJO terminaba haciendo scroll a la de arriba -- se pintaba el
+   * resaltado correcto, pero quedaba fuera de la vista, y visualmente parecía
+   * que no había fuente. Ahora se prioriza el/los renglón(es) de la cita
+   * puntual que el usuario enfocó (`activeCitationInDocument`); solo si esa
+   * cita puntual no matchea ningún source (fallback de robustez ya existente
+   * en `activeSources`) se vuelve al mínimo sobre el conjunto ampliado. */
   const activeRegionTop = useMemo(() => {
     if (!activeCitationInDocument || activeCitationInDocument.page !== currentPage) {
       return null;
     }
-    const tops = activeSources.flatMap((source) =>
+    const ownSources = activeSources.filter((source) =>
+      isSameCitation(
+        {
+          document_id: source.document_id,
+          page: source.page,
+          text: source.text,
+          document_name: source.document_name,
+        },
+        activeCitationInDocument,
+      ),
+    );
+    const sourcesForTop = ownSources.length > 0 ? ownSources : activeSources;
+    const tops = sourcesForTop.flatMap((source) =>
       (source.highlight_regions ?? []).map((region) => region.y),
     );
     return tops.length > 0 ? Math.min(...tops) : null;
@@ -272,12 +301,26 @@ export function PDFViewer({
     }
 
     const container = pdfContainerRef.current;
-    const pageElement = document.getElementById(`pdf-page-${currentPage}`);
+    const pageElement = container?.querySelector<HTMLElement>(`[id="pdf-page-${currentPage}"]`);
     if (!container || !pageElement) {
       return;
     }
 
     const pending = focusIsStillPending(pagesToRender, currentPage, renderedPagesRef.current);
+
+    const startPosition = initialScrollRef.current;
+    if (startPosition && startPosition.page === currentPage) {
+      scrollContainerTo(
+        container,
+        offsetWithinContainer(container, pageElement) + startPosition.fraction * pageElement.offsetHeight,
+        { behavior: "auto" },
+      );
+      if (!pending) {
+        initialScrollRef.current = null;
+        focusDoneRef.current = focusKey;
+      }
+      return;
+    }
 
     scrollContainerTo(
       container,
@@ -287,9 +330,7 @@ export function PDFViewer({
         scale: displayScale,
         viewportHeight: container.clientHeight,
       }),
-      // Mientras las páginas de arriba siguen creciendo, cada reintento es una
-      // corrección de rumbo: instantánea, para no encadenar animaciones que se
-      // pisan. La última, cuando ya nada se mueve, sí es suave.
+      // Reintentos mientras el alto es inestable van instantáneos (no encadenar animaciones); el final, suave.
       { behavior: pending ? "auto" : "smooth" },
     );
 
@@ -297,6 +338,24 @@ export function PDFViewer({
       focusDoneRef.current = focusKey;
     }
   }, [focusKey, renderTick, currentPage, pagesToRender, activeRegionTop, displayScale]);
+
+  const openFullscreen = () => {
+    const container = pdfContainerRef.current;
+    let start = { page: currentPage, fraction: 0 };
+    if (container) {
+      const containerTop = container.getBoundingClientRect().top;
+      const pageElements = Array.from(container.querySelectorAll<HTMLElement>('[id^="pdf-page-"]'));
+      const visible = pageElements.find((element) => element.getBoundingClientRect().bottom > containerTop);
+      const pageNumber = Number(visible?.id.replace("pdf-page-", ""));
+      if (visible && Number.isFinite(pageNumber)) {
+        const rect = visible.getBoundingClientRect();
+        const fraction = rect.height > 0 ? Math.min(1, Math.max(0, (containerTop - rect.top) / rect.height)) : 0;
+        start = { page: pageNumber, fraction };
+      }
+    }
+    setFullscreenStart(start);
+    setFullscreenOpen(true);
+  };
 
   const activeDocumentName = documents.find((doc) => doc.id === activeDocumentId)?.filename ?? documentName;
   const hasMultipleDocuments = documents.length > 1;
@@ -324,21 +383,21 @@ export function PDFViewer({
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center gap-2">
-        <Loader2 className="h-5 w-5 animate-spin text-primary" />
-        <span>Cargando documento...</span>
+        <Loader2 className="h-5 w-5 animate-spin text-[#0099DB]" />
+        <span className="text-sm text-[rgba(0,60,107,.68)]">Cargando documento...</span>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex h-full items-center justify-center bg-gray-50 p-4 text-center">
+      <div className="flex h-full items-center justify-center bg-[#F4F9FC] p-4 text-center">
         <div>
-          <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-error" />
-          <p className="text-sm text-error">{error}</p>
+          <AlertTriangle className="mx-auto mb-3 h-8 w-8 text-[#DC2626]" />
+          <p className="text-sm text-[#B91C1C]">{error}</p>
           <button
             type="button"
-            className="mt-3 rounded bg-primary px-3 py-2 text-xs font-semibold text-primary-fg"
+            className="mt-3 rounded-full bg-[#0099DB] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#003C6B]"
             onClick={() => {
               setError(null);
               void refetch();
@@ -352,14 +411,19 @@ export function PDFViewer({
   }
 
   if (!data?.url) {
-    return <p className="p-4 text-sm text-gray-600">No se pudo cargar el documento. Intente nuevamente o contacte soporte.</p>;
+    return (
+      <p className="p-4 text-sm text-[rgba(0,60,107,.68)]">
+        No se pudo cargar el documento. Intente nuevamente o contacte soporte.
+      </p>
+    );
   }
 
   return (
-    <div className="flex h-full min-w-0 flex-col" data-testid="pdf-viewer">
-      <div className="border-b border-gray-200 px-3 py-2">
-        {showDocumentSelector && hasMultipleDocuments && (
-          <div className="mb-1.5 flex items-center justify-start">
+    <>
+    <div className="flex h-full min-w-0 flex-col overflow-hidden" data-testid="pdf-viewer">
+      <div className="flex items-center justify-between gap-2 border-b border-[rgba(0,60,107,.12)] px-4 py-2.5">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          {showDocumentSelector && hasMultipleDocuments ? (
             <DocumentSelector
               documents={documents}
               value={activeDocumentId}
@@ -373,22 +437,23 @@ export function PDFViewer({
                 setPagePositions((previous) => ({ ...previous, [nextDocumentId]: nextPage }));
               }}
             />
-          </div>
-        )}
-        <div className="flex items-center justify-between gap-2">
-          <span className="block min-w-0 truncate text-[11px] font-medium text-gray-500">{activeDocumentName}</span>
-          {onClose ? (
-            <button
-              type="button"
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-gray-500 hover:bg-gray-100 hover:text-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-              onClick={onClose}
-              aria-label="Ocultar visor PDF"
-              title="Ocultar visor PDF"
-            >
-              <X className="h-3.5 w-3.5" aria-hidden="true" />
-            </button>
-          ) : null}
+          ) : (
+            <span className="block min-w-0 truncate font-display text-xs font-semibold text-[#003C6B]">
+              {activeDocumentName}
+            </span>
+          )}
         </div>
+        {onClose ? (
+          <button
+            type="button"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[rgba(0,60,107,.55)] transition-colors hover:bg-[#F4F9FC] hover:text-[#003C6B] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#0099DB]"
+            onClick={onClose}
+            aria-label={isModalVariant ? "Cerrar pantalla completa" : "Ocultar visor PDF"}
+            title={isModalVariant ? "Cerrar pantalla completa" : "Ocultar visor PDF"}
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        ) : null}
       </div>
 
       <PDFControls
@@ -411,58 +476,108 @@ export function PDFViewer({
           )
         }
         onFitToWidth={() => setZoomMode("fit")}
+        lens={lens}
+        onLensToggle={toggleLens}
+        onLensChange={changeLens}
+        onFullscreen={isModalVariant ? undefined : openFullscreen}
+        citationSlot={
+          <PDFCitationNav
+            currentIndex={currentCitationIndex}
+            total={citations.length}
+            onPrev={() => onCitationChange(Math.max(currentCitationIndex - 1, 0))}
+            onNext={() => onCitationChange(Math.min(currentCitationIndex + 1, citations.length - 1))}
+          />
+        }
       />
 
-      <PDFCitationNav
-        currentIndex={currentCitationIndex}
-        total={citations.length}
-        onPrev={() => onCitationChange(Math.max(currentCitationIndex - 1, 0))}
-        onNext={() => onCitationChange(Math.min(currentCitationIndex + 1, citations.length - 1))}
-      />
-
-      <div
-        ref={setPdfContainer}
-        className={`min-w-0 flex-1 overflow-y-auto bg-gray-100 p-3 ${zoomMode === "fit" ? "overflow-x-hidden" : "overflow-x-auto"}`}
-        data-testid="pdf-container"
-      >
-        <Document
-          file={data.url}
-          onLoadSuccess={({ numPages: pages }) => {
-            setNumPages(pages);
-            setError(null);
-          }}
-          onLoadError={(loadError) => {
-            if (isForbiddenError(loadError)) {
-              void refetch();
-              return;
-            }
-            setError("No se pudo cargar el documento. Intente nuevamente o contacte soporte.");
-          }}
-          loading={<Loader2 className="mx-auto h-6 w-6 animate-spin text-primary" />}
-          data-testid="pdf-document"
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {lens.enabled ? (
+          <div
+            role="status"
+            className="pointer-events-none absolute left-1/2 top-2.5 z-[75] -translate-x-1/2 whitespace-nowrap rounded-full bg-[#003C6B] px-3.5 py-[7px] text-[11.5px] font-semibold text-white shadow-[0_6px_18px_rgba(0,60,107,.3)]"
+          >
+            Modo lupa <span className="ml-1.5 text-[#7FF3DE]">{formatLensZoom(lens.zoom)}</span> · Esc para salir
+          </div>
+        ) : null}
+        <div
+          ref={setPdfContainer}
+          className={`min-h-0 min-w-0 flex-1 overflow-y-auto bg-[rgba(0,60,107,.06)] p-4 ${zoomMode === "fit" ? "overflow-x-hidden" : "overflow-x-auto"} ${lens.enabled ? "select-none [&_.react-pdf__Page]:cursor-none" : ""}`}
+          data-testid="pdf-container"
         >
-          {pagesToRender.map((page) => (
-            <PDFPage
-              key={page}
-              pageNumber={page}
-              scale={typeof zoomMode === "number" ? zoomMode : undefined}
-              fitWidth={
-                zoomMode === "fit" && containerWidth > 0
-                  ? Math.floor(Math.max(containerWidth - PAGE_FIT_SAFETY_MARGIN, 0))
-                  : undefined
+          <Document
+            file={data.url}
+            onLoadSuccess={({ numPages: pages }) => {
+              setNumPages(pages);
+              setError(null);
+            }}
+            onLoadError={(loadError) => {
+              if (isForbiddenError(loadError)) {
+                void refetch();
+                return;
               }
-              citationTexts={
-                activeCitationInDocument && activeCitationInDocument.page === page
-                  ? [activeCitationInDocument.text]
-                  : []
-              }
+              setError("No se pudo cargar el documento. Intente nuevamente o contacte soporte.");
+            }}
+            loading={<Loader2 className="mx-auto h-6 w-6 animate-spin text-[#0099DB]" />}
+            data-testid="pdf-document"
+          >
+            {pagesToRender.map((page) => (
+              <PDFPage
+                key={page}
+                pageNumber={page}
+                scale={typeof zoomMode === "number" ? zoomMode : undefined}
+                fitWidth={
+                  zoomMode === "fit" && containerWidth > 0
+                    ? Math.floor(Math.max(containerWidth - PAGE_FIT_SAFETY_MARGIN, 0))
+                    : undefined
+                }
+                citationTexts={
+                  activeCitationInDocument && activeCitationInDocument.page === page
+                    ? [activeCitationInDocument.text]
+                    : []
+                }
+                sources={activeSources}
+                onScaleResolved={setDisplayScale}
+                onRendered={handlePageRendered}
+              />
+            ))}
+            <PDFLensLayer
+              containerRef={pdfContainerRef}
+              config={lens}
+              displayScale={displayScale}
               sources={activeSources}
-              onScaleResolved={setDisplayScale}
-              onRendered={handlePageRendered}
+              activeCitation={activeCitationInDocument ? { page: activeCitationInDocument.page, text: activeCitationInDocument.text } : null}
+              onZoomStep={stepLens}
             />
-          ))}
-        </Document>
+          </Document>
+        </div>
       </div>
     </div>
+    {fullscreenOpen && !isModalVariant
+      ? createPortal(
+          <div className="fixed inset-0 z-[60] bg-[rgba(0,20,40,.6)] p-3 sm:p-6">
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="PDF a pantalla completa"
+              className="mx-auto h-full w-full max-w-[680px] overflow-hidden rounded-2xl bg-white shadow-[0_24px_64px_rgba(0,20,40,.35)]"
+            >
+              <PDFViewer
+                variant="modal"
+                documentId={activeDocumentId}
+                documentName={documentName}
+                citations={citations}
+                documents={documents}
+                showDocumentSelector={showDocumentSelector}
+                focusCitation={citations[currentCitationIndex] ?? focusCitation}
+                initialScroll={fullscreenStart ?? { page: currentPage, fraction: 0 }}
+                sources={sources}
+                onClose={closeFullscreen}
+              />
+            </div>
+          </div>,
+          document.body,
+        )
+      : null}
+    </>
   );
 }

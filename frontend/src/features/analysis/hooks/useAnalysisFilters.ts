@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { AnalysisListFilters, AnalysisListSortBy, AnalysisListSortOrder } from "../../../types/analysis";
 
-export type DatePreset = "all" | "last_week" | "custom";
+export type DatePreset = "all" | "last_30_days" | "current_quarter" | "custom";
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -10,10 +10,16 @@ function toIsoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+function getCurrentQuarterStart(date: Date): Date {
+  const quarterStartMonth = Math.floor(date.getMonth() / 3) * 3;
+  return new Date(date.getFullYear(), quarterStartMonth, 1);
+}
+
 export function useAnalysisFilters() {
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [status, setStatus] = useState("");
+  const [businessUnit, setBusinessUnit] = useState("");
   const [datePreset, setDatePreset] = useState<DatePreset>("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -38,11 +44,20 @@ export function useAnalysisFilters() {
       return;
     }
 
-    if (datePreset === "last_week") {
+    if (datePreset === "last_30_days") {
       const now = new Date();
-      const sevenDaysAgo = new Date(now);
-      sevenDaysAgo.setDate(now.getDate() - 7);
-      setDateFrom(toIsoDate(sevenDaysAgo));
+      const thirtyDaysAgo = new Date(now);
+      thirtyDaysAgo.setDate(now.getDate() - 30);
+      setDateFrom(toIsoDate(thirtyDaysAgo));
+      setDateTo(toIsoDate(now));
+      setPage(1);
+      return;
+    }
+
+    if (datePreset === "current_quarter") {
+      const now = new Date();
+      const quarterStart = getCurrentQuarterStart(now);
+      setDateFrom(toIsoDate(quarterStart));
       setDateTo(toIsoDate(now));
       setPage(1);
     }
@@ -52,6 +67,7 @@ export function useAnalysisFilters() {
     () => ({
       search: debouncedSearch || undefined,
       status: status || undefined,
+      business_unit: businessUnit || undefined,
       date_from: dateFrom || undefined,
       date_to: dateTo || undefined,
       page,
@@ -59,7 +75,7 @@ export function useAnalysisFilters() {
       sort_by: sortBy,
       sort_order: sortOrder,
     }),
-    [dateFrom, dateTo, debouncedSearch, page, sortBy, sortOrder, status],
+    [businessUnit, dateFrom, dateTo, debouncedSearch, page, sortBy, sortOrder, status],
   );
 
   const setSort = (column: AnalysisListSortBy) => {
@@ -73,6 +89,17 @@ export function useAnalysisFilters() {
     setSortOrder("asc");
   };
 
+  const clearFilters = () => {
+    setSearchInput("");
+    setDebouncedSearch("");
+    setStatus("");
+    setBusinessUnit("");
+    setDatePreset("all");
+    setDateFrom("");
+    setDateTo("");
+    setPage(1);
+  };
+
   return {
     filters,
     searchInput,
@@ -82,6 +109,12 @@ export function useAnalysisFilters() {
       setStatus(nextStatus);
       setPage(1);
     },
+    businessUnit,
+    setBusinessUnit: (nextBusinessUnit: string) => {
+      setBusinessUnit(nextBusinessUnit);
+      setPage(1);
+    },
+    clearFilters,
     datePreset,
     setDatePreset,
     dateFrom,

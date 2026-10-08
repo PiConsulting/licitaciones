@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from analysis.extraction.extractors.base import run_extractor
+from analysis.extraction.engine.base import run_extractor
 from analysis.extraction.state import GraphState
 
 _QUERY = (

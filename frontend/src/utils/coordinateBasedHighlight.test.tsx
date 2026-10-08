@@ -3,16 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { HighlightOverlay, getCombinedHighlightRegions } from "./coordinateBasedHighlight";
 
-/**
- * REGRESIÓN HL-01 (auditoría 2026-08-13): contrato de coordenadas.
- *
- * El backend emite las regiones con origen top-left, en puntos de la página
- * SIN escalar. Este overlay sólo debe multiplicar por la escala efectiva.
- *
- * Antes de HL-01 aplicaba `pageHeight - y - height` usando la altura YA
- * renderizada, lo que sólo daba el resultado correcto con scale === 1 y
- * mandaba el recuadro fuera de la página con scale < 1.
- */
+// REGRESIÓN HL-01: coordenadas backend son top-left sin escalar; el overlay solo multiplica por la escala efectiva.
 
 function firstRegionStyle(container: HTMLElement): CSSStyleDeclaration {
   const overlay = container.firstElementChild as HTMLElement;
@@ -39,8 +30,7 @@ describe("HighlightOverlay - contrato de coordenadas (HL-01)", () => {
       const style = firstRegionStyle(container);
 
       expect(style.top).toBe(`${120 * scale}px`);
-      // Nunca fuera de la página por arriba (el bug viejo daba top negativo
-      // con scale < 1).
+      // Nunca queda arriba de la página (el bug viejo daba top negativo con scale < 1).
       expect(Number.parseFloat(style.top)).toBeGreaterThan(0);
       unmount();
     }

@@ -12,7 +12,8 @@
       "plazo de ejecucion",
       "prestacion del servicio",
       "provision",
-      "suministro"
+      "suministro",
+      "adquisicion"
     ],
     "aliases": [
       "objeto de la contratacion",
@@ -28,60 +29,12 @@
       "items a cotizar"
     ],
     "thresholds": {
-      "primary": 0.30,
+      "primary": 0.3,
       "secondary": 0.12
     },
-    "weight": 1.0
-  },
-  "requisitos_admisibilidad": {
-    "query_terms": [
-      "requisitos de admisibilidad",
-      "condiciones de admision",
-      "requisitos habilitantes",
-      "documentacion requerida",
-      "subsanable",
-      "momento de presentacion",
-      "capacidad tecnica",
-      "capacidad financiera",
-      "inscripcion registro proveedores",
-      "antecedentes",
-      "certificaciones",
-      "habilitacion",
-      "constancia"
-    ],
-    "aliases": [
-      "requisitos legales",
-      "requisitos tecnicos",
-      "requisitos economico financieros",
-      "requisitos administrativos",
-      "documentacion a presentar",
-      "sobre A",
-      "sobre 1",
-      "condiciones de participacion",
-      "restricciones de participacion",
-      "impedimentos para contratar",
-      "habilitaciones",
-      "antecedentes exigidos",
-      "capacidad para contratar",
-      "requisitos minimos",
-      "requisitos tecnicos minimos",
-      "certificacion del fabricante",
-      "antecedentes de provision",
-      "experiencia comprobable",
-      "personal tecnico",
-      "soporte tecnico",
-      "debe acreditar",
-      "debera presentar",
-      "declaracion jurada",
-      "balance",
-      "estados contables",
-      "seguro de responsabilidad civil"
-    ],
-    "thresholds": {
-      "primary": 0.25,
-      "secondary": 0.12
-    },
-    "weight": 1.0
+    "weight": 1.0,
+    "category_penalty": 0.15,
+    "top_k": 35
   },
   "garantias": {
     "query_terms": [
@@ -116,7 +69,8 @@
       "secondary": 0.15
     },
     "weight": 1.0,
-    "top_k": 35
+    "top_k": 35,
+    "graded_category_scores": true
   },
   "plazos_clave": {
     "query_terms": [
@@ -156,11 +110,13 @@
       "termino"
     ],
     "thresholds": {
-      "primary": 0.30,
+      "primary": 0.3,
       "secondary": 0.15
     },
     "weight": 1.0,
-    "top_k": 35
+    "top_k": 35,
+    "category_penalty": 0.15,
+    "graded_category_scores": true
   },
   "criterios_evaluacion": {
     "query_terms": [
@@ -188,10 +144,12 @@
       "orden de merito"
     ],
     "thresholds": {
-      "primary": 0.30,
+      "primary": 0.3,
       "secondary": 0.15
     },
-    "weight": 1.0
+    "weight": 1.0,
+    "category_penalty": 0.15,
+    "top_k": 35
   },
   "causales_rechazo": {
     "query_terms": [
@@ -233,44 +191,8 @@
       "primary": 0.35,
       "secondary": 0.15
     },
-    "weight": 1.2
-  },
-  "anexos_obligatorios": {
-    "query_terms": [
-      "anexo",
-      "anexos obligatorios",
-      "formulario",
-      "debe completarse",
-      "debe firmarse",
-      "planilla",
-      "modelo de nota",
-      "formulario adjunto",
-      "debera completar"
-    ],
-    "aliases": [
-      "apendice",
-      "adjunto obligatorio",
-      "modelo de presentacion",
-      "formulario oficial",
-      "declaracion jurada",
-      "nota de oferta",
-      "planilla de cotizacion",
-      "presupuesto detallado",
-      "documentacion tecnica obligatoria",
-      "constancia",
-      "certificado exigido",
-      "modelo adjunto",
-      "formato anexo",
-      "planilla adjunta",
-      "formulario a completar",
-      "debe presentar formulario",
-      "anexo que debera"
-    ],
-    "thresholds": {
-      "primary": 0.40,
-      "secondary": 0.18
-    },
-    "weight": 1.0
+    "weight": 1.2,
+    "category_penalty": 0.15
   },
   "identificacion_procedimiento": {
     "query_terms": [
@@ -298,10 +220,13 @@
       "licitacion privada"
     ],
     "thresholds": {
-      "primary": 0.20,
-      "secondary": 0.10
+      "primary": 0.2,
+      "secondary": 0.1
     },
-    "weight": 0.8
+    "weight": 0.8,
+    "category_penalty": 0.15,
+    "top_k": 35,
+    "query_expansion": true
   },
   "riesgos": {
     "query_terms": [
@@ -314,7 +239,13 @@
       "consecuencia",
       "responsabilidad",
       "descalificacion",
-      "penalidad"
+      "penalidad",
+      "mantenimiento de oferta",
+      "moneda",
+      "tipo de cambio",
+      "forma de pago",
+      "competencia",
+      "cuenta"
     ],
     "aliases": [
       "penalizacion economica",
@@ -342,20 +273,187 @@
       "suspension del registro",
       "ejecucion de garantia",
       "perdida de garantia",
-      "daño y perjuicio",
-      "daños y perjuicios",
+      "daÃ±o y perjuicio",
+      "daÃ±os y perjuicios",
       "indemnizacion",
       "reparacion",
       "subsanar",
       "incumplimiento grave",
       "falta de entrega",
-      "penalidad contractual"
+      "penalidad contractual",
+      "mantenimiento de la oferta",
+      "vigencia de la oferta",
+      "plazo de mantenimiento de oferta",
+      "tipo de cambio",
+      "ajuste por tipo de cambio",
+      "riesgo cambiario",
+      "pago en moneda extranjera",
+      "forma de pago",
+      "condiciones de pago",
+      "plazo de pago",
+      "retencion de pagos",
+      "pago contra entrega",
+      "alta competitividad",
+      "mercado competitivo",
+      "proveedor incumbente",
+      "experiencia previa exigida",
+      "apertura de cuenta",
+      "cuenta bancaria especifica",
+      "control de la cuenta",
+      "apertura de ofertas",
+      "acto de apertura",
+      "presentacion presencial",
+      "requisitos tecnicos exigidos",
+      "capacidad tecnica exigida",
+      "experiencia minima requerida"
     ],
     "top_k": 35,
     "thresholds": {
       "primary": 0.35,
       "secondary": 0.15
     },
-    "weight": 1.2
+    "weight": 1.2,
+    "category_penalty": 0.15,
+    "query_expansion": true
+  },
+  "preview_criterios": {
+    "query_terms": [
+      "forma de pago",
+      "condiciones de pago",
+      "moneda de cotizacion",
+      "moneda de pago",
+      "tipo de cambio",
+      "anticipo financiero",
+      "anticipo",
+      "responsabilidad costos logisticos",
+      "transporte",
+      "flete",
+      "desembalaje",
+      "instalacion",
+      "entrega en destino"
+    ],
+    "aliases": [
+      "dolares estadounidenses",
+      "dolares",
+      "USD",
+      "pesos argentinos",
+      "cotizar en moneda extranjera",
+      "pago en moneda extranjera",
+      "ajuste por tipo de cambio",
+      "tipo de cambio aplicable",
+      "cotizacion del dolar",
+      "anticipo de pago",
+      "adelanto financiero",
+      "pago anticipado",
+      "gastos de transporte",
+      "gastos de flete",
+      "seguro de transporte",
+      "costos de instalacion",
+      "puesta en funcionamiento",
+      "entrega e instalacion",
+      "jaula de datacenter",
+      "data center",
+      "logistica de entrega",
+      "factura",
+      "orden de pago",
+      "plazo de pago",
+      "certificado de pago"
+    ],
+    "thresholds": {
+      "primary": 0.25,
+      "secondary": 0.1
+    },
+    "weight": 1.0,
+    "top_k": 45,
+    "category_penalty": 0.0,
+    "relevance_min_chunks": 14,
+    "relevance_min_ratio": 0.3
+  },
+  "eventos_temporales": {
+    "query_terms": [
+      "adjudicacion",
+      "apertura de ofertas",
+      "acto de apertura",
+      "fecha de apertura",
+      "fecha apertura",
+      "hora de apertura",
+      "lugar de apertura",
+      "firma de contrato",
+      "recepcion del pliego",
+      "presentacion de ofertas",
+      "entrega",
+      "plazo de entrega",
+      "fecha de adjudicacion",
+      "notificacion de adjudicacion",
+      "orden de compra",
+      "orden de servicio",
+      "inicio de ejecucion",
+      "vigencia del contrato"
+    ],
+    "aliases": [
+      "acto de adjudicacion",
+      "resolucion de adjudicacion",
+      "notificacion de la adjudicacion",
+      "perfeccionamiento del contrato",
+      "suscripcion del contrato",
+      "fecha de firma",
+      "puesta en marcha",
+      "inicio de la prestacion",
+      "recepcion provisoria",
+      "recepcion definitiva",
+      "dias corridos desde la adjudicacion",
+      "dias habiles desde la adjudicacion",
+      "desde la notificacion",
+      "desde la firma del contrato",
+      "cronograma del proceso",
+      "fecha limite de presentacion",
+      "vencimiento del plazo",
+      "consulta de pliego",
+      "circular aclaratoria",
+      "impugnacion",
+      "visita tecnica",
+      "visita de obra"
+    ],
+    "thresholds": {
+      "primary": 0.25,
+      "secondary": 0.1
+    },
+    "weight": 1.0,
+    "top_k": 45
+  },
+  "anexos_obligatorios": {
+    "query_terms": [
+      "anexo",
+      "anexo obligatorio",
+      "formulario",
+      "planilla de cotizacion",
+      "planilla de oferta",
+      "declaracion jurada",
+      "modelo de propuesta",
+      "documentacion anexa"
+    ],
+    "aliases": [
+      "formulario de oferta",
+      "planilla anexa",
+      "anexo tecnico",
+      "anexo economico",
+      "modelo de formulario",
+      "carta de presentacion",
+      "declaracion jurada de mantenimiento de oferta",
+      "documentacion complementaria"
+    ],
+    "thresholds": {
+      "primary": 0.25,
+      "secondary": 0.1
+    },
+    "weight": 1.0,
+    "top_k": 35,
+    "category_penalty": 0.15,
+    "relevance_min_chunks": 14,
+    "relevance_min_ratio": 0.25
+  },
+  "requisitos_admisibilidad": {
+    "graded_category_scores": true,
+    "top_k": 35
   }
 }
