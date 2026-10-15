@@ -26,6 +26,9 @@ def configure_logging() -> None:
             structlog.stdlib.filter_by_level,
             structlog.processors.add_log_level,
             structlog.processors.TimeStamper(fmt="iso"),
+            # Sin esto, exc_info=True (logger.exception / logger.error(..., exc_info=True))
+            # queda como "exc_info": true en el JSON en vez del traceback real.
+            structlog.processors.format_exc_info,
             structlog.processors.JSONRenderer(),
         ],
         logger_factory=structlog.stdlib.LoggerFactory(),

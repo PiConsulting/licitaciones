@@ -23,11 +23,21 @@ def _load_analysis_or_raise(db: Session, analysis_id: str, user_id: str) -> Anal
 
 
 def _load_latest_version(db: Session, analysis_id: str) -> AnalysisVersion:
+    """Versión VIGENTE del análisis (`analyses.current_version_id`).
+
+    Antes se tomaba la de mayor `version_number`, que no siempre es la vigente: durante un reanálisis
+    en curso o después de uno cancelado/revertido puede existir una versión más nueva que no es la que
+    se muestra, y el tracking quedaba colgado de otra versión.
+    """
+    current_version_id = (
+        db.query(Analysis.current_version_id).filter(Analysis.id == analysis_id).scalar()
+    )
     version = (
         db.query(AnalysisVersion)
-        .filter(AnalysisVersion.analysis_id == analysis_id)
-        .order_by(AnalysisVersion.version_number.desc())
+        .filter(AnalysisVersion.analysis_id == analysis_id, AnalysisVersion.id == current_version_id)
         .first()
+        if current_version_id
+        else None
     )
     if version is None:
         raise ValueError("NO_VERSION_YET")

@@ -302,6 +302,41 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     azure_sdk_log_level: str = Field(default="WARNING", alias="AZURE_SDK_LOG_LEVEL")
 
+    # Historia 25.1: SSO Azure AD multi-tenant (PI + CEDI son App Registrations separadas).
+    pi_client_id: str = Field(default="", alias="PI_CLIENT_ID")
+    pi_tenant_id: str = Field(default="", alias="PI_TENANT_ID")
+    pi_secret: str = Field(default="", alias="PI_SECRET")
+    cedi_client_id: str = Field(default="", alias="CEDI_CLIENT_ID")
+    cedi_tenant_id: str = Field(default="", alias="CEDI_TENANT_ID")
+    cedi_secret: str = Field(default="", alias="CEDI_SECRET")
+    app_base_url: str = Field(
+        default="http://localhost:8000",
+        alias="APP_BASE_URL",
+        description="URL pública del backend usada para construir el redirect_uri del callback SSO.",
+    )
+    sso_enabled: bool = Field(
+        default=True,
+        alias="SSO_ENABLED",
+        description="Feature flag de rollback de emergencia (Historia 25.4): en false, reactiva /auth/login y /auth/register.",
+    )
+    sso_superadmin_emails: str = Field(
+        default="",
+        alias="SSO_SUPERADMIN_EMAILS",
+        description="Historia 25.2: emails (separados por coma) con rol superadmin forzado/garantizado al autenticarse por SSO.",
+    )
+    frontend_base_url: str = Field(
+        default="http://localhost:5173",
+        alias="FRONTEND_BASE_URL",
+        description="Historia 25.2: origen del frontend al que el backend redirige tras validar el callback SSO.",
+    )
+
+    def superadmin_emails_set(self) -> set[str]:
+        return {
+            email.strip().lower()
+            for email in self.sso_superadmin_emails.split(",")
+            if email.strip()
+        }
+
     @property
     def is_development(self) -> bool:
         """Development profile: local machine execution for testing."""

@@ -13,6 +13,11 @@ export async function login(payload: LoginRequest): Promise<LoginResponse> {
   return response.data;
 }
 
+export async function exchangeSsoCode(code: string): Promise<LoginResponse> {
+  const response = await apiClient.post<LoginResponse>("/auth/sso/exchange", { code });
+  return response.data;
+}
+
 export async function register(payload: RegisterRequest): Promise<RegisterResponse> {
   const response = await apiClient.post<RegisterResponse>("/auth/register", payload);
   return response.data;
