@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import secrets
+from datetime import UTC, datetime
+
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from infra.business_units import business_unit_for_email_domain
+from infra.config import get_settings
 from users.models import User
 from users.roles import UserRole
 from users.schemas import UserCreateRequest, UserUpdateRequest
-from users.service import get_password_hash
+from users.service import get_password_hash, raise_user_suspended
+from users.sso import DomainNotMappedError, SsoClaims
 
 
 def _error(status_code: int, code: str, message: str) -> HTTPException:
@@ -102,5 +108,43 @@ def update_user(
     except IntegrityError as exc:
         db.rollback()
         raise _email_taken() from exc
+    db.refresh(user)
+    return user
+
+
+def get_or_create_sso_user(db: Session, claims: SsoClaims) -> User:
+    """JIT provisioning (Historia 25.2): crea o reutiliza el usuario autenticado por SSO.
+
+    Las excepciones de rol (`SSO_SUPERADMIN_EMAILS`) solo afectan `role`, nunca `business_unit`.
+    """
+    email = claims.email.strip().lower()
+    is_exception = email in get_settings().superadmin_emails_set()
+    resolved_business_unit = business_unit_for_email_domain(email)
+
+    if resolved_business_unit is None and not is_exception:
+        raise DomainNotMappedError(email)
+
+    user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+
+    if user is None:
+        user = User(
+            name=claims.name,
+            email=email,
+            # Password no utilizable: este usuario solo puede entrar vía SSO.
+            password_hash=get_password_hash(secrets.token_urlsafe(32)),
+            role=(UserRole.SUPERADMIN if is_exception else UserRole.MIEMBRO).value,
+            business_unit=resolved_business_unit,
+        )
+        db.add(user)
+    else:
+        if user.deleted_at is not None:
+            raise _error(status.HTTP_404_NOT_FOUND, "USER_NOT_FOUND", "Usuario no encontrado")
+        if not user.is_active:
+            raise_user_suspended(status.HTTP_403_FORBIDDEN)
+        if is_exception and user.role != UserRole.SUPERADMIN.value:
+            user.role = UserRole.SUPERADMIN.value
+        user.last_login_at = datetime.now(UTC)
+
+    db.commit()
     db.refresh(user)
     return user

@@ -27,6 +27,26 @@ from tracking.service import (
 
 
 class TestStartTracking:
+    def test_usa_la_version_vigente_aunque_exista_una_mas_nueva(self, analyzed_analysis, db_session):
+        """Una versión con número mayor que NO es la vigente (reanálisis en curso o cancelado) no debe usarse."""
+        from analysis.models import AnalysisVersion
+
+        analysis_id, version_id = analyzed_analysis
+        db_session.add(
+            AnalysisVersion(
+                id="tracking-test-version-huerfana",
+                analysis_id=analysis_id,
+                version_number=2,
+                extracted_data={"requisitos_admisibilidad": []},
+                created_by=OWNER_USER_ID,
+            )
+        )
+        db_session.commit()
+
+        tracking = start_tracking(analysis_id, OWNER_USER_ID)
+
+        assert tracking["version_id"] == version_id
+
     def test_creates_default_checklist_from_extracted_data(self, analyzed_analysis):
         analysis_id, version_id = analyzed_analysis
         tracking = start_tracking(analysis_id, OWNER_USER_ID)

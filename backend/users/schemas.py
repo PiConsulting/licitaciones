@@ -23,6 +23,10 @@ class LoginResponse(BaseModel):
     business_unit: str | None = None
 
 
+class SsoExchangeRequest(BaseModel):
+    code: str = Field(min_length=1)
+
+
 class RegisterRequest(BaseModel):
     name: str = Field(min_length=1)
     email: EmailStr
