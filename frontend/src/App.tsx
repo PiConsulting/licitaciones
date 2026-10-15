@@ -9,6 +9,7 @@ import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
 import NewAnalysisWizard from "./pages/NewAnalysis/NewAnalysisWizard";
 import Register from "./pages/Register";
+import SsoCallback from "./pages/SsoCallback";
 import { ChecklistPage } from "./features/checklist/ChecklistPage";
 import { UsersPage } from "./features/users/UsersPage";
 import { useUIStore } from "./store/useUIStore";
@@ -59,6 +60,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/sso/callback" element={<SsoCallback />} />
       <Route
         element={
           <ProtectedRoute>
